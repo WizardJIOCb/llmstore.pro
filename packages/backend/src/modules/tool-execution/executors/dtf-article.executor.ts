@@ -1,5 +1,4 @@
 import axios from 'axios';
-import * as cheerio from 'cheerio';
 import { db } from '../../../config/database.js';
 import { sourceCacheEntries } from '../../../db/schema/source-cache.js';
 import { eq } from 'drizzle-orm';
@@ -7,6 +6,7 @@ import { logger } from '../../../lib/logger.js';
 import { AppError } from '../../../middleware/error-handler.js';
 import type { DtfArticleResult } from '../types.js';
 
+const DTF_LOCATE_URL = 'https://api.dtf.ru/v2.1/locate';
 const CACHE_TTL_SEC = 600;
 const ALLOWED_DOMAINS = ['dtf.ru', 'www.dtf.ru'];
 
@@ -24,6 +24,10 @@ function validateDtfUrl(url: string): void {
 
 function cacheKey(url: string): string {
   return `dtf_article:${url}`;
+}
+
+function stripHtml(html: string): string {
+  return html.replace(/<[^>]+>/g, '').trim();
 }
 
 async function getCached(url: string): Promise<DtfArticleResult | null> {
@@ -66,64 +70,45 @@ export async function executeDtfArticleFetch(input: { url: string }): Promise<Dt
   // Check cache
   const cached = await getCached(input.url);
   if (cached) {
-    logger.debug({ url: input.url }, 'DTF article: serving from cache');
+    logger.info({ url: input.url }, 'DTF article: serving from cache');
     return cached;
   }
 
-  logger.debug({ url: input.url }, 'DTF article: fetching fresh');
+  logger.info({ url: input.url }, 'DTF article: fetching from API');
 
-  const { data: html } = await axios.get(input.url, {
+  const { data } = await axios.get(DTF_LOCATE_URL, {
     timeout: 15000,
+    params: { url: input.url },
     headers: {
       'User-Agent': 'Mozilla/5.0 (compatible; LLMStore/1.0; +https://llmstore.pro)',
-      'Accept': 'text/html',
-      'Accept-Language': 'ru-RU,ru;q=0.9',
     },
   });
 
-  const $ = cheerio.load(html);
-
-  // Extract title
-  const title = $('h1').first().text().trim()
-    || $('[class*="title"]').first().text().trim()
-    || $('title').text().trim();
-
-  // Extract author
-  const author = $('[class*="author__name"], [class*="subsite__name"], [class*="content-header__author"]').first().text().trim()
-    || $('meta[name="author"]').attr('content')
-    || '';
-
-  // Extract published date
-  const published_at = $('time').attr('datetime')
-    || $('meta[property="article:published_time"]').attr('content')
-    || null;
-
-  // Extract article body text
-  // Remove unwanted elements
-  $('script, style, nav, header, footer, [class*="comments"], [class*="sidebar"], [class*="recommend"]').remove();
-
-  const bodyEl = $('[class*="content--full"], [class*="content__body"], article [class*="text"], article');
-  let text = '';
-
-  if (bodyEl.length > 0) {
-    // Get paragraphs from the body
-    const paragraphs: string[] = [];
-    bodyEl.find('p, h2, h3, li, blockquote').each((_i, el) => {
-      const t = $(el).text().trim();
-      if (t.length > 0) paragraphs.push(t);
-    });
-    text = paragraphs.join('\n\n');
+  const entry = data?.result?.data;
+  if (!entry) {
+    throw new AppError(404, 'ARTICLE_NOT_FOUND', `Article not found: ${input.url}`);
   }
 
-  // Fallback to all paragraphs if body extraction failed
-  if (!text) {
-    const paragraphs: string[] = [];
-    $('p').each((_i, el) => {
-      const t = $(el).text().trim();
-      if (t.length > 20) paragraphs.push(t);
-    });
-    text = paragraphs.join('\n\n');
+  const title = entry.title || '';
+  const author = entry.subsite?.name || entry.author?.name || '';
+  const published_at = entry.date ? new Date(entry.date * 1000).toISOString() : null;
+
+  // Extract text from blocks
+  const blocks = entry.blocks || [];
+  const paragraphs: string[] = [];
+  for (const block of blocks) {
+    if (block.type === 'text' && block.data?.text) {
+      paragraphs.push(stripHtml(block.data.text));
+    } else if (block.type === 'header' && block.data?.text) {
+      paragraphs.push('## ' + stripHtml(block.data.text));
+    } else if (block.type === 'list' && block.data?.items) {
+      for (const item of block.data.items) {
+        paragraphs.push('- ' + stripHtml(item));
+      }
+    }
   }
+
+  let text = paragraphs.join('\n\n');
 
   // Truncate to reasonable size for LLM context
   if (text.length > 8000) {

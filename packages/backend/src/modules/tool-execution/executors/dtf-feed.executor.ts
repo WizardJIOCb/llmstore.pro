@@ -1,12 +1,11 @@
 import axios from 'axios';
-import * as cheerio from 'cheerio';
 import { db } from '../../../config/database.js';
 import { sourceCacheEntries } from '../../../db/schema/source-cache.js';
-import { eq, gt } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { logger } from '../../../lib/logger.js';
 import type { DtfFeedResult, DtfFeedArticle } from '../types.js';
 
-const DTF_NEW_URL = 'https://dtf.ru/new';
+const DTF_API_URL = 'https://api.dtf.ru/v2.1/timeline';
 const CACHE_KEY = 'dtf_latest_feed';
 const CACHE_TTL_SEC = 120;
 
@@ -42,60 +41,61 @@ async function setCache(data: DtfFeedResult): Promise<void> {
     });
 }
 
+function stripHtml(html: string): string {
+  return html.replace(/<[^>]+>/g, '').trim();
+}
+
 export async function executeDtfFeed(input: { limit?: number }): Promise<DtfFeedResult> {
   const limit = Math.min(input.limit ?? 10, 30);
 
   // Check cache
   const cached = await getCached();
   if (cached) {
-    logger.debug('DTF feed: serving from cache');
+    logger.info('DTF feed: serving from cache');
     return {
       ...cached,
       articles: cached.articles.slice(0, limit),
     };
   }
 
-  logger.debug('DTF feed: fetching fresh data');
+  logger.info('DTF feed: fetching from API');
 
-  const { data: html } = await axios.get(DTF_NEW_URL, {
+  const { data } = await axios.get(DTF_API_URL, {
     timeout: 15000,
+    params: {
+      allSite: true,
+      sorting: 'new',
+      count: 30,
+    },
     headers: {
       'User-Agent': 'Mozilla/5.0 (compatible; LLMStore/1.0; +https://llmstore.pro)',
-      'Accept': 'text/html',
-      'Accept-Language': 'ru-RU,ru;q=0.9',
     },
   });
 
-  const $ = cheerio.load(html);
+  const items = data?.result?.items ?? [];
   const articles: DtfFeedArticle[] = [];
 
-  // DTF uses article elements or content feed items
-  $('article, [class*="feed__item"], [class*="content-feed"]').each((_i, el) => {
-    const $el = $(el);
-    const titleEl = $el.find('h2 a, [class*="title"] a, [class*="content__title"] a, h3 a').first();
-    const title = titleEl.text().trim() || $el.find('h2, [class*="title"], [class*="content__title"]').first().text().trim();
-    const url = titleEl.attr('href') || $el.find('a[href*="/"]').first().attr('href') || '';
-    const author = $el.find('[class*="author"], [class*="subsite"]').first().text().trim();
-    const snippet = $el.find('[class*="preview"], [class*="text"], p').first().text().trim().slice(0, 200);
+  for (const item of items) {
+    const entry = item?.data;
+    if (!entry) continue;
 
-    if (title && url) {
-      const fullUrl = url.startsWith('http') ? url : `https://dtf.ru${url}`;
-      articles.push({ title, url: fullUrl, author, snippet });
-    }
-  });
+    const title = entry.title || '';
+    const url = entry.url || '';
+    const author = entry.subsite?.name || entry.author?.name || '';
 
-  // Fallback: try anchor tags that look like article links
-  if (articles.length === 0) {
-    $('a[href]').each((_i, el) => {
-      const href = $(el).attr('href') || '';
-      const text = $(el).text().trim();
-      if (href.match(/dtf\.ru\/\w+\/\d+/) && text.length > 10 && articles.length < 30) {
-        const fullUrl = href.startsWith('http') ? href : `https://dtf.ru${href}`;
-        if (!articles.some(a => a.url === fullUrl)) {
-          articles.push({ title: text, url: fullUrl, author: '', snippet: '' });
-        }
+    // Extract snippet from first text block
+    let snippet = '';
+    const blocks = entry.blocks || [];
+    for (const block of blocks) {
+      if (block.type === 'text' && block.data?.text) {
+        snippet = stripHtml(block.data.text).slice(0, 200);
+        break;
       }
-    });
+    }
+
+    if (url) {
+      articles.push({ title: title || snippet.slice(0, 80) || '(без заголовка)', url, author, snippet });
+    }
   }
 
   const result: DtfFeedResult = {
