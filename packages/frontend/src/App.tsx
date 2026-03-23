@@ -18,6 +18,7 @@ import { AgentEditorPage } from './pages/builder/AgentEditorPage';
 import { AgentPlaygroundPage } from './pages/playground/AgentPlaygroundPage';
 import { AgentsDashboardPage } from './pages/dashboard/AgentsDashboardPage';
 import { RunsDashboardPage } from './pages/dashboard/RunsDashboardPage';
+import { AgentsHubPage } from './pages/agents/AgentsHubPage';
 
 declare global {
   interface Window {
@@ -69,6 +70,13 @@ export function App() {
         <Route path="/playground/agent/:id" element={
           <ProtectedRoute>
             <AgentPlaygroundPage />
+          </ProtectedRoute>
+        } />
+
+        {/* Agents hub */}
+        <Route path="/my/agents" element={
+          <ProtectedRoute>
+            <AgentsHubPage />
           </ProtectedRoute>
         } />
 

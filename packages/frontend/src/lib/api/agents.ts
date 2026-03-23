@@ -74,6 +74,16 @@ export interface RunSummary {
   error_message: string | null;
 }
 
+export interface AgentStats {
+  agent_id: string;
+  total_runs: number;
+  total_prompt_tokens: number;
+  total_completion_tokens: number;
+  total_cost: string;
+  total_latency_ms: number;
+  last_run_at: string | null;
+}
+
 export interface RunDetail {
   id: string;
   agent_id: string;
@@ -137,6 +147,9 @@ export const agentApi = {
 
   listBuiltinTools: () =>
     apiClient.get<{ data: ToolDefinition[] }>('/agents/tools/builtin').then(r => r.data.data),
+
+  getStats: () =>
+    apiClient.get<{ data: Record<string, AgentStats> }>('/agents/stats').then(r => r.data.data),
 
   // Runtime
   startRun: (agentId: string, data: {

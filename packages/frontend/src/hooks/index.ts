@@ -6,4 +6,5 @@ export {
   useAgentList, useAgent, useBuiltinTools,
   useCreateAgent, useUpdateAgent, useDeleteAgent,
   useCreateVersion, useStartRun, useRun, useRunList,
+  useAgentStats,
 } from './useAgents';

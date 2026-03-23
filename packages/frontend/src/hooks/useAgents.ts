@@ -92,6 +92,14 @@ export function useRun(runId: string | undefined) {
   });
 }
 
+export function useAgentStats() {
+  return useQuery({
+    queryKey: ['agent-stats'],
+    queryFn: () => agentApi.getStats(),
+    staleTime: 30_000,
+  });
+}
+
 export function useRunList(agentId?: string) {
   return useQuery({
     queryKey: ['runs', { agentId }],

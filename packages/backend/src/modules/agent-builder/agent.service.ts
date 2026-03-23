@@ -2,7 +2,7 @@ import { db } from '../../config/database.js';
 import {
   agents, agentVersions, agentVersionTools, toolDefinitions,
 } from '../../db/schema/agents.js';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, sql } from 'drizzle-orm';
 import { NotFoundError, AppError } from '../../middleware/error-handler.js';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -228,6 +228,57 @@ export async function createAgentVersion(agentId: string, userId: string, input:
   await db.update(agents).set({ current_version_id: version.id }).where(eq(agents.id, agentId));
 
   return version;
+}
+
+// --- Analytics ---
+
+export interface AgentStatsRow {
+  agent_id: string;
+  total_runs: number;
+  total_prompt_tokens: number;
+  total_completion_tokens: number;
+  total_cost: string;
+  total_latency_ms: number;
+  last_run_at: string | null;
+}
+
+export async function getAgentStats(userId: string): Promise<Record<string, AgentStatsRow>> {
+  const rows = await db.execute<{
+    agent_id: string;
+    total_runs: string;
+    total_prompt_tokens: string;
+    total_completion_tokens: string;
+    total_cost: string;
+    total_latency_ms: string;
+    last_run_at: string | null;
+  }>(sql`
+    SELECT
+      ar.agent_id,
+      COUNT(ar.id)                                        AS total_runs,
+      COALESCE(SUM(ul.prompt_tokens), 0)                  AS total_prompt_tokens,
+      COALESCE(SUM(ul.completion_tokens), 0)               AS total_completion_tokens,
+      COALESCE(SUM(ul.estimated_cost::numeric), 0)         AS total_cost,
+      COALESCE(SUM(ar.latency_ms), 0)                     AS total_latency_ms,
+      MAX(ar.started_at)                                   AS last_run_at
+    FROM agent_runs ar
+    LEFT JOIN usage_ledger ul ON ul.run_id = ar.id
+    WHERE ar.user_id = ${userId}
+    GROUP BY ar.agent_id
+  `);
+
+  const result: Record<string, AgentStatsRow> = {};
+  for (const row of rows) {
+    result[row.agent_id] = {
+      agent_id: row.agent_id,
+      total_runs: Number(row.total_runs),
+      total_prompt_tokens: Number(row.total_prompt_tokens),
+      total_completion_tokens: Number(row.total_completion_tokens),
+      total_cost: String(row.total_cost),
+      total_latency_ms: Number(row.total_latency_ms),
+      last_run_at: row.last_run_at ? String(row.last_run_at) : null,
+    };
+  }
+  return result;
 }
 
 export async function listBuiltinTools() {

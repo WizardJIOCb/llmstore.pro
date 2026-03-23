@@ -63,3 +63,12 @@ export async function listBuiltinTools(_req: Request, res: Response, next: NextF
     next(err);
   }
 }
+
+export async function getStats(req: Request, res: Response, next: NextFunction) {
+  try {
+    const stats = await agentService.getAgentStats(req.session.userId!);
+    res.json({ data: stats });
+  } catch (err) {
+    next(err);
+  }
+}

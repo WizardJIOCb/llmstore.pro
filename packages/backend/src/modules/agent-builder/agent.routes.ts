@@ -8,6 +8,9 @@ const router = Router();
 // Builtin tools (no auth needed)
 router.get('/tools/builtin', controller.listBuiltinTools);
 
+// Agent stats (must be before /:id to avoid param collision)
+router.get('/stats', requireAuth, controller.getStats);
+
 // Agent CRUD
 router.post('/', requireAuth, validateCreateAgent, controller.create);
 router.get('/', requireAuth, controller.list);
