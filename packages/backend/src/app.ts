@@ -10,6 +10,7 @@ import { logger } from './lib/logger.js';
 import { authRoutes } from './modules/auth/index.js';
 import { catalogRoutes } from './modules/catalog/index.js';
 import { adminRoutes } from './modules/admin/index.js';
+import { stackBuilderRoutes } from './modules/stack-builder/index.js';
 
 export function createApp() {
   const app = express();
@@ -59,6 +60,7 @@ export function createApp() {
   app.use('/api/auth', authRoutes);
   app.use('/api/catalog', catalogRoutes);
   app.use('/api/admin', adminRoutes);
+  app.use('/api/builder/stack', stackBuilderRoutes);
 
   // Error handler (must be last)
   app.use(errorHandler);

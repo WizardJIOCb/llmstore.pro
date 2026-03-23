@@ -9,6 +9,9 @@ import { RegisterPage } from './pages/auth/RegisterPage';
 import { AdminCatalogListPage } from './pages/admin/AdminCatalogListPage';
 import { AdminCatalogFormPage } from './pages/admin/AdminCatalogFormPage';
 import { NotFoundPage } from './pages/NotFoundPage';
+import { StackBuilderPage } from './pages/builder/StackBuilderPage';
+import { SavedStacksPage } from './pages/builder/SavedStacksPage';
+import { SavedStackDetailPage } from './pages/builder/SavedStackDetailPage';
 
 export function App() {
   return (
@@ -33,8 +36,8 @@ export function App() {
         <Route path="/stacks/:slug" element={<CatalogDetailPage type="stack_preset" />} />
         <Route path="/guides" element={<CatalogListPage type="guide" />} />
 
-        {/* Builder routes — placeholder */}
-        <Route path="/builder/stack" element={<PlaceholderPage title="Конструктор стека" />} />
+        {/* Builder routes */}
+        <Route path="/builder/stack" element={<StackBuilderPage />} />
         <Route path="/builder/agent" element={<PlaceholderPage title="Конструктор агента" />} />
         <Route path="/builder/agent/:id" element={<PlaceholderPage title="Редактор агента" />} />
         <Route path="/playground/agent/:id" element={<PlaceholderPage title="Площадка агента" />} />
@@ -47,7 +50,16 @@ export function App() {
 
         {/* Dashboard — placeholder */}
         <Route path="/dashboard" element={<PlaceholderPage title="Панель управления" />} />
-        <Route path="/dashboard/saved" element={<PlaceholderPage title="Сохранённое" />} />
+        <Route path="/dashboard/saved" element={
+          <ProtectedRoute>
+            <SavedStacksPage />
+          </ProtectedRoute>
+        } />
+        <Route path="/dashboard/saved/:id" element={
+          <ProtectedRoute>
+            <SavedStackDetailPage />
+          </ProtectedRoute>
+        } />
         <Route path="/dashboard/agents" element={<PlaceholderPage title="Мои агенты" />} />
         <Route path="/dashboard/runs" element={<PlaceholderPage title="История запусков" />} />
         <Route path="/dashboard/costs" element={<PlaceholderPage title="Затраты" />} />
