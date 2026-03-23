@@ -27,7 +27,11 @@ export async function logout(req: Request, res: Response, next: NextFunction) {
   try {
     req.session.destroy((err) => {
       if (err) return next(err);
-      res.clearCookie('llmstore_session');
+      res.clearCookie('llmstore_session', {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+      });
       res.json({ data: { success: true } });
     });
   } catch (err) {

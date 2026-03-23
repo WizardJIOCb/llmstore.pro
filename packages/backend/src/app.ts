@@ -15,6 +15,11 @@ import { stackBuilderRoutes } from './modules/stack-builder/index.js';
 export function createApp() {
   const app = express();
 
+  // Trust reverse proxy (nginx)
+  if (env.NODE_ENV === 'production') {
+    app.set('trust proxy', 1);
+  }
+
   // Security
   app.use(helmet());
   app.use(
@@ -40,7 +45,7 @@ export function createApp() {
         secure: env.NODE_ENV === 'production',
         httpOnly: true,
         maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-        sameSite: env.NODE_ENV === 'production' ? 'strict' : 'lax',
+        sameSite: 'lax',
       },
     }),
   );
