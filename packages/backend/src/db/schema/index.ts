@@ -22,5 +22,8 @@ export * from './runtime';
 // Analytics
 export * from './analytics';
 
+// Source cache
+export * from './source-cache';
+
 // User data
 export * from './user-data';

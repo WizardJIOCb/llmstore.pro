@@ -11,6 +11,8 @@ import { authRoutes } from './modules/auth/index.js';
 import { catalogRoutes } from './modules/catalog/index.js';
 import { adminRoutes } from './modules/admin/index.js';
 import { stackBuilderRoutes } from './modules/stack-builder/index.js';
+import { agentBuilderRoutes } from './modules/agent-builder/index.js';
+import { agentRuntimeRoutes } from './modules/agent-runtime/index.js';
 
 export function createApp() {
   const app = express();
@@ -66,6 +68,8 @@ export function createApp() {
   app.use('/api/catalog', catalogRoutes);
   app.use('/api/admin', adminRoutes);
   app.use('/api/builder/stack', stackBuilderRoutes);
+  app.use('/api/agents', agentBuilderRoutes);
+  app.use('/api', agentRuntimeRoutes);
 
   // Error handler (must be last)
   app.use(errorHandler);

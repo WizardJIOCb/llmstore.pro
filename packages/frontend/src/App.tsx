@@ -13,6 +13,11 @@ import { NotFoundPage } from './pages/NotFoundPage';
 import { StackBuilderPage } from './pages/builder/StackBuilderPage';
 import { SavedStacksPage } from './pages/builder/SavedStacksPage';
 import { SavedStackDetailPage } from './pages/builder/SavedStackDetailPage';
+import { AgentBuilderPage } from './pages/builder/AgentBuilderPage';
+import { AgentEditorPage } from './pages/builder/AgentEditorPage';
+import { AgentPlaygroundPage } from './pages/playground/AgentPlaygroundPage';
+import { AgentsDashboardPage } from './pages/dashboard/AgentsDashboardPage';
+import { RunsDashboardPage } from './pages/dashboard/RunsDashboardPage';
 
 declare global {
   interface Window {
@@ -51,9 +56,21 @@ export function App() {
 
         {/* Builder routes */}
         <Route path="/builder/stack" element={<StackBuilderPage />} />
-        <Route path="/builder/agent" element={<PlaceholderPage title="Конструктор агента" />} />
-        <Route path="/builder/agent/:id" element={<PlaceholderPage title="Редактор агента" />} />
-        <Route path="/playground/agent/:id" element={<PlaceholderPage title="Площадка агента" />} />
+        <Route path="/builder/agent" element={
+          <ProtectedRoute>
+            <AgentBuilderPage />
+          </ProtectedRoute>
+        } />
+        <Route path="/builder/agent/:id" element={
+          <ProtectedRoute>
+            <AgentEditorPage />
+          </ProtectedRoute>
+        } />
+        <Route path="/playground/agent/:id" element={
+          <ProtectedRoute>
+            <AgentPlaygroundPage />
+          </ProtectedRoute>
+        } />
 
         {/* Compare */}
         <Route path="/compare" element={<PlaceholderPage title="Сравнение" />} />
@@ -73,8 +90,16 @@ export function App() {
             <SavedStackDetailPage />
           </ProtectedRoute>
         } />
-        <Route path="/dashboard/agents" element={<PlaceholderPage title="Мои агенты" />} />
-        <Route path="/dashboard/runs" element={<PlaceholderPage title="История запусков" />} />
+        <Route path="/dashboard/agents" element={
+          <ProtectedRoute>
+            <AgentsDashboardPage />
+          </ProtectedRoute>
+        } />
+        <Route path="/dashboard/runs" element={
+          <ProtectedRoute>
+            <RunsDashboardPage />
+          </ProtectedRoute>
+        } />
         <Route path="/dashboard/costs" element={<PlaceholderPage title="Затраты" />} />
 
         {/* Admin routes */}

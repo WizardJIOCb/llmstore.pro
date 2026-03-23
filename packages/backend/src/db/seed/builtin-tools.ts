@@ -116,6 +116,63 @@ const builtinTools = [
     is_active: true,
   },
   {
+    name: 'DTF Latest Feed',
+    slug: 'dtf-latest-feed',
+    tool_type: 'http_request' as const,
+    description: 'Получает список последних статей с DTF.ru. Возвращает заголовки, авторов и ссылки.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        limit: { type: 'number', description: 'Количество статей (по умолчанию 10)', default: 10 },
+      },
+    },
+    output_schema: {
+      type: 'object',
+      properties: {
+        articles: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              title: { type: 'string' },
+              url: { type: 'string' },
+              author: { type: 'string' },
+              snippet: { type: 'string' },
+            },
+          },
+        },
+      },
+    },
+    config_json: { handler: 'dtf_latest_feed', timeout_ms: 15000 },
+    is_builtin: true,
+    is_active: true,
+  },
+  {
+    name: 'DTF Article Fetch',
+    slug: 'dtf-article-fetch',
+    tool_type: 'http_request' as const,
+    description: 'Загружает и извлекает текст конкретной статьи с DTF.ru по URL.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'URL статьи на DTF.ru' },
+      },
+      required: ['url'],
+    },
+    output_schema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string' },
+        author: { type: 'string' },
+        text: { type: 'string' },
+        published_at: { type: 'string' },
+      },
+    },
+    config_json: { handler: 'dtf_article_fetch', timeout_ms: 15000, allowed_domains: ['dtf.ru'] },
+    is_builtin: true,
+    is_active: true,
+  },
+  {
     name: 'Mock Tool',
     slug: 'mock-tool',
     tool_type: 'mock_tool' as const,
