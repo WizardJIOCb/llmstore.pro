@@ -57,7 +57,7 @@ export interface RunResult {
   status: string;
   output: string;
   tool_traces: ToolTrace[];
-  usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number; estimated_cost: string | null } | null;
+  usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number; estimated_cost: string; model: string } | null;
   latency_ms: number;
 }
 

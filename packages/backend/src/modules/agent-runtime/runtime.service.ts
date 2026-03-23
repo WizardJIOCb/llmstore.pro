@@ -13,6 +13,20 @@ import type { ChatMessage, ToolDefinitionParam } from '../openrouter/types.js';
 const DEFAULT_MODEL = 'google/gemini-2.0-flash-001';
 const DEFAULT_MAX_ITERATIONS = 4;
 
+// Pricing per 1M tokens (USD) — OpenRouter rates for common models
+const MODEL_PRICING: Record<string, { input: number; output: number }> = {
+  'google/gemini-2.0-flash-001': { input: 0.10, output: 0.40 },
+  'google/gemini-2.0-flash-lite-001': { input: 0.075, output: 0.30 },
+  'google/gemini-2.5-flash-preview': { input: 0.15, output: 0.60 },
+  'openai/gpt-4o-mini': { input: 0.15, output: 0.60 },
+};
+
+function estimateCost(model: string, promptTokens: number, completionTokens: number): string {
+  const pricing = MODEL_PRICING[model] ?? { input: 0.10, output: 0.40 };
+  const cost = (promptTokens * pricing.input + completionTokens * pricing.output) / 1_000_000;
+  return cost.toFixed(6);
+}
+
 // --- Types ---
 
 interface StartRunInput {
@@ -25,7 +39,7 @@ interface RunResult {
   status: string;
   output: string;
   tool_traces: ToolTrace[];
-  usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number; estimated_cost: string | null } | null;
+  usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number; estimated_cost: string; model: string } | null;
   latency_ms: number;
 }
 
@@ -106,6 +120,8 @@ export async function startRun(agentId: string, userId: string, input: StartRunI
     },
   }));
 
+  logger.info({ runId: run.id, agentId, toolCount: toolParams.length, toolNames: tools.map(t => t.slug) }, 'Starting agent run');
+
   // 7. Update run to running
   await db.update(agentRuns).set({ status: 'running' }).where(eq(agentRuns.id, run.id));
 
@@ -118,12 +134,13 @@ export async function startRun(agentId: string, userId: string, input: StartRunI
   try {
     // 8. Main loop
     for (let iteration = 0; iteration < maxIterations; iteration++) {
-      logger.debug({ runId: run.id, iteration, messageCount: messages.length }, 'Runtime loop iteration');
+      logger.info({ runId: run.id, iteration, messageCount: messages.length, hasTools: toolParams.length > 0 }, 'Runtime loop iteration');
 
       const response = await openRouterClient.chatCompletion({
         model: modelId,
         messages,
         tools: toolParams.length > 0 ? toolParams : undefined,
+        tool_choice: toolParams.length > 0 ? 'auto' : undefined,
         temperature: runtimeConfig.temperature ?? 0.3,
         max_tokens: runtimeConfig.max_tokens ?? 4096,
       });
@@ -141,6 +158,13 @@ export async function startRun(agentId: string, userId: string, input: StartRunI
       }
 
       const assistantMessage = choice.message;
+      logger.info({
+        runId: run.id,
+        iteration,
+        finishReason: choice.finish_reason,
+        hasToolCalls: !!(assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0),
+        toolCallCount: assistantMessage.tool_calls?.length ?? 0,
+      }, 'LLM response received');
 
       // If tool_calls present — execute tools and continue
       if (assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0) {
@@ -254,6 +278,7 @@ export async function startRun(agentId: string, userId: string, input: StartRunI
   }
 
   // 10. Persist usage
+  const estCost = estimateCost(modelId, totalUsage.prompt_tokens, totalUsage.completion_tokens);
   if (totalUsage.total_tokens > 0) {
     await db.insert(usageLedger).values({
       run_id: run.id,
@@ -263,6 +288,7 @@ export async function startRun(agentId: string, userId: string, input: StartRunI
       prompt_tokens: totalUsage.prompt_tokens,
       completion_tokens: totalUsage.completion_tokens,
       total_tokens: totalUsage.total_tokens,
+      estimated_cost: estCost,
       raw_usage_json: totalUsage as unknown as Record<string, unknown>,
     });
   }
@@ -282,7 +308,9 @@ export async function startRun(agentId: string, userId: string, input: StartRunI
     status: runStatus,
     output: finalOutput,
     tool_traces: toolTraces,
-    usage: totalUsage.total_tokens > 0 ? { ...totalUsage, estimated_cost: null } : null,
+    usage: totalUsage.total_tokens > 0
+      ? { ...totalUsage, estimated_cost: estCost, model: modelId }
+      : null,
     latency_ms: latencyMs,
   };
 }

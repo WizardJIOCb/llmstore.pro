@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Input } from '../ui/Input';
 import { Textarea } from '../ui/Textarea';
 import { Button } from '../ui/Button';
@@ -37,12 +37,6 @@ export function AgentForm({ initialData, tools, onSubmit, isSubmitting, submitLa
       max_tokens: 4096,
     },
   });
-
-  useEffect(() => {
-    if (initialData) {
-      setForm((prev) => ({ ...prev, ...initialData }));
-    }
-  }, [initialData]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
