@@ -1,4 +1,5 @@
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, useLocation } from 'react-router-dom';
+import { useEffect } from 'react';
 import { AppLayout } from './components/layout/AppLayout';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { HomePage } from './pages/home/HomePage';
@@ -13,7 +14,19 @@ import { StackBuilderPage } from './pages/builder/StackBuilderPage';
 import { SavedStacksPage } from './pages/builder/SavedStacksPage';
 import { SavedStackDetailPage } from './pages/builder/SavedStackDetailPage';
 
+declare global {
+  interface Window {
+    ym?: (...args: unknown[]) => void;
+  }
+}
+
 export function App() {
+  const location = useLocation();
+
+  useEffect(() => {
+    window.ym?.(108206991, 'hit', location.pathname + location.search);
+  }, [location]);
+
   return (
     <Routes>
       <Route element={<AppLayout />}>
