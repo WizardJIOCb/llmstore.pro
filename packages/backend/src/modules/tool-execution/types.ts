@@ -3,10 +3,29 @@ export interface DtfFeedArticle {
   url: string;
   author: string;
   snippet: string;
+  comments_count: number;
+  likes_count: number;
 }
 
 export interface DtfFeedResult {
   articles: DtfFeedArticle[];
+  fetched_at: string;
+}
+
+export interface DtfPopularArticle {
+  title: string;
+  url: string;
+  author: string;
+  snippet: string;
+  comments_count: number;
+  likes_count: number;
+  favorites_count: number;
+}
+
+export interface DtfPopularResult {
+  articles: DtfPopularArticle[];
+  sorting: string;
+  period: string;
   fetched_at: string;
 }
 

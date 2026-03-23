@@ -119,7 +119,7 @@ const builtinTools = [
     name: 'DTF Latest Feed',
     slug: 'dtf-latest-feed',
     tool_type: 'http_request' as const,
-    description: 'Получает список последних статей с DTF.ru. Возвращает заголовки, авторов и ссылки.',
+    description: 'Получает список последних статей с DTF.ru. Возвращает заголовки, авторов, ссылки и статистику.',
     input_schema: {
       type: 'object',
       properties: {
@@ -138,6 +138,8 @@ const builtinTools = [
               url: { type: 'string' },
               author: { type: 'string' },
               snippet: { type: 'string' },
+              comments_count: { type: 'number' },
+              likes_count: { type: 'number' },
             },
           },
         },
@@ -169,6 +171,59 @@ const builtinTools = [
       },
     },
     config_json: { handler: 'dtf_article_fetch', timeout_ms: 15000, allowed_domains: ['dtf.ru'] },
+    is_builtin: true,
+    is_active: true,
+  },
+  {
+    name: 'DTF Popular Feed',
+    slug: 'dtf-popular-feed',
+    tool_type: 'http_request' as const,
+    description: 'Получает популярные/обсуждаемые статьи с DTF, отсортированные по количеству комментариев. Позволяет фильтровать по периоду: за день, неделю, месяц.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        sorting: {
+          type: 'string',
+          enum: ['hotness', 'popular'],
+          description: 'Тип сортировки: hotness — актуальные горячие темы, popular — популярные статьи',
+          default: 'hotness',
+        },
+        period: {
+          type: 'string',
+          enum: ['day', 'week', 'month', 'all'],
+          description: 'Период фильтрации: day — за день, week — за неделю, month — за месяц, all — за всё время',
+          default: 'day',
+        },
+        limit: {
+          type: 'number',
+          description: 'Количество статей (по умолчанию 10)',
+          default: 10,
+        },
+      },
+    },
+    output_schema: {
+      type: 'object',
+      properties: {
+        articles: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              title: { type: 'string' },
+              url: { type: 'string' },
+              author: { type: 'string' },
+              snippet: { type: 'string' },
+              comments_count: { type: 'number' },
+              likes_count: { type: 'number' },
+              favorites_count: { type: 'number' },
+            },
+          },
+        },
+        sorting: { type: 'string' },
+        period: { type: 'string' },
+      },
+    },
+    config_json: { handler: 'dtf_popular_feed', timeout_ms: 15000 },
     is_builtin: true,
     is_active: true,
   },

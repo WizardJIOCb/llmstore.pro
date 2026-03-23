@@ -83,6 +83,14 @@ export async function executeDtfFeed(input: { limit?: number }): Promise<DtfFeed
     const url = entry.url || '';
     const author = entry.subsite?.name || entry.author?.name || '';
 
+    // Extract stats
+    const counters = entry.counters || {};
+    const comments_count: number = counters.comments ?? 0;
+    const likesObj = entry.likes;
+    const likes_count: number = (typeof likesObj === 'object' && likesObj !== null)
+      ? (likesObj.counterLikes ?? 0)
+      : 0;
+
     // Extract snippet from first text block
     let snippet = '';
     const blocks = entry.blocks || [];
@@ -94,7 +102,14 @@ export async function executeDtfFeed(input: { limit?: number }): Promise<DtfFeed
     }
 
     if (url) {
-      articles.push({ title: title || snippet.slice(0, 80) || '(без заголовка)', url, author, snippet });
+      articles.push({
+        title: title || snippet.slice(0, 80) || '(без заголовка)',
+        url,
+        author,
+        snippet,
+        comments_count,
+        likes_count,
+      });
     }
   }
 
