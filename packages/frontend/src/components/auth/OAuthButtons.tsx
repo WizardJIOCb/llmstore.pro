@@ -4,7 +4,6 @@ const OAUTH_PROVIDERS = [
   { id: 'google', label: 'Google', color: 'bg-white border border-input text-foreground hover:bg-gray-50' },
   { id: 'vk', label: 'VK', color: 'bg-[#0077FF] text-white hover:bg-[#0066DD]' },
   { id: 'yandex', label: 'Яндекс', color: 'bg-[#FC3F1D] text-white hover:bg-[#E03010]' },
-  { id: 'mailru', label: 'Mail.ru', color: 'bg-[#005FF9] text-white hover:bg-[#004DD6]' },
 ];
 
 export function OAuthButtons() {

@@ -23,7 +23,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   vk: 'VK',
 };
 
-const LINKABLE_PROVIDERS = ['google', 'yandex', 'mailru', 'vk'];
+const LINKABLE_PROVIDERS = ['google', 'yandex', 'vk'];
 
 export function ProfilePage() {
   const { data: profile, isLoading, error } = useProfile();
