@@ -137,6 +137,44 @@ export async function deleteUseCase(req: Request<IdParams>, res: Response, next:
   }
 }
 
+// ─── Users ──────────────────────────────────────────────────
+
+export async function listUsers(req: Request, res: Response, next: NextFunction) {
+  try {
+    const result = await adminService.listUsers(req.query as any);
+    res.json({ data: result.users, meta: result.meta });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getUser(req: Request<IdParams>, res: Response, next: NextFunction) {
+  try {
+    const user = await adminService.getUserById(req.params.id);
+    res.json({ data: user });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function updateUserRole(req: Request<IdParams>, res: Response, next: NextFunction) {
+  try {
+    const result = await adminService.updateUserRole(req.params.id, req.body.role);
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function updateUserStatus(req: Request<IdParams>, res: Response, next: NextFunction) {
+  try {
+    const result = await adminService.updateUserStatus(req.params.id, req.body.status);
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
 // ─── User Balance ───────────────────────────────────────────
 
 export async function adjustUserBalance(req: Request<IdParams>, res: Response, next: NextFunction) {
@@ -147,6 +185,17 @@ export async function adjustUserBalance(req: Request<IdParams>, res: Response, n
       description: req.body.description,
     });
     res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ─── All Agents ─────────────────────────────────────────────
+
+export async function listAllAgents(req: Request, res: Response, next: NextFunction) {
+  try {
+    const result = await adminService.listAllAgents(req.query as any);
+    res.json({ data: result.agents, meta: result.meta });
   } catch (err) {
     next(err);
   }

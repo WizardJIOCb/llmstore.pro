@@ -8,7 +8,24 @@ export interface AdminListParams {
   search?: string;
 }
 
+export interface AdminUsersParams {
+  page?: number;
+  per_page?: number;
+  search?: string;
+  role?: string;
+  status?: string;
+}
+
+export interface AdminAgentsParams {
+  page?: number;
+  per_page?: number;
+  search?: string;
+  status?: string;
+  owner_id?: string;
+}
+
 export const adminApi = {
+  // Catalog items
   listItems: (params: AdminListParams) =>
     apiClient.get('/admin/items', { params }).then((r) => r.data),
 
@@ -24,6 +41,7 @@ export const adminApi = {
   deleteItem: (id: string) =>
     apiClient.delete(`/admin/items/${id}`).then((r) => r.data),
 
+  // Taxonomy
   createCategory: (data: { name: string; slug: string; parent_id?: string | null }) =>
     apiClient.post('/admin/categories', data).then((r) => r.data.data),
 
@@ -50,4 +68,24 @@ export const adminApi = {
 
   deleteUseCase: (id: string) =>
     apiClient.delete(`/admin/use-cases/${id}`).then((r) => r.data),
+
+  // Users
+  listUsers: (params: AdminUsersParams) =>
+    apiClient.get('/admin/users', { params }).then((r) => r.data),
+
+  getUser: (id: string) =>
+    apiClient.get(`/admin/users/${id}`).then((r) => r.data.data),
+
+  updateUserRole: (id: string, role: string) =>
+    apiClient.put(`/admin/users/${id}/role`, { role }).then((r) => r.data.data),
+
+  updateUserStatus: (id: string, status: string) =>
+    apiClient.put(`/admin/users/${id}/status`, { status }).then((r) => r.data.data),
+
+  adjustUserBalance: (id: string, amount: number, description: string) =>
+    apiClient.post(`/admin/users/${id}/balance`, { amount, description }).then((r) => r.data.data),
+
+  // Agents
+  listAgents: (params: AdminAgentsParams) =>
+    apiClient.get('/admin/agents', { params }).then((r) => r.data),
 };

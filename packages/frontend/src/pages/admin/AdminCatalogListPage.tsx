@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useAdminItems, useDeleteItem } from '../../hooks/useAdmin';
 import { Button, Badge, Spinner } from '../../components/ui';
 import { contentTypeLabels, itemStatusLabels } from '../../lib/label-maps';
+import { AdminLayout } from '../../components/admin/AdminLayout';
 
 const statusVariants: Record<string, 'success' | 'secondary' | 'warning'> = {
   published: 'success',
@@ -35,9 +36,9 @@ export function AdminCatalogListPage() {
   };
 
   return (
-    <div className="container mx-auto px-4 py-8">
+    <AdminLayout>
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-3xl font-bold">Управление каталогом</h1>
+        <h2 className="text-xl font-semibold">Управление каталогом</h2>
         <Link to="/admin/items/new">
           <Button>Добавить элемент</Button>
         </Link>
@@ -165,6 +166,6 @@ export function AdminCatalogListPage() {
           )}
         </>
       )}
-    </div>
+    </AdminLayout>
   );
 }

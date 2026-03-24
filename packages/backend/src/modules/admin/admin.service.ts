@@ -1,13 +1,15 @@
-import { eq, and, desc, asc, ilike, sql, type SQL } from 'drizzle-orm';
+import { eq, and, desc, asc, ilike, sql, count, type SQL } from 'drizzle-orm';
 import { db } from '../../config/database.js';
 import {
   catalogItems, catalogItemMeta,
   catalogItemCategories, catalogItemTags, catalogItemUseCases,
   categories, tags, useCases,
   users, balanceTransactions,
+  agents, agentRuns,
 } from '../../db/schema/index.js';
 import { NotFoundError, ConflictError, AppError } from '../../middleware/error-handler.js';
 import type { CreateCatalogItemInput, UpdateCatalogItemInput } from '@llmstore/shared/schemas';
+import type { UserRole, UserStatus } from '@llmstore/shared';
 
 // ─── Admin catalog list (offset pagination) ─────────────────
 
@@ -350,6 +352,236 @@ export async function deleteUseCase(id: string) {
   const [uc] = await db.delete(useCases).where(eq(useCases.id, id)).returning();
   if (!uc) throw new NotFoundError('Кейс не найден');
   return { success: true };
+}
+
+// ─── User Management ────────────────────────────────────────
+
+interface AdminUsersQuery {
+  page?: number;
+  per_page?: number;
+  search?: string;
+  role?: string;
+  status?: string;
+}
+
+export async function listUsers(query: AdminUsersQuery) {
+  const page = query.page ?? 1;
+  const perPage = query.per_page ?? 20;
+  const offset = (page - 1) * perPage;
+
+  const conditions: SQL[] = [];
+
+  if (query.search) {
+    const term = `%${query.search}%`;
+    conditions.push(
+      sql`(${ilike(users.email, term)} OR ${ilike(users.name, term)} OR ${ilike(users.username, term)})`,
+    );
+  }
+  if (query.role) {
+    conditions.push(eq(users.role, query.role as any));
+  }
+  if (query.status) {
+    conditions.push(eq(users.status, query.status as any));
+  }
+
+  const where = conditions.length > 0 ? and(...conditions) : undefined;
+
+  const [rows, countResult] = await Promise.all([
+    db
+      .select({
+        id: users.id,
+        email: users.email,
+        username: users.username,
+        name: users.name,
+        avatar_url: users.avatar_url,
+        role: users.role,
+        status: users.status,
+        balance_usd: users.balance_usd,
+        created_at: users.created_at,
+        updated_at: users.updated_at,
+      })
+      .from(users)
+      .where(where)
+      .orderBy(desc(users.created_at))
+      .limit(perPage)
+      .offset(offset),
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(users)
+      .where(where),
+  ]);
+
+  const total = countResult[0]?.count ?? 0;
+
+  return {
+    users: rows.map((r) => ({
+      ...r,
+      created_at: r.created_at.toISOString(),
+      updated_at: r.updated_at.toISOString(),
+    })),
+    meta: {
+      total,
+      page,
+      per_page: perPage,
+      total_pages: Math.ceil(total / perPage),
+    },
+  };
+}
+
+export async function getUserById(id: string) {
+  const [user] = await db
+    .select({
+      id: users.id,
+      email: users.email,
+      username: users.username,
+      name: users.name,
+      avatar_url: users.avatar_url,
+      role: users.role,
+      status: users.status,
+      balance_usd: users.balance_usd,
+      created_at: users.created_at,
+      updated_at: users.updated_at,
+    })
+    .from(users)
+    .where(eq(users.id, id))
+    .limit(1);
+
+  if (!user) throw new NotFoundError('Пользователь не найден');
+
+  const [agentCount] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(agents)
+    .where(eq(agents.owner_user_id, id));
+
+  const [runCount] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(agentRuns)
+    .where(eq(agentRuns.user_id, id));
+
+  const txs = await db
+    .select()
+    .from(balanceTransactions)
+    .where(eq(balanceTransactions.user_id, id))
+    .orderBy(desc(balanceTransactions.created_at))
+    .limit(20);
+
+  return {
+    ...user,
+    created_at: user.created_at.toISOString(),
+    updated_at: user.updated_at.toISOString(),
+    agents_count: agentCount?.count ?? 0,
+    runs_count: runCount?.count ?? 0,
+    recent_transactions: txs.map((tx) => ({
+      id: tx.id,
+      amount: tx.amount,
+      balance_after: tx.balance_after,
+      type: tx.type,
+      description: tx.description,
+      created_at: tx.created_at.toISOString(),
+    })),
+  };
+}
+
+export async function updateUserRole(id: string, role: UserRole) {
+  const [user] = await db
+    .select({ id: users.id, role: users.role })
+    .from(users)
+    .where(eq(users.id, id))
+    .limit(1);
+
+  if (!user) throw new NotFoundError('Пользователь не найден');
+
+  await db.update(users).set({ role }).where(eq(users.id, id));
+
+  return { id, previous_role: user.role, new_role: role };
+}
+
+export async function updateUserStatus(id: string, status: UserStatus) {
+  const [user] = await db
+    .select({ id: users.id, status: users.status })
+    .from(users)
+    .where(eq(users.id, id))
+    .limit(1);
+
+  if (!user) throw new NotFoundError('Пользователь не найден');
+
+  await db.update(users).set({ status }).where(eq(users.id, id));
+
+  return { id, previous_status: user.status, new_status: status };
+}
+
+// ─── All Agents (admin view) ────────────────────────────────
+
+interface AdminAgentsQuery {
+  page?: number;
+  per_page?: number;
+  search?: string;
+  status?: string;
+  owner_id?: string;
+}
+
+export async function listAllAgents(query: AdminAgentsQuery) {
+  const page = query.page ?? 1;
+  const perPage = query.per_page ?? 20;
+  const offset = (page - 1) * perPage;
+
+  const conditions: SQL[] = [];
+
+  if (query.search) {
+    const term = `%${query.search}%`;
+    conditions.push(ilike(agents.name, term));
+  }
+  if (query.status) {
+    conditions.push(eq(agents.status, query.status as any));
+  }
+  if (query.owner_id) {
+    conditions.push(eq(agents.owner_user_id, query.owner_id));
+  }
+
+  const where = conditions.length > 0 ? and(...conditions) : undefined;
+
+  const [rows, countResult] = await Promise.all([
+    db
+      .select({
+        id: agents.id,
+        name: agents.name,
+        slug: agents.slug,
+        description: agents.description,
+        visibility: agents.visibility,
+        status: agents.status,
+        created_at: agents.created_at,
+        updated_at: agents.updated_at,
+        owner_id: agents.owner_user_id,
+        owner_email: users.email,
+        owner_name: users.name,
+      })
+      .from(agents)
+      .leftJoin(users, eq(agents.owner_user_id, users.id))
+      .where(where)
+      .orderBy(desc(agents.updated_at))
+      .limit(perPage)
+      .offset(offset),
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(agents)
+      .where(where),
+  ]);
+
+  const total = countResult[0]?.count ?? 0;
+
+  return {
+    agents: rows.map((r) => ({
+      ...r,
+      created_at: r.created_at.toISOString(),
+      updated_at: r.updated_at.toISOString(),
+    })),
+    meta: {
+      total,
+      page,
+      per_page: perPage,
+      total_pages: Math.ceil(total / perPage),
+    },
+  };
 }
 
 // ─── User Balance Management ────────────────────────────────

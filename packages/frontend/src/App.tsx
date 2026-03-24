@@ -9,6 +9,8 @@ import { LoginPage } from './pages/auth/LoginPage';
 import { RegisterPage } from './pages/auth/RegisterPage';
 import { AdminCatalogListPage } from './pages/admin/AdminCatalogListPage';
 import { AdminCatalogFormPage } from './pages/admin/AdminCatalogFormPage';
+import { AdminUsersPage } from './pages/admin/AdminUsersPage';
+import { AdminAgentsPage } from './pages/admin/AdminAgentsPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { StackBuilderPage } from './pages/builder/StackBuilderPage';
 import { SavedStacksPage } from './pages/builder/SavedStacksPage';
@@ -144,6 +146,22 @@ export function App() {
           element={
             <ProtectedRoute requireAdmin>
               <AdminCatalogFormPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/users"
+          element={
+            <ProtectedRoute requireAdmin>
+              <AdminUsersPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/agents"
+          element={
+            <ProtectedRoute requireAdmin>
+              <AdminAgentsPage />
             </ProtectedRoute>
           }
         />

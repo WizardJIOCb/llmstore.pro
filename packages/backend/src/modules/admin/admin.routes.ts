@@ -33,7 +33,14 @@ router.post('/use-cases', validateTaxonomyCreate, controller.createUseCase);
 router.put('/use-cases/:id', validateTaxonomyUpdate, controller.updateUseCase);
 router.delete('/use-cases/:id', controller.deleteUseCase);
 
-// User balance management
+// User management (admin only)
+router.get('/users', controller.listUsers);
+router.get('/users/:id', controller.getUser);
+router.put('/users/:id/role', controller.updateUserRole);
+router.put('/users/:id/status', controller.updateUserStatus);
 router.post('/users/:id/balance', controller.adjustUserBalance);
+
+// Agents management (admin view)
+router.get('/agents', controller.listAllAgents);
 
 export const adminRoutes = router;

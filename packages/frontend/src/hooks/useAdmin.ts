@@ -1,5 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { adminApi, type AdminListParams } from '../lib/api/admin';
+import { adminApi, type AdminListParams, type AdminUsersParams, type AdminAgentsParams } from '../lib/api/admin';
+
+// ─── Catalog Items ──────────────────────────────────────────
 
 export function useAdminItems(params: AdminListParams) {
   return useQuery({
@@ -47,5 +49,64 @@ export function useDeleteItem() {
       queryClient.invalidateQueries({ queryKey: ['admin', 'items'] });
       queryClient.invalidateQueries({ queryKey: ['catalog'] });
     },
+  });
+}
+
+// ─── Users ──────────────────────────────────────────────────
+
+export function useAdminUsers(params: AdminUsersParams) {
+  return useQuery({
+    queryKey: ['admin', 'users', params],
+    queryFn: () => adminApi.listUsers(params),
+  });
+}
+
+export function useAdminUser(id: string) {
+  return useQuery({
+    queryKey: ['admin', 'users', id],
+    queryFn: () => adminApi.getUser(id),
+    enabled: !!id,
+  });
+}
+
+export function useUpdateUserRole() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, role }: { id: string; role: string }) =>
+      adminApi.updateUserRole(id, role),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+    },
+  });
+}
+
+export function useUpdateUserStatus() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, status }: { id: string; status: string }) =>
+      adminApi.updateUserStatus(id, status),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+    },
+  });
+}
+
+export function useAdjustUserBalance() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, amount, description }: { id: string; amount: number; description: string }) =>
+      adminApi.adjustUserBalance(id, amount, description),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+    },
+  });
+}
+
+// ─── Agents ─────────────────────────────────────────────────
+
+export function useAdminAgents(params: AdminAgentsParams) {
+  return useQuery({
+    queryKey: ['admin', 'agents', params],
+    queryFn: () => adminApi.listAgents(params),
   });
 }
