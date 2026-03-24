@@ -42,6 +42,10 @@ export async function logout(req: Request, res: Response, next: NextFunction) {
 export async function me(req: Request, res: Response, next: NextFunction) {
   try {
     const user = await authService.getById(req.session.userId!);
+    // Keep session role in sync with DB (e.g. after admin promotion via CLI)
+    if (user.role !== req.session.userRole) {
+      req.session.userRole = user.role;
+    }
     res.json({ data: user });
   } catch (err) {
     next(err);
