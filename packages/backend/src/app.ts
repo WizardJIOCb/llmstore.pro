@@ -13,6 +13,7 @@ import { adminRoutes } from './modules/admin/index.js';
 import { stackBuilderRoutes } from './modules/stack-builder/index.js';
 import { agentBuilderRoutes } from './modules/agent-builder/index.js';
 import { agentRuntimeRoutes } from './modules/agent-runtime/index.js';
+import { profileRoutes } from './modules/profile/index.js';
 
 export function createApp() {
   const app = express();
@@ -65,6 +66,7 @@ export function createApp() {
 
   // Module routes
   app.use('/api/auth', authRoutes);
+  app.use('/api/profile', profileRoutes);
   app.use('/api/catalog', catalogRoutes);
   app.use('/api/admin', adminRoutes);
   app.use('/api/builder/stack', stackBuilderRoutes);

@@ -1,5 +1,5 @@
 import {
-  pgTable, uuid, varchar, integer, bigint, numeric, timestamp, date, index, uniqueIndex,
+  pgTable, uuid, varchar, text, integer, bigint, numeric, timestamp, date, index, uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import { jsonb } from 'drizzle-orm/pg-core';
 import { users } from './auth';
@@ -48,4 +48,18 @@ export const costDailyAggregates = pgTable('cost_daily_aggregates', {
   index('cost_daily_agg_user_day_idx').on(table.user_id, table.day),
   index('cost_daily_agg_agent_day_idx').on(table.agent_id, table.day),
   index('cost_daily_agg_day_idx').on(table.day),
+]);
+
+export const balanceTransactions = pgTable('balance_transactions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  user_id: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  amount: numeric('amount', { precision: 12, scale: 4 }).notNull(),
+  balance_after: numeric('balance_after', { precision: 12, scale: 4 }).notNull(),
+  type: varchar('type', { length: 50 }).notNull(),
+  description: text('description'),
+  performed_by: uuid('performed_by').references(() => users.id, { onDelete: 'set null' }),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index('balance_tx_user_idx').on(table.user_id),
+  index('balance_tx_created_at_idx').on(table.created_at),
 ]);

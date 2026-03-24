@@ -23,6 +23,8 @@ export const AuthProvider = {
   EMAIL: 'email',
   GOOGLE: 'google',
   GITHUB: 'github',
+  YANDEX: 'yandex',
+  MAILRU: 'mailru',
 } as const;
 
 export type AuthProvider = (typeof AuthProvider)[keyof typeof AuthProvider];

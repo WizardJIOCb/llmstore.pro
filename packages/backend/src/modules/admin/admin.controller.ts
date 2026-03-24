@@ -136,3 +136,18 @@ export async function deleteUseCase(req: Request<IdParams>, res: Response, next:
     next(err);
   }
 }
+
+// ─── User Balance ───────────────────────────────────────────
+
+export async function adjustUserBalance(req: Request<IdParams>, res: Response, next: NextFunction) {
+  try {
+    const result = await adminService.adjustUserBalance(req.session.userId!, {
+      user_id: req.params.id,
+      amount: req.body.amount,
+      description: req.body.description,
+    });
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}

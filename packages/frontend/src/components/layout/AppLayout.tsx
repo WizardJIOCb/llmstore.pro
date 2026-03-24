@@ -52,7 +52,9 @@ export function AppLayout() {
                   </Link>
                 )}
                 <span className="text-sm text-muted-foreground">
-                  {user?.name || user?.email}
+                  <Link to="/profile" className="hover:text-foreground hover:underline transition-colors">
+                    {user?.name || user?.email}
+                  </Link>
                 </span>
                 <Button variant="ghost" size="sm" onClick={handleLogout}>
                   Выйти

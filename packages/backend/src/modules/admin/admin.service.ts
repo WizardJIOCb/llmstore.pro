@@ -4,8 +4,9 @@ import {
   catalogItems, catalogItemMeta,
   catalogItemCategories, catalogItemTags, catalogItemUseCases,
   categories, tags, useCases,
+  users, balanceTransactions,
 } from '../../db/schema/index.js';
-import { NotFoundError, ConflictError } from '../../middleware/error-handler.js';
+import { NotFoundError, ConflictError, AppError } from '../../middleware/error-handler.js';
 import type { CreateCatalogItemInput, UpdateCatalogItemInput } from '@llmstore/shared/schemas';
 
 // ─── Admin catalog list (offset pagination) ─────────────────
@@ -349,4 +350,55 @@ export async function deleteUseCase(id: string) {
   const [uc] = await db.delete(useCases).where(eq(useCases.id, id)).returning();
   if (!uc) throw new NotFoundError('Кейс не найден');
   return { success: true };
+}
+
+// ─── User Balance Management ────────────────────────────────
+
+export async function adjustUserBalance(
+  adminUserId: string,
+  input: { user_id: string; amount: number; description: string },
+) {
+  const [user] = await db
+    .select({ id: users.id, balance_usd: users.balance_usd })
+    .from(users)
+    .where(eq(users.id, input.user_id))
+    .limit(1);
+
+  if (!user) throw new NotFoundError('Пользователь не найден');
+
+  const currentBalance = Number(user.balance_usd);
+  const newBalance = currentBalance + input.amount;
+
+  if (newBalance < 0) {
+    throw new AppError(400, 'INSUFFICIENT_BALANCE', 'Недостаточно средств на балансе');
+  }
+
+  await db
+    .update(users)
+    .set({ balance_usd: String(newBalance.toFixed(4)) })
+    .where(eq(users.id, input.user_id));
+
+  const [tx] = await db
+    .insert(balanceTransactions)
+    .values({
+      user_id: input.user_id,
+      amount: String(input.amount),
+      balance_after: String(newBalance.toFixed(4)),
+      type: input.amount >= 0 ? 'admin_credit' : 'admin_debit',
+      description: input.description,
+      performed_by: adminUserId,
+    })
+    .returning();
+
+  return {
+    balance_usd: newBalance.toFixed(4),
+    transaction: {
+      id: tx.id,
+      amount: tx.amount,
+      balance_after: tx.balance_after,
+      type: tx.type,
+      description: tx.description,
+      created_at: tx.created_at.toISOString(),
+    },
+  };
 }

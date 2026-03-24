@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, numeric, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core';
 import { userRoleEnum, userStatusEnum, authProviderEnum } from './enums';
 
 export const users = pgTable('users', {
@@ -10,6 +10,7 @@ export const users = pgTable('users', {
   role: userRoleEnum('role').notNull().default('user'),
   status: userStatusEnum('status').notNull().default('active'),
   password_hash: text('password_hash'),
+  balance_usd: numeric('balance_usd', { precision: 12, scale: 4 }).notNull().default('0'),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

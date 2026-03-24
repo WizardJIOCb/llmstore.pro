@@ -20,6 +20,7 @@ import { AgentsDashboardPage } from './pages/dashboard/AgentsDashboardPage';
 import { RunsDashboardPage } from './pages/dashboard/RunsDashboardPage';
 import { AgentsHubPage } from './pages/agents/AgentsHubPage';
 import { SharedChatPage } from './pages/shared/SharedChatPage';
+import { ProfilePage } from './pages/profile/ProfilePage';
 
 declare global {
   interface Window {
@@ -78,6 +79,13 @@ export function App() {
         <Route path="/my/agents" element={
           <ProtectedRoute>
             <AgentsHubPage />
+          </ProtectedRoute>
+        } />
+
+        {/* Profile */}
+        <Route path="/profile" element={
+          <ProtectedRoute>
+            <ProfilePage />
           </ProtectedRoute>
         } />
 

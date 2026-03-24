@@ -9,3 +9,4 @@ export {
   useAgentStats,
   useChatHistory, useShareChat, useClearChat, useSharedChat,
 } from './useAgents';
+export { useProfile, useUpdateProfile, useUnlinkAccount } from './useProfile';

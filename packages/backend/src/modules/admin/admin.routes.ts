@@ -33,4 +33,7 @@ router.post('/use-cases', validateTaxonomyCreate, controller.createUseCase);
 router.put('/use-cases/:id', validateTaxonomyUpdate, controller.updateUseCase);
 router.delete('/use-cases/:id', controller.deleteUseCase);
 
+// User balance management
+router.post('/users/:id/balance', controller.adjustUserBalance);
+
 export const adminRoutes = router;
