@@ -34,14 +34,19 @@ export async function handleCallback(req: Request<ProviderParams>, res: Response
     const provider = req.params.provider;
     const { code, state, error, device_id } = req.query;
 
+    console.log(`[OAuth] callback ${provider}: code=${code ? 'present' : 'missing'}, state=${state ? 'present' : 'missing'}, device_id=${device_id || 'none'}, error=${error || 'none'}`);
+    console.log(`[OAuth] session state: ${req.session.oauthState || 'missing'}, mode: ${req.session.oauthMode || 'missing'}, codeVerifier: ${req.session.oauthCodeVerifier ? 'present' : 'missing'}`);
+
     if (error) {
-      res.redirect(`${env.FRONTEND_URL}/profile?oauth=error&message=${encodeURIComponent(String(error))}`);
+      console.log(`[OAuth] provider returned error: ${error}`);
+      res.redirect(`${env.FRONTEND_URL}/login?oauth=error&message=${encodeURIComponent(String(error))}`);
       return;
     }
 
     // CSRF check
     if (!state || state !== req.session.oauthState) {
-      res.redirect(`${env.FRONTEND_URL}/profile?oauth=error&message=${encodeURIComponent('Неверный state параметр')}`);
+      console.log(`[OAuth] state mismatch: got ${state}, expected ${req.session.oauthState}`);
+      res.redirect(`${env.FRONTEND_URL}/login?oauth=error&message=${encodeURIComponent('Неверный state параметр. Попробуйте ещё раз.')}`);
       return;
     }
 
@@ -63,6 +68,8 @@ export async function handleCallback(req: Request<ProviderParams>, res: Response
       state: String(state),
     });
 
+    console.log(`[OAuth] success: user ${user.email} (${user.id}), mode=${mode}`);
+
     // Set session for the user
     req.session.userId = user.id;
     req.session.userRole = user.role;
@@ -70,14 +77,16 @@ export async function handleCallback(req: Request<ProviderParams>, res: Response
     // Save session before redirect
     req.session.save((err) => {
       if (err) {
-        res.redirect(`${env.FRONTEND_URL}/profile?oauth=error&message=${encodeURIComponent('Ошибка сессии')}`);
+        console.error('[OAuth] session save error:', err);
+        res.redirect(`${env.FRONTEND_URL}/login?oauth=error&message=${encodeURIComponent('Ошибка сессии')}`);
         return;
       }
       const redirectPath = mode === 'link' ? '/profile' : '/';
       res.redirect(`${env.FRONTEND_URL}${redirectPath}?oauth=success&provider=${provider}`);
     });
   } catch (err) {
+    console.error('[OAuth] callback error:', err);
     const message = err instanceof Error ? err.message : 'Неизвестная ошибка';
-    res.redirect(`${env.FRONTEND_URL}/profile?oauth=error&message=${encodeURIComponent(message)}`);
+    res.redirect(`${env.FRONTEND_URL}/login?oauth=error&message=${encodeURIComponent(message)}`);
   }
 }
