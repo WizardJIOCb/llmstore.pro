@@ -51,7 +51,7 @@ const PROVIDER_CONFIG: Record<string, {
     authorizeUrl: 'https://id.vk.com/authorize',
     tokenUrl: 'https://id.vk.com/oauth2/auth',
     userInfoUrl: 'https://id.vk.com/oauth2/user_info',
-    scopes: 'vkid.personal_info email',
+    scopes: 'vkid.personal_info email phone',
     clientId: () => env.VK_CLIENT_ID,
     clientSecret: () => env.VK_CLIENT_SECRET,
     pkce: true,
@@ -121,7 +121,14 @@ interface TokenExchangeOptions {
   state?: string;
 }
 
-async function exchangeCodeForToken(opts: TokenExchangeOptions): Promise<string> {
+interface TokenResult {
+  accessToken: string;
+  email?: string;
+  phone?: string;
+  userId?: string;
+}
+
+async function exchangeCodeForToken(opts: TokenExchangeOptions): Promise<TokenResult> {
   const config = PROVIDER_CONFIG[opts.provider];
 
   const params = new URLSearchParams({
@@ -144,33 +151,52 @@ async function exchangeCodeForToken(opts: TokenExchangeOptions): Promise<string>
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
   });
 
-  return response.data.access_token;
+  if (opts.provider === 'vk') {
+    console.log('[OAuth VK] token response:', JSON.stringify(response.data));
+  }
+
+  return {
+    accessToken: response.data.access_token,
+    email: response.data.email,
+    phone: response.data.phone,
+    userId: response.data.user_id ? String(response.data.user_id) : undefined,
+  };
 }
 
 // ─── User info fetching ─────────────────────────────────────
 
-async function fetchUserInfo(provider: string, accessToken: string): Promise<OAuthUserInfo> {
+async function fetchUserInfo(provider: string, token: TokenResult): Promise<OAuthUserInfo> {
   const config = PROVIDER_CONFIG[provider];
 
   // VK uses POST with form data for user info
   if (provider === 'vk') {
     const response = await axios.post(
       config.userInfoUrl,
-      new URLSearchParams({ client_id: config.clientId(), access_token: accessToken }).toString(),
+      new URLSearchParams({ client_id: config.clientId(), access_token: token.accessToken }).toString(),
       { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
     );
+    console.log('[OAuth VK] userinfo response:', JSON.stringify(response.data));
     const data = response.data.user;
+
+    // Email can come from token response or userinfo
+    const email = data?.email || token.email || '';
+    const phone = data?.phone || token.phone || '';
+    const userId = String(data?.user_id || token.userId || '');
+
+    // If no email, generate a placeholder from VK user_id so we can still create account
+    const effectiveEmail = email || (phone ? `${phone}@vk.user` : `${userId}@vk.user`);
+
     return {
-      email: data.email || '',
-      name: [data.first_name, data.last_name].filter(Boolean).join(' ') || null,
-      avatar_url: data.avatar || null,
-      provider_account_id: String(data.user_id),
+      email: effectiveEmail,
+      name: [data?.first_name, data?.last_name].filter(Boolean).join(' ') || null,
+      avatar_url: data?.avatar || null,
+      provider_account_id: userId,
     };
   }
 
   // Other providers use GET with Bearer token
   const response = await axios.get(config.userInfoUrl, {
-    headers: { Authorization: `Bearer ${accessToken}` },
+    headers: { Authorization: `Bearer ${token.accessToken}` },
   });
 
   const data = response.data;
@@ -248,8 +274,8 @@ export async function handleCallback(opts: HandleCallbackOptions): Promise<UserP
   const { provider, code, sessionUserId, codeVerifier, deviceId, state } = opts;
   validateProvider(provider);
 
-  const accessToken = await exchangeCodeForToken({ provider, code, codeVerifier, deviceId, state });
-  const userInfo = await fetchUserInfo(provider, accessToken);
+  const token = await exchangeCodeForToken({ provider, code, codeVerifier, deviceId, state });
+  const userInfo = await fetchUserInfo(provider, token);
 
   if (!userInfo.email) {
     throw new AppError(400, 'NO_EMAIL', 'Не удалось получить email от провайдера');
@@ -281,7 +307,7 @@ export async function handleCallback(opts: HandleCallbackOptions): Promise<UserP
       user_id: sessionUserId,
       provider: provider as ProviderType,
       provider_account_id: userInfo.provider_account_id,
-      access_token: accessToken,
+      access_token: token.accessToken,
     });
 
     const [user] = await db.select(userPublicColumns).from(users).where(eq(users.id, sessionUserId)).limit(1);
@@ -309,7 +335,7 @@ export async function handleCallback(opts: HandleCallbackOptions): Promise<UserP
       user_id: existingUser.id as string,
       provider: provider as ProviderType,
       provider_account_id: userInfo.provider_account_id,
-      access_token: accessToken,
+      access_token: token.accessToken,
     });
     return toUserPublic(existingUser);
   }
@@ -330,7 +356,7 @@ export async function handleCallback(opts: HandleCallbackOptions): Promise<UserP
     user_id: newUser.id as string,
     provider: provider as ProviderType,
     provider_account_id: userInfo.provider_account_id,
-    access_token: accessToken,
+    access_token: token.accessToken,
   });
 
   return toUserPublic(newUser);
