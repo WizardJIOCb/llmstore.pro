@@ -130,7 +130,18 @@ export function ProfilePage() {
           {!editing ? (
             <div className="space-y-3">
               <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center text-lg font-semibold text-muted-foreground">
+                {profile.avatar_url ? (
+                  <img
+                    src={profile.avatar_url}
+                    alt=""
+                    className="w-12 h-12 rounded-full object-cover"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                      e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                    }}
+                  />
+                ) : null}
+                <div className={`w-12 h-12 rounded-full bg-muted flex items-center justify-center text-lg font-semibold text-muted-foreground${profile.avatar_url ? ' hidden' : ''}`}>
                   {(profile.name || profile.email)[0].toUpperCase()}
                 </div>
                 <div>
