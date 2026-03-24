@@ -1,6 +1,6 @@
-import { useRef, useEffect, useCallback } from 'react';
+import { useRef, useEffect, useCallback, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { useAgent, useStartRun } from '../../hooks/useAgents';
+import { useAgent, useStartRun, useChatHistory, useShareChat, useClearChat } from '../../hooks/useAgents';
 import { usePlaygroundStore } from '../../stores/playground-store';
 import { ChatMessage } from '../../components/agents/ChatMessage';
 import { ChatInput } from '../../components/agents/ChatInput';
@@ -14,19 +14,49 @@ import type { ToolTrace } from '../../lib/api/agents';
 export function AgentPlaygroundPage() {
   const { id } = useParams<{ id: string }>();
   const { data: agent, isLoading } = useAgent(id);
+  const { data: chatHistory, isLoading: historyLoading } = useChatHistory(id);
   const startRun = useStartRun();
+  const shareChatMutation = useShareChat();
+  const clearChatMutation = useClearChat();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [shareLabel, setShareLabel] = useState('Поделиться');
 
   const {
     messages,
     isRunning,
     error,
+    historyLoaded,
     addUserMessage,
     addAssistantMessage,
+    setMessages,
     setRunning,
     setError,
     clearMessages,
   } = usePlaygroundStore();
+
+  // Seed store from chat history on first load
+  useEffect(() => {
+    if (chatHistory?.messages && chatHistory.messages.length > 0 && !historyLoaded) {
+      const mapped = chatHistory.messages.map((m) => ({
+        role: m.role as 'user' | 'assistant',
+        content: m.content,
+        toolTraces: m.toolTraces,
+        runId: m.runId,
+        usage: m.usage,
+        latencyMs: m.latencyMs,
+      }));
+      setMessages(mapped);
+    } else if (chatHistory && chatHistory.messages.length === 0 && !historyLoaded) {
+      setMessages([]);
+    }
+  }, [chatHistory, historyLoaded, setMessages]);
+
+  // Clear store when navigating away (different agent)
+  useEffect(() => {
+    return () => {
+      clearMessages();
+    };
+  }, [id, clearMessages]);
 
   // Collect all tool traces from messages
   const allToolTraces = messages.reduce<ToolTrace[]>((acc, msg) => {
@@ -77,7 +107,31 @@ export function AgentPlaygroundPage() {
     }
   }, [id, isRunning, messages, addUserMessage, addAssistantMessage, setRunning, setError, startRun]);
 
-  if (isLoading) {
+  const handleShare = useCallback(async () => {
+    if (!id) return;
+    try {
+      const { share_token } = await shareChatMutation.mutateAsync(id);
+      const url = `${window.location.origin}/shared/chat/${share_token}`;
+      await navigator.clipboard.writeText(url);
+      setShareLabel('Скопировано!');
+      setTimeout(() => setShareLabel('Поделиться'), 2000);
+    } catch {
+      setShareLabel('Ошибка');
+      setTimeout(() => setShareLabel('Поделиться'), 2000);
+    }
+  }, [id, shareChatMutation]);
+
+  const handleClear = useCallback(async () => {
+    if (!id) return;
+    clearMessages();
+    try {
+      await clearChatMutation.mutateAsync(id);
+    } catch {
+      // Silently fail — local state is already cleared
+    }
+  }, [id, clearMessages, clearChatMutation]);
+
+  if (isLoading || historyLoading) {
     return (
       <div className="flex justify-center py-16">
         <Spinner />
@@ -104,10 +158,20 @@ export function AgentPlaygroundPage() {
             <p className="text-xs text-muted-foreground">{agent.description}</p>
           </div>
           <div className="flex items-center gap-2">
+            {messages.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleShare}
+                disabled={shareChatMutation.isPending}
+              >
+                {shareLabel}
+              </Button>
+            )}
             <Link to={`/builder/agent/${agent.id}`}>
               <Button variant="outline" size="sm">Настройки</Button>
             </Link>
-            <Button variant="ghost" size="sm" onClick={clearMessages}>
+            <Button variant="ghost" size="sm" onClick={handleClear}>
               Очистить
             </Button>
           </div>

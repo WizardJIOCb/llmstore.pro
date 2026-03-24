@@ -106,3 +106,36 @@ export function useRunList(agentId?: string) {
     queryFn: () => agentApi.listRuns(agentId),
   });
 }
+
+export function useChatHistory(agentId: string | undefined) {
+  return useQuery({
+    queryKey: ['chat-history', agentId],
+    queryFn: () => agentApi.getChatHistory(agentId!),
+    enabled: !!agentId,
+    staleTime: 10_000,
+  });
+}
+
+export function useShareChat() {
+  return useMutation({
+    mutationFn: (agentId: string) => agentApi.shareChat(agentId),
+  });
+}
+
+export function useClearChat() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (agentId: string) => agentApi.clearChat(agentId),
+    onSuccess: (_data, agentId) => {
+      qc.invalidateQueries({ queryKey: ['chat-history', agentId] });
+    },
+  });
+}
+
+export function useSharedChat(token: string | undefined) {
+  return useQuery({
+    queryKey: ['shared-chat', token],
+    queryFn: () => agentApi.getSharedChat(token!),
+    enabled: !!token,
+  });
+}

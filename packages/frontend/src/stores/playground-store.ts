@@ -14,6 +14,7 @@ interface PlaygroundState {
   messages: ChatMessage[];
   isRunning: boolean;
   error: string | null;
+  historyLoaded: boolean;
 
   addUserMessage: (content: string) => void;
   addAssistantMessage: (content: string, meta?: {
@@ -22,6 +23,7 @@ interface PlaygroundState {
     usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number; estimated_cost?: string; model?: string } | null;
     latencyMs?: number;
   }) => void;
+  setMessages: (msgs: ChatMessage[]) => void;
   setRunning: (running: boolean) => void;
   setError: (error: string | null) => void;
   clearMessages: () => void;
@@ -31,6 +33,7 @@ export const usePlaygroundStore = create<PlaygroundState>((set) => ({
   messages: [],
   isRunning: false,
   error: null,
+  historyLoaded: false,
 
   addUserMessage: (content) =>
     set((s) => ({
@@ -53,7 +56,8 @@ export const usePlaygroundStore = create<PlaygroundState>((set) => ({
       ],
     })),
 
+  setMessages: (msgs) => set({ messages: msgs, historyLoaded: true }),
   setRunning: (running) => set({ isRunning: running }),
   setError: (error) => set({ error }),
-  clearMessages: () => set({ messages: [], error: null }),
+  clearMessages: () => set({ messages: [], error: null, historyLoaded: false }),
 }));

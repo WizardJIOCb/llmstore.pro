@@ -1,11 +1,24 @@
 import {
-  pgTable, uuid, varchar, text, timestamp, integer, index,
+  pgTable, uuid, varchar, text, timestamp, integer, index, uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import { jsonb } from 'drizzle-orm/pg-core';
 import { users } from './auth';
 import { agents, agentVersions, toolDefinitions } from './agents';
 import { aiModels } from './models';
 import { agentRunStatusEnum, agentRunModeEnum, toolCallStatusEnum } from './enums';
+
+export const chatSessions = pgTable('chat_sessions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  agent_id: uuid('agent_id').notNull().references(() => agents.id, { onDelete: 'cascade' }),
+  user_id: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  share_token: varchar('share_token', { length: 64 }),
+  title: varchar('title', { length: 500 }),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex('chat_sessions_agent_user_idx').on(table.agent_id, table.user_id),
+  uniqueIndex('chat_sessions_share_token_idx').on(table.share_token),
+]);
 
 export const agentRuns = pgTable('agent_runs', {
   id: uuid('id').primaryKey().defaultRandom(),

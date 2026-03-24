@@ -28,3 +28,39 @@ export async function listRuns(req: Request, res: Response, next: NextFunction) 
     next(err);
   }
 }
+
+export async function getChatHistory(req: Request<{ agentId: string }>, res: Response, next: NextFunction) {
+  try {
+    const result = await runtimeService.getChatHistory(req.params.agentId, req.session.userId!);
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function shareChat(req: Request<{ agentId: string }>, res: Response, next: NextFunction) {
+  try {
+    const result = await runtimeService.shareChat(req.params.agentId, req.session.userId!);
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function clearChat(req: Request<{ agentId: string }>, res: Response, next: NextFunction) {
+  try {
+    await runtimeService.clearChatHistory(req.params.agentId, req.session.userId!);
+    res.json({ data: { ok: true } });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getSharedChat(req: Request<{ token: string }>, res: Response, next: NextFunction) {
+  try {
+    const result = await runtimeService.getSharedChat(req.params.token);
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}

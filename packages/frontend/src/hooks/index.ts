@@ -7,4 +7,5 @@ export {
   useCreateAgent, useUpdateAgent, useDeleteAgent,
   useCreateVersion, useStartRun, useRun, useRunList,
   useAgentStats,
+  useChatHistory, useShareChat, useClearChat, useSharedChat,
 } from './useAgents';

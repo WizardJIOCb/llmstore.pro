@@ -84,6 +84,26 @@ export interface AgentStats {
   last_run_at: string | null;
 }
 
+export interface ChatHistoryMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  runId?: string;
+  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number; estimated_cost: string; model: string } | null;
+  latencyMs?: number;
+  toolTraces?: ToolTrace[];
+}
+
+export interface ChatHistoryResponse {
+  session_id: string | null;
+  share_token: string | null;
+  messages: ChatHistoryMessage[];
+}
+
+export interface SharedChatResponse {
+  messages: ChatHistoryMessage[];
+  agent_name: string;
+}
+
 export interface RunDetail {
   id: string;
   agent_id: string;
@@ -150,6 +170,19 @@ export const agentApi = {
 
   getStats: () =>
     apiClient.get<{ data: Record<string, AgentStats> }>('/agents/stats').then(r => r.data.data),
+
+  // Chat history
+  getChatHistory: (agentId: string) =>
+    apiClient.get<{ data: ChatHistoryResponse }>(`/agents/${agentId}/chat`).then(r => r.data.data),
+
+  shareChat: (agentId: string) =>
+    apiClient.post<{ data: { share_token: string } }>(`/agents/${agentId}/chat/share`).then(r => r.data.data),
+
+  clearChat: (agentId: string) =>
+    apiClient.post(`/agents/${agentId}/chat/clear`),
+
+  getSharedChat: (token: string) =>
+    apiClient.get<{ data: SharedChatResponse }>(`/shared/chat/${token}`).then(r => r.data.data),
 
   // Runtime
   startRun: (agentId: string, data: {

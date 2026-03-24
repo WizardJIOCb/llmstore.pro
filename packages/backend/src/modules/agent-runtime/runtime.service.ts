@@ -1,8 +1,8 @@
 import { db } from '../../config/database.js';
 import { agents, agentVersions, agentVersionTools, toolDefinitions } from '../../db/schema/agents.js';
-import { agentRuns, agentRunMessages, agentRunToolCalls } from '../../db/schema/runtime.js';
+import { agentRuns, agentRunMessages, agentRunToolCalls, chatSessions } from '../../db/schema/runtime.js';
 import { usageLedger } from '../../db/schema/analytics.js';
-import { eq, desc, and } from 'drizzle-orm';
+import { eq, desc, and, sql } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import { openRouterClient } from '../openrouter/index.js';
 import { executeTool } from '../tool-execution/index.js';
@@ -100,6 +100,26 @@ export async function startRun(agentId: string, userId: string, input: StartRunI
     trace_id: traceId,
     input_summary: input.messages[input.messages.length - 1]?.content?.slice(0, 200) ?? '',
   }).returning();
+
+  // 4b. Link run to chat session (find or create)
+  const [existingSession] = await db
+    .select().from(chatSessions)
+    .where(and(eq(chatSessions.agent_id, agentId), eq(chatSessions.user_id, userId)))
+    .limit(1);
+
+  let sessionId: string;
+  if (existingSession) {
+    sessionId = existingSession.id;
+  } else {
+    const firstMsg = input.messages[input.messages.length - 1]?.content?.slice(0, 100) ?? null;
+    const [newSession] = await db.insert(chatSessions).values({
+      agent_id: agentId,
+      user_id: userId,
+      title: firstMsg,
+    }).returning();
+    sessionId = newSession.id;
+  }
+  await db.update(agentRuns).set({ session_key: sessionId }).where(eq(agentRuns.id, run.id));
 
   // 5. Build messages
   const messages: ChatMessage[] = [];
@@ -354,4 +374,182 @@ export async function listRuns(userId: string, agentId?: string) {
     .limit(100);
 
   return query;
+}
+
+// --- Chat History ---
+
+interface ChatHistoryMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  runId?: string;
+  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number; estimated_cost: string; model: string } | null;
+  latencyMs?: number;
+  toolTraces?: ToolTrace[];
+}
+
+export async function getChatHistory(agentId: string, userId: string) {
+  const [session] = await db
+    .select().from(chatSessions)
+    .where(and(eq(chatSessions.agent_id, agentId), eq(chatSessions.user_id, userId)))
+    .limit(1);
+
+  if (!session) {
+    return { session_id: null, share_token: null, messages: [] as ChatHistoryMessage[] };
+  }
+
+  // Load completed runs for this session
+  const runs = await db
+    .select({
+      id: agentRuns.id,
+      input_summary: agentRuns.input_summary,
+      final_output: agentRuns.final_output,
+      latency_ms: agentRuns.latency_ms,
+      status: agentRuns.status,
+      started_at: agentRuns.started_at,
+    })
+    .from(agentRuns)
+    .where(and(eq(agentRuns.session_key, session.id), eq(agentRuns.status, 'completed')))
+    .orderBy(agentRuns.started_at);
+
+  if (runs.length === 0) {
+    return { session_id: session.id, share_token: session.share_token, messages: [] as ChatHistoryMessage[] };
+  }
+
+  // Load tool calls for all runs in one query
+  const runIds = runs.map(r => r.id);
+  const allToolCalls = await db
+    .select()
+    .from(agentRunToolCalls)
+    .where(sql`${agentRunToolCalls.run_id} = ANY(${runIds})`)
+    .orderBy(agentRunToolCalls.created_at);
+
+  // Load usage data for all runs
+  const allUsage = await db
+    .select()
+    .from(usageLedger)
+    .where(sql`${usageLedger.run_id} = ANY(${runIds})`);
+
+  // Group tool calls and usage by run_id
+  const toolCallsByRun = new Map<string, ToolTrace[]>();
+  for (const tc of allToolCalls) {
+    const traces = toolCallsByRun.get(tc.run_id) ?? [];
+    traces.push({
+      tool_call_id: tc.tool_call_id,
+      tool_name: tc.tool_name,
+      input: tc.tool_input,
+      output: tc.tool_output ?? null,
+      status: tc.status,
+      duration_ms: tc.duration_ms,
+      error: tc.error_message ?? undefined,
+    });
+    toolCallsByRun.set(tc.run_id, traces);
+  }
+
+  const usageByRun = new Map<string, typeof allUsage[0]>();
+  for (const u of allUsage) {
+    usageByRun.set(u.run_id, u);
+  }
+
+  // Build message pairs
+  const messages: ChatHistoryMessage[] = [];
+  for (const run of runs) {
+    if (run.input_summary) {
+      messages.push({ role: 'user', content: run.input_summary });
+    }
+    if (run.final_output) {
+      const u = usageByRun.get(run.id);
+      const usage = u ? {
+        prompt_tokens: u.prompt_tokens,
+        completion_tokens: u.completion_tokens,
+        total_tokens: u.total_tokens ?? (u.prompt_tokens + u.completion_tokens),
+        estimated_cost: String(u.estimated_cost ?? '0'),
+        model: u.model_external_id,
+      } : null;
+
+      messages.push({
+        role: 'assistant',
+        content: run.final_output,
+        runId: run.id,
+        usage,
+        latencyMs: run.latency_ms ?? undefined,
+        toolTraces: toolCallsByRun.get(run.id),
+      });
+    }
+  }
+
+  return { session_id: session.id, share_token: session.share_token, messages };
+}
+
+export async function shareChat(agentId: string, userId: string) {
+  const [session] = await db
+    .select().from(chatSessions)
+    .where(and(eq(chatSessions.agent_id, agentId), eq(chatSessions.user_id, userId)))
+    .limit(1);
+
+  if (!session) throw new NotFoundError('Чат не найден');
+
+  if (session.share_token) {
+    return { share_token: session.share_token };
+  }
+
+  const token = uuidv4().replace(/-/g, '').slice(0, 16);
+  await db.update(chatSessions)
+    .set({ share_token: token, updated_at: new Date() })
+    .where(eq(chatSessions.id, session.id));
+
+  return { share_token: token };
+}
+
+export async function getSharedChat(token: string) {
+  const [session] = await db
+    .select().from(chatSessions)
+    .where(eq(chatSessions.share_token, token))
+    .limit(1);
+
+  if (!session) throw new NotFoundError('Чат не найден');
+
+  // Load agent name
+  const [agent] = await db.select({ name: agents.name }).from(agents).where(eq(agents.id, session.agent_id)).limit(1);
+
+  // Load completed runs
+  const runs = await db
+    .select({
+      id: agentRuns.id,
+      input_summary: agentRuns.input_summary,
+      final_output: agentRuns.final_output,
+      latency_ms: agentRuns.latency_ms,
+      started_at: agentRuns.started_at,
+    })
+    .from(agentRuns)
+    .where(and(eq(agentRuns.session_key, session.id), eq(agentRuns.status, 'completed')))
+    .orderBy(agentRuns.started_at);
+
+  const messages: ChatHistoryMessage[] = [];
+  for (const run of runs) {
+    if (run.input_summary) {
+      messages.push({ role: 'user', content: run.input_summary });
+    }
+    if (run.final_output) {
+      messages.push({ role: 'assistant', content: run.final_output });
+    }
+  }
+
+  return { messages, agent_name: agent?.name ?? 'Agent' };
+}
+
+export async function clearChatHistory(agentId: string, userId: string) {
+  const [session] = await db
+    .select().from(chatSessions)
+    .where(and(eq(chatSessions.agent_id, agentId), eq(chatSessions.user_id, userId)))
+    .limit(1);
+
+  if (!session) return;
+
+  // Unlink runs from session (keep runs for analytics)
+  await db.update(agentRuns)
+    .set({ session_key: null })
+    .where(eq(agentRuns.session_key, session.id));
+
+  // Delete the session
+  await db.delete(chatSessions).where(eq(chatSessions.id, session.id));
 }

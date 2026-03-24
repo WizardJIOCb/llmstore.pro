@@ -19,6 +19,7 @@ import { AgentPlaygroundPage } from './pages/playground/AgentPlaygroundPage';
 import { AgentsDashboardPage } from './pages/dashboard/AgentsDashboardPage';
 import { RunsDashboardPage } from './pages/dashboard/RunsDashboardPage';
 import { AgentsHubPage } from './pages/agents/AgentsHubPage';
+import { SharedChatPage } from './pages/shared/SharedChatPage';
 
 declare global {
   interface Window {
@@ -79,6 +80,9 @@ export function App() {
             <AgentsHubPage />
           </ProtectedRoute>
         } />
+
+        {/* Shared chat (public, no auth) */}
+        <Route path="/shared/chat/:token" element={<SharedChatPage />} />
 
         {/* Compare */}
         <Route path="/compare" element={<PlaceholderPage title="Сравнение" />} />
