@@ -1,4 +1,5 @@
 import axios from 'axios';
+import crypto from 'crypto';
 import { eq, and } from 'drizzle-orm';
 import { db } from '../../config/database.js';
 import { users, authAccounts } from '../../db/schema/index.js';
@@ -20,6 +21,7 @@ const PROVIDER_CONFIG: Record<string, {
   scopes: string;
   clientId: () => string;
   clientSecret: () => string;
+  pkce?: boolean;
 }> = {
   google: {
     authorizeUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
@@ -45,6 +47,15 @@ const PROVIDER_CONFIG: Record<string, {
     clientId: () => env.MAILRU_CLIENT_ID,
     clientSecret: () => env.MAILRU_CLIENT_SECRET,
   },
+  vk: {
+    authorizeUrl: 'https://id.vk.com/authorize',
+    tokenUrl: 'https://id.vk.com/oauth2/auth',
+    userInfoUrl: 'https://id.vk.com/oauth2/user_info',
+    scopes: 'vkid.personal_info email',
+    clientId: () => env.VK_CLIENT_ID,
+    clientSecret: () => env.VK_CLIENT_SECRET,
+    pkce: true,
+  },
 };
 
 const SUPPORTED_PROVIDERS = Object.keys(PROVIDER_CONFIG);
@@ -59,7 +70,20 @@ function getCallbackUrl(provider: string): string {
   return `${env.BACKEND_URL}/api/auth/oauth/${provider}/callback`;
 }
 
-export function getOAuthUrl(provider: string, state: string): string {
+// ─── PKCE helpers ───────────────────────────────────────────
+
+export function generatePkce(): { codeVerifier: string; codeChallenge: string } {
+  const codeVerifier = crypto.randomBytes(32).toString('base64url');
+  const codeChallenge = crypto
+    .createHash('sha256')
+    .update(codeVerifier)
+    .digest('base64url');
+  return { codeVerifier, codeChallenge };
+}
+
+// ─── OAuth URL generation ───────────────────────────────────
+
+export function getOAuthUrl(provider: string, state: string, codeChallenge?: string): string {
   validateProvider(provider);
   const config = PROVIDER_CONFIG[provider];
   const params = new URLSearchParams({
@@ -78,19 +102,43 @@ export function getOAuthUrl(provider: string, state: string): string {
     params.set('prompt', 'consent');
   }
 
+  // VK ID requires PKCE
+  if (config.pkce && codeChallenge) {
+    params.set('code_challenge', codeChallenge);
+    params.set('code_challenge_method', 's256');
+  }
+
   return `${config.authorizeUrl}?${params.toString()}`;
 }
 
-async function exchangeCodeForToken(provider: string, code: string): Promise<string> {
-  const config = PROVIDER_CONFIG[provider];
+// ─── Token exchange ─────────────────────────────────────────
+
+interface TokenExchangeOptions {
+  provider: string;
+  code: string;
+  codeVerifier?: string;
+  deviceId?: string;
+  state?: string;
+}
+
+async function exchangeCodeForToken(opts: TokenExchangeOptions): Promise<string> {
+  const config = PROVIDER_CONFIG[opts.provider];
 
   const params = new URLSearchParams({
     client_id: config.clientId(),
-    client_secret: config.clientSecret(),
-    code,
-    redirect_uri: getCallbackUrl(provider),
+    code: opts.code,
+    redirect_uri: getCallbackUrl(opts.provider),
     grant_type: 'authorization_code',
   });
+
+  // VK uses PKCE instead of client_secret
+  if (config.pkce) {
+    if (opts.codeVerifier) params.set('code_verifier', opts.codeVerifier);
+    if (opts.deviceId) params.set('device_id', opts.deviceId);
+    if (opts.state) params.set('state', opts.state);
+  } else {
+    params.set('client_secret', config.clientSecret());
+  }
 
   const response = await axios.post(config.tokenUrl, params.toString(), {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -99,9 +147,28 @@ async function exchangeCodeForToken(provider: string, code: string): Promise<str
   return response.data.access_token;
 }
 
+// ─── User info fetching ─────────────────────────────────────
+
 async function fetchUserInfo(provider: string, accessToken: string): Promise<OAuthUserInfo> {
   const config = PROVIDER_CONFIG[provider];
 
+  // VK uses POST with form data for user info
+  if (provider === 'vk') {
+    const response = await axios.post(
+      config.userInfoUrl,
+      new URLSearchParams({ client_id: config.clientId(), access_token: accessToken }).toString(),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
+    );
+    const data = response.data.user;
+    return {
+      email: data.email || '',
+      name: [data.first_name, data.last_name].filter(Boolean).join(' ') || null,
+      avatar_url: data.avatar || null,
+      provider_account_id: String(data.user_id),
+    };
+  }
+
+  // Other providers use GET with Bearer token
   const response = await axios.get(config.userInfoUrl, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
@@ -137,6 +204,10 @@ async function fetchUserInfo(provider: string, accessToken: string): Promise<OAu
   }
 }
 
+// ─── Helpers ────────────────────────────────────────────────
+
+type ProviderType = 'google' | 'yandex' | 'mailru' | 'vk';
+
 const userPublicColumns = {
   id: users.id,
   email: users.email,
@@ -162,14 +233,22 @@ function toUserPublic(user: typeof userPublicColumns extends infer T ? { [K in k
   };
 }
 
-export async function handleCallback(
-  provider: string,
-  code: string,
-  sessionUserId?: string,
-): Promise<UserPublic> {
+// ─── Main callback handler ──────────────────────────────────
+
+export interface HandleCallbackOptions {
+  provider: string;
+  code: string;
+  sessionUserId?: string;
+  codeVerifier?: string;
+  deviceId?: string;
+  state?: string;
+}
+
+export async function handleCallback(opts: HandleCallbackOptions): Promise<UserPublic> {
+  const { provider, code, sessionUserId, codeVerifier, deviceId, state } = opts;
   validateProvider(provider);
 
-  const accessToken = await exchangeCodeForToken(provider, code);
+  const accessToken = await exchangeCodeForToken({ provider, code, codeVerifier, deviceId, state });
   const userInfo = await fetchUserInfo(provider, accessToken);
 
   if (!userInfo.email) {
@@ -182,7 +261,7 @@ export async function handleCallback(
     .from(authAccounts)
     .where(
       and(
-        eq(authAccounts.provider, provider as 'google' | 'yandex' | 'mailru'),
+        eq(authAccounts.provider, provider as ProviderType),
         eq(authAccounts.provider_account_id, userInfo.provider_account_id),
       ),
     )
@@ -192,7 +271,6 @@ export async function handleCallback(
   if (sessionUserId) {
     if (existingAccount) {
       if (existingAccount.user_id === sessionUserId) {
-        // Already linked to this user — just return
         const [user] = await db.select(userPublicColumns).from(users).where(eq(users.id, sessionUserId)).limit(1);
         return toUserPublic(user);
       }
@@ -201,7 +279,7 @@ export async function handleCallback(
 
     await db.insert(authAccounts).values({
       user_id: sessionUserId,
-      provider: provider as 'google' | 'yandex' | 'mailru',
+      provider: provider as ProviderType,
       provider_account_id: userInfo.provider_account_id,
       access_token: accessToken,
     });
@@ -229,7 +307,7 @@ export async function handleCallback(
   if (existingUser) {
     await db.insert(authAccounts).values({
       user_id: existingUser.id as string,
-      provider: provider as 'google' | 'yandex' | 'mailru',
+      provider: provider as ProviderType,
       provider_account_id: userInfo.provider_account_id,
       access_token: accessToken,
     });
@@ -250,7 +328,7 @@ export async function handleCallback(
 
   await db.insert(authAccounts).values({
     user_id: newUser.id as string,
-    provider: provider as 'google' | 'yandex' | 'mailru',
+    provider: provider as ProviderType,
     provider_account_id: userInfo.provider_account_id,
     access_token: accessToken,
   });

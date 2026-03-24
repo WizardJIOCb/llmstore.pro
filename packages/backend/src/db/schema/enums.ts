@@ -3,7 +3,7 @@ import { pgEnum } from 'drizzle-orm/pg-core';
 // Auth enums
 export const userRoleEnum = pgEnum('user_role', ['user', 'power_user', 'curator', 'admin']);
 export const userStatusEnum = pgEnum('user_status', ['active', 'suspended', 'deleted']);
-export const authProviderEnum = pgEnum('auth_provider', ['email', 'google', 'github', 'yandex', 'mailru']);
+export const authProviderEnum = pgEnum('auth_provider', ['email', 'google', 'github', 'yandex', 'mailru', 'vk']);
 
 // Catalog enums
 export const contentTypeEnum = pgEnum('content_type', [

@@ -6,5 +6,6 @@ declare module 'express-session' {
     userRole: string;
     oauthState?: string;
     oauthMode?: 'login' | 'link';
+    oauthCodeVerifier?: string;
   }
 }

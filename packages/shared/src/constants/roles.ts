@@ -25,6 +25,7 @@ export const AuthProvider = {
   GITHUB: 'github',
   YANDEX: 'yandex',
   MAILRU: 'mailru',
+  VK: 'vk',
 } as const;
 
 export type AuthProvider = (typeof AuthProvider)[keyof typeof AuthProvider];
