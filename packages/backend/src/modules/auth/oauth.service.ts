@@ -261,6 +261,19 @@ function toUserPublic(user: typeof userPublicColumns extends infer T ? { [K in k
 
 // ─── Main callback handler ──────────────────────────────────
 
+/** Update user avatar from OAuth provider if user has no avatar set */
+async function updateAvatarIfMissing(userId: string, avatarUrl: string | null) {
+  if (!avatarUrl) return;
+  const [user] = await db
+    .select({ avatar_url: users.avatar_url })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  if (user && !user.avatar_url) {
+    await db.update(users).set({ avatar_url: avatarUrl }).where(eq(users.id, userId));
+  }
+}
+
 export interface HandleCallbackOptions {
   provider: string;
   code: string;
@@ -297,6 +310,7 @@ export async function handleCallback(opts: HandleCallbackOptions): Promise<UserP
   if (sessionUserId) {
     if (existingAccount) {
       if (existingAccount.user_id === sessionUserId) {
+        await updateAvatarIfMissing(sessionUserId, userInfo.avatar_url);
         const [user] = await db.select(userPublicColumns).from(users).where(eq(users.id, sessionUserId)).limit(1);
         return toUserPublic(user);
       }
@@ -310,6 +324,7 @@ export async function handleCallback(opts: HandleCallbackOptions): Promise<UserP
       access_token: token.accessToken,
     });
 
+    await updateAvatarIfMissing(sessionUserId, userInfo.avatar_url);
     const [user] = await db.select(userPublicColumns).from(users).where(eq(users.id, sessionUserId)).limit(1);
     return toUserPublic(user);
   }
@@ -318,6 +333,7 @@ export async function handleCallback(opts: HandleCallbackOptions): Promise<UserP
 
   // Case 1: Account already exists — login
   if (existingAccount) {
+    await updateAvatarIfMissing(existingAccount.user_id, userInfo.avatar_url);
     const [user] = await db.select(userPublicColumns).from(users).where(eq(users.id, existingAccount.user_id)).limit(1);
     if (!user) throw new AppError(500, 'USER_NOT_FOUND', 'Пользователь не найден');
     return toUserPublic(user);
@@ -337,7 +353,9 @@ export async function handleCallback(opts: HandleCallbackOptions): Promise<UserP
       provider_account_id: userInfo.provider_account_id,
       access_token: token.accessToken,
     });
-    return toUserPublic(existingUser);
+    await updateAvatarIfMissing(existingUser.id as string, userInfo.avatar_url);
+    const [updated] = await db.select(userPublicColumns).from(users).where(eq(users.id, existingUser.id as string)).limit(1);
+    return toUserPublic(updated);
   }
 
   // Case 3: Create new user
