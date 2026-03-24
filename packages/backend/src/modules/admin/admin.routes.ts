@@ -4,7 +4,9 @@ import {
   validateCreateItem, validateUpdateItem, validateAdminListQuery,
   validateTaxonomyCreate, validateTaxonomyUpdate,
 } from './admin.validators.js';
+import { validateCreateNews, validateUpdateNews, validateAdminNewsListQuery } from '../news/news.validators.js';
 import { requireRole } from '../../middleware/auth-guard.js';
+import { newsUpload } from '../../config/upload.js';
 
 const router = Router();
 
@@ -42,5 +44,16 @@ router.post('/users/:id/balance', controller.adjustUserBalance);
 
 // Agents management (admin view)
 router.get('/agents', controller.listAllAgents);
+
+// News CRUD
+router.get('/news', validateAdminNewsListQuery, controller.listNews);
+router.get('/news/:id', controller.getNews);
+router.post('/news', validateCreateNews, controller.createNews);
+router.put('/news/:id', validateUpdateNews, controller.updateNews);
+router.delete('/news/:id', controller.deleteNews);
+
+// News image upload
+router.post('/upload/news', newsUpload.array('images', 10), controller.uploadNewsImages);
+router.delete('/upload/news/:filename', controller.deleteNewsImage);
 
 export const adminRoutes = router;

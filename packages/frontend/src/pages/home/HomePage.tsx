@@ -1,4 +1,6 @@
 import { Link } from 'react-router-dom';
+import { useLatestNews } from '../../hooks/useNews';
+import { NewsCard } from '../../components/news/NewsCard';
 
 const sections = [
   {
@@ -40,6 +42,10 @@ const sections = [
 ];
 
 export function HomePage() {
+  const { data: newsData } = useLatestNews(3);
+  const newsItems = newsData?.data ?? [];
+  const totalNews = newsData?.meta?.total ?? 0;
+
   return (
     <div>
       {/* Hero */}
@@ -70,6 +76,25 @@ export function HomePage() {
           </div>
         </div>
       </section>
+
+      {/* Latest News */}
+      {newsItems.length > 0 && (
+        <section className="container mx-auto px-4 py-12">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-2xl font-bold">Последние новости</h2>
+            {totalNews > 3 && (
+              <Link to="/news" className="text-sm text-primary font-medium hover:underline">
+                Показать все &rarr;
+              </Link>
+            )}
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {newsItems.map((article: any) => (
+              <NewsCard key={article.id} article={article} />
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Sections grid */}
       <section className="container mx-auto px-4 py-16">

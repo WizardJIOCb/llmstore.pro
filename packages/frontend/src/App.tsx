@@ -11,6 +11,10 @@ import { AdminCatalogListPage } from './pages/admin/AdminCatalogListPage';
 import { AdminCatalogFormPage } from './pages/admin/AdminCatalogFormPage';
 import { AdminUsersPage } from './pages/admin/AdminUsersPage';
 import { AdminAgentsPage } from './pages/admin/AdminAgentsPage';
+import { AdminNewsListPage } from './pages/admin/AdminNewsListPage';
+import { AdminNewsFormPage } from './pages/admin/AdminNewsFormPage';
+import { NewsListPage } from './pages/news/NewsListPage';
+import { NewsDetailPage } from './pages/news/NewsDetailPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { StackBuilderPage } from './pages/builder/StackBuilderPage';
 import { SavedStacksPage } from './pages/builder/SavedStacksPage';
@@ -58,6 +62,10 @@ export function App() {
         <Route path="/stacks" element={<CatalogListPage type="stack_preset" />} />
         <Route path="/stacks/:slug" element={<CatalogDetailPage type="stack_preset" />} />
         <Route path="/guides" element={<CatalogListPage type="guide" />} />
+
+        {/* News routes */}
+        <Route path="/news" element={<NewsListPage />} />
+        <Route path="/news/:slug" element={<NewsDetailPage />} />
 
         {/* Builder routes */}
         <Route path="/builder/stack" element={<StackBuilderPage />} />
@@ -125,6 +133,30 @@ export function App() {
         <Route path="/dashboard/costs" element={<PlaceholderPage title="Затраты" />} />
 
         {/* Admin routes */}
+        <Route
+          path="/admin/news"
+          element={
+            <ProtectedRoute requireAdmin>
+              <AdminNewsListPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/news/new"
+          element={
+            <ProtectedRoute requireAdmin>
+              <AdminNewsFormPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/news/:id"
+          element={
+            <ProtectedRoute requireAdmin>
+              <AdminNewsFormPage />
+            </ProtectedRoute>
+          }
+        />
         <Route
           path="/admin"
           element={

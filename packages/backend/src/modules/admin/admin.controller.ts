@@ -1,5 +1,9 @@
 import type { Request, Response, NextFunction } from 'express';
 import * as adminService from './admin.service.js';
+import * as newsService from '../news/news.service.js';
+import { unlink } from 'fs/promises';
+import path from 'path';
+import { UPLOADS_DIR } from '../../config/upload.js';
 
 type IdParams = { id: string };
 
@@ -196,6 +200,79 @@ export async function listAllAgents(req: Request, res: Response, next: NextFunct
   try {
     const result = await adminService.listAllAgents(req.query as any);
     res.json({ data: result.agents, meta: result.meta });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ─── News ───────────────────────────────────────────────────
+
+export async function listNews(req: Request, res: Response, next: NextFunction) {
+  try {
+    const result = await newsService.listForAdmin(req.query as any);
+    res.json({ data: result.items, meta: result.meta });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getNews(req: Request<IdParams>, res: Response, next: NextFunction) {
+  try {
+    const article = await newsService.getById(req.params.id);
+    res.json({ data: article });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function createNews(req: Request, res: Response, next: NextFunction) {
+  try {
+    const article = await newsService.create(req.body, req.session.userId!);
+    res.status(201).json({ data: article });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function updateNews(req: Request<IdParams>, res: Response, next: NextFunction) {
+  try {
+    const article = await newsService.update(req.params.id, req.body);
+    res.json({ data: article });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function deleteNews(req: Request<IdParams>, res: Response, next: NextFunction) {
+  try {
+    const result = await newsService.remove(req.params.id);
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ─── News Image Upload ──────────────────────────────────────
+
+export async function uploadNewsImages(req: Request, res: Response, next: NextFunction) {
+  try {
+    const files = req.files as Express.Multer.File[];
+    const result = files.map((f) => ({
+      filename: f.filename,
+      original_name: f.originalname,
+      url: `/uploads/news/${f.filename}`,
+    }));
+    res.status(201).json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function deleteNewsImage(req: Request<{ filename: string }>, res: Response, next: NextFunction) {
+  try {
+    const filePath = path.join(UPLOADS_DIR, 'news', req.params.filename);
+    await unlink(filePath);
+    res.json({ data: { success: true } });
   } catch (err) {
     next(err);
   }

@@ -49,3 +49,6 @@ export const runtimeTypeEnum = pgEnum('runtime_type', ['ollama', 'lm_studio', 'l
 export const budgetTierEnum = pgEnum('budget_tier', ['free', 'low', 'medium', 'high', 'enterprise']);
 export const complexityLevelEnum = pgEnum('complexity_level', ['simple', 'moderate', 'complex', 'expert']);
 export const currencyEnum = pgEnum('currency', ['usd']);
+
+// News enums
+export const newsStatusEnum = pgEnum('news_status', ['draft', 'published']);

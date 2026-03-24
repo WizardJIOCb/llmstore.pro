@@ -14,6 +14,8 @@ import { stackBuilderRoutes } from './modules/stack-builder/index.js';
 import { agentBuilderRoutes } from './modules/agent-builder/index.js';
 import { agentRuntimeRoutes } from './modules/agent-runtime/index.js';
 import { profileRoutes } from './modules/profile/index.js';
+import { newsRoutes } from './modules/news/index.js';
+import { UPLOADS_DIR } from './config/upload.js';
 
 export function createApp() {
   const app = express();
@@ -59,6 +61,9 @@ export function createApp() {
     next();
   });
 
+  // Static files (uploads)
+  app.use('/uploads', express.static(UPLOADS_DIR));
+
   // Health check
   app.get('/api/health', (_req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -67,6 +72,7 @@ export function createApp() {
   // Module routes
   app.use('/api/auth', authRoutes);
   app.use('/api/profile', profileRoutes);
+  app.use('/api/news', newsRoutes);
   app.use('/api/catalog', catalogRoutes);
   app.use('/api/admin', adminRoutes);
   app.use('/api/builder/stack', stackBuilderRoutes);

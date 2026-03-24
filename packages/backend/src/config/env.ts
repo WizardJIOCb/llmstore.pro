@@ -34,6 +34,7 @@ const envSchema = z.object({
   MAILRU_CLIENT_SECRET: z.string().default(''),
   VK_CLIENT_ID: z.string().default(''),
   VK_CLIENT_SECRET: z.string().default(''),
+  UPLOADS_DIR: z.string().default('./uploads'),
   BACKEND_URL: z.string().default('http://localhost:3001'),
   PORT: z.coerce.number().default(3001),
   FRONTEND_URL: z.string().url().default('http://localhost:5173'),

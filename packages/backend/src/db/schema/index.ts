@@ -27,3 +27,6 @@ export * from './source-cache';
 
 // User data
 export * from './user-data';
+
+// News
+export * from './news';

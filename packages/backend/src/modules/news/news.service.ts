@@ -1,0 +1,274 @@
+import { eq, sql, desc, and, ilike } from 'drizzle-orm';
+import { randomUUID } from 'crypto';
+import { unlink } from 'fs/promises';
+import path from 'path';
+import { db } from '../../config/database.js';
+import { news, newsImages } from '../../db/schema/index.js';
+import { UPLOADS_DIR } from '../../config/upload.js';
+import { NotFoundError } from '../../middleware/error-handler.js';
+import type { CreateNewsInput, UpdateNewsInput } from './news.validators.js';
+
+// ─── Slug generation ────────────────────────────────────────
+
+function generateSlug(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[а-яё]/g, (c) => {
+      const map: Record<string, string> = {
+        'а':'a','б':'b','в':'v','г':'g','д':'d','е':'e','ё':'yo','ж':'zh',
+        'з':'z','и':'i','й':'y','к':'k','л':'l','м':'m','н':'n','о':'o',
+        'п':'p','р':'r','с':'s','т':'t','у':'u','ф':'f','х':'kh','ц':'ts',
+        'ч':'ch','ш':'sh','щ':'shch','ъ':'','ы':'y','ь':'','э':'e','ю':'yu','я':'ya',
+      };
+      return map[c] || c;
+    })
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 200)
+    + '-' + randomUUID().slice(0, 6);
+}
+
+// ─── Helpers ────────────────────────────────────────────────
+
+async function loadImages(newsId: string) {
+  const images = await db
+    .select()
+    .from(newsImages)
+    .where(eq(newsImages.news_id, newsId))
+    .orderBy(newsImages.sort_order);
+
+  return images.map((img) => ({
+    id: img.id,
+    filename: img.filename,
+    original_name: img.original_name,
+    url: `/uploads/news/${img.filename}`,
+    sort_order: img.sort_order,
+  }));
+}
+
+function formatArticle(row: typeof news.$inferSelect, images: Awaited<ReturnType<typeof loadImages>>) {
+  return {
+    id: row.id,
+    title: row.title,
+    slug: row.slug,
+    content: row.content,
+    excerpt: row.excerpt,
+    status: row.status,
+    author_user_id: row.author_user_id,
+    published_at: row.published_at?.toISOString() ?? null,
+    created_at: row.created_at.toISOString(),
+    updated_at: row.updated_at.toISOString(),
+    images,
+  };
+}
+
+// ─── Public ─────────────────────────────────────────────────
+
+export async function listPublished(query: { page: number; per_page: number }) {
+  const { page, per_page } = query;
+  const offset = (page - 1) * per_page;
+
+  const [countResult] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(news)
+    .where(eq(news.status, 'published'));
+
+  const total = countResult.count;
+
+  const rows = await db
+    .select()
+    .from(news)
+    .where(eq(news.status, 'published'))
+    .orderBy(desc(news.published_at))
+    .limit(per_page)
+    .offset(offset);
+
+  const items = await Promise.all(
+    rows.map(async (row) => {
+      const images = await loadImages(row.id);
+      return formatArticle(row, images);
+    }),
+  );
+
+  return {
+    items,
+    meta: {
+      total,
+      page,
+      per_page,
+      total_pages: Math.ceil(total / per_page),
+    },
+  };
+}
+
+export async function getBySlug(slug: string) {
+  const [row] = await db
+    .select()
+    .from(news)
+    .where(and(eq(news.slug, slug), eq(news.status, 'published')))
+    .limit(1);
+
+  if (!row) throw new NotFoundError('Новость не найдена');
+
+  const images = await loadImages(row.id);
+  return formatArticle(row, images);
+}
+
+// ─── Admin ──────────────────────────────────────────────────
+
+export async function listForAdmin(query: { page: number; per_page: number; status?: string; search?: string }) {
+  const { page, per_page, status, search } = query;
+  const offset = (page - 1) * per_page;
+
+  const conditions = [];
+  if (status) conditions.push(eq(news.status, status as 'draft' | 'published'));
+  if (search) conditions.push(ilike(news.title, `%${search}%`));
+
+  const where = conditions.length > 0 ? and(...conditions) : undefined;
+
+  const [countResult] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(news)
+    .where(where);
+
+  const total = countResult.count;
+
+  const rows = await db
+    .select()
+    .from(news)
+    .where(where)
+    .orderBy(desc(news.updated_at))
+    .limit(per_page)
+    .offset(offset);
+
+  const items = await Promise.all(
+    rows.map(async (row) => {
+      const images = await loadImages(row.id);
+      return formatArticle(row, images);
+    }),
+  );
+
+  return {
+    items,
+    meta: {
+      total,
+      page,
+      per_page,
+      total_pages: Math.ceil(total / per_page),
+    },
+  };
+}
+
+export async function getById(id: string) {
+  const [row] = await db
+    .select()
+    .from(news)
+    .where(eq(news.id, id))
+    .limit(1);
+
+  if (!row) throw new NotFoundError('Новость не найдена');
+
+  const images = await loadImages(row.id);
+  return formatArticle(row, images);
+}
+
+export async function create(input: CreateNewsInput, authorUserId: string) {
+  const slug = generateSlug(input.title);
+  const isPublished = input.status === 'published';
+
+  const [row] = await db
+    .insert(news)
+    .values({
+      title: input.title,
+      slug,
+      content: input.content,
+      excerpt: input.excerpt ?? null,
+      status: input.status ?? 'draft',
+      author_user_id: authorUserId,
+      published_at: isPublished ? new Date() : null,
+    })
+    .returning();
+
+  if (input.images?.length) {
+    await db.insert(newsImages).values(
+      input.images.map((img) => ({
+        news_id: row.id,
+        filename: img.filename,
+        original_name: img.original_name ?? null,
+        sort_order: img.sort_order,
+      })),
+    );
+  }
+
+  return getById(row.id);
+}
+
+export async function update(id: string, input: UpdateNewsInput) {
+  const existing = await getById(id);
+
+  const updateData: Record<string, unknown> = {};
+  if (input.title !== undefined) updateData.title = input.title;
+  if (input.content !== undefined) updateData.content = input.content;
+  if (input.excerpt !== undefined) updateData.excerpt = input.excerpt;
+  if (input.status !== undefined) {
+    updateData.status = input.status;
+    // Set published_at on first publish
+    if (input.status === 'published' && !existing.published_at) {
+      updateData.published_at = new Date();
+    }
+  }
+
+  if (Object.keys(updateData).length > 0) {
+    await db.update(news).set(updateData).where(eq(news.id, id));
+  }
+
+  // Replace images if provided
+  if (input.images !== undefined) {
+    // Get old images to clean up orphaned files
+    const oldImages = await db
+      .select({ filename: newsImages.filename })
+      .from(newsImages)
+      .where(eq(newsImages.news_id, id));
+
+    const newFilenames = new Set(input.images.map((i) => i.filename));
+    const toDelete = oldImages.filter((oi) => !newFilenames.has(oi.filename));
+
+    // Replace records
+    await db.delete(newsImages).where(eq(newsImages.news_id, id));
+    if (input.images.length > 0) {
+      await db.insert(newsImages).values(
+        input.images.map((img) => ({
+          news_id: id,
+          filename: img.filename,
+          original_name: img.original_name ?? null,
+          sort_order: img.sort_order,
+        })),
+      );
+    }
+
+    // Clean up orphaned files
+    for (const img of toDelete) {
+      unlink(path.join(UPLOADS_DIR, 'news', img.filename)).catch(() => {});
+    }
+  }
+
+  return getById(id);
+}
+
+export async function remove(id: string) {
+  // Load images before deleting
+  const images = await db
+    .select({ filename: newsImages.filename })
+    .from(newsImages)
+    .where(eq(newsImages.news_id, id));
+
+  const [deleted] = await db.delete(news).where(eq(news.id, id)).returning({ id: news.id });
+  if (!deleted) throw new NotFoundError('Новость не найдена');
+
+  // Clean up files
+  for (const img of images) {
+    unlink(path.join(UPLOADS_DIR, 'news', img.filename)).catch(() => {});
+  }
+
+  return { success: true };
+}
