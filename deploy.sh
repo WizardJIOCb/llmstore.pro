@@ -35,7 +35,7 @@ sleep 1
 fuser -k "$PORT/tcp" 2>/dev/null || true
 sleep 2
 pm2 start "$PM2_APP"
-sleep 3
+sleep 5
 
 # 6. Health check
 echo "[6/6] Health check..."
