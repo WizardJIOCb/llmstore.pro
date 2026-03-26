@@ -166,7 +166,6 @@ function extractAssistantTextFromMessage(message: unknown): string {
 function normalizeOpenRouterModelId(modelId: string): string {
   const value = modelId.trim();
   if (!value) return DEFAULT_MODEL;
-  if (value.includes('/')) return value;
 
   const aliases: Record<string, string> = {
     'gemini-2.0-flash-001': 'google/gemini-2.0-flash-001',
@@ -1338,7 +1337,7 @@ export async function sendChatMessage(chatId: string, userId: string, content: s
       usagePayload = toolNames.length > 0 ? { tool_names: toolNames } : null;
     }
   } else {
-    const model = chat.model_external_id || DEFAULT_GENERAL_MODEL;
+    const model = normalizeOpenRouterModelId(chat.model_external_id || DEFAULT_GENERAL_MODEL);
     const startedAt = Date.now();
     const response = await openRouterClient.chatCompletion({
       model,

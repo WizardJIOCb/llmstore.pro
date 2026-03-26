@@ -25,7 +25,7 @@ const GENERAL_MODELS = [
   { value: 'openai/gpt-4o-mini', label: 'OpenAI GPT-4o Mini' },
   { value: 'openai/gpt-4o', label: 'OpenAI GPT-4o' },
   { value: 'google/gemini-2.0-flash-001', label: 'Gemini 2.0 Flash' },
-  { value: 'google/gemini-2.5-flash-preview', label: 'Gemini 2.5 Flash Preview' },
+  { value: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
 ];
 
 function formatDate(iso: string): string {
