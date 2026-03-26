@@ -78,3 +78,11 @@ export function useSendChatMessage() {
     },
   });
 }
+
+export function useChatStats(chatId: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ['chats', chatId, 'stats'],
+    queryFn: () => chatsApi.stats(chatId!),
+    enabled: !!chatId && enabled,
+  });
+}

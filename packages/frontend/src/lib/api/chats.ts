@@ -44,6 +44,41 @@ export interface SendMessageResult {
   };
 }
 
+export interface ChatStats {
+  chat: {
+    id: string;
+    title: string;
+    mode: ChatMode;
+    agent_id: string | null;
+    agent_name: string | null;
+    model_external_id: string | null;
+    created_at: string;
+    updated_at: string;
+    last_message_at: string;
+    message_count: number;
+    user_messages: number;
+    assistant_messages: number;
+  };
+  totals: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+    usd_cost: number;
+    rub_cost: number;
+    messages_with_usage: number;
+  };
+  by_model: Array<{
+    model: string;
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+    usd_cost: number;
+    rub_cost: number;
+    messages: number;
+  }>;
+  usd_to_rub_rate: number;
+}
+
 export const chatsApi = {
   list: () => apiClient.get<{ data: ChatListItem[] }>('/chats').then((r) => r.data.data),
 
@@ -76,4 +111,7 @@ export const chatsApi = {
 
   sendMessage: (chatId: string, content: string) =>
     apiClient.post<{ data: SendMessageResult }>(`/chats/${chatId}/messages`, { content }).then((r) => r.data.data),
+
+  stats: (chatId: string) =>
+    apiClient.get<{ data: ChatStats }>(`/chats/${chatId}/stats`).then((r) => r.data.data),
 };

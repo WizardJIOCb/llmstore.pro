@@ -609,8 +609,56 @@ interface ConversationDetails {
   messages: ConversationMessage[];
 }
 
+interface ChatStatsModelBreakdown {
+  model: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  usd_cost: number;
+  rub_cost: number;
+  messages: number;
+}
+
+interface ChatStatsResponse {
+  chat: {
+    id: string;
+    title: string;
+    mode: ChatMode;
+    agent_id: string | null;
+    agent_name: string | null;
+    model_external_id: string | null;
+    created_at: string;
+    updated_at: string;
+    last_message_at: string;
+    message_count: number;
+    user_messages: number;
+    assistant_messages: number;
+  };
+  totals: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+    usd_cost: number;
+    rub_cost: number;
+    messages_with_usage: number;
+  };
+  by_model: ChatStatsModelBreakdown[];
+  usd_to_rub_rate: number;
+}
+
 function toIso(value: Date): string {
   return value.toISOString();
+}
+
+const USD_TO_RUB_RATE = 90;
+
+function toNumberOrNull(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
 }
 
 function compactTitle(content: string): string {
@@ -765,6 +813,107 @@ export async function getChatById(chatId: string, userId: string): Promise<Conve
       updated_at: toIso(chat.updated_at),
     },
     messages,
+  };
+}
+
+export async function getChatStats(chatId: string, userId: string): Promise<ChatStatsResponse> {
+  const chat = await getConversationForUser(chatId, userId);
+  const messages = await db
+    .select()
+    .from(chatConversationMessages)
+    .where(eq(chatConversationMessages.conversation_id, chatId))
+    .orderBy(asc(chatConversationMessages.created_at));
+
+  let userMessages = 0;
+  let assistantMessages = 0;
+  let promptTokens = 0;
+  let completionTokens = 0;
+  let totalTokens = 0;
+  let usdCost = 0;
+  let messagesWithUsage = 0;
+
+  const byModel = new Map<string, ChatStatsModelBreakdown>();
+
+  for (const msg of messages) {
+    if (msg.role === 'user') userMessages += 1;
+    if (msg.role === 'assistant') assistantMessages += 1;
+
+    const usage = (msg.usage_json as Record<string, unknown> | null) ?? null;
+    if (!usage) continue;
+
+    const p = toNumberOrNull(usage.prompt_tokens) ?? 0;
+    const c = toNumberOrNull(usage.completion_tokens) ?? 0;
+    const t = toNumberOrNull(usage.total_tokens) ?? (p + c);
+    const usd = toNumberOrNull(usage.estimated_cost) ?? 0;
+    const model = (typeof usage.model === 'string' && usage.model.trim().length > 0)
+      ? usage.model
+      : (chat.model_external_id || DEFAULT_GENERAL_MODEL);
+
+    promptTokens += p;
+    completionTokens += c;
+    totalTokens += t;
+    usdCost += usd;
+    messagesWithUsage += 1;
+
+    const existing = byModel.get(model) ?? {
+      model,
+      prompt_tokens: 0,
+      completion_tokens: 0,
+      total_tokens: 0,
+      usd_cost: 0,
+      rub_cost: 0,
+      messages: 0,
+    };
+    existing.prompt_tokens += p;
+    existing.completion_tokens += c;
+    existing.total_tokens += t;
+    existing.usd_cost += usd;
+    existing.messages += 1;
+    byModel.set(model, existing);
+  }
+
+  const byModelArr = Array.from(byModel.values())
+    .map((row) => ({
+      ...row,
+      rub_cost: row.usd_cost * USD_TO_RUB_RATE,
+    }))
+    .sort((a, b) => b.usd_cost - a.usd_cost);
+
+  let agentName: string | null = null;
+  if (chat.agent_id) {
+    const [agent] = await db
+      .select({ name: agents.name })
+      .from(agents)
+      .where(eq(agents.id, chat.agent_id))
+      .limit(1);
+    agentName = agent?.name ?? null;
+  }
+
+  return {
+    chat: {
+      id: chat.id,
+      title: chat.title,
+      mode: chat.mode,
+      agent_id: chat.agent_id ?? null,
+      agent_name: agentName,
+      model_external_id: chat.model_external_id ?? null,
+      created_at: toIso(chat.created_at),
+      updated_at: toIso(chat.updated_at),
+      last_message_at: toIso(chat.last_message_at),
+      message_count: messages.length,
+      user_messages: userMessages,
+      assistant_messages: assistantMessages,
+    },
+    totals: {
+      prompt_tokens: promptTokens,
+      completion_tokens: completionTokens,
+      total_tokens: totalTokens,
+      usd_cost: usdCost,
+      rub_cost: usdCost * USD_TO_RUB_RATE,
+      messages_with_usage: messagesWithUsage,
+    },
+    by_model: byModelArr,
+    usd_to_rub_rate: USD_TO_RUB_RATE,
   };
 }
 

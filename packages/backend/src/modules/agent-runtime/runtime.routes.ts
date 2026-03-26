@@ -22,6 +22,7 @@ router.get('/shared/chat/:token', controller.getSharedChat);
 router.get('/chats', requireAuth, controller.listChats);
 router.post('/chats', requireAuth, validateCreateChat, controller.createChat);
 router.get('/chats/:chatId', requireAuth, controller.getChatById);
+router.get('/chats/:chatId/stats', requireAuth, controller.getChatStats);
 router.patch('/chats/:chatId', requireAuth, validateUpdateChat, controller.updateChat);
 router.delete('/chats/:chatId', requireAuth, controller.deleteChat);
 router.post('/chats/:chatId/share', requireAuth, controller.shareChatById);

@@ -92,6 +92,15 @@ export async function getChatById(req: Request<{ chatId: string }>, res: Respons
   }
 }
 
+export async function getChatStats(req: Request<{ chatId: string }>, res: Response, next: NextFunction) {
+  try {
+    const stats = await runtimeService.getChatStats(req.params.chatId, req.session.userId!);
+    res.json({ data: stats });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function updateChat(req: Request<{ chatId: string }>, res: Response, next: NextFunction) {
   try {
     const chat = await runtimeService.updateChat(req.params.chatId, req.session.userId!, req.body);
