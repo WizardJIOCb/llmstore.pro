@@ -1,4 +1,4 @@
-import { useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import { Input } from '../ui/Input';
 import { Textarea } from '../ui/Textarea';
 import { Button } from '../ui/Button';
@@ -8,12 +8,15 @@ import type { ToolDefinition } from '../../lib/api/agents';
 interface AgentFormData {
   name: string;
   description: string;
+  visibility: 'public' | 'private';
   system_prompt: string;
   tool_ids: string[];
   runtime_config: {
     max_iterations: number;
     temperature: number;
     max_tokens: number;
+    chat_intro?: string;
+    starter_prompts?: string[];
   };
 }
 
@@ -23,24 +26,62 @@ interface AgentFormProps {
   onSubmit: (data: AgentFormData) => void;
   isSubmitting?: boolean;
   submitLabel?: string;
+  actions?: Array<{
+    label: string;
+    onClick: () => void;
+    disabled?: boolean;
+    variant?: 'outline' | 'destructive' | 'ghost';
+  }>;
 }
 
-export function AgentForm({ initialData, tools, onSubmit, isSubmitting, submitLabel = 'Создать' }: AgentFormProps) {
-  const [form, setForm] = useState<AgentFormData>({
-    name: initialData?.name ?? '',
-    description: initialData?.description ?? '',
-    system_prompt: initialData?.system_prompt ?? '',
-    tool_ids: initialData?.tool_ids ?? [],
-    runtime_config: initialData?.runtime_config ?? {
+export function AgentForm({
+  initialData,
+  tools,
+  onSubmit,
+  isSubmitting,
+  submitLabel = 'Создать',
+  actions = [],
+}: AgentFormProps) {
+  const buildFormState = (source?: Partial<AgentFormData>): AgentFormData => ({
+    name: source?.name ?? '',
+    description: source?.description ?? '',
+    visibility: source?.visibility === 'public' ? 'public' : 'private',
+    system_prompt: source?.system_prompt ?? '',
+    tool_ids: source?.tool_ids ?? [],
+    runtime_config: source?.runtime_config ?? {
       max_iterations: 4,
       temperature: 0.3,
       max_tokens: 4096,
+      chat_intro: '',
+      starter_prompts: [],
     },
   });
 
+  const [form, setForm] = useState<AgentFormData>(buildFormState(initialData));
+  const [starterPromptsText, setStarterPromptsText] = useState(
+    (initialData?.runtime_config?.starter_prompts ?? []).join('\n'),
+  );
+
+  useEffect(() => {
+    setForm(buildFormState(initialData));
+    setStarterPromptsText((initialData?.runtime_config?.starter_prompts ?? []).join('\n'));
+  }, [initialData]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit(form);
+    const starter_prompts = starterPromptsText
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+
+    onSubmit({
+      ...form,
+      runtime_config: {
+        ...form.runtime_config,
+        chat_intro: form.runtime_config.chat_intro?.trim() ?? '',
+        starter_prompts,
+      },
+    });
   };
 
   return (
@@ -60,8 +101,20 @@ export function AgentForm({ initialData, tools, onSubmit, isSubmitting, submitLa
         <Input
           value={form.description}
           onChange={(e) => setForm({ ...form, description: e.target.value })}
-          placeholder="Краткое описание агента"
+          placeholder="Короткое описание агента"
         />
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium mb-1">Видимость</label>
+        <select
+          value={form.visibility}
+          onChange={(e) => setForm({ ...form, visibility: e.target.value as 'public' | 'private' })}
+          className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+        >
+          <option value="private">Только админам и владельцу</option>
+          <option value="public">Всем пользователям</option>
+        </select>
       </div>
 
       <div>
@@ -72,6 +125,34 @@ export function AgentForm({ initialData, tools, onSubmit, isSubmitting, submitLa
           placeholder="Ты — полезный помощник..."
           className="min-h-[150px] font-mono text-sm"
         />
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium mb-1">Описание в чате</label>
+        <Textarea
+          value={form.runtime_config.chat_intro ?? ''}
+          onChange={(e) =>
+            setForm({
+              ...form,
+              runtime_config: { ...form.runtime_config, chat_intro: e.target.value },
+            })
+          }
+          placeholder="Что умеет агент, что ему писать, и как лучше формулировать запросы"
+          className="min-h-[120px]"
+        />
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium mb-1">Быстрые шаблоны сообщений</label>
+        <Textarea
+          value={starterPromptsText}
+          onChange={(e) => setStarterPromptsText(e.target.value)}
+          placeholder={'По одному шаблону на строку\nНапример: Сделай краткий разбор последних новостей'}
+          className="min-h-[120px]"
+        />
+        <p className="mt-1 text-xs text-muted-foreground">
+          Эти шаблоны будут показаны кнопками в чате с агентом.
+        </p>
       </div>
 
       <div>
@@ -133,9 +214,22 @@ export function AgentForm({ initialData, tools, onSubmit, isSubmitting, submitLa
         </div>
       </div>
 
-      <Button type="submit" disabled={isSubmitting || !form.name}>
-        {isSubmitting ? 'Сохранение...' : submitLabel}
-      </Button>
+      <div className="flex items-center gap-2">
+        <Button type="submit" disabled={isSubmitting || !form.name.trim()}>
+          {isSubmitting ? 'Сохранение...' : submitLabel}
+        </Button>
+        {actions.map((action) => (
+          <Button
+            key={action.label}
+            type="button"
+            variant={action.variant ?? 'outline'}
+            onClick={action.onClick}
+            disabled={action.disabled}
+          >
+            {action.label}
+          </Button>
+        ))}
+      </div>
     </form>
   );
 }

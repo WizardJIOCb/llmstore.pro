@@ -1,10 +1,157 @@
 import { eq, sql } from 'drizzle-orm';
 import { db } from '../../config/database.js';
-import { users, authAccounts } from '../../db/schema/index.js';
+import {
+  users,
+  authAccounts,
+  balanceTransactions,
+} from '../../db/schema/index.js';
 import { AppError, ConflictError, NotFoundError } from '../../middleware/error-handler.js';
 import { ROLE_LIMITS, USD_TO_RUB_RATE } from '@llmstore/shared';
-import type { UserProfile, LinkedAccount, UserUsageSummary, AgentUsageSummary, UserLimits } from '@llmstore/shared';
+import type {
+  UserProfile,
+  LinkedAccount,
+  UserUsageSummary,
+  AgentUsageSummary,
+  UserLimits,
+  BalanceHistoryItem,
+} from '@llmstore/shared';
 import type { UserRole } from '@llmstore/shared';
+
+function toFixedAmount(value: number, scale = 4): string {
+  return value.toFixed(scale);
+}
+
+function toNumberOrZero(value: unknown): number {
+  const n = typeof value === 'string' ? Number(value) : Number(value ?? 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function toIso(value: unknown): string {
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === 'string' || typeof value === 'number') {
+    const date = new Date(value);
+    if (!Number.isNaN(date.getTime())) return date.toISOString();
+  }
+  return new Date().toISOString();
+}
+
+function txTypeTitle(type: string, description: string | null): string {
+  if (description && description.trim().length > 0) return description.trim();
+  if (type === 'signup_bonus') return 'Стартовый бонус';
+  if (type === 'admin_adjustment') return 'Корректировка администратором';
+  if (type === 'topup') return 'Пополнение баланса';
+  return `Операция: ${type}`;
+}
+
+async function getBalanceHistory(userId: string): Promise<BalanceHistoryItem[]> {
+  const [txRows, chatUsageRows, runUsageRows] = await Promise.all([
+    db.select({
+      id: balanceTransactions.id,
+      created_at: balanceTransactions.created_at,
+      type: balanceTransactions.type,
+      description: balanceTransactions.description,
+      amount: balanceTransactions.amount,
+    })
+      .from(balanceTransactions)
+      .where(eq(balanceTransactions.user_id, userId)),
+    db.execute<{
+      id: string;
+      created_at: Date;
+      chat_title: string;
+      model: string | null;
+      total_tokens: string;
+      estimated_cost: string;
+    }>(sql`
+      SELECT
+        ccm.id,
+        ccm.created_at,
+        cc.title AS chat_title,
+        COALESCE(ccm.usage_json->>'model', cc.model_external_id) AS model,
+        COALESCE(NULLIF(ccm.usage_json->>'total_tokens', '')::numeric, 0)::text AS total_tokens,
+        COALESCE(NULLIF(ccm.usage_json->>'estimated_cost', '')::numeric, 0)::text AS estimated_cost
+      FROM chat_conversation_messages ccm
+      INNER JOIN chat_conversations cc ON cc.id = ccm.conversation_id
+      WHERE cc.user_id = ${userId}
+        AND ccm.role = 'assistant'
+        AND ccm.usage_json IS NOT NULL
+    `),
+    db.execute<{
+      id: string;
+      created_at: Date;
+      agent_name: string;
+      model: string | null;
+      total_tokens: number;
+      estimated_cost: string;
+    }>(sql`
+      SELECT
+        ul.id,
+        ar.started_at AS created_at,
+        COALESCE(a.name, 'Удаленный агент') AS agent_name,
+        ul.model_external_id AS model,
+        COALESCE(ul.total_tokens, ul.prompt_tokens + ul.completion_tokens, 0) AS total_tokens,
+        COALESCE(ul.estimated_cost, 0)::text AS estimated_cost
+      FROM usage_ledger ul
+      INNER JOIN agent_runs ar ON ar.id = ul.run_id
+      LEFT JOIN agents a ON a.id = ar.agent_id
+      WHERE ar.user_id = ${userId}
+        AND NOT EXISTS (
+          SELECT 1
+          FROM chat_conversation_messages ccm
+          WHERE ccm.run_id = ar.id
+        )
+    `),
+  ]);
+
+  const txHistory: BalanceHistoryItem[] = txRows.map((tx) => {
+    const amount = toNumberOrZero(tx.amount);
+    const direction: BalanceHistoryItem['direction'] = amount >= 0 ? 'credit' : 'debit';
+    const category: BalanceHistoryItem['category'] = amount >= 0 ? 'topup' : 'writeoff';
+    return {
+      id: tx.id,
+      created_at: toIso(tx.created_at),
+      title: txTypeTitle(tx.type, tx.description),
+      event_type: tx.type,
+      category,
+      direction,
+      amount_usd: toFixedAmount(Math.abs(amount)),
+      tokens: 0,
+      model: null,
+    };
+  });
+
+  const chatUsageHistory: BalanceHistoryItem[] = chatUsageRows.map((row): BalanceHistoryItem => {
+    const estimatedCost = Math.max(0, toNumberOrZero(row.estimated_cost));
+    return {
+      id: `chat-${row.id}`,
+      created_at: toIso(row.created_at),
+      title: `Чат: ${row.chat_title || 'Без названия'}`,
+      event_type: 'chat_usage',
+      category: 'writeoff' as const,
+      direction: 'debit' as const,
+      amount_usd: toFixedAmount(estimatedCost),
+      tokens: Math.max(0, Math.trunc(toNumberOrZero(row.total_tokens))),
+      model: row.model,
+    };
+  }).filter((item) => Number(item.amount_usd) > 0 || item.tokens > 0);
+
+  const runUsageHistory: BalanceHistoryItem[] = runUsageRows.map((row): BalanceHistoryItem => {
+    const estimatedCost = Math.max(0, toNumberOrZero(row.estimated_cost));
+    return {
+      id: `run-${row.id}`,
+      created_at: toIso(row.created_at),
+      title: `Агент: ${row.agent_name || 'Без названия'}`,
+      event_type: 'agent_run_usage',
+      category: 'writeoff' as const,
+      direction: 'debit' as const,
+      amount_usd: toFixedAmount(estimatedCost),
+      tokens: Math.max(0, Math.trunc(toNumberOrZero(row.total_tokens))),
+      model: row.model,
+    };
+  }).filter((item) => Number(item.amount_usd) > 0 || item.tokens > 0);
+
+  return [...txHistory, ...chatUsageHistory, ...runUsageHistory]
+    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+}
 
 export async function getProfile(userId: string): Promise<UserProfile> {
   const [user] = await db
@@ -17,43 +164,42 @@ export async function getProfile(userId: string): Promise<UserProfile> {
     throw new NotFoundError('Пользователь не найден');
   }
 
-  // Linked accounts
-  const accounts = await db
-    .select({
+  const [accounts, usageRows, balanceHistory] = await Promise.all([
+    db.select({
       provider: authAccounts.provider,
       provider_account_id: authAccounts.provider_account_id,
       created_at: authAccounts.created_at,
     })
-    .from(authAccounts)
-    .where(eq(authAccounts.user_id, userId));
+      .from(authAccounts)
+      .where(eq(authAccounts.user_id, userId)),
+    db.execute<{
+      agent_id: string;
+      agent_name: string;
+      total_runs: string;
+      total_tokens: string;
+      total_cost: string;
+    }>(sql`
+      SELECT
+        ar.agent_id,
+        COALESCE(a.name, 'Удаленный агент') AS agent_name,
+        COUNT(ar.id) AS total_runs,
+        COALESCE(SUM(ul.prompt_tokens + ul.completion_tokens), 0) AS total_tokens,
+        COALESCE(SUM(ul.estimated_cost::numeric), 0) AS total_cost
+      FROM agent_runs ar
+      LEFT JOIN usage_ledger ul ON ul.run_id = ar.id
+      LEFT JOIN agents a ON a.id = ar.agent_id
+      WHERE ar.user_id = ${userId}
+      GROUP BY ar.agent_id, a.name
+      ORDER BY total_cost DESC
+    `),
+    getBalanceHistory(userId),
+  ]);
 
   const linked_accounts: LinkedAccount[] = accounts.map((a) => ({
     provider: a.provider,
     provider_account_id: a.provider_account_id,
     created_at: a.created_at.toISOString(),
   }));
-
-  // Usage stats aggregation
-  const usageRows = await db.execute<{
-    agent_id: string;
-    agent_name: string;
-    total_runs: string;
-    total_tokens: string;
-    total_cost: string;
-  }>(sql`
-    SELECT
-      ar.agent_id,
-      COALESCE(a.name, 'Удалённый агент') AS agent_name,
-      COUNT(ar.id) AS total_runs,
-      COALESCE(SUM(ul.prompt_tokens + ul.completion_tokens), 0) AS total_tokens,
-      COALESCE(SUM(ul.estimated_cost::numeric), 0) AS total_cost
-    FROM agent_runs ar
-    LEFT JOIN usage_ledger ul ON ul.run_id = ar.id
-    LEFT JOIN agents a ON a.id = ar.agent_id
-    WHERE ar.user_id = ${userId}
-    GROUP BY ar.agent_id, a.name
-    ORDER BY total_cost DESC
-  `);
 
   const perAgent: AgentUsageSummary[] = usageRows.map((r) => ({
     agent_id: r.agent_id,
@@ -92,6 +238,7 @@ export async function getProfile(userId: string): Promise<UserProfile> {
     balance_rub: balanceRub,
     linked_accounts,
     usage,
+    balance_history: balanceHistory,
     limits,
   };
 }
@@ -123,7 +270,6 @@ export async function updateProfile(
 }
 
 export async function unlinkAccount(userId: string, provider: string): Promise<void> {
-  // Check that user has another auth method
   const [user] = await db
     .select({ password_hash: users.password_hash })
     .from(users)

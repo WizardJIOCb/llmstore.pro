@@ -1,9 +1,11 @@
 import argon2 from 'argon2';
 import { eq } from 'drizzle-orm';
 import { db } from '../../config/database.js';
-import { users } from '../../db/schema/index.js';
+import { users, balanceTransactions } from '../../db/schema/index.js';
 import { AppError, ConflictError, NotFoundError } from '../../middleware/error-handler.js';
 import type { UserPublic } from '@llmstore/shared';
+
+const REGISTRATION_BONUS_USD = '0.05';
 
 const userPublicColumns = {
   id: users.id,
@@ -38,7 +40,17 @@ export async function register(input: { email: string; password: string; name?: 
     password_hash,
     role: 'user',
     status: 'active',
+    balance_usd: REGISTRATION_BONUS_USD,
   }).returning(userPublicColumns);
+
+  await db.insert(balanceTransactions).values({
+    user_id: user.id,
+    amount: REGISTRATION_BONUS_USD,
+    balance_after: REGISTRATION_BONUS_USD,
+    type: 'signup_bonus',
+    description: 'Стартовый бонус для новых пользователей',
+    performed_by: null,
+  });
 
   return { ...user, created_at: user.created_at.toISOString() };
 }

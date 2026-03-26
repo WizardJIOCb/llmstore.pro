@@ -1,10 +1,11 @@
-import { eq, and, desc, asc, ilike, sql, count, type SQL } from 'drizzle-orm';
+import { eq, and, desc, asc, ilike, sql, count, inArray, type SQL } from 'drizzle-orm';
 import { db } from '../../config/database.js';
 import {
   catalogItems, catalogItemMeta,
   catalogItemCategories, catalogItemTags, catalogItemUseCases,
   categories, tags, useCases,
   users, balanceTransactions,
+  usageLedger,
   agents, agentRuns,
   chatConversations, chatConversationMessages,
 } from '../../db/schema/index.js';
@@ -570,12 +571,40 @@ export async function listAllAgents(query: AdminAgentsQuery) {
 
   const total = countResult[0]?.count ?? 0;
 
+  const agentIds = rows.map((r) => r.id);
+  const usageByAgent = new Map<string, { total_tokens: number; total_cost_usd: number }>();
+
+  if (agentIds.length > 0) {
+    const usageRows = await db
+      .select({
+        agent_id: agentRuns.agent_id,
+        total_tokens: sql<number>`coalesce(sum(coalesce(${usageLedger.total_tokens}, ${usageLedger.prompt_tokens} + ${usageLedger.completion_tokens})), 0)::int`,
+        total_cost_usd: sql<string>`coalesce(sum(${usageLedger.estimated_cost}::numeric), 0)`,
+      })
+      .from(agentRuns)
+      .leftJoin(usageLedger, eq(usageLedger.run_id, agentRuns.id))
+      .where(inArray(agentRuns.agent_id, agentIds))
+      .groupBy(agentRuns.agent_id);
+
+    for (const row of usageRows) {
+      usageByAgent.set(row.agent_id, {
+        total_tokens: row.total_tokens ?? 0,
+        total_cost_usd: Number(row.total_cost_usd ?? 0),
+      });
+    }
+  }
+
   return {
-    agents: rows.map((r) => ({
-      ...r,
-      created_at: r.created_at.toISOString(),
-      updated_at: r.updated_at.toISOString(),
-    })),
+    agents: rows.map((r) => {
+      const usage = usageByAgent.get(r.id);
+      return {
+        ...r,
+        total_tokens: usage?.total_tokens ?? 0,
+        total_cost_usd: usage?.total_cost_usd ?? 0,
+        created_at: r.created_at.toISOString(),
+        updated_at: r.updated_at.toISOString(),
+      };
+    }),
     meta: {
       total,
       page,

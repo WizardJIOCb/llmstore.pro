@@ -11,6 +11,11 @@ import { Spinner } from '../../components/ui/Spinner';
 import { Button } from '../../components/ui/Button';
 import type { ToolTrace } from '../../lib/api/agents';
 
+function getApiErrorCode(err: unknown): string | undefined {
+  const maybe = err as { response?: { data?: { error?: { code?: string } } } };
+  return maybe?.response?.data?.error?.code;
+}
+
 export function AgentPlaygroundPage() {
   const { id } = useParams<{ id: string }>();
   const { data: agent, isLoading } = useAgent(id);
@@ -20,6 +25,7 @@ export function AgentPlaygroundPage() {
   const clearChatMutation = useClearChat();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [shareLabel, setShareLabel] = useState('Поделиться');
+  const [isTopUpOpen, setIsTopUpOpen] = useState(false);
 
   const {
     messages,
@@ -34,7 +40,6 @@ export function AgentPlaygroundPage() {
     clearMessages,
   } = usePlaygroundStore();
 
-  // Seed store from chat history on first load
   useEffect(() => {
     if (chatHistory?.messages && chatHistory.messages.length > 0 && !historyLoaded) {
       const mapped = chatHistory.messages.map((m) => ({
@@ -51,23 +56,17 @@ export function AgentPlaygroundPage() {
     }
   }, [chatHistory, historyLoaded, setMessages]);
 
-  // Clear store when navigating away (different agent)
   useEffect(() => {
     return () => {
       clearMessages();
     };
   }, [id, clearMessages]);
 
-  // Collect all tool traces from messages
   const allToolTraces = messages.reduce<ToolTrace[]>((acc, msg) => {
     if (msg.toolTraces) acc.push(...msg.toolTraces);
     return acc;
   }, []);
 
-  // Last assistant message metadata
-  const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
-
-  // Auto-scroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
@@ -79,7 +78,6 @@ export function AgentPlaygroundPage() {
     setRunning(true);
     setError(null);
 
-    // Build full conversation history for the run
     const allMsgs = [
       ...messages
         .filter((m) => m.role === 'user' || m.role === 'assistant')
@@ -100,8 +98,14 @@ export function AgentPlaygroundPage() {
         latencyMs: result.latency_ms,
       });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Неизвестная ошибка';
-      setError(msg);
+      const code = getApiErrorCode(err);
+      if (code === 'INSUFFICIENT_BALANCE') {
+        setIsTopUpOpen(true);
+        setError('Недостаточно баланса');
+      } else {
+        const msg = err instanceof Error ? err.message : 'Неизвестная ошибка';
+        setError(msg);
+      }
     } finally {
       setRunning(false);
     }
@@ -127,7 +131,7 @@ export function AgentPlaygroundPage() {
     try {
       await clearChatMutation.mutateAsync(id);
     } catch {
-      // Silently fail — local state is already cleared
+      // local state already cleared
     }
   }, [id, clearMessages, clearChatMutation]);
 
@@ -149,9 +153,7 @@ export function AgentPlaygroundPage() {
 
   return (
     <div className="flex h-[calc(100vh-4rem)] overflow-hidden">
-      {/* Main chat area */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Header */}
         <div className="border-b px-4 py-3 flex items-center justify-between shrink-0">
           <div>
             <h1 className="font-semibold">{agent.name}</h1>
@@ -177,7 +179,6 @@ export function AgentPlaygroundPage() {
           </div>
         </div>
 
-        {/* Messages */}
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
           {messages.length === 0 && (
             <div className="text-center py-12 space-y-4">
@@ -214,7 +215,6 @@ export function AgentPlaygroundPage() {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Input */}
         <div className="border-t px-4 py-3 shrink-0 space-y-2">
           {messages.length > 0 && (
             <QuickActions onSelect={handleSend} disabled={isRunning} />
@@ -223,7 +223,6 @@ export function AgentPlaygroundPage() {
         </div>
       </div>
 
-      {/* Tool trace sidebar */}
       <div className="hidden lg:flex w-80 border-l flex-col shrink-0">
         <div className="border-b px-4 py-3 shrink-0">
           <h2 className="font-semibold text-sm">Инструменты</h2>
@@ -232,6 +231,38 @@ export function AgentPlaygroundPage() {
           <ToolTracePanel traces={allToolTraces} />
         </div>
       </div>
+
+      {isTopUpOpen && (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setIsTopUpOpen(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-xl border bg-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="border-b px-5 py-4">
+              <h3 className="text-lg font-semibold">Недостаточно баланса</h3>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Чтобы продолжить общение с агентами, пополните баланс.
+              </p>
+              <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
+                Попросите у Родиона
+              </div>
+            </div>
+            <div className="border-t px-5 py-4 flex items-center justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setIsTopUpOpen(false)}>
+                Закрыть
+              </Button>
+              <Link to="/profile" onClick={() => setIsTopUpOpen(false)}>
+                <Button size="sm">Открыть профиль</Button>
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

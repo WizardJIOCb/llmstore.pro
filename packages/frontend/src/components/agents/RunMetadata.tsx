@@ -1,6 +1,13 @@
-interface RunMetadataProps {
-  usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number; estimated_cost?: string; model?: string } | null | undefined;
+﻿interface RunMetadataProps {
+  usage: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+    estimated_cost?: string;
+    model?: string;
+  } | null | undefined;
   latencyMs: number | undefined;
+  agentName?: string;
 }
 
 function formatCost(cost: string): string {
@@ -11,26 +18,21 @@ function formatCost(cost: string): string {
   return `$${n.toFixed(3)}`;
 }
 
-export function RunMetadata({ usage, latencyMs }: RunMetadataProps) {
-  if (!usage && !latencyMs) return null;
+export function RunMetadata({ usage, latencyMs, agentName }: RunMetadataProps) {
+  if (!usage && !latencyMs && !agentName) return null;
 
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-      {latencyMs != null && (
-        <span>Время: {(latencyMs / 1000).toFixed(1)}s</span>
-      )}
+      {latencyMs != null && <span>Время: {(latencyMs / 1000).toFixed(1)}s</span>}
+      {agentName && <span>Агент: {agentName}</span>}
       {usage && (
         <>
           <span>Токены: {usage.total_tokens}</span>
           <span className="hidden sm:inline">
             (prompt: {usage.prompt_tokens}, completion: {usage.completion_tokens})
           </span>
-          {usage.estimated_cost && (
-            <span>Стоимость: {formatCost(usage.estimated_cost)}</span>
-          )}
-          {usage.model && (
-            <span className="hidden md:inline">Модель: {usage.model.split('/').pop()}</span>
-          )}
+          {usage.estimated_cost && <span>Стоимость: {formatCost(usage.estimated_cost)}</span>}
+          {usage.model && <span className="hidden md:inline">Модель: {usage.model.split('/').pop()}</span>}
         </>
       )}
     </div>

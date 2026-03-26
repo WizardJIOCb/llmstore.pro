@@ -2,7 +2,7 @@ import axios from 'axios';
 import crypto from 'crypto';
 import { eq, and } from 'drizzle-orm';
 import { db } from '../../config/database.js';
-import { users, authAccounts } from '../../db/schema/index.js';
+import { users, authAccounts, balanceTransactions } from '../../db/schema/index.js';
 import { env } from '../../config/env.js';
 import { AppError, ConflictError } from '../../middleware/error-handler.js';
 import type { UserPublic } from '@llmstore/shared';
@@ -59,6 +59,7 @@ const PROVIDER_CONFIG: Record<string, {
 };
 
 const SUPPORTED_PROVIDERS = Object.keys(PROVIDER_CONFIG);
+const REGISTRATION_BONUS_USD = '0.05';
 
 export function validateProvider(provider: string): void {
   if (!SUPPORTED_PROVIDERS.includes(provider)) {
@@ -367,8 +368,18 @@ export async function handleCallback(opts: HandleCallbackOptions): Promise<UserP
       avatar_url: userInfo.avatar_url,
       role: 'user',
       status: 'active',
+      balance_usd: REGISTRATION_BONUS_USD,
     })
     .returning(userPublicColumns);
+
+  await db.insert(balanceTransactions).values({
+    user_id: newUser.id as string,
+    amount: REGISTRATION_BONUS_USD,
+    balance_after: REGISTRATION_BONUS_USD,
+    type: 'signup_bonus',
+    description: 'Стартовый бонус для новых пользователей',
+    performed_by: null,
+  });
 
   await db.insert(authAccounts).values({
     user_id: newUser.id as string,

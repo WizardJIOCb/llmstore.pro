@@ -27,7 +27,11 @@ export interface ChatMessage {
 }
 
 export interface ChatDetails {
-  chat: Omit<ChatListItem, 'last_message_preview'>;
+  chat: Omit<ChatListItem, 'last_message_preview'> & {
+    agent_name: string | null;
+    agent_chat_description: string | null;
+    agent_starter_prompts: string[];
+  };
   messages: ChatMessage[];
 }
 
@@ -79,8 +83,20 @@ export interface ChatStats {
   usd_to_rub_rate: number;
 }
 
+export interface ChatAgentOption {
+  id: string;
+  name: string;
+  owner_user_id: string;
+  is_owner: boolean;
+  description: string | null;
+  chat_description: string | null;
+  starter_prompts: string[];
+}
+
 export const chatsApi = {
   list: () => apiClient.get<{ data: ChatListItem[] }>('/chats').then((r) => r.data.data),
+
+  listAgents: () => apiClient.get<{ data: ChatAgentOption[] }>('/chats/agents').then((r) => r.data.data),
 
   get: (chatId: string) =>
     apiClient.get<{ data: ChatDetails }>(`/chats/${chatId}`).then((r) => r.data.data),

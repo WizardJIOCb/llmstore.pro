@@ -20,6 +20,7 @@ router.get('/shared/chat/:token', controller.getSharedChat);
 
 // Conversations V2 (authenticated)
 router.get('/chats', requireAuth, controller.listChats);
+router.get('/chats/agents', requireAuth, controller.listChatAgents);
 router.post('/chats', requireAuth, validateCreateChat, controller.createChat);
 router.get('/chats/:chatId', requireAuth, controller.getChatById);
 router.get('/chats/:chatId/stats', requireAuth, controller.getChatStats);

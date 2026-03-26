@@ -25,6 +25,12 @@ interface UpdateAgentInput {
   description?: string;
   visibility?: 'public' | 'private' | 'unlisted';
   status?: 'draft' | 'active' | 'archived';
+  // optional in-place current version update
+  system_prompt?: string;
+  model_id?: string | null;
+  runtime_config?: Record<string, unknown>;
+  tool_ids?: string[];
+  response_mode?: 'text' | 'json_object' | 'json_schema';
 }
 
 interface CreateVersionInput {
@@ -33,6 +39,10 @@ interface CreateVersionInput {
   runtime_config?: Record<string, unknown>;
   tool_ids?: string[];
   response_mode?: 'text' | 'json_object' | 'json_schema';
+}
+
+function canManageAllAgents(role?: string): boolean {
+  return role === 'admin' || role === 'curator';
 }
 
 // --- Helpers ---
@@ -98,10 +108,12 @@ export async function createAgent(userId: string, input: CreateAgentInput) {
   return { ...agent, current_version_id: version.id, version };
 }
 
-export async function getAgent(agentId: string, userId: string) {
-  const [agent] = await db.select().from(agents).where(
-    and(eq(agents.id, agentId), eq(agents.owner_user_id, userId)),
-  ).limit(1);
+export async function getAgent(agentId: string, userId: string, userRole?: string) {
+  const where = canManageAllAgents(userRole)
+    ? eq(agents.id, agentId)
+    : and(eq(agents.id, agentId), eq(agents.owner_user_id, userId));
+
+  const [agent] = await db.select().from(agents).where(where).limit(1);
 
   if (!agent) throw new NotFoundError('Агент не найден');
 
@@ -159,37 +171,97 @@ export async function listAgents(userId: string) {
   return result;
 }
 
-export async function updateAgent(agentId: string, userId: string, input: UpdateAgentInput) {
-  const [existing] = await db.select().from(agents).where(
-    and(eq(agents.id, agentId), eq(agents.owner_user_id, userId)),
-  ).limit(1);
+export async function updateAgent(agentId: string, userId: string, input: UpdateAgentInput, userRole?: string) {
+  const where = canManageAllAgents(userRole)
+    ? eq(agents.id, agentId)
+    : and(eq(agents.id, agentId), eq(agents.owner_user_id, userId));
+  const [existing] = await db.select().from(agents).where(where).limit(1);
 
   if (!existing) throw new NotFoundError('Агент не найден');
 
-  const [updated] = await db
-    .update(agents)
-    .set(input)
-    .where(eq(agents.id, agentId))
-    .returning();
+  const agentPatch: Partial<typeof agents.$inferInsert> = {};
+  if (input.name !== undefined) agentPatch.name = input.name;
+  if (input.description !== undefined) agentPatch.description = input.description;
+  if (input.visibility !== undefined) agentPatch.visibility = input.visibility;
+  if (input.status !== undefined) agentPatch.status = input.status;
+
+  let updated = existing;
+  if (Object.keys(agentPatch).length > 0) {
+    [updated] = await db
+      .update(agents)
+      .set(agentPatch)
+      .where(eq(agents.id, agentId))
+      .returning();
+  }
+
+  const hasVersionPatch =
+    input.system_prompt !== undefined
+    || input.model_id !== undefined
+    || input.runtime_config !== undefined
+    || input.tool_ids !== undefined
+    || input.response_mode !== undefined;
+
+  if (hasVersionPatch) {
+    let currentVersionId = updated.current_version_id;
+
+    if (!currentVersionId) {
+      const [createdVersion] = await db.insert(agentVersions).values({
+        agent_id: agentId,
+        version_number: 1,
+        system_prompt: input.system_prompt ?? null,
+        model_id: input.model_id ?? null,
+        runtime_config: input.runtime_config ?? { max_iterations: 4, temperature: 0.3, max_tokens: 4096 },
+        response_mode: input.response_mode ?? 'text',
+      }).returning();
+
+      await db.update(agents).set({ current_version_id: createdVersion.id }).where(eq(agents.id, agentId));
+      currentVersionId = createdVersion.id;
+    } else {
+      const versionPatch: Partial<typeof agentVersions.$inferInsert> = {};
+      if (input.system_prompt !== undefined) versionPatch.system_prompt = input.system_prompt ?? null;
+      if (input.model_id !== undefined) versionPatch.model_id = input.model_id ?? null;
+      if (input.runtime_config !== undefined) versionPatch.runtime_config = input.runtime_config;
+      if (input.response_mode !== undefined) versionPatch.response_mode = input.response_mode;
+      if (Object.keys(versionPatch).length > 0) {
+        await db.update(agentVersions).set(versionPatch).where(eq(agentVersions.id, currentVersionId));
+      }
+    }
+
+    if (input.tool_ids !== undefined && currentVersionId) {
+      await db.delete(agentVersionTools).where(eq(agentVersionTools.agent_version_id, currentVersionId));
+      if (input.tool_ids.length > 0) {
+        await db.insert(agentVersionTools).values(
+          input.tool_ids.map((tid, idx) => ({
+            agent_version_id: currentVersionId!,
+            tool_definition_id: tid,
+            is_required: false,
+            order_index: idx,
+          })),
+        );
+      }
+    }
+  }
 
   return updated;
 }
 
-export async function deleteAgent(agentId: string, userId: string) {
-  const [existing] = await db.select().from(agents).where(
-    and(eq(agents.id, agentId), eq(agents.owner_user_id, userId)),
-  ).limit(1);
+export async function deleteAgent(agentId: string, userId: string, userRole?: string) {
+  const where = canManageAllAgents(userRole)
+    ? eq(agents.id, agentId)
+    : and(eq(agents.id, agentId), eq(agents.owner_user_id, userId));
+  const [existing] = await db.select().from(agents).where(where).limit(1);
 
   if (!existing) throw new NotFoundError('Агент не найден');
 
   await db.delete(agents).where(eq(agents.id, agentId));
 }
 
-export async function createAgentVersion(agentId: string, userId: string, input: CreateVersionInput) {
+export async function createAgentVersion(agentId: string, userId: string, input: CreateVersionInput, userRole?: string) {
   // Verify ownership
-  const [agent] = await db.select().from(agents).where(
-    and(eq(agents.id, agentId), eq(agents.owner_user_id, userId)),
-  ).limit(1);
+  const where = canManageAllAgents(userRole)
+    ? eq(agents.id, agentId)
+    : and(eq(agents.id, agentId), eq(agents.owner_user_id, userId));
+  const [agent] = await db.select().from(agents).where(where).limit(1);
 
   if (!agent) throw new NotFoundError('Агент не найден');
 

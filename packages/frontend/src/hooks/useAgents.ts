@@ -37,7 +37,18 @@ export function useCreateAgent() {
 export function useUpdateAgent() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...data }: { id: string; name?: string; description?: string; status?: string }) =>
+    mutationFn: ({ id, ...data }: {
+      id: string;
+      name?: string;
+      description?: string;
+      visibility?: string;
+      status?: string;
+      system_prompt?: string;
+      model_id?: string | null;
+      runtime_config?: Record<string, unknown>;
+      tool_ids?: string[];
+      response_mode?: 'text' | 'json_object' | 'json_schema';
+    }) =>
       agentApi.update(id, data),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['agents'] });

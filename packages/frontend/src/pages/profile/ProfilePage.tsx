@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useProfile, useUpdateProfile, useUnlinkAccount } from '../../hooks/useProfile';
 import { getOAuthLinkUrl } from '../../lib/api/profile';
@@ -24,6 +24,13 @@ const PROVIDER_LABELS: Record<string, string> = {
 };
 
 const LINKABLE_PROVIDERS = ['google', 'yandex', 'vk'];
+type HistoryTab = 'all' | 'topup' | 'writeoff';
+
+function formatTokens(value: number): string {
+  if (value > 1_000_000) return `${(value / 1_000_000).toFixed(2)}M`;
+  if (value > 1000) return `${(value / 1000).toFixed(1)}K`;
+  return String(value);
+}
 
 export function ProfilePage() {
   const { data: profile, isLoading, error } = useProfile();
@@ -34,9 +41,9 @@ export function ProfilePage() {
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState('');
   const [editUsername, setEditUsername] = useState('');
+  const [historyTab, setHistoryTab] = useState<HistoryTab>('all');
   const [oauthMessage, setOauthMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  // Handle OAuth callback params
   useEffect(() => {
     const oauth = searchParams.get('oauth');
     const provider = searchParams.get('provider');
@@ -59,7 +66,6 @@ export function ProfilePage() {
     }
   }, [searchParams, setSearchParams]);
 
-  // Auto-dismiss notification
   useEffect(() => {
     if (oauthMessage) {
       const timer = setTimeout(() => setOauthMessage(null), 5000);
@@ -86,9 +92,15 @@ export function ProfilePage() {
     unlinkMutation.mutate(provider);
   };
 
+  const historyItems = useMemo(() => {
+    if (!profile) return [];
+    if (historyTab === 'all') return profile.balance_history;
+    return profile.balance_history.filter((item) => item.category === historyTab);
+  }, [profile, historyTab]);
+
   if (isLoading) {
     return (
-      <div className="container mx-auto max-w-3xl px-4 py-16 flex justify-center">
+      <div className="container mx-auto max-w-4xl px-4 py-16 flex justify-center">
         <Spinner />
       </div>
     );
@@ -96,7 +108,7 @@ export function ProfilePage() {
 
   if (error || !profile) {
     return (
-      <div className="container mx-auto max-w-3xl px-4 py-16 text-center">
+      <div className="container mx-auto max-w-4xl px-4 py-16 text-center">
         <p className="text-destructive">Ошибка загрузки профиля</p>
       </div>
     );
@@ -105,10 +117,9 @@ export function ProfilePage() {
   const linkedProviders = new Set(profile.linked_accounts.map((a) => a.provider));
 
   return (
-    <div className="container mx-auto max-w-3xl px-4 py-8 space-y-6">
+    <div className="container mx-auto max-w-4xl px-4 py-8 space-y-6">
       <h1 className="text-2xl font-bold">Профиль</h1>
 
-      {/* OAuth notification */}
       {oauthMessage && (
         <div
           className={`p-3 rounded-lg text-sm ${
@@ -121,7 +132,6 @@ export function ProfilePage() {
         </div>
       )}
 
-      {/* User Info */}
       <Card>
         <CardHeader>
           <CardTitle>Информация</CardTitle>
@@ -198,7 +208,6 @@ export function ProfilePage() {
         </CardContent>
       </Card>
 
-      {/* Balance */}
       <Card>
         <CardHeader>
           <CardTitle>Баланс</CardTitle>
@@ -211,12 +220,84 @@ export function ProfilePage() {
             </span>
           </div>
           <p className="text-xs text-muted-foreground mt-2">
-            Курс: 1 USD = {USD_TO_RUB_RATE} ₽ (фиксированный). Для пополнения обратитесь к администратору.
+            Курс: 1 USD = {USD_TO_RUB_RATE} ₽. Для пополнения пока: Попросите у Родиона.
           </p>
         </CardContent>
       </Card>
 
-      {/* Usage Stats */}
+      <Card>
+        <CardHeader>
+          <CardTitle>История баланса</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant={historyTab === 'all' ? 'primary' : 'outline'}
+              onClick={() => setHistoryTab('all')}
+            >
+              Все
+            </Button>
+            <Button
+              size="sm"
+              variant={historyTab === 'topup' ? 'primary' : 'outline'}
+              onClick={() => setHistoryTab('topup')}
+            >
+              Пополнение
+            </Button>
+            <Button
+              size="sm"
+              variant={historyTab === 'writeoff' ? 'primary' : 'outline'}
+              onClick={() => setHistoryTab('writeoff')}
+            >
+              Списание
+            </Button>
+          </div>
+
+          {historyItems.length === 0 ? (
+            <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+              История пока пустая
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {historyItems.map((item) => {
+                const amount = Number(item.amount_usd);
+                const sign = item.direction === 'credit' ? '+' : '-';
+                const amountRub = amount * USD_TO_RUB_RATE;
+                return (
+                  <div key={item.id} className="rounded-lg border p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-medium truncate">{item.title}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {new Date(item.created_at).toLocaleString('ru-RU')}
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <Badge variant={item.direction === 'credit' ? 'success' : 'destructive'}>
+                            {item.direction === 'credit' ? 'Пополнение' : 'Списание'}
+                          </Badge>
+                          <Badge variant="outline">{item.event_type}</Badge>
+                          {item.model && <Badge variant="outline">{item.model}</Badge>}
+                          <Badge variant="outline">Токены: {formatTokens(item.tokens)}</Badge>
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className={`font-semibold ${item.direction === 'credit' ? 'text-green-700' : 'text-red-600'}`}>
+                          {sign}${amount.toFixed(4)}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {sign}{amountRub.toFixed(2)} ₽
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle>Использование</CardTitle>
@@ -228,13 +309,7 @@ export function ProfilePage() {
               <p className="text-xs text-muted-foreground">Запусков</p>
             </div>
             <div className="text-center p-3 rounded-lg bg-muted/50">
-              <p className="text-2xl font-bold">
-                {profile.usage.total_tokens > 1_000_000
-                  ? `${(profile.usage.total_tokens / 1_000_000).toFixed(1)}M`
-                  : profile.usage.total_tokens > 1000
-                    ? `${(profile.usage.total_tokens / 1000).toFixed(1)}K`
-                    : profile.usage.total_tokens}
-              </p>
+              <p className="text-2xl font-bold">{formatTokens(profile.usage.total_tokens)}</p>
               <p className="text-xs text-muted-foreground">Токенов</p>
             </div>
             <div className="text-center p-3 rounded-lg bg-muted/50">
@@ -261,11 +336,7 @@ export function ProfilePage() {
                       <tr key={agent.agent_id} className="border-b last:border-0">
                         <td className="py-2">{agent.agent_name}</td>
                         <td className="py-2 text-right">{agent.total_runs}</td>
-                        <td className="py-2 text-right">
-                          {agent.total_tokens > 1000
-                            ? `${(agent.total_tokens / 1000).toFixed(1)}K`
-                            : agent.total_tokens}
-                        </td>
+                        <td className="py-2 text-right">{formatTokens(agent.total_tokens)}</td>
                         <td className="py-2 text-right">${Number(agent.total_cost).toFixed(4)}</td>
                       </tr>
                     ))}
@@ -277,7 +348,6 @@ export function ProfilePage() {
         </CardContent>
       </Card>
 
-      {/* Linked Accounts */}
       <Card>
         <CardHeader>
           <CardTitle>Привязанные аккаунты</CardTitle>
@@ -320,7 +390,6 @@ export function ProfilePage() {
         </CardContent>
       </Card>
 
-      {/* Limits */}
       <Card>
         <CardHeader>
           <CardTitle>Лимиты</CardTitle>

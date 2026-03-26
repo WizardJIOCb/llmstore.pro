@@ -21,7 +21,7 @@ export async function list(req: Request, res: Response, next: NextFunction) {
 
 export async function get(req: Request<{ id: string }>, res: Response, next: NextFunction) {
   try {
-    const agent = await agentService.getAgent(req.params.id, req.session.userId!);
+    const agent = await agentService.getAgent(req.params.id, req.session.userId!, req.session.userRole);
     res.json({ data: agent });
   } catch (err) {
     next(err);
@@ -30,7 +30,7 @@ export async function get(req: Request<{ id: string }>, res: Response, next: Nex
 
 export async function update(req: Request<{ id: string }>, res: Response, next: NextFunction) {
   try {
-    const agent = await agentService.updateAgent(req.params.id, req.session.userId!, req.body);
+    const agent = await agentService.updateAgent(req.params.id, req.session.userId!, req.body, req.session.userRole);
     res.json({ data: agent });
   } catch (err) {
     next(err);
@@ -39,7 +39,7 @@ export async function update(req: Request<{ id: string }>, res: Response, next: 
 
 export async function remove(req: Request<{ id: string }>, res: Response, next: NextFunction) {
   try {
-    await agentService.deleteAgent(req.params.id, req.session.userId!);
+    await agentService.deleteAgent(req.params.id, req.session.userId!, req.session.userRole);
     res.json({ data: { success: true } });
   } catch (err) {
     next(err);
@@ -48,7 +48,7 @@ export async function remove(req: Request<{ id: string }>, res: Response, next: 
 
 export async function createVersion(req: Request<{ id: string }>, res: Response, next: NextFunction) {
   try {
-    const version = await agentService.createAgentVersion(req.params.id, req.session.userId!, req.body);
+    const version = await agentService.createAgentVersion(req.params.id, req.session.userId!, req.body, req.session.userRole);
     res.status(201).json({ data: version });
   } catch (err) {
     next(err);

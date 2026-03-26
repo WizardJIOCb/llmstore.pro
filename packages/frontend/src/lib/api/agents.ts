@@ -140,6 +140,7 @@ export const agentApi = {
   create: (data: {
     name: string;
     description?: string;
+    visibility?: 'public' | 'private';
     system_prompt?: string;
     tool_ids?: string[];
     runtime_config?: Record<string, unknown>;
@@ -152,7 +153,17 @@ export const agentApi = {
   get: (id: string) =>
     apiClient.get<{ data: AgentFull }>(`/agents/${id}`).then(r => r.data.data),
 
-  update: (id: string, data: { name?: string; description?: string; status?: string }) =>
+  update: (id: string, data: {
+    name?: string;
+    description?: string;
+    visibility?: string;
+    status?: string;
+    system_prompt?: string;
+    model_id?: string | null;
+    runtime_config?: Record<string, unknown>;
+    tool_ids?: string[];
+    response_mode?: 'text' | 'json_object' | 'json_schema';
+  }) =>
     apiClient.put<{ data: Agent }>(`/agents/${id}`, data).then(r => r.data.data),
 
   delete: (id: string) =>

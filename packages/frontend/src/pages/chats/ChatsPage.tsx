@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { ChatInput } from '../../components/agents/ChatInput';
 import { ChatMessage } from '../../components/agents/ChatMessage';
 import { RunMetadata } from '../../components/agents/RunMetadata';
@@ -6,9 +7,9 @@ import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { Spinner } from '../../components/ui/Spinner';
-import { useAgentList } from '../../hooks/useAgents';
 import {
   useChat,
+  useChatAgents,
   useChatStats,
   useChatsList,
   useCreateChat,
@@ -55,9 +56,14 @@ function extractUsage(value: Record<string, unknown> | null) {
 
 type MenuItem = { kind: 'chat'; id: string } | null;
 
+function getApiErrorCode(err: unknown): string | undefined {
+  const maybe = err as { response?: { data?: { error?: { code?: string } } } };
+  return maybe?.response?.data?.error?.code;
+}
+
 export function ChatsPage() {
   const { data: chats, isLoading: chatsLoading } = useChatsList();
-  const { data: agents, isLoading: agentsLoading } = useAgentList();
+  const { data: agents, isLoading: agentsLoading } = useChatAgents();
   const createChatMutation = useCreateChat();
   const updateChatMutation = useUpdateChat();
   const deleteChatMutation = useDeleteChat();
@@ -70,6 +76,10 @@ export function ChatsPage() {
   const [localError, setLocalError] = useState<string | null>(null);
   const [shareToastVisible, setShareToastVisible] = useState(false);
   const [isPropertiesOpen, setIsPropertiesOpen] = useState(false);
+  const [isTopUpOpen, setIsTopUpOpen] = useState(false);
+  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  const [newChatMode, setNewChatMode] = useState<'general' | 'agent'>('general');
+  const [newChatAgentId, setNewChatAgentId] = useState('');
   const [propertiesModel, setPropertiesModel] = useState('openai/gpt-4o-mini');
   const [propertiesSaving, setPropertiesSaving] = useState(false);
 
@@ -112,9 +122,7 @@ export function ChatsPage() {
 
   useEffect(() => {
     return () => {
-      if (shareToastTimerRef.current) {
-        clearTimeout(shareToastTimerRef.current);
-      }
+      if (shareToastTimerRef.current) clearTimeout(shareToastTimerRef.current);
     };
   }, []);
 
@@ -135,7 +143,7 @@ export function ChatsPage() {
   const modeOptions = useMemo(
     () => [
       { value: 'general', label: 'Общение' },
-      ...(agents ?? []).map((agent) => ({ value: `agent:${agent.id}`, label: `Бот: ${agent.name}` })),
+      ...(agents ?? []).map((agent) => ({ value: `agent:${agent.id}`, label: `Агент: ${agent.name}` })),
     ],
     [agents],
   );
@@ -146,13 +154,43 @@ export function ChatsPage() {
     return activeChat.agent_id ? `agent:${activeChat.agent_id}` : 'general';
   }, [activeChat]);
 
+  const activeAgentListMeta = useMemo(() => {
+    if (!activeChat?.agent_id) return null;
+    return (agents ?? []).find((a) => a.id === activeChat.agent_id) ?? null;
+  }, [activeChat?.agent_id, agents]);
+
+  const activeAgentName = activeChatData?.chat.agent_name ?? activeAgentListMeta?.name ?? null;
+  const activeAgentDescription =
+    activeChatData?.chat.agent_chat_description
+    ?? activeAgentListMeta?.chat_description
+    ?? activeAgentListMeta?.description
+    ?? null;
+  const activeStarterPrompts =
+    activeChatData?.chat.agent_starter_prompts
+    ?? activeAgentListMeta?.starter_prompts
+    ?? [];
+
   const sidebarLoading = chatsLoading || agentsLoading;
 
-  const createNewChat = async () => {
+  const createNewChat = async () => setIsCreateDialogOpen(true);
+
+  const createChatFromDialog = async () => {
     setLocalError(null);
+    if (newChatMode === 'agent' && !newChatAgentId) {
+      setLocalError('Выберите агента для нового чата');
+      return;
+    }
+
     try {
-      const created = await createChatMutation.mutateAsync({ mode: 'general', title: 'Новый чат' });
+      const created = await createChatMutation.mutateAsync({
+        mode: newChatMode,
+        title: 'Новый чат',
+        agent_id: newChatMode === 'agent' ? newChatAgentId : null,
+      });
       setActiveChatId(created.id);
+      setIsCreateDialogOpen(false);
+      setNewChatMode('general');
+      setNewChatAgentId('');
     } catch {
       setLocalError('Не удалось создать чат');
     }
@@ -163,7 +201,6 @@ export function ChatsPage() {
     if (!next) return;
     const title = next.trim();
     if (!title) return;
-
     setLocalError(null);
     try {
       await updateChatMutation.mutateAsync({ chatId: chat.id, title });
@@ -194,9 +231,7 @@ export function ChatsPage() {
       await navigator.clipboard.writeText(url);
       setShareToastVisible(true);
       if (shareToastTimerRef.current) clearTimeout(shareToastTimerRef.current);
-      shareToastTimerRef.current = setTimeout(() => {
-        setShareToastVisible(false);
-      }, 2000);
+      shareToastTimerRef.current = setTimeout(() => setShareToastVisible(false), 2000);
     } catch {
       setLocalError('Не удалось поделиться чатом');
     } finally {
@@ -232,20 +267,14 @@ export function ChatsPage() {
     setLocalError(null);
     try {
       if (value === 'general') {
-        await updateChatMutation.mutateAsync({
-          chatId: activeChat.id,
-          mode: 'general',
-          agent_id: null,
-        });
+        await updateChatMutation.mutateAsync({ chatId: activeChat.id, mode: 'general', agent_id: null });
         return;
       }
-
       if (value.startsWith('agent:')) {
-        const agentId = value.replace('agent:', '');
         await updateChatMutation.mutateAsync({
           chatId: activeChat.id,
           mode: 'agent',
-          agent_id: agentId,
+          agent_id: value.replace('agent:', ''),
         });
       }
     } catch {
@@ -259,8 +288,13 @@ export function ChatsPage() {
     try {
       await sendMessageMutation.mutateAsync({ chatId: activeChat.id, content });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Не удалось отправить сообщение';
-      setLocalError(msg);
+      const code = getApiErrorCode(err);
+      if (code === 'INSUFFICIENT_BALANCE') {
+        setIsTopUpOpen(true);
+        setLocalError('Недостаточно баланса');
+        return;
+      }
+      setLocalError(err instanceof Error ? err.message : 'Не удалось отправить сообщение');
     }
   };
 
@@ -272,11 +306,7 @@ export function ChatsPage() {
         activeChatId === chat.id ? 'bg-accent text-foreground' : 'hover:bg-accent/60',
       )}
     >
-      <button
-        type="button"
-        onClick={() => setActiveChatId(chat.id)}
-        className="w-full pr-8 text-left"
-      >
+      <button type="button" onClick={() => setActiveChatId(chat.id)} className="w-full pr-8 text-left">
         <p className="truncate text-sm font-medium">{chat.title}</p>
         <p className="truncate text-xs text-muted-foreground">
           {chat.last_message_preview || (chat.mode === 'general' ? 'Общение' : 'Чат с ботом')}
@@ -290,9 +320,7 @@ export function ChatsPage() {
           className="h-7 w-7 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
           onClick={(e) => {
             e.stopPropagation();
-            setOpenMenu((prev) => (
-              prev?.kind === 'chat' && prev.id === chat.id ? null : { kind: 'chat', id: chat.id }
-            ));
+            setOpenMenu((prev) => (prev?.kind === 'chat' && prev.id === chat.id ? null : { kind: 'chat', id: chat.id }));
           }}
           aria-label="Действия чата"
         >
@@ -320,57 +348,21 @@ export function ChatsPage() {
 
   return (
     <div className="px-4 py-6">
-      <div
-        className={cn(
-          'pointer-events-none fixed left-1/2 top-4 z-[70] -translate-x-1/2 rounded-lg border border-emerald-200 bg-emerald-500 px-4 py-2 text-sm font-medium text-white shadow-lg transition-all duration-500',
-          shareToastVisible ? 'translate-y-0 opacity-100' : '-translate-y-16 opacity-0',
-        )}
-      >
+      <div className={cn('pointer-events-none fixed left-1/2 top-4 z-[70] -translate-x-1/2 rounded-lg border border-emerald-200 bg-emerald-500 px-4 py-2 text-sm font-medium text-white shadow-lg transition-all duration-500', shareToastVisible ? 'translate-y-0 opacity-100' : '-translate-y-16 opacity-0')}>
         Ссылка скопирована
       </div>
 
       <div className="mx-auto flex h-[calc(100vh-12rem)] max-w-7xl overflow-hidden rounded-xl border bg-white">
         <aside className="flex w-full max-w-xs shrink-0 flex-col border-r">
           <div className="border-b p-3 space-y-3">
-            <Button className="w-full" onClick={createNewChat} disabled={createChatMutation.isPending}>
-              Новый чат
-            </Button>
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Поиск чата..."
-            />
+            <Button className="w-full" onClick={createNewChat} disabled={createChatMutation.isPending}>Новый чат</Button>
+            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Поиск чата..." />
           </div>
-
           <div className="flex-1 overflow-y-auto p-2 space-y-4">
-            {sidebarLoading && (
-              <div className="flex justify-center py-8">
-                <Spinner />
-              </div>
-            )}
-
-            {!sidebarLoading && draftChats.length > 0 && (
-              <section className="space-y-1">
-                <p className="px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Черновики</p>
-                {draftChats.map(renderChatRow)}
-              </section>
-            )}
-
-            {!sidebarLoading && regularChats.length > 0 && (
-              <section className="space-y-1">
-                <p className="px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Чаты</p>
-                {regularChats.map(renderChatRow)}
-              </section>
-            )}
-
-            {!sidebarLoading && (!chats || chats.length === 0) && (
-              <div className="p-2 text-sm text-muted-foreground space-y-2">
-                <p>У вас пока нет чатов.</p>
-                <button type="button" className="text-primary hover:underline" onClick={createNewChat}>
-                  Создать первый чат
-                </button>
-              </div>
-            )}
+            {sidebarLoading && <div className="flex justify-center py-8"><Spinner /></div>}
+            {!sidebarLoading && draftChats.length > 0 && <section className="space-y-1"><p className="px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Черновики</p>{draftChats.map(renderChatRow)}</section>}
+            {!sidebarLoading && regularChats.length > 0 && <section className="space-y-1"><p className="px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Чаты</p>{regularChats.map(renderChatRow)}</section>}
+            {!sidebarLoading && (!chats || chats.length === 0) && <div className="p-2 text-sm text-muted-foreground space-y-2"><p>У вас пока нет чатов.</p><button type="button" className="text-primary hover:underline" onClick={createNewChat}>Создать первый чат</button></div>}
           </div>
         </aside>
 
@@ -381,177 +373,182 @@ export function ChatsPage() {
               <p className="truncate text-xs text-muted-foreground">
                 {activeChat?.mode === 'general'
                   ? `OpenRouter: ${activeChat?.model_external_id ?? 'openai/gpt-4o-mini'}`
-                  : 'Чат с агентом'}
+                  : activeAgentName
+                    ? `Агент: ${activeAgentName}`
+                    : 'Чат с агентом'}
               </p>
             </div>
-            {activeChat && (
-              <Select
-                options={modeOptions}
-                value={activeModeValue}
-                onChange={(e) => handleModeChange(e.target.value)}
-                className="w-64"
-              />
-            )}
+            {activeChat && <Select options={modeOptions} value={activeModeValue} onChange={(e) => handleModeChange(e.target.value)} className="w-64" />}
           </div>
 
           <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-            {(activeChatLoading || sendMessageMutation.isPending) && messages.length === 0 && (
-              <div className="flex justify-center py-8">
-                <Spinner />
-              </div>
-            )}
-
+            {(activeChatLoading || sendMessageMutation.isPending) && messages.length === 0 && <div className="flex justify-center py-8"><Spinner /></div>}
             {!activeChatLoading && activeChat && messages.length === 0 && (
-              <div className="py-12 text-center text-muted-foreground">
-                История пока пустая. Отправьте первое сообщение.
+              <div className="py-8">
+                {activeChat.mode === 'agent' && (activeAgentName || activeStarterPrompts.length > 0 || activeAgentDescription) ? (
+                  <div className="mx-auto max-w-3xl rounded-xl border bg-muted/20 p-5 space-y-4">
+                    <div>
+                      <h3 className="text-base font-semibold">{activeAgentName ?? 'Агент'}</h3>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {activeAgentDescription || 'Опишите задачу агенту простыми словами, и он начнет работу.'}
+                      </p>
+                    </div>
+                    {activeStarterPrompts.length > 0 && (
+                      <div className="space-y-2">
+                        <p className="text-xs uppercase tracking-wide text-muted-foreground">Примеры сообщений</p>
+                        <div className="flex flex-wrap gap-2">
+                          {activeStarterPrompts.map((prompt, idx) => (
+                            <Button key={`${prompt}-${idx}`} type="button" variant="outline" size="sm" disabled={sendMessageMutation.isPending} onClick={() => sendMessage(prompt)}>
+                              {prompt}
+                            </Button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-center text-muted-foreground">История пока пустая. Отправьте первое сообщение.</div>
+                )}
               </div>
             )}
-
-            {!activeChatLoading && !activeChat && (
-              <div className="py-12 text-center text-muted-foreground">
-                Выберите чат слева или создайте новый.
-              </div>
-            )}
-
+            {!activeChatLoading && !activeChat && <div className="py-12 text-center text-muted-foreground">Выберите чат слева или создайте новый.</div>}
             {messages.map((msg: ChatMessageType) => (
               <div key={msg.id}>
                 <ChatMessage role={msg.role} content={msg.content} />
                 {msg.role === 'assistant' && (
                   <div className="mt-1 ml-1">
-                    <RunMetadata usage={extractUsage(msg.usage)} latencyMs={msg.latency_ms ?? undefined} />
+                    <RunMetadata
+                      usage={extractUsage(msg.usage)}
+                      latencyMs={msg.latency_ms ?? undefined}
+                      agentName={activeChat?.mode === 'agent' ? (activeAgentName ?? undefined) : undefined}
+                    />
                   </div>
                 )}
               </div>
             ))}
-
-            {sendMessageMutation.isPending && (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Spinner /> Думаю...
-              </div>
-            )}
-
+            {sendMessageMutation.isPending && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Spinner /> Думаю...</div>}
             <div ref={messagesEndRef} />
           </div>
 
-          {localError && (
-            <div className="border-t px-4 py-2 text-sm text-destructive bg-destructive/10">
-              {localError}
-            </div>
-          )}
+          {localError && <div className="border-t px-4 py-2 text-sm text-destructive bg-destructive/10">{localError}</div>}
 
-          <div className="border-t px-4 py-3">
-            <ChatInput
-              onSend={sendMessage}
-              disabled={!activeChat || sendMessageMutation.isPending}
-              placeholder={activeChat ? 'Введите сообщение...' : 'Сначала выберите чат'}
-            />
+          <div className="border-t px-4 py-3 space-y-3">
+            {activeChat?.mode === 'agent' && activeStarterPrompts.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {activeStarterPrompts.map((prompt, idx) => (
+                  <Button key={`quick-${prompt}-${idx}`} type="button" variant="outline" size="sm" disabled={sendMessageMutation.isPending} onClick={() => sendMessage(prompt)}>
+                    {prompt}
+                  </Button>
+                ))}
+              </div>
+            )}
+            <ChatInput onSend={sendMessage} disabled={!activeChat || sendMessageMutation.isPending} placeholder={activeChat ? 'Введите сообщение...' : 'Сначала выберите чат'} />
           </div>
         </section>
       </div>
 
-      {isPropertiesOpen && activeChat && (
+      {isTopUpOpen && (
+        <div className="fixed inset-0 z-[85] flex items-center justify-center bg-black/40 p-4" onClick={() => setIsTopUpOpen(false)}>
+          <div className="w-full max-w-md rounded-xl border bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="border-b px-5 py-4"><h3 className="text-lg font-semibold">Недостаточно баланса</h3></div>
+            <div className="px-5 py-4 space-y-3"><p className="text-sm text-muted-foreground">Чтобы продолжить общение в чатах и с агентами, пополните баланс.</p><div className="rounded-md border bg-muted/40 px-3 py-2 text-sm">Попросите у Родиона</div></div>
+            <div className="border-t px-5 py-4 flex items-center justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setIsTopUpOpen(false)}>Закрыть</Button>
+              <Link to="/profile" onClick={() => setIsTopUpOpen(false)}><Button size="sm">Открыть профиль</Button></Link>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isCreateDialogOpen && (
         <div
-          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4"
-          onClick={() => setIsPropertiesOpen(false)}
+          className="fixed inset-0 z-[86] flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setIsCreateDialogOpen(false)}
         >
           <div
-            className="w-full max-w-3xl rounded-xl border bg-white shadow-2xl"
+            className="w-full max-w-xl rounded-2xl border bg-white shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="border-b px-5 py-4 flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-lg font-semibold">Свойства чата</h2>
-                <p className="text-sm text-muted-foreground">{activeChat.title}</p>
-              </div>
-              <Button variant="ghost" size="sm" onClick={() => setIsPropertiesOpen(false)}>
-                Закрыть
-              </Button>
+            <div className="border-b px-6 py-5">
+              <h3 className="text-xl font-semibold">Новый чат</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Выберите режим, чтобы начать диалог.
+              </p>
             </div>
 
-            <div className="p-5 space-y-5 max-h-[70vh] overflow-y-auto">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1">
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Режим</p>
-                  <p className="text-sm font-medium">{activeChat.mode === 'general' ? 'Общение' : 'Бот'}</p>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Агент</p>
-                  <p className="text-sm font-medium">{activeChatStats?.chat.agent_name ?? '—'}</p>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Создан</p>
-                  <p className="text-sm font-medium">{formatDate(activeChat.created_at)}</p>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Обновлён</p>
-                  <p className="text-sm font-medium">{formatDate(activeChat.updated_at)}</p>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <p className="text-sm font-medium">Модель OpenRouter</p>
+            <div className="px-6 py-5 space-y-5">
+              <div className="rounded-xl border bg-muted/20 p-4 space-y-2">
+                <p className="text-sm font-medium">Режим чата</p>
                 <Select
-                  options={GENERAL_MODELS}
-                  value={propertiesModel}
-                  onChange={(e) => setPropertiesModel(e.target.value)}
-                  className="w-full max-w-md"
+                  value={newChatMode}
+                  onChange={(e) => setNewChatMode(e.target.value as 'general' | 'agent')}
+                  options={[
+                    { value: 'general', label: 'Общение через OpenRouter' },
+                    { value: 'agent', label: 'Чат с агентом' },
+                  ]}
+                  className="w-full"
                 />
-                <p className="text-xs text-muted-foreground">Эта модель используется в режиме «Общение».</p>
               </div>
 
-              {chatStatsLoading ? (
-                <div className="flex justify-center py-6">
-                  <Spinner />
+              {newChatMode === 'agent' && (
+                <div className="rounded-xl border bg-muted/20 p-4 space-y-2">
+                  <p className="text-sm font-medium">Выберите агента</p>
+                  <Select
+                    value={newChatAgentId}
+                    onChange={(e) => setNewChatAgentId(e.target.value)}
+                    options={[
+                      { value: '', label: 'Выберите агента...' },
+                      ...(agents ?? []).map((agent) => ({
+                        value: agent.id,
+                        label: agent.is_owner ? `${agent.name} (мой)` : `${agent.name} (общий)`,
+                      })),
+                    ]}
+                    className="w-full"
+                  />
+                  {(agents ?? []).length === 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      Сейчас нет доступных активных агентов.
+                    </p>
+                  )}
                 </div>
-              ) : (
-                <>
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                    <div className="rounded-lg border p-3">
-                      <p className="text-xs text-muted-foreground">Всего сообщений</p>
-                      <p className="text-xl font-semibold">{activeChatStats?.chat.message_count ?? 0}</p>
-                    </div>
-                    <div className="rounded-lg border p-3">
-                      <p className="text-xs text-muted-foreground">Всего токенов</p>
-                      <p className="text-xl font-semibold">{(activeChatStats?.totals.total_tokens ?? 0).toLocaleString('ru-RU')}</p>
-                    </div>
-                    <div className="rounded-lg border p-3">
-                      <p className="text-xs text-muted-foreground">Стоимость ($)</p>
-                      <p className="text-xl font-semibold">${(activeChatStats?.totals.usd_cost ?? 0).toFixed(4)}</p>
-                    </div>
-                    <div className="rounded-lg border p-3">
-                      <p className="text-xs text-muted-foreground">Стоимость (₽)</p>
-                      <p className="text-xl font-semibold">₽{(activeChatStats?.totals.rub_cost ?? 0).toFixed(2)}</p>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <p className="text-sm font-medium">Статистика по моделям</p>
-                    {activeChatStats && activeChatStats.by_model.length > 0 ? (
-                      <div className="rounded-lg border divide-y">
-                        {activeChatStats.by_model.map((row) => (
-                          <div key={row.model} className="p-3 grid gap-1 sm:grid-cols-5 sm:items-center">
-                            <p className="text-sm font-medium sm:col-span-2 truncate" title={row.model}>{row.model}</p>
-                            <p className="text-xs text-muted-foreground">Токены: {row.total_tokens.toLocaleString('ru-RU')}</p>
-                            <p className="text-xs text-muted-foreground">$ {row.usd_cost.toFixed(4)}</p>
-                            <p className="text-xs text-muted-foreground">₽ {row.rub_cost.toFixed(2)}</p>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">Пока нет данных по расходам в этом чате.</p>
-                    )}
-                  </div>
-                </>
               )}
             </div>
 
-            <div className="border-t px-5 py-4 flex items-center justify-end gap-2">
-              <Button variant="outline" size="sm" onClick={() => setIsPropertiesOpen(false)}>
+            <div className="border-t px-6 py-4 flex items-center justify-end gap-2 bg-muted/10 rounded-b-2xl">
+              <Button variant="outline" size="sm" onClick={() => setIsCreateDialogOpen(false)}>
                 Отмена
               </Button>
-              <Button size="sm" onClick={saveProperties} disabled={propertiesSaving}>
-                {propertiesSaving ? 'Сохраняю...' : 'Сохранить'}
+              <Button
+                size="sm"
+                onClick={createChatFromDialog}
+                disabled={createChatMutation.isPending || (newChatMode === 'agent' && !newChatAgentId)}
+              >
+                {createChatMutation.isPending ? 'Создаю...' : 'Создать чат'}
               </Button>
+            </div>
+          </div>
+        </div>
+      )}
+      {isPropertiesOpen && activeChat && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4" onClick={() => setIsPropertiesOpen(false)}>
+          <div className="w-full max-w-3xl rounded-xl border bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="border-b px-5 py-4 flex items-start justify-between gap-4">
+              <div><h2 className="text-lg font-semibold">Свойства чата</h2><p className="text-sm text-muted-foreground">{activeChat.title}</p></div>
+              <Button variant="ghost" size="sm" onClick={() => setIsPropertiesOpen(false)}>Закрыть</Button>
+            </div>
+            <div className="p-5 space-y-5 max-h-[70vh] overflow-y-auto">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1"><p className="text-xs uppercase tracking-wide text-muted-foreground">Режим</p><p className="text-sm font-medium">{activeChat.mode === 'general' ? 'Общение' : 'Бот'}</p></div>
+                <div className="space-y-1"><p className="text-xs uppercase tracking-wide text-muted-foreground">Агент</p><p className="text-sm font-medium">{activeChatStats?.chat.agent_name ?? '—'}</p></div>
+                <div className="space-y-1"><p className="text-xs uppercase tracking-wide text-muted-foreground">Создан</p><p className="text-sm font-medium">{formatDate(activeChat.created_at)}</p></div>
+                <div className="space-y-1"><p className="text-xs uppercase tracking-wide text-muted-foreground">Обновлен</p><p className="text-sm font-medium">{formatDate(activeChat.updated_at)}</p></div>
+              </div>
+              <div className="space-y-2"><p className="text-sm font-medium">Модель OpenRouter</p><Select options={GENERAL_MODELS} value={propertiesModel} onChange={(e) => setPropertiesModel(e.target.value)} className="w-full max-w-md" /></div>
+              {chatStatsLoading ? <div className="flex justify-center py-6"><Spinner /></div> : null}
+            </div>
+            <div className="border-t px-5 py-4 flex items-center justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setIsPropertiesOpen(false)}>Отмена</Button>
+              <Button size="sm" onClick={saveProperties} disabled={propertiesSaving}>{propertiesSaving ? 'Сохраняю...' : 'Сохранить'}</Button>
             </div>
           </div>
         </div>
@@ -559,3 +556,4 @@ export function ChatsPage() {
     </div>
   );
 }
+

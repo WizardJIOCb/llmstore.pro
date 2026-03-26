@@ -21,7 +21,17 @@ const DTF_TEMPLATE = {
 - При перечислении статей указывай заголовок, автора и ссылку
 - При пересказе выделяй ключевые моменты
 - Если пользователь просит "последние новости" — сначала получи ленту, затем предложи пересказать интересные статьи`,
-  runtime_config: { max_iterations: 6, temperature: 0.3, max_tokens: 4096 },
+  runtime_config: {
+    max_iterations: 6,
+    temperature: 0.3,
+    max_tokens: 4096,
+    chat_intro: 'Помогаю с новостями DTF: могу показать свежие статьи, разобрать выбранную и сделать краткий пересказ.',
+    starter_prompts: [
+      'Покажи 5 последних новостей DTF',
+      'Найди самую обсуждаемую новость и кратко объясни контекст',
+      'Сделай короткий дайджест главных тем за сегодня',
+    ],
+  },
 };
 
 export function AgentBuilderPage() {
@@ -47,15 +57,35 @@ export function AgentBuilderPage() {
     if (templateId === 'dtf-news') {
       return { ...DTF_TEMPLATE, tool_ids: getDtfToolIds() };
     }
-    return { name: '', description: '', system_prompt: '', tool_ids: [], runtime_config: { max_iterations: 4, temperature: 0.3, max_tokens: 4096 } };
+    return {
+      name: '',
+      description: '',
+      visibility: 'private' as const,
+      system_prompt: '',
+      tool_ids: [],
+      runtime_config: {
+        max_iterations: 4,
+        temperature: 0.3,
+        max_tokens: 4096,
+        chat_intro: '',
+        starter_prompts: [],
+      },
+    };
   };
 
   const handleSubmit = async (data: {
     name: string;
     description: string;
+    visibility: 'public' | 'private';
     system_prompt: string;
     tool_ids: string[];
-    runtime_config: { max_iterations: number; temperature: number; max_tokens: number };
+    runtime_config: {
+      max_iterations: number;
+      temperature: number;
+      max_tokens: number;
+      chat_intro?: string;
+      starter_prompts?: string[];
+    };
   }) => {
     const agent = await createAgent.mutateAsync(data);
     navigate(`/playground/agent/${agent.id}`);

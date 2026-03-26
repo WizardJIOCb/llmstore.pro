@@ -8,6 +8,14 @@ export function useChatsList() {
   });
 }
 
+export function useChatAgents() {
+  return useQuery({
+    queryKey: ['chat-agents'],
+    queryFn: chatsApi.listAgents,
+    staleTime: 30_000,
+  });
+}
+
 export function useChat(chatId: string | undefined) {
   return useQuery({
     queryKey: ['chats', chatId],

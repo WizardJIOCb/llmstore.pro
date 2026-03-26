@@ -17,6 +17,11 @@ const updateAgentSchema = z.object({
   description: z.string().max(2000).optional(),
   visibility: z.enum(['public', 'private', 'unlisted']).optional(),
   status: z.enum(['draft', 'active', 'archived']).optional(),
+  system_prompt: z.string().max(10000).optional(),
+  model_id: z.string().uuid().nullable().optional(),
+  runtime_config: z.record(z.unknown()).optional(),
+  tool_ids: z.array(z.string().uuid()).optional(),
+  response_mode: z.enum(['text', 'json_object', 'json_schema']).optional(),
 });
 
 const createVersionSchema = z.object({

@@ -40,10 +40,26 @@ export interface UserUsageSummary {
   per_agent: AgentUsageSummary[];
 }
 
+export type BalanceHistoryDirection = 'credit' | 'debit';
+export type BalanceHistoryCategory = 'topup' | 'writeoff';
+
+export interface BalanceHistoryItem {
+  id: string;
+  created_at: string;
+  title: string;
+  event_type: string;
+  category: BalanceHistoryCategory;
+  direction: BalanceHistoryDirection;
+  amount_usd: string;
+  tokens: number;
+  model: string | null;
+}
+
 export interface UserProfile extends UserPublic {
   balance_usd: string;
   balance_rub: string;
   linked_accounts: LinkedAccount[];
   usage: UserUsageSummary;
+  balance_history: BalanceHistoryItem[];
   limits: UserLimits;
 }

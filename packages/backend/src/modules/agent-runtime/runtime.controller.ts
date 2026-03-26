@@ -74,9 +74,18 @@ export async function listChats(req: Request, res: Response, next: NextFunction)
   }
 }
 
+export async function listChatAgents(req: Request, res: Response, next: NextFunction) {
+  try {
+    const agents = await runtimeService.listChatAgents(req.session.userId!, req.session.userRole);
+    res.json({ data: agents });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function createChat(req: Request, res: Response, next: NextFunction) {
   try {
-    const chat = await runtimeService.createChat(req.session.userId!, req.body);
+    const chat = await runtimeService.createChat(req.session.userId!, req.body, req.session.userRole);
     res.status(201).json({ data: chat });
   } catch (err) {
     next(err);
@@ -103,7 +112,7 @@ export async function getChatStats(req: Request<{ chatId: string }>, res: Respon
 
 export async function updateChat(req: Request<{ chatId: string }>, res: Response, next: NextFunction) {
   try {
-    const chat = await runtimeService.updateChat(req.params.chatId, req.session.userId!, req.body);
+    const chat = await runtimeService.updateChat(req.params.chatId, req.session.userId!, req.body, req.session.userRole);
     res.json({ data: chat });
   } catch (err) {
     next(err);
@@ -130,7 +139,12 @@ export async function shareChatById(req: Request<{ chatId: string }>, res: Respo
 
 export async function sendChatMessage(req: Request<{ chatId: string }>, res: Response, next: NextFunction) {
   try {
-    const result = await runtimeService.sendChatMessage(req.params.chatId, req.session.userId!, req.body.content);
+    const result = await runtimeService.sendChatMessage(
+      req.params.chatId,
+      req.session.userId!,
+      req.body.content,
+      req.session.userRole,
+    );
     res.status(201).json({ data: result });
   } catch (err) {
     next(err);

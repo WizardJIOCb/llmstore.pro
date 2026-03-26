@@ -39,7 +39,6 @@ export function AdminAgentsPage() {
 
   return (
     <AdminLayout>
-      {/* Filters */}
       <div className="mb-6 flex flex-wrap items-center gap-3">
         <input
           type="text"
@@ -58,9 +57,7 @@ export function AdminAgentsPage() {
             <option key={v} value={v}>{l}</option>
           ))}
         </select>
-        <span className="ml-auto text-sm text-muted-foreground">
-          Всего: {meta.total}
-        </span>
+        <span className="ml-auto text-sm text-muted-foreground">Всего: {meta.total}</span>
       </div>
 
       {isLoading ? (
@@ -77,7 +74,9 @@ export function AdminAgentsPage() {
                   <th className="px-4 py-3 text-left font-medium">Владелец</th>
                   <th className="px-4 py-3 text-left font-medium">Статус</th>
                   <th className="px-4 py-3 text-left font-medium">Видимость</th>
-                  <th className="px-4 py-3 text-left font-medium">Обновлён</th>
+                  <th className="px-4 py-3 text-left font-medium">Создан</th>
+                  <th className="px-4 py-3 text-left font-medium">Обновлен</th>
+                  <th className="px-4 py-3 text-left font-medium">Потрачено</th>
                   <th className="px-4 py-3 text-right font-medium">Действия</th>
                 </tr>
               </thead>
@@ -86,30 +85,27 @@ export function AdminAgentsPage() {
                   <tr key={agent.id} className="border-b hover:bg-muted/30">
                     <td className="px-4 py-3">
                       <div className="font-medium">{agent.name}</div>
-                      {agent.slug && (
-                        <div className="text-xs text-muted-foreground">{agent.slug}</div>
-                      )}
+                      {agent.slug && <div className="text-xs text-muted-foreground">{agent.slug}</div>}
                     </td>
                     <td className="px-4 py-3">
                       <div className="text-sm">{agent.owner_email}</div>
-                      {agent.owner_name && (
-                        <div className="text-xs text-muted-foreground">{agent.owner_name}</div>
-                      )}
+                      {agent.owner_name && <div className="text-xs text-muted-foreground">{agent.owner_name}</div>}
                     </td>
                     <td className="px-4 py-3">
                       <Badge variant={agentStatusVariants[agent.status] ?? 'secondary'}>
                         {agentStatusLabels[agent.status] ?? agent.status}
                       </Badge>
                     </td>
+                    <td className="px-4 py-3 text-xs">{visibilityLabels[agent.visibility] ?? agent.visibility}</td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground">{new Date(agent.created_at).toLocaleDateString('ru-RU')}</td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground">{new Date(agent.updated_at).toLocaleDateString('ru-RU')}</td>
                     <td className="px-4 py-3 text-xs">
-                      {visibilityLabels[agent.visibility] ?? agent.visibility}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-muted-foreground">
-                      {new Date(agent.updated_at).toLocaleDateString('ru-RU')}
+                      <div>{Number(agent.total_tokens ?? 0).toLocaleString('ru-RU')} ток.</div>
+                      <div className="text-muted-foreground">${Number(agent.total_cost_usd ?? 0).toFixed(4)}</div>
                     </td>
                     <td className="px-4 py-3 text-right">
                       <Link to={`/builder/agent/${agent.id}`}>
-                        <Button variant="ghost" size="sm">Открыть</Button>
+                        <Button variant="ghost" size="sm">Редактировать</Button>
                       </Link>
                     </td>
                   </tr>
@@ -118,19 +114,12 @@ export function AdminAgentsPage() {
             </table>
           </div>
 
-          {/* Pagination */}
           {meta.total_pages > 1 && (
             <div className="mt-4 flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">
-                Страница {page} из {meta.total_pages}
-              </span>
+              <span className="text-sm text-muted-foreground">Страница {page} из {meta.total_pages}</span>
               <div className="flex gap-2">
-                <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-                  Назад
-                </Button>
-                <Button variant="outline" size="sm" disabled={page >= meta.total_pages} onClick={() => setPage((p) => p + 1)}>
-                  Вперёд
-                </Button>
+                <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Назад</Button>
+                <Button variant="outline" size="sm" disabled={page >= meta.total_pages} onClick={() => setPage((p) => p + 1)}>Вперед</Button>
               </div>
             </div>
           )}
