@@ -1,6 +1,14 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi, type AdminListParams, type AdminUsersParams, type AdminAgentsParams } from '../lib/api/admin';
 
+export function useAdminDashboardStats() {
+  return useQuery({
+    queryKey: ['admin', 'dashboard', 'stats'],
+    queryFn: () => adminApi.getDashboardStats(),
+    refetchInterval: 30_000,
+  });
+}
+
 // ─── Catalog Items ──────────────────────────────────────────
 
 export function useAdminItems(params: AdminListParams) {

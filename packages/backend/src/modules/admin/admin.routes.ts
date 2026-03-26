@@ -13,6 +13,9 @@ const router = Router();
 // All admin routes require admin or curator role
 router.use(requireRole('admin', 'curator'));
 
+// Dashboard stats
+router.get('/dashboard/stats', controller.getDashboardStats);
+
 // Catalog items CRUD
 router.get('/items', validateAdminListQuery, controller.listItems);
 router.get('/items/:id', controller.getItem);

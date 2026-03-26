@@ -7,6 +7,15 @@ import { UPLOADS_DIR } from '../../config/upload.js';
 
 type IdParams = { id: string };
 
+export async function getDashboardStats(_req: Request, res: Response, next: NextFunction) {
+  try {
+    const stats = await adminService.getDashboardStats();
+    res.json({ data: stats });
+  } catch (err) {
+    next(err);
+  }
+}
+
 // ─── Catalog Items ──────────────────────────────────────────
 
 export async function listItems(req: Request, res: Response, next: NextFunction) {

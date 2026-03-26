@@ -6,6 +6,7 @@ import {
   categories, tags, useCases,
   users, balanceTransactions,
   agents, agentRuns,
+  chatConversations, chatConversationMessages,
 } from '../../db/schema/index.js';
 import { NotFoundError, ConflictError, AppError } from '../../middleware/error-handler.js';
 import type { CreateCatalogItemInput, UpdateCatalogItemInput } from '@llmstore/shared/schemas';
@@ -632,5 +633,129 @@ export async function adjustUserBalance(
       description: tx.description,
       created_at: tx.created_at.toISOString(),
     },
+  };
+}
+
+export async function getDashboardStats() {
+  const now = new Date();
+  const days30 = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+  const [
+    usersCountRes,
+    usersActiveRes,
+    usersBalanceRes,
+    agentsCountRes,
+    runsCountRes,
+    chatsCountRes,
+    chatsGeneralCountRes,
+    chatsAgentCountRes,
+    chatMessagesCountRes,
+    usageRows,
+    topExpensiveChats,
+  ] = await Promise.all([
+    db.select({ count: count() }).from(users),
+    db.select({ count: count() }).from(users).where(eq(users.status, 'active')),
+    db.select({ total: sql<string>`coalesce(sum(${users.balance_usd}), 0)` }).from(users),
+    db.select({ count: count() }).from(agents),
+    db.select({ count: count() }).from(agentRuns),
+    db.select({ count: count() }).from(chatConversations),
+    db.select({ count: count() }).from(chatConversations).where(eq(chatConversations.mode, 'general')),
+    db.select({ count: count() }).from(chatConversations).where(eq(chatConversations.mode, 'agent')),
+    db.select({ count: count() }).from(chatConversationMessages),
+    db
+      .select({
+        model: sql<string>`coalesce(${chatConversationMessages.usage_json}->>'model', ${chatConversations.model_external_id}, 'unknown')`,
+        prompt_tokens: sql<number>`coalesce(sum(((${chatConversationMessages.usage_json}->>'prompt_tokens')::numeric)), 0)::int`,
+        completion_tokens: sql<number>`coalesce(sum(((${chatConversationMessages.usage_json}->>'completion_tokens')::numeric)), 0)::int`,
+        total_tokens: sql<number>`coalesce(sum(((${chatConversationMessages.usage_json}->>'total_tokens')::numeric)), 0)::int`,
+        usd_cost: sql<string>`coalesce(sum(((${chatConversationMessages.usage_json}->>'estimated_cost')::numeric)), 0)`,
+        messages: sql<number>`count(*)::int`,
+      })
+      .from(chatConversationMessages)
+      .innerJoin(chatConversations, eq(chatConversationMessages.conversation_id, chatConversations.id))
+      .where(sql`${chatConversationMessages.usage_json} is not null`)
+      .groupBy(sql`coalesce(${chatConversationMessages.usage_json}->>'model', ${chatConversations.model_external_id}, 'unknown')`)
+      .orderBy(sql`coalesce(sum(((${chatConversationMessages.usage_json}->>'estimated_cost')::numeric)), 0) desc`),
+    db
+      .select({
+        id: chatConversations.id,
+        title: chatConversations.title,
+        mode: chatConversations.mode,
+        message_count: sql<number>`count(${chatConversationMessages.id})::int`,
+        usd_cost: sql<string>`coalesce(sum(((${chatConversationMessages.usage_json}->>'estimated_cost')::numeric)), 0)`,
+      })
+      .from(chatConversations)
+      .leftJoin(chatConversationMessages, eq(chatConversationMessages.conversation_id, chatConversations.id))
+      .groupBy(chatConversations.id, chatConversations.title, chatConversations.mode)
+      .orderBy(sql`coalesce(sum(((${chatConversationMessages.usage_json}->>'estimated_cost')::numeric)), 0) desc`)
+      .limit(5),
+  ]);
+
+  const usage30Rows = await db
+    .select({
+      total_tokens: sql<number>`coalesce(sum(((${chatConversationMessages.usage_json}->>'total_tokens')::numeric)), 0)::int`,
+      usd_cost: sql<string>`coalesce(sum(((${chatConversationMessages.usage_json}->>'estimated_cost')::numeric)), 0)`,
+    })
+    .from(chatConversationMessages)
+    .where(
+      and(
+        sql`${chatConversationMessages.usage_json} is not null`,
+        sql`${chatConversationMessages.created_at} >= ${days30.toISOString()}`,
+      ),
+    );
+
+  const totalUsdCost = usageRows.reduce((sum, row) => sum + Number(row.usd_cost ?? 0), 0);
+  const totalPromptTokens = usageRows.reduce((sum, row) => sum + (row.prompt_tokens ?? 0), 0);
+  const totalCompletionTokens = usageRows.reduce((sum, row) => sum + (row.completion_tokens ?? 0), 0);
+  const totalTokens = usageRows.reduce((sum, row) => sum + (row.total_tokens ?? 0), 0);
+
+  const avgMessagesPerChat = (chatsCountRes[0]?.count ?? 0) > 0
+    ? (chatMessagesCountRes[0]?.count ?? 0) / (chatsCountRes[0]?.count ?? 1)
+    : 0;
+
+  return {
+    totals: {
+      users: usersCountRes[0]?.count ?? 0,
+      active_users: usersActiveRes[0]?.count ?? 0,
+      users_balance_usd: Number(usersBalanceRes[0]?.total ?? 0),
+      agents: agentsCountRes[0]?.count ?? 0,
+      runs: runsCountRes[0]?.count ?? 0,
+      chats: chatsCountRes[0]?.count ?? 0,
+      chats_general: chatsGeneralCountRes[0]?.count ?? 0,
+      chats_agent: chatsAgentCountRes[0]?.count ?? 0,
+      chat_messages: chatMessagesCountRes[0]?.count ?? 0,
+      prompt_tokens: totalPromptTokens,
+      completion_tokens: totalCompletionTokens,
+      total_tokens: totalTokens,
+      chat_cost_usd: totalUsdCost,
+    },
+    last_30_days: {
+      total_tokens: usage30Rows[0]?.total_tokens ?? 0,
+      chat_cost_usd: Number(usage30Rows[0]?.usd_cost ?? 0),
+    },
+    derived: {
+      avg_messages_per_chat: Number(avgMessagesPerChat.toFixed(2)),
+      avg_cost_per_chat_usd: (chatsCountRes[0]?.count ?? 0) > 0
+        ? Number((totalUsdCost / (chatsCountRes[0]?.count ?? 1)).toFixed(6))
+        : 0,
+      avg_tokens_per_message: (chatMessagesCountRes[0]?.count ?? 0) > 0
+        ? Number((totalTokens / (chatMessagesCountRes[0]?.count ?? 1)).toFixed(2))
+        : 0,
+    },
+    by_model: usageRows.map((row) => ({
+      model: row.model,
+      prompt_tokens: row.prompt_tokens ?? 0,
+      completion_tokens: row.completion_tokens ?? 0,
+      total_tokens: row.total_tokens ?? 0,
+      usd_cost: Number(row.usd_cost ?? 0),
+      messages: row.messages ?? 0,
+    })),
+    top_expensive_chats: topExpensiveChats.map((row) => ({
+      id: row.id,
+      title: row.title,
+      mode: row.mode,
+      message_count: row.message_count ?? 0,
+      usd_cost: Number(row.usd_cost ?? 0),
+    })),
   };
 }

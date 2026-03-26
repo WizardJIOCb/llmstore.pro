@@ -24,7 +24,53 @@ export interface AdminAgentsParams {
   owner_id?: string;
 }
 
+export interface AdminDashboardStats {
+  totals: {
+    users: number;
+    active_users: number;
+    users_balance_usd: number;
+    agents: number;
+    runs: number;
+    chats: number;
+    chats_general: number;
+    chats_agent: number;
+    chat_messages: number;
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+    chat_cost_usd: number;
+  };
+  last_30_days: {
+    total_tokens: number;
+    chat_cost_usd: number;
+  };
+  derived: {
+    avg_messages_per_chat: number;
+    avg_cost_per_chat_usd: number;
+    avg_tokens_per_message: number;
+  };
+  by_model: Array<{
+    model: string;
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+    usd_cost: number;
+    messages: number;
+  }>;
+  top_expensive_chats: Array<{
+    id: string;
+    title: string;
+    mode: string;
+    message_count: number;
+    usd_cost: number;
+  }>;
+}
+
 export const adminApi = {
+  // Dashboard
+  getDashboardStats: () =>
+    apiClient.get<{ data: AdminDashboardStats }>('/admin/dashboard/stats').then((r) => r.data.data),
+
   // Catalog items
   listItems: (params: AdminListParams) =>
     apiClient.get('/admin/items', { params }).then((r) => r.data),
