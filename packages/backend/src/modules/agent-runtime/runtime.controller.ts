@@ -64,3 +64,75 @@ export async function getSharedChat(req: Request<{ token: string }>, res: Respon
     next(err);
   }
 }
+
+export async function listChats(req: Request, res: Response, next: NextFunction) {
+  try {
+    const chats = await runtimeService.listChats(req.session.userId!);
+    res.json({ data: chats });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function createChat(req: Request, res: Response, next: NextFunction) {
+  try {
+    const chat = await runtimeService.createChat(req.session.userId!, req.body);
+    res.status(201).json({ data: chat });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getChatById(req: Request<{ chatId: string }>, res: Response, next: NextFunction) {
+  try {
+    const chat = await runtimeService.getChatById(req.params.chatId, req.session.userId!);
+    res.json({ data: chat });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function updateChat(req: Request<{ chatId: string }>, res: Response, next: NextFunction) {
+  try {
+    const chat = await runtimeService.updateChat(req.params.chatId, req.session.userId!, req.body);
+    res.json({ data: chat });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function deleteChat(req: Request<{ chatId: string }>, res: Response, next: NextFunction) {
+  try {
+    await runtimeService.deleteChat(req.params.chatId, req.session.userId!);
+    res.json({ data: { ok: true } });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function shareChatById(req: Request<{ chatId: string }>, res: Response, next: NextFunction) {
+  try {
+    const result = await runtimeService.shareChatById(req.params.chatId, req.session.userId!);
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function sendChatMessage(req: Request<{ chatId: string }>, res: Response, next: NextFunction) {
+  try {
+    const result = await runtimeService.sendChatMessage(req.params.chatId, req.session.userId!, req.body.content);
+    res.status(201).json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getSharedChatById(req: Request<{ token: string }>, res: Response, next: NextFunction) {
+  try {
+    const result = await runtimeService.getSharedChatById(req.params.token);
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}

@@ -50,7 +50,7 @@ export async function seedDtfNewsAgent() {
   const [existing] = await db.select().from(agents).where(eq(agents.slug, 'dtf-news-agent')).limit(1);
 
   if (existing) {
-    // Update existing agent: create new version with updated prompt and tools
+    // Update existing agent: upsert v2 (idempotent for repeated seed runs)
     const [version] = await db
       .insert(agentVersions)
       .values({
@@ -63,6 +63,19 @@ export async function seedDtfNewsAgent() {
           max_iterations: 6,
           temperature: 0.3,
           max_tokens: 4096,
+        },
+      })
+      .onConflictDoUpdate({
+        target: [agentVersions.agent_id, agentVersions.version_number],
+        set: {
+          runtime_engine: 'openrouter_chat',
+          system_prompt: SYSTEM_PROMPT,
+          response_mode: 'text',
+          runtime_config: {
+            max_iterations: 6,
+            temperature: 0.3,
+            max_tokens: 4096,
+          },
         },
       })
       .returning();
@@ -78,7 +91,7 @@ export async function seedDtfNewsAgent() {
       }).onConflictDoNothing();
     }
 
-    console.log('Updated DTF News Agent to v2 with 3 tools');
+    console.log('Ensured DTF News Agent v2 with 3 tools');
     return;
   }
 

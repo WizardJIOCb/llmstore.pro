@@ -1,6 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
 chcp 65001 >nul
+cd /d "%~dp0"
 title LLMStore.pro — Dev Environment
 
 echo ========================================
@@ -111,7 +112,17 @@ call npm run build -w @llmstore/shared
 :: Пуш схемы + сид
 echo [5/5] Применение схемы БД и загрузка seed-данных...
 call npm run db:push
+if errorlevel 1 (
+    echo [ERROR] db:push failed. Please check database and .env settings.
+    pause
+    exit /b 1
+)
 call npm run db:seed
+if errorlevel 1 (
+    echo [ERROR] db:seed failed.
+    pause
+    exit /b 1
+)
 
 echo.
 echo ========================================

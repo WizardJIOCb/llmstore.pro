@@ -8,7 +8,7 @@
     "packages/frontend"
   ],
   "scripts": {
-    "dev": "concurrently -n shared,backend,frontend -c blue,green,yellow \"npm run dev -w @llmstore/shared\" \"npm run dev -w @llmstore/backend\" \"npm run dev -w @llmstore/frontend\"",
+    "dev": "npm run db:push -w @llmstore/backend && concurrently -n shared,backend,frontend -c blue,green,yellow \"npm run dev -w @llmstore/shared\" \"npm run dev -w @llmstore/backend\" \"npm run dev -w @llmstore/frontend\"",
     "build": "npm run build -w @llmstore/shared && npm run build -w @llmstore/backend && npm run build -w @llmstore/frontend",
     "build:shared": "npm run build -w @llmstore/shared",
     "lint": "npm run lint --workspaces --if-present",

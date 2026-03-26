@@ -1,0 +1,405 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ChatInput } from '../../components/agents/ChatInput';
+import { ChatMessage } from '../../components/agents/ChatMessage';
+import { RunMetadata } from '../../components/agents/RunMetadata';
+import { Button } from '../../components/ui/Button';
+import { Input } from '../../components/ui/Input';
+import { Select } from '../../components/ui/Select';
+import { Spinner } from '../../components/ui/Spinner';
+import { useAgentList } from '../../hooks/useAgents';
+import {
+  useChat,
+  useChatsList,
+  useCreateChat,
+  useDeleteChat,
+  useSendChatMessage,
+  useShareChatById,
+  useUpdateChat,
+} from '../../hooks/useChats';
+import type { ChatListItem, ChatMessage as ChatMessageType } from '../../lib/api/chats';
+import { cn } from '../../lib/utils';
+
+function formatDate(iso: string): string {
+  const date = new Date(iso);
+  return new Intl.DateTimeFormat('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+}
+
+function extractUsage(value: Record<string, unknown> | null) {
+  if (!value) return null;
+  const prompt_tokens = typeof value.prompt_tokens === 'number' ? value.prompt_tokens : null;
+  const completion_tokens = typeof value.completion_tokens === 'number' ? value.completion_tokens : null;
+  const total_tokens = typeof value.total_tokens === 'number' ? value.total_tokens : null;
+  if (prompt_tokens == null || completion_tokens == null || total_tokens == null) return null;
+
+  return {
+    prompt_tokens,
+    completion_tokens,
+    total_tokens,
+    estimated_cost: typeof value.estimated_cost === 'string' ? value.estimated_cost : undefined,
+    model: typeof value.model === 'string' ? value.model : undefined,
+  };
+}
+
+type MenuItem = { kind: 'chat'; id: string } | null;
+
+export function ChatsPage() {
+  const { data: chats, isLoading: chatsLoading } = useChatsList();
+  const { data: agents, isLoading: agentsLoading } = useAgentList();
+  const createChatMutation = useCreateChat();
+  const updateChatMutation = useUpdateChat();
+  const deleteChatMutation = useDeleteChat();
+  const shareChatMutation = useShareChatById();
+  const sendMessageMutation = useSendChatMessage();
+
+  const [search, setSearch] = useState('');
+  const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const [openMenu, setOpenMenu] = useState<MenuItem>(null);
+  const [localError, setLocalError] = useState<string | null>(null);
+  const [shareToastVisible, setShareToastVisible] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const shareToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const { data: activeChatData, isLoading: activeChatLoading } = useChat(activeChatId ?? undefined);
+  const activeChat = activeChatData?.chat ?? null;
+  const messages = activeChatData?.messages ?? [];
+
+  useEffect(() => {
+    if (!activeChatId && chats && chats.length > 0) {
+      setActiveChatId(chats[0].id);
+    }
+  }, [activeChatId, chats]);
+
+  useEffect(() => {
+    if (!openMenu) return;
+    const onClickOutside = (e: MouseEvent) => {
+      if (!menuRef.current) return;
+      if (!menuRef.current.contains(e.target as Node)) setOpenMenu(null);
+    };
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, [openMenu]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, sendMessageMutation.isPending]);
+
+  useEffect(() => {
+    return () => {
+      if (shareToastTimerRef.current) {
+        clearTimeout(shareToastTimerRef.current);
+      }
+    };
+  }, []);
+
+  const filteredChats = useMemo(() => {
+    if (!chats) return [];
+    if (!search.trim()) return chats;
+    const q = search.trim().toLowerCase();
+    return chats.filter((chat) => {
+      const title = (chat.title || '').toLowerCase();
+      const preview = (chat.last_message_preview || '').toLowerCase();
+      return title.includes(q) || preview.includes(q);
+    });
+  }, [chats, search]);
+
+  const draftChats = filteredChats.filter((chat) => chat.message_count === 0);
+  const regularChats = filteredChats.filter((chat) => chat.message_count > 0);
+
+  const modeOptions = useMemo(
+    () => [
+      { value: 'general', label: 'Общение' },
+      ...(agents ?? []).map((agent) => ({ value: `agent:${agent.id}`, label: `Бот: ${agent.name}` })),
+    ],
+    [agents],
+  );
+
+  const activeModeValue = useMemo(() => {
+    if (!activeChat) return '';
+    if (activeChat.mode === 'general') return 'general';
+    return activeChat.agent_id ? `agent:${activeChat.agent_id}` : 'general';
+  }, [activeChat]);
+
+  const sidebarLoading = chatsLoading || agentsLoading;
+
+  const createNewChat = async () => {
+    setLocalError(null);
+    try {
+      const created = await createChatMutation.mutateAsync({ mode: 'general', title: 'Новый чат' });
+      setActiveChatId(created.id);
+    } catch {
+      setLocalError('Не удалось создать чат');
+    }
+  };
+
+  const renameChat = async (chat: ChatListItem) => {
+    const next = window.prompt('Новое имя чата', chat.title);
+    if (!next) return;
+    const title = next.trim();
+    if (!title) return;
+
+    setLocalError(null);
+    try {
+      await updateChatMutation.mutateAsync({ chatId: chat.id, title });
+    } catch {
+      setLocalError('Не удалось переименовать чат');
+    } finally {
+      setOpenMenu(null);
+    }
+  };
+
+  const deleteChat = async (chatId: string) => {
+    setLocalError(null);
+    try {
+      await deleteChatMutation.mutateAsync(chatId);
+      if (activeChatId === chatId) setActiveChatId(null);
+    } catch {
+      setLocalError('Не удалось удалить чат');
+    } finally {
+      setOpenMenu(null);
+    }
+  };
+
+  const shareChat = async (chatId: string) => {
+    setLocalError(null);
+    try {
+      const { share_token } = await shareChatMutation.mutateAsync(chatId);
+      const url = `${window.location.origin}/shared/chats/${share_token}`;
+      await navigator.clipboard.writeText(url);
+      setShareToastVisible(true);
+      if (shareToastTimerRef.current) clearTimeout(shareToastTimerRef.current);
+      shareToastTimerRef.current = setTimeout(() => {
+        setShareToastVisible(false);
+      }, 2000);
+    } catch {
+      setLocalError('Не удалось поделиться чатом');
+    } finally {
+      setOpenMenu(null);
+    }
+  };
+
+  const handleModeChange = async (value: string) => {
+    if (!activeChat) return;
+    setLocalError(null);
+    try {
+      if (value === 'general') {
+        await updateChatMutation.mutateAsync({
+          chatId: activeChat.id,
+          mode: 'general',
+          agent_id: null,
+        });
+        return;
+      }
+
+      if (value.startsWith('agent:')) {
+        const agentId = value.replace('agent:', '');
+        await updateChatMutation.mutateAsync({
+          chatId: activeChat.id,
+          mode: 'agent',
+          agent_id: agentId,
+        });
+      }
+    } catch {
+      setLocalError('Не удалось изменить режим чата');
+    }
+  };
+
+  const sendMessage = async (content: string) => {
+    if (!activeChat) return;
+    setLocalError(null);
+    try {
+      await sendMessageMutation.mutateAsync({ chatId: activeChat.id, content });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Не удалось отправить сообщение';
+      setLocalError(msg);
+    }
+  };
+
+  const renderChatRow = (chat: ChatListItem) => (
+    <div
+      key={chat.id}
+      className={cn(
+        'relative rounded-md px-2 py-2 transition-colors',
+        activeChatId === chat.id ? 'bg-accent text-foreground' : 'hover:bg-accent/60',
+      )}
+    >
+      <button
+        type="button"
+        onClick={() => setActiveChatId(chat.id)}
+        className="w-full pr-8 text-left"
+      >
+        <p className="truncate text-sm font-medium">{chat.title}</p>
+        <p className="truncate text-xs text-muted-foreground">
+          {chat.last_message_preview || (chat.mode === 'general' ? 'Общение' : 'Чат с ботом')}
+        </p>
+        <p className="text-xs text-muted-foreground">{formatDate(chat.last_message_at)}</p>
+      </button>
+
+      <div className="absolute right-2 top-2" ref={openMenu?.kind === 'chat' && openMenu.id === chat.id ? menuRef : null}>
+        <button
+          type="button"
+          className="h-7 w-7 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          onClick={(e) => {
+            e.stopPropagation();
+            setOpenMenu((prev) => (
+              prev?.kind === 'chat' && prev.id === chat.id ? null : { kind: 'chat', id: chat.id }
+            ));
+          }}
+          aria-label="Действия чата"
+        >
+          ...
+        </button>
+        {openMenu?.kind === 'chat' && openMenu.id === chat.id && (
+          <div className="absolute right-0 top-8 z-20 w-44 rounded-md border bg-white p-1 shadow-lg">
+            <button type="button" className="w-full rounded px-2 py-1.5 text-left text-sm hover:bg-accent" onClick={() => renameChat(chat)}>
+              Переименовать
+            </button>
+            <button type="button" className="w-full rounded px-2 py-1.5 text-left text-sm hover:bg-accent" onClick={() => deleteChat(chat.id)}>
+              Удалить
+            </button>
+            <button type="button" className="w-full rounded px-2 py-1.5 text-left text-sm hover:bg-accent" onClick={() => shareChat(chat.id)}>
+              Поделиться
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="px-4 py-6">
+      <div
+        className={cn(
+          'pointer-events-none fixed left-1/2 top-4 z-[70] -translate-x-1/2 rounded-lg border border-emerald-200 bg-emerald-500 px-4 py-2 text-sm font-medium text-white shadow-lg transition-all duration-500',
+          shareToastVisible ? 'translate-y-0 opacity-100' : '-translate-y-16 opacity-0',
+        )}
+      >
+        Ссылка скопирована
+      </div>
+      <div className="mx-auto flex h-[calc(100vh-12rem)] max-w-7xl overflow-hidden rounded-xl border bg-white">
+        <aside className="flex w-full max-w-xs shrink-0 flex-col border-r">
+          <div className="border-b p-3 space-y-3">
+            <Button className="w-full" onClick={createNewChat} disabled={createChatMutation.isPending}>
+              Новый чат
+            </Button>
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Поиск чата..."
+            />
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-2 space-y-4">
+            {sidebarLoading && (
+              <div className="flex justify-center py-8">
+                <Spinner />
+              </div>
+            )}
+
+            {!sidebarLoading && draftChats.length > 0 && (
+              <section className="space-y-1">
+                <p className="px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Черновики</p>
+                {draftChats.map(renderChatRow)}
+              </section>
+            )}
+
+            {!sidebarLoading && regularChats.length > 0 && (
+              <section className="space-y-1">
+                <p className="px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Чаты</p>
+                {regularChats.map(renderChatRow)}
+              </section>
+            )}
+
+            {!sidebarLoading && (!chats || chats.length === 0) && (
+              <div className="p-2 text-sm text-muted-foreground space-y-2">
+                <p>У вас пока нет чатов.</p>
+                <button type="button" className="text-primary hover:underline" onClick={createNewChat}>
+                  Создать первый чат
+                </button>
+              </div>
+            )}
+          </div>
+        </aside>
+
+        <section className="flex min-w-0 flex-1 flex-col">
+          <div className="border-b px-4 py-3 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <h1 className="truncate font-semibold">{activeChat?.title ?? 'Чаты'}</h1>
+              <p className="truncate text-xs text-muted-foreground">
+                {activeChat?.mode === 'general'
+                  ? `OpenRouter: ${activeChat?.model_external_id ?? 'openai/gpt-4o-mini'}`
+                  : 'Чат с агентом'}
+              </p>
+            </div>
+            {activeChat && (
+              <Select
+                options={modeOptions}
+                value={activeModeValue}
+                onChange={(e) => handleModeChange(e.target.value)}
+                className="w-64"
+              />
+            )}
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+            {(activeChatLoading || sendMessageMutation.isPending) && messages.length === 0 && (
+              <div className="flex justify-center py-8">
+                <Spinner />
+              </div>
+            )}
+
+            {!activeChatLoading && activeChat && messages.length === 0 && (
+              <div className="py-12 text-center text-muted-foreground">
+                История пока пустая. Отправьте первое сообщение.
+              </div>
+            )}
+
+            {!activeChatLoading && !activeChat && (
+              <div className="py-12 text-center text-muted-foreground">
+                Выберите чат слева или создайте новый.
+              </div>
+            )}
+
+            {messages.map((msg: ChatMessageType) => (
+              <div key={msg.id}>
+                <ChatMessage role={msg.role} content={msg.content} />
+                {msg.role === 'assistant' && (
+                  <div className="mt-1 ml-1">
+                    <RunMetadata usage={extractUsage(msg.usage)} latencyMs={msg.latency_ms ?? undefined} />
+                  </div>
+                )}
+              </div>
+            ))}
+
+            {sendMessageMutation.isPending && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Spinner /> Думаю...
+              </div>
+            )}
+
+            <div ref={messagesEndRef} />
+          </div>
+
+          {localError && (
+            <div className="border-t px-4 py-2 text-sm text-destructive bg-destructive/10">
+              {localError}
+            </div>
+          )}
+
+          <div className="border-t px-4 py-3">
+            <ChatInput
+              onSend={sendMessage}
+              disabled={!activeChat || sendMessageMutation.isPending}
+              placeholder={activeChat ? 'Введите сообщение...' : 'Сначала выберите чат'}
+            />
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}

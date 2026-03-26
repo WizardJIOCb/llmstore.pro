@@ -1,8 +1,15 @@
 import { db } from '../../config/database.js';
 import { agents, agentVersions, agentVersionTools, toolDefinitions } from '../../db/schema/agents.js';
-import { agentRuns, agentRunMessages, agentRunToolCalls, chatSessions } from '../../db/schema/runtime.js';
+import {
+  agentRuns,
+  agentRunMessages,
+  agentRunToolCalls,
+  chatSessions,
+  chatConversations,
+  chatConversationMessages,
+} from '../../db/schema/runtime.js';
 import { usageLedger } from '../../db/schema/analytics.js';
-import { eq, desc, and, sql } from 'drizzle-orm';
+import { eq, desc, and, sql, asc, inArray } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import { openRouterClient } from '../openrouter/index.js';
 import { executeTool } from '../tool-execution/index.js';
@@ -552,4 +559,412 @@ export async function clearChatHistory(agentId: string, userId: string) {
 
   // Delete the session
   await db.delete(chatSessions).where(eq(chatSessions.id, session.id));
+}
+
+const DEFAULT_GENERAL_MODEL = 'openai/gpt-4o-mini';
+
+type ChatMode = 'general' | 'agent';
+
+interface ChatConversationRow {
+  id: string;
+  user_id: string;
+  agent_id: string | null;
+  mode: ChatMode;
+  title: string;
+  model_external_id: string | null;
+  system_prompt: string | null;
+  share_token: string | null;
+  settings_json: Record<string, unknown> | null;
+  last_message_at: Date;
+  created_at: Date;
+  updated_at: Date;
+}
+
+interface ConversationListItem {
+  id: string;
+  title: string;
+  mode: ChatMode;
+  agent_id: string | null;
+  model_external_id: string | null;
+  share_token: string | null;
+  message_count: number;
+  last_message_preview: string | null;
+  last_message_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface ConversationMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  run_id: string | null;
+  usage: Record<string, unknown> | null;
+  latency_ms: number | null;
+  created_at: string;
+}
+
+interface ConversationDetails {
+  chat: Omit<ConversationListItem, 'last_message_preview' | 'message_count'> & { message_count: number };
+  messages: ConversationMessage[];
+}
+
+function toIso(value: Date): string {
+  return value.toISOString();
+}
+
+function compactTitle(content: string): string {
+  const text = content.replace(/\s+/g, ' ').trim();
+  return text.length > 80 ? `${text.slice(0, 80)}...` : text || 'Новый чат';
+}
+
+async function getConversationForUser(chatId: string, userId: string): Promise<ChatConversationRow> {
+  const [chat] = await db
+    .select()
+    .from(chatConversations)
+    .where(and(eq(chatConversations.id, chatId), eq(chatConversations.user_id, userId)))
+    .limit(1);
+
+  if (!chat) throw new NotFoundError('Чат не найден');
+  return chat as ChatConversationRow;
+}
+
+async function getConversationMessages(chatId: string): Promise<ConversationMessage[]> {
+  const rows = await db
+    .select()
+    .from(chatConversationMessages)
+    .where(eq(chatConversationMessages.conversation_id, chatId))
+    .orderBy(asc(chatConversationMessages.created_at));
+
+  return rows
+    .filter((row) => row.role === 'user' || row.role === 'assistant')
+    .map((row) => ({
+      id: row.id,
+      role: row.role as 'user' | 'assistant',
+      content: row.content_text,
+      run_id: row.run_id ?? null,
+      usage: (row.usage_json as Record<string, unknown> | null) ?? null,
+      latency_ms: row.latency_ms ?? null,
+      created_at: toIso(row.created_at),
+    }));
+}
+
+function estimateGeneralChatCost(model: string, usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number }) {
+  const estimated_cost = estimateCost(model, usage.prompt_tokens, usage.completion_tokens);
+  return { ...usage, estimated_cost, model };
+}
+
+export async function listChats(userId: string): Promise<ConversationListItem[]> {
+  const chats = await db
+    .select()
+    .from(chatConversations)
+    .where(eq(chatConversations.user_id, userId))
+    .orderBy(desc(chatConversations.last_message_at))
+    .limit(200);
+
+  const ids = chats.map((chat) => chat.id);
+  if (ids.length === 0) return [];
+
+  const counts = await db
+    .select({
+      conversation_id: chatConversationMessages.conversation_id,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(chatConversationMessages)
+    .where(inArray(chatConversationMessages.conversation_id, ids))
+    .groupBy(chatConversationMessages.conversation_id);
+
+  const lastMessages = await db
+    .select({
+      conversation_id: chatConversationMessages.conversation_id,
+      content_text: chatConversationMessages.content_text,
+      created_at: chatConversationMessages.created_at,
+      id: chatConversationMessages.id,
+    })
+    .from(chatConversationMessages)
+    .where(inArray(chatConversationMessages.conversation_id, ids))
+    .orderBy(desc(chatConversationMessages.created_at));
+
+  const countMap = new Map<string, number>();
+  for (const c of counts) countMap.set(c.conversation_id, c.count);
+
+  const previewMap = new Map<string, string>();
+  for (const m of lastMessages) {
+    if (!previewMap.has(m.conversation_id)) {
+      previewMap.set(m.conversation_id, compactTitle(m.content_text));
+    }
+  }
+
+  return chats.map((chat) => ({
+    id: chat.id,
+    title: chat.title,
+    mode: chat.mode as ChatMode,
+    agent_id: chat.agent_id ?? null,
+    model_external_id: chat.model_external_id ?? null,
+    share_token: chat.share_token ?? null,
+    message_count: countMap.get(chat.id) ?? 0,
+    last_message_preview: previewMap.get(chat.id) ?? null,
+    last_message_at: toIso(chat.last_message_at),
+    created_at: toIso(chat.created_at),
+    updated_at: toIso(chat.updated_at),
+  }));
+}
+
+export async function createChat(userId: string, input: {
+  title?: string;
+  mode?: ChatMode;
+  agent_id?: string | null;
+  model_external_id?: string | null;
+  system_prompt?: string | null;
+}) {
+  const mode = input.mode ?? 'general';
+  if (mode === 'agent' && !input.agent_id) {
+    throw new AppError(400, 'VALIDATION_ERROR', 'Для режима агента нужно указать agent_id');
+  }
+
+  const [chat] = await db.insert(chatConversations).values({
+    user_id: userId,
+    mode,
+    agent_id: input.agent_id ?? null,
+    title: (input.title?.trim() || 'Новый чат').slice(0, 500),
+    model_external_id: input.model_external_id ?? null,
+    system_prompt: input.system_prompt ?? null,
+    last_message_at: new Date(),
+  }).returning();
+
+  return {
+    id: chat.id,
+    title: chat.title,
+    mode: chat.mode,
+    agent_id: chat.agent_id,
+    model_external_id: chat.model_external_id,
+    share_token: chat.share_token ?? null,
+    message_count: 0,
+    last_message_preview: null,
+    last_message_at: toIso(chat.last_message_at),
+    created_at: toIso(chat.created_at),
+    updated_at: toIso(chat.updated_at),
+  };
+}
+
+export async function getChatById(chatId: string, userId: string): Promise<ConversationDetails> {
+  const chat = await getConversationForUser(chatId, userId);
+  const messages = await getConversationMessages(chatId);
+
+  return {
+    chat: {
+      id: chat.id,
+      title: chat.title,
+      mode: chat.mode,
+      agent_id: chat.agent_id ?? null,
+      model_external_id: chat.model_external_id ?? null,
+      share_token: chat.share_token ?? null,
+      message_count: messages.length,
+      last_message_at: toIso(chat.last_message_at),
+      created_at: toIso(chat.created_at),
+      updated_at: toIso(chat.updated_at),
+    },
+    messages,
+  };
+}
+
+export async function updateChat(chatId: string, userId: string, input: {
+  title?: string;
+  mode?: ChatMode;
+  agent_id?: string | null;
+  model_external_id?: string | null;
+  system_prompt?: string | null;
+}) {
+  const existing = await getConversationForUser(chatId, userId);
+  const nextMode = input.mode ?? existing.mode;
+  const nextAgentId = input.agent_id === undefined ? existing.agent_id : input.agent_id;
+
+  if (nextMode === 'agent' && !nextAgentId) {
+    throw new AppError(400, 'VALIDATION_ERROR', 'Для режима агента нужно указать agent_id');
+  }
+
+  const [chat] = await db.update(chatConversations)
+    .set({
+      title: input.title ? input.title.trim().slice(0, 500) : existing.title,
+      mode: nextMode,
+      agent_id: nextAgentId ?? null,
+      model_external_id: input.model_external_id === undefined
+        ? existing.model_external_id
+        : (input.model_external_id ?? null),
+      system_prompt: input.system_prompt === undefined ? existing.system_prompt : (input.system_prompt ?? null),
+      updated_at: new Date(),
+    })
+    .where(eq(chatConversations.id, chatId))
+    .returning();
+
+  const [countRow] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(chatConversationMessages)
+    .where(eq(chatConversationMessages.conversation_id, chatId));
+
+  return {
+    id: chat.id,
+    title: chat.title,
+    mode: chat.mode,
+    agent_id: chat.agent_id ?? null,
+    model_external_id: chat.model_external_id ?? null,
+    share_token: chat.share_token ?? null,
+    message_count: countRow?.count ?? 0,
+    last_message_preview: null,
+    last_message_at: toIso(chat.last_message_at),
+    created_at: toIso(chat.created_at),
+    updated_at: toIso(chat.updated_at),
+  };
+}
+
+export async function deleteChat(chatId: string, userId: string) {
+  await getConversationForUser(chatId, userId);
+  await db.delete(chatConversations).where(and(eq(chatConversations.id, chatId), eq(chatConversations.user_id, userId)));
+}
+
+export async function shareChatById(chatId: string, userId: string) {
+  const chat = await getConversationForUser(chatId, userId);
+  if (chat.share_token) {
+    return { share_token: chat.share_token };
+  }
+
+  const token = uuidv4().replace(/-/g, '').slice(0, 16);
+  await db.update(chatConversations)
+    .set({ share_token: token, updated_at: new Date() })
+    .where(eq(chatConversations.id, chatId));
+
+  return { share_token: token };
+}
+
+export async function sendChatMessage(chatId: string, userId: string, content: string) {
+  const chat = await getConversationForUser(chatId, userId);
+  const trimmedContent = content.trim();
+  if (!trimmedContent) {
+    throw new AppError(400, 'VALIDATION_ERROR', 'Сообщение не может быть пустым');
+  }
+
+  const previousMessages = await getConversationMessages(chatId);
+  const userMessage: ConversationMessage = {
+    id: '',
+    role: 'user',
+    content: trimmedContent,
+    run_id: null,
+    usage: null,
+    latency_ms: null,
+    created_at: new Date().toISOString(),
+  };
+
+  await db.insert(chatConversationMessages).values({
+    conversation_id: chatId,
+    role: 'user',
+    content_text: trimmedContent,
+  });
+
+  const historyForModel = [
+    ...(chat.system_prompt ? [{ role: 'system' as const, content: chat.system_prompt }] : []),
+    ...previousMessages.map((m) => ({ role: m.role, content: m.content })),
+    { role: 'user' as const, content: trimmedContent },
+  ];
+
+  let assistantText = '';
+  let runId: string | null = null;
+  let usagePayload: Record<string, unknown> | null = null;
+  let latencyMs: number | null = null;
+
+  if (chat.mode === 'agent') {
+    if (!chat.agent_id) {
+      throw new AppError(400, 'CHAT_CONFIG_ERROR', 'Для этого чата не выбран агент');
+    }
+
+    const result = await startRun(chat.agent_id, userId, {
+      messages: historyForModel
+        .filter((m) => m.role === 'user' || m.role === 'assistant')
+        .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+    });
+
+    assistantText = result.output || '(пустой ответ)';
+    runId = result.run_id;
+    latencyMs = result.latency_ms;
+    usagePayload = result.usage as unknown as Record<string, unknown> | null;
+  } else {
+    const model = chat.model_external_id || DEFAULT_GENERAL_MODEL;
+    const startedAt = Date.now();
+    const response = await openRouterClient.chatCompletion({
+      model,
+      messages: historyForModel.map((m) => ({ role: m.role, content: m.content })),
+      temperature: 0.5,
+      max_tokens: 2048,
+    });
+    latencyMs = Date.now() - startedAt;
+    assistantText = response.choices?.[0]?.message?.content || '(пустой ответ)';
+    if (response.usage) {
+      usagePayload = estimateGeneralChatCost(model, response.usage) as unknown as Record<string, unknown>;
+    }
+  }
+
+  const [assistantRow] = await db.insert(chatConversationMessages).values({
+    conversation_id: chatId,
+    role: 'assistant',
+    content_text: assistantText,
+    run_id: runId,
+    usage_json: usagePayload ?? null,
+    latency_ms: latencyMs ?? null,
+  }).returning();
+
+  const isDefaultTitle = chat.title === 'Новый чат';
+  const nextTitle = isDefaultTitle ? compactTitle(trimmedContent) : chat.title;
+  await db.update(chatConversations).set({
+    title: nextTitle,
+    last_message_at: new Date(),
+    updated_at: new Date(),
+  }).where(eq(chatConversations.id, chatId));
+
+  return {
+    user_message: userMessage,
+    assistant_message: {
+      id: assistantRow.id,
+      role: 'assistant' as const,
+      content: assistantRow.content_text,
+      run_id: assistantRow.run_id ?? null,
+      usage: (assistantRow.usage_json as Record<string, unknown> | null) ?? null,
+      latency_ms: assistantRow.latency_ms ?? null,
+      created_at: toIso(assistantRow.created_at),
+    },
+    chat: {
+      id: chat.id,
+      title: nextTitle,
+      mode: chat.mode,
+      agent_id: chat.agent_id ?? null,
+      model_external_id: chat.model_external_id ?? null,
+      share_token: chat.share_token ?? null,
+    },
+  };
+}
+
+export async function getSharedChatById(token: string) {
+  const [chat] = await db
+    .select()
+    .from(chatConversations)
+    .where(eq(chatConversations.share_token, token))
+    .limit(1);
+
+  if (!chat) throw new NotFoundError('Чат не найден');
+
+  const messages = await getConversationMessages(chat.id);
+  let agentName: string | null = null;
+
+  if (chat.agent_id) {
+    const [agent] = await db.select({ name: agents.name }).from(agents).where(eq(agents.id, chat.agent_id)).limit(1);
+    agentName = agent?.name ?? null;
+  }
+
+  return {
+    chat: {
+      id: chat.id,
+      title: chat.title,
+      mode: chat.mode,
+      agent_name: agentName,
+    },
+    messages: messages.map((m) => ({ role: m.role, content: m.content, created_at: m.created_at })),
+  };
 }

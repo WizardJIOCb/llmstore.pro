@@ -7,8 +7,8 @@ const navItems = [
   { label: 'Модели', href: '/models' },
   { label: 'Паки', href: '/packs' },
   { label: 'Локальные', href: '/local' },
+  { label: 'Чаты', href: '/chats' },
   { label: 'Агенты', href: '/my/agents' },
-  { label: 'Ассеты', href: '/assets' },
   { label: 'RU Рынок', href: '/russian-market' },
   { label: 'Сравнение', href: '/compare' },
 ];
@@ -80,7 +80,7 @@ export function AppLayout() {
 
       <footer className="border-t bg-white py-8">
         <div className="container mx-auto px-4 text-center text-sm text-muted-foreground">
-          &copy; {new Date().getFullYear()} LLMStore.pro — Каталог и конструктор LLM-решений
+          &copy; {new Date().getFullYear()} LLMStore.pro - Каталог и конструктор LLM-решений
         </div>
       </footer>
     </div>
