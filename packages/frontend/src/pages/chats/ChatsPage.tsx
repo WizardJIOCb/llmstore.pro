@@ -25,7 +25,7 @@ const GENERAL_MODELS = [
   { value: 'openai/gpt-4o-mini', label: 'OpenAI GPT-4o Mini' },
   { value: 'openai/gpt-4o', label: 'OpenAI GPT-4o' },
   { value: 'google/gemini-2.0-flash-001', label: 'Gemini 2.0 Flash' },
-  { value: 'google/gemini-2.5-flash-preview', label: 'Gemini 2.5 Flash Preview' },
+  { value: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
 ];
 
 function formatDate(iso: string): string {
@@ -52,6 +52,16 @@ function extractUsage(value: Record<string, unknown> | null) {
     estimated_cost: typeof value.estimated_cost === 'string' ? value.estimated_cost : undefined,
     model: typeof value.model === 'string' ? value.model : undefined,
   };
+}
+
+function extractToolNames(value: Record<string, unknown> | null): string[] {
+  if (!value) return [];
+  const raw = value.tool_names;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map((name) => name.trim())
+    .filter((name) => name.length > 0);
 }
 
 type MenuItem = { kind: 'chat'; id: string } | null;
@@ -421,6 +431,7 @@ export function ChatsPage() {
                       usage={extractUsage(msg.usage)}
                       latencyMs={msg.latency_ms ?? undefined}
                       agentName={activeChat?.mode === 'agent' ? (activeAgentName ?? undefined) : undefined}
+                      toolNames={extractToolNames(msg.usage)}
                     />
                   </div>
                 )}

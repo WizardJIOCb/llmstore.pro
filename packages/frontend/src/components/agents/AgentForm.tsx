@@ -15,6 +15,7 @@ interface AgentFormData {
     max_iterations: number;
     temperature: number;
     max_tokens: number;
+    model_external_id?: string;
     chat_intro?: string;
     starter_prompts?: string[];
   };
@@ -42,6 +43,13 @@ export function AgentForm({
   submitLabel = 'Создать',
   actions = [],
 }: AgentFormProps) {
+  const OPENROUTER_MODELS = [
+    { value: 'google/gemini-2.0-flash-001', label: 'Google Gemini 2.0 Flash' },
+    { value: 'google/gemini-2.5-flash', label: 'Google Gemini 2.5 Flash' },
+    { value: 'openai/gpt-4o-mini', label: 'OpenAI GPT-4o Mini' },
+    { value: 'openai/gpt-4o', label: 'OpenAI GPT-4o' },
+  ];
+
   const buildFormState = (source?: Partial<AgentFormData>): AgentFormData => ({
     name: source?.name ?? '',
     description: source?.description ?? '',
@@ -52,6 +60,7 @@ export function AgentForm({
       max_iterations: 4,
       temperature: 0.3,
       max_tokens: 4096,
+      model_external_id: 'google/gemini-2.0-flash-001',
       chat_intro: '',
       starter_prompts: [],
     },
@@ -114,6 +123,26 @@ export function AgentForm({
         >
           <option value="private">Только админам и владельцу</option>
           <option value="public">Всем пользователям</option>
+        </select>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium mb-1">OpenRouter модель</label>
+        <select
+          value={form.runtime_config.model_external_id ?? 'google/gemini-2.0-flash-001'}
+          onChange={(e) =>
+            setForm({
+              ...form,
+              runtime_config: { ...form.runtime_config, model_external_id: e.target.value },
+            })
+          }
+          className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+        >
+          {OPENROUTER_MODELS.map((model) => (
+            <option key={model.value} value={model.value}>
+              {model.label}
+            </option>
+          ))}
         </select>
       </div>
 

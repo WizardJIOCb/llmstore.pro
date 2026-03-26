@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAgent, useBuiltinTools, useUpdateAgent, useDeleteAgent } from '../../hooks/useAgents';
 import { AgentForm } from '../../components/agents/AgentForm';
@@ -11,6 +12,14 @@ export function AgentEditorPage() {
   const { data: tools, isLoading: toolsLoading } = useBuiltinTools();
   const updateAgent = useUpdateAgent();
   const deleteAgent = useDeleteAgent();
+  const [saveToastVisible, setSaveToastVisible] = useState(false);
+  const saveToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (saveToastTimerRef.current) clearTimeout(saveToastTimerRef.current);
+    };
+  }, []);
 
   if (isLoading || toolsLoading) {
     return (
@@ -39,9 +48,10 @@ export function AgentEditorPage() {
       max_iterations: number;
       temperature: number;
       max_tokens: number;
+      model_external_id?: string;
       chat_intro?: string;
       starter_prompts?: string[];
-    }) ?? { max_iterations: 4, temperature: 0.3, max_tokens: 4096, chat_intro: '', starter_prompts: [] },
+    }) ?? { max_iterations: 4, temperature: 0.3, max_tokens: 4096, model_external_id: 'google/gemini-2.0-flash-001', chat_intro: '', starter_prompts: [] },
   };
 
   const handleSubmit = async (data: {
@@ -54,6 +64,7 @@ export function AgentEditorPage() {
       max_iterations: number;
       temperature: number;
       max_tokens: number;
+      model_external_id?: string;
       chat_intro?: string;
       starter_prompts?: string[];
     };
@@ -67,7 +78,9 @@ export function AgentEditorPage() {
       tool_ids: data.tool_ids,
       runtime_config: data.runtime_config,
     });
-    navigate(`/playground/agent/${agent.id}`);
+    setSaveToastVisible(true);
+    if (saveToastTimerRef.current) clearTimeout(saveToastTimerRef.current);
+    saveToastTimerRef.current = setTimeout(() => setSaveToastVisible(false), 2000);
   };
 
   const handleDelete = async () => {
@@ -91,6 +104,12 @@ export function AgentEditorPage() {
 
   return (
     <div className="container mx-auto max-w-3xl px-4 py-8">
+      <div
+        className={`pointer-events-none fixed left-1/2 top-4 z-[70] -translate-x-1/2 rounded-lg border border-emerald-200 bg-emerald-500 px-4 py-2 text-sm font-medium text-white shadow-lg transition-all duration-500 ${saveToastVisible ? 'translate-y-0 opacity-100' : '-translate-y-16 opacity-0'}`}
+      >
+        Агент сохранён
+      </div>
+
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">Редактор: {agent.name}</h1>
         <Button variant="outline" size="sm" onClick={() => navigate(`/playground/agent/${agent.id}`)}>

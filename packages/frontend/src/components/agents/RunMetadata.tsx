@@ -8,6 +8,7 @@
   } | null | undefined;
   latencyMs: number | undefined;
   agentName?: string;
+  toolNames?: string[];
 }
 
 function formatCost(cost: string): string {
@@ -18,13 +19,14 @@ function formatCost(cost: string): string {
   return `$${n.toFixed(3)}`;
 }
 
-export function RunMetadata({ usage, latencyMs, agentName }: RunMetadataProps) {
-  if (!usage && !latencyMs && !agentName) return null;
+export function RunMetadata({ usage, latencyMs, agentName, toolNames }: RunMetadataProps) {
+  if (!usage && !latencyMs && !agentName && (!toolNames || toolNames.length === 0)) return null;
 
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
       {latencyMs != null && <span>Время: {(latencyMs / 1000).toFixed(1)}s</span>}
       {agentName && <span>Агент: {agentName}</span>}
+      {toolNames && toolNames.length > 0 && <span>Инструменты: {toolNames.join(', ')}</span>}
       {usage && (
         <>
           <span>Токены: {usage.total_tokens}</span>

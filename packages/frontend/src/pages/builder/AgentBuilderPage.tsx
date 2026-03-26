@@ -25,6 +25,7 @@ const DTF_TEMPLATE = {
     max_iterations: 6,
     temperature: 0.3,
     max_tokens: 4096,
+    model_external_id: 'google/gemini-2.0-flash-001',
     chat_intro: 'Помогаю с новостями DTF: могу показать свежие статьи, разобрать выбранную и сделать краткий пересказ.',
     starter_prompts: [
       'Покажи 5 последних новостей DTF',
@@ -67,6 +68,7 @@ export function AgentBuilderPage() {
         max_iterations: 4,
         temperature: 0.3,
         max_tokens: 4096,
+        model_external_id: 'google/gemini-2.0-flash-001',
         chat_intro: '',
         starter_prompts: [],
       },
@@ -83,6 +85,7 @@ export function AgentBuilderPage() {
       max_iterations: number;
       temperature: number;
       max_tokens: number;
+      model_external_id?: string;
       chat_intro?: string;
       starter_prompts?: string[];
     };
@@ -135,3 +138,4 @@ export function AgentBuilderPage() {
     </div>
   );
 }
+
