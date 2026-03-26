@@ -38,6 +38,28 @@ function formatDate(iso: string): string {
   }).format(date);
 }
 
+function formatInt(value: number): string {
+  return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(value);
+}
+
+function formatMoney(value: number, currency: 'USD' | 'RUB'): string {
+  return new Intl.NumberFormat('ru-RU', {
+    style: 'currency',
+    currency,
+    minimumFractionDigits: 4,
+    maximumFractionDigits: 4,
+  }).format(value);
+}
+
+function formatDuration(ms: number): string {
+  if (ms <= 0) return '0 c';
+  const totalSeconds = Math.round(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes === 0) return `${seconds} c`;
+  return `${minutes} мин ${seconds} c`;
+}
+
 function extractUsage(value: Record<string, unknown> | null) {
   if (!value) return null;
   const prompt_tokens = typeof value.prompt_tokens === 'number' ? value.prompt_tokens : null;
@@ -575,13 +597,64 @@ export function ChatsPage() {
             </div>
             <div className="p-5 space-y-5 max-h-[70vh] overflow-y-auto">
               <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1"><p className="text-xs uppercase tracking-wide text-muted-foreground">Режим</p><p className="text-sm font-medium">{activeChat.mode === 'general' ? 'Общение' : 'Бот'}</p></div>
+                <div className="space-y-1"><p className="text-xs uppercase tracking-wide text-muted-foreground">Режим</p><p className="text-sm font-medium">{activeChat.mode === 'general' ? 'Общение' : 'Агент'}</p></div>
                 <div className="space-y-1"><p className="text-xs uppercase tracking-wide text-muted-foreground">Агент</p><p className="text-sm font-medium">{activeChatStats?.chat.agent_name ?? '—'}</p></div>
                 <div className="space-y-1"><p className="text-xs uppercase tracking-wide text-muted-foreground">Создан</p><p className="text-sm font-medium">{formatDate(activeChat.created_at)}</p></div>
                 <div className="space-y-1"><p className="text-xs uppercase tracking-wide text-muted-foreground">Обновлен</p><p className="text-sm font-medium">{formatDate(activeChat.updated_at)}</p></div>
               </div>
               <div className="space-y-2"><p className="text-sm font-medium">Модель OpenRouter</p><Select options={GENERAL_MODELS} value={propertiesModel} onChange={(e) => setPropertiesModel(e.target.value)} className="w-full max-w-md" /></div>
               {chatStatsLoading ? <div className="flex justify-center py-6"><Spinner /></div> : null}
+              {!chatStatsLoading && activeChatStats && (
+                <div className="space-y-5">
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">Статистика чата</p>
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                      <div className="rounded-lg border bg-muted/20 p-3"><p className="text-xs text-muted-foreground">Сообщений</p><p className="text-base font-semibold">{formatInt(activeChatStats.chat.message_count)}</p></div>
+                      <div className="rounded-lg border bg-muted/20 p-3"><p className="text-xs text-muted-foreground">Ответов ассистента</p><p className="text-base font-semibold">{formatInt(activeChatStats.chat.assistant_messages)}</p></div>
+                      <div className="rounded-lg border bg-muted/20 p-3"><p className="text-xs text-muted-foreground">Токенов всего</p><p className="text-base font-semibold">{formatInt(activeChatStats.totals.total_tokens)}</p></div>
+                      <div className="rounded-lg border bg-muted/20 p-3"><p className="text-xs text-muted-foreground">Токены prompt</p><p className="text-base font-semibold">{formatInt(activeChatStats.totals.prompt_tokens)}</p></div>
+                      <div className="rounded-lg border bg-muted/20 p-3"><p className="text-xs text-muted-foreground">Токены completion</p><p className="text-base font-semibold">{formatInt(activeChatStats.totals.completion_tokens)}</p></div>
+                      <div className="rounded-lg border bg-muted/20 p-3"><p className="text-xs text-muted-foreground">Время ответов</p><p className="text-base font-semibold">{formatDuration(activeChatStats.totals.total_latency_ms)}</p></div>
+                      <div className="rounded-lg border bg-muted/20 p-3"><p className="text-xs text-muted-foreground">Стоимость (USD)</p><p className="text-base font-semibold">{formatMoney(activeChatStats.totals.usd_cost, 'USD')}</p></div>
+                      <div className="rounded-lg border bg-muted/20 p-3"><p className="text-xs text-muted-foreground">Стоимость (RUB)</p><p className="text-base font-semibold">{formatMoney(activeChatStats.totals.rub_cost, 'RUB')}</p></div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">Расход по моделям</p>
+                    {activeChatStats.by_model.length === 0 ? (
+                      <div className="rounded-lg border bg-muted/20 p-3 text-sm text-muted-foreground">
+                        Пока нет данных по расходу.
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto rounded-lg border">
+                        <table className="min-w-full text-sm">
+                          <thead className="bg-muted/30 text-left">
+                            <tr>
+                              <th className="px-3 py-2 font-medium">Модель</th>
+                              <th className="px-3 py-2 font-medium">Сообщений</th>
+                              <th className="px-3 py-2 font-medium">Токены</th>
+                              <th className="px-3 py-2 font-medium">USD</th>
+                              <th className="px-3 py-2 font-medium">RUB</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {activeChatStats.by_model.map((row) => (
+                              <tr key={row.model} className="border-t">
+                                <td className="px-3 py-2">{row.model}</td>
+                                <td className="px-3 py-2">{formatInt(row.messages)}</td>
+                                <td className="px-3 py-2">{formatInt(row.total_tokens)}</td>
+                                <td className="px-3 py-2">{formatMoney(row.usd_cost, 'USD')}</td>
+                                <td className="px-3 py-2">{formatMoney(row.rub_cost, 'RUB')}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
             <div className="border-t px-5 py-4 flex items-center justify-end gap-2">
               <Button variant="outline" size="sm" onClick={() => setIsPropertiesOpen(false)}>Отмена</Button>
