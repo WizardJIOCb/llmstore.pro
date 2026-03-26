@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { chatsApi, type ChatMode } from '../lib/api/chats';
 
-export function useChatsList() {
+export function useChatsList(enabled = true) {
   return useQuery({
     queryKey: ['chats'],
     queryFn: chatsApi.list,
+    enabled,
   });
 }
 

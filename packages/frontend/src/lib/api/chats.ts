@@ -70,6 +70,7 @@ export interface ChatStats {
     usd_cost: number;
     rub_cost: number;
     messages_with_usage: number;
+    total_latency_ms: number;
   };
   by_model: Array<{
     model: string;

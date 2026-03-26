@@ -1,4 +1,4 @@
-import { eq, sql } from 'drizzle-orm';
+﻿import { eq, sql } from 'drizzle-orm';
 import { db } from '../../config/database.js';
 import {
   users,
@@ -298,3 +298,4 @@ export async function unlinkAccount(userId: string, provider: string): Promise<v
       sql`${authAccounts.user_id} = ${userId} AND ${authAccounts.provider} = ${provider}`,
     );
 }
+

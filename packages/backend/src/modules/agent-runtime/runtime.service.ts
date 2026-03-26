@@ -96,6 +96,7 @@ async function ensureAgentIsVisibleForUser(agentId: string, userId: string, user
 interface StartRunInput {
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
   variables?: Record<string, string>;
+  model_external_id?: string | null;
 }
 
 interface RunResult {
@@ -212,7 +213,9 @@ export async function startRun(agentId: string, userId: string, input: StartRunI
     model_external_id?: string;
     chat_intro?: string;
   };
-  const modelId = normalizeOpenRouterModelId(runtimeConfig.model_external_id ?? DEFAULT_MODEL);
+  const modelId = normalizeOpenRouterModelId(
+    input.model_external_id ?? runtimeConfig.model_external_id ?? DEFAULT_MODEL,
+  );
   const maxIterations = runtimeConfig.max_iterations ?? DEFAULT_MAX_ITERATIONS;
 
   // 4. Create run record
@@ -809,6 +812,7 @@ interface ChatStatsResponse {
     usd_cost: number;
     rub_cost: number;
     messages_with_usage: number;
+    total_latency_ms: number;
   };
   by_model: ChatStatsModelBreakdown[];
   usd_to_rub_rate: number;
@@ -1093,12 +1097,16 @@ export async function getChatStats(chatId: string, userId: string): Promise<Chat
   let totalTokens = 0;
   let usdCost = 0;
   let messagesWithUsage = 0;
+  let totalLatencyMs = 0;
 
   const byModel = new Map<string, ChatStatsModelBreakdown>();
 
   for (const msg of messages) {
     if (msg.role === 'user') userMessages += 1;
-    if (msg.role === 'assistant') assistantMessages += 1;
+    if (msg.role === 'assistant') {
+      assistantMessages += 1;
+      totalLatencyMs += msg.latency_ms ?? 0;
+    }
 
     const usage = (msg.usage_json as Record<string, unknown> | null) ?? null;
     if (!usage) continue;
@@ -1173,6 +1181,7 @@ export async function getChatStats(chatId: string, userId: string): Promise<Chat
       usd_cost: usdCost,
       rub_cost: usdCost * USD_TO_RUB_RATE,
       messages_with_usage: messagesWithUsage,
+      total_latency_ms: totalLatencyMs,
     },
     by_model: byModelArr,
     usd_to_rub_rate: USD_TO_RUB_RATE,
@@ -1298,6 +1307,7 @@ export async function sendChatMessage(chatId: string, userId: string, content: s
       messages: historyForModel
         .filter((m) => m.role === 'user' || m.role === 'assistant')
         .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+      model_external_id: chat.model_external_id ?? null,
     });
 
     if (result.status !== 'completed') {

@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useProfile, useUpdateProfile, useUnlinkAccount } from '../../hooks/useProfile';
+import { useProfile, useUnlinkAccount, useUpdateProfile } from '../../hooks/useProfile';
 import { getOAuthLinkUrl } from '../../lib/api/profile';
 import { USD_TO_RUB_RATE } from '@llmstore/shared';
-import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
+import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
 import { Spinner } from '../../components/ui/Spinner';
 
@@ -23,6 +23,16 @@ const PROVIDER_LABELS: Record<string, string> = {
   vk: 'VK',
 };
 
+const EVENT_TYPE_LABELS: Record<string, string> = {
+  chat_usage: 'Списание за чат',
+  agent_run_usage: 'Списание за запуск агента',
+  signup_bonus: 'Стартовый бонус',
+  topup: 'Пополнение баланса',
+  admin_adjustment: 'Корректировка администратором',
+  admin_credit: 'Пополнение администратором',
+  admin_debit: 'Списание администратором',
+};
+
 const LINKABLE_PROVIDERS = ['google', 'yandex', 'vk'];
 type HistoryTab = 'all' | 'topup' | 'writeoff';
 
@@ -30,6 +40,10 @@ function formatTokens(value: number): string {
   if (value > 1_000_000) return `${(value / 1_000_000).toFixed(2)}M`;
   if (value > 1000) return `${(value / 1000).toFixed(1)}K`;
   return String(value);
+}
+
+function eventTypeLabel(type: string): string {
+  return EVENT_TYPE_LABELS[type] ?? `Событие: ${type}`;
 }
 
 export function ProfilePage() {
@@ -42,6 +56,8 @@ export function ProfilePage() {
   const [editName, setEditName] = useState('');
   const [editUsername, setEditUsername] = useState('');
   const [historyTab, setHistoryTab] = useState<HistoryTab>('all');
+  const [historyPageSize, setHistoryPageSize] = useState<5 | 10 | 20>(5);
+  const [historyPage, setHistoryPage] = useState(1);
   const [oauthMessage, setOauthMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
@@ -67,10 +83,9 @@ export function ProfilePage() {
   }, [searchParams, setSearchParams]);
 
   useEffect(() => {
-    if (oauthMessage) {
-      const timer = setTimeout(() => setOauthMessage(null), 5000);
-      return () => clearTimeout(timer);
-    }
+    if (!oauthMessage) return;
+    const timer = setTimeout(() => setOauthMessage(null), 5000);
+    return () => clearTimeout(timer);
   }, [oauthMessage]);
 
   const handleStartEdit = () => {
@@ -97,6 +112,34 @@ export function ProfilePage() {
     if (historyTab === 'all') return profile.balance_history;
     return profile.balance_history.filter((item) => item.category === historyTab);
   }, [profile, historyTab]);
+
+  const totalHistoryPages = useMemo(
+    () => Math.max(1, Math.ceil(historyItems.length / historyPageSize)),
+    [historyItems.length, historyPageSize],
+  );
+
+  useEffect(() => {
+    setHistoryPage(1);
+  }, [historyTab, historyPageSize]);
+
+  useEffect(() => {
+    if (historyPage > totalHistoryPages) setHistoryPage(totalHistoryPages);
+  }, [historyPage, totalHistoryPages]);
+
+  const paginatedHistoryItems = useMemo(() => {
+    const start = (historyPage - 1) * historyPageSize;
+    return historyItems.slice(start, start + historyPageSize);
+  }, [historyItems, historyPage, historyPageSize]);
+
+  const historyPageNumbers = useMemo(() => {
+    if (totalHistoryPages <= 7) {
+      return Array.from({ length: totalHistoryPages }, (_, idx) => idx + 1);
+    }
+    const pages = new Set<number>([1, totalHistoryPages, historyPage - 1, historyPage, historyPage + 1]);
+    return Array.from(pages)
+      .filter((p) => p >= 1 && p <= totalHistoryPages)
+      .sort((a, b) => a - b);
+  }, [historyPage, totalHistoryPages]);
 
   if (isLoading) {
     return (
@@ -216,11 +259,11 @@ export function ProfilePage() {
           <div className="flex items-baseline gap-4">
             <span className="text-3xl font-bold">${Number(profile.balance_usd).toFixed(2)}</span>
             <span className="text-lg text-muted-foreground">
-              ~ {Number(profile.balance_rub).toLocaleString('ru-RU')} ₽
+              ~ {Number(profile.balance_rub).toLocaleString('ru-RU')} руб.
             </span>
           </div>
           <p className="text-xs text-muted-foreground mt-2">
-            Курс: 1 USD = {USD_TO_RUB_RATE} ₽. Для пополнения пока: Попросите у Родиона.
+            Курс: 1 USD = {USD_TO_RUB_RATE} руб. Для пополнения пока: Попросите у Родиона.
           </p>
         </CardContent>
       </Card>
@@ -230,37 +273,38 @@ export function ProfilePage() {
           <CardTitle>История баланса</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              variant={historyTab === 'all' ? 'primary' : 'outline'}
-              onClick={() => setHistoryTab('all')}
-            >
-              Все
-            </Button>
-            <Button
-              size="sm"
-              variant={historyTab === 'topup' ? 'primary' : 'outline'}
-              onClick={() => setHistoryTab('topup')}
-            >
-              Пополнение
-            </Button>
-            <Button
-              size="sm"
-              variant={historyTab === 'writeoff' ? 'primary' : 'outline'}
-              onClick={() => setHistoryTab('writeoff')}
-            >
-              Списание
-            </Button>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant={historyTab === 'all' ? 'primary' : 'outline'} onClick={() => setHistoryTab('all')}>
+                Все
+              </Button>
+              <Button size="sm" variant={historyTab === 'topup' ? 'primary' : 'outline'} onClick={() => setHistoryTab('topup')}>
+                Пополнение
+              </Button>
+              <Button size="sm" variant={historyTab === 'writeoff' ? 'primary' : 'outline'} onClick={() => setHistoryTab('writeoff')}>
+                Списание
+              </Button>
+            </div>
+            <label className="flex items-center gap-2 text-sm text-muted-foreground">
+              Показывать
+              <select
+                className="h-8 rounded-md border bg-background px-2 text-foreground"
+                value={historyPageSize}
+                onChange={(e) => setHistoryPageSize(Number(e.target.value) as 5 | 10 | 20)}
+              >
+                <option value={5}>5</option>
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+              </select>
+            </label>
           </div>
-
           {historyItems.length === 0 ? (
             <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
               История пока пустая
             </div>
           ) : (
             <div className="space-y-2">
-              {historyItems.map((item) => {
+              {paginatedHistoryItems.map((item) => {
                 const amount = Number(item.amount_usd);
                 const sign = item.direction === 'credit' ? '+' : '-';
                 const amountRub = amount * USD_TO_RUB_RATE;
@@ -276,7 +320,7 @@ export function ProfilePage() {
                           <Badge variant={item.direction === 'credit' ? 'success' : 'destructive'}>
                             {item.direction === 'credit' ? 'Пополнение' : 'Списание'}
                           </Badge>
-                          <Badge variant="outline">{item.event_type}</Badge>
+                          <Badge variant="outline">{eventTypeLabel(item.event_type)}</Badge>
                           {item.model && <Badge variant="outline">{item.model}</Badge>}
                           <Badge variant="outline">Токены: {formatTokens(item.tokens)}</Badge>
                         </div>
@@ -286,13 +330,38 @@ export function ProfilePage() {
                           {sign}${amount.toFixed(4)}
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          {sign}{amountRub.toFixed(2)} ₽
+                          {sign}{amountRub.toFixed(2)} руб.
                         </p>
                       </div>
                     </div>
                   </div>
                 );
               })}
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                <p className="text-xs text-muted-foreground">
+                  {`Записи ${(historyPage - 1) * historyPageSize + 1}-${Math.min(historyPage * historyPageSize, historyItems.length)} из ${historyItems.length}`}
+                </p>
+                <div className="flex items-center gap-1">
+                  <Button size="sm" variant="outline" onClick={() => setHistoryPage((p) => Math.max(1, p - 1))} disabled={historyPage === 1}>
+                    {'<'}
+                  </Button>
+                  {historyPageNumbers.map((pageNumber, idx) => {
+                    const prev = historyPageNumbers[idx - 1];
+                    const hasGap = prev && pageNumber - prev > 1;
+                    return (
+                      <div key={pageNumber} className="flex items-center gap-1">
+                        {hasGap ? <span className="px-1 text-muted-foreground">...</span> : null}
+                        <Button size="sm" variant={historyPage === pageNumber ? 'primary' : 'outline'} onClick={() => setHistoryPage(pageNumber)}>
+                          {pageNumber}
+                        </Button>
+                      </div>
+                    );
+                  })}
+                  <Button size="sm" variant="outline" onClick={() => setHistoryPage((p) => Math.min(totalHistoryPages, p + 1))} disabled={historyPage === totalHistoryPages}>
+                    {'>'}
+                  </Button>
+                </div>
+              </div>
             </div>
           )}
         </CardContent>
@@ -363,19 +432,12 @@ export function ProfilePage() {
                     {isLinked && <Badge variant="success">Привязан</Badge>}
                   </div>
                   {isLinked ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleUnlink(provider)}
-                      disabled={unlinkMutation.isPending}
-                    >
+                    <Button variant="outline" size="sm" onClick={() => handleUnlink(provider)} disabled={unlinkMutation.isPending}>
                       Отвязать
                     </Button>
                   ) : (
                     <a href={getOAuthLinkUrl(provider)}>
-                      <Button variant="outline" size="sm">
-                        Привязать
-                      </Button>
+                      <Button variant="outline" size="sm">Привязать</Button>
                     </a>
                   )}
                 </div>
@@ -398,22 +460,16 @@ export function ProfilePage() {
           <div className="space-y-2 text-sm">
             <div className="flex justify-between">
               <span className="text-muted-foreground">Макс. агентов</span>
-              <span className="font-medium">
-                {profile.limits.max_agents === -1 ? 'Без ограничений' : profile.limits.max_agents}
-              </span>
+              <span className="font-medium">{profile.limits.max_agents === -1 ? 'Без ограничений' : profile.limits.max_agents}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Макс. запусков / день</span>
-              <span className="font-medium">
-                {profile.limits.max_runs_per_day === -1 ? 'Без ограничений' : profile.limits.max_runs_per_day}
-              </span>
+              <span className="font-medium">{profile.limits.max_runs_per_day === -1 ? 'Без ограничений' : profile.limits.max_runs_per_day}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Макс. токенов / запуск</span>
               <span className="font-medium">
-                {profile.limits.max_tokens_per_run === -1
-                  ? 'Без ограничений'
-                  : profile.limits.max_tokens_per_run.toLocaleString('ru-RU')}
+                {profile.limits.max_tokens_per_run === -1 ? 'Без ограничений' : profile.limits.max_tokens_per_run.toLocaleString('ru-RU')}
               </span>
             </div>
           </div>

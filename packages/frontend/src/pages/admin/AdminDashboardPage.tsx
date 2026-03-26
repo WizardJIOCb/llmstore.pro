@@ -3,7 +3,7 @@ import { Spinner } from '../../components/ui/Spinner';
 import { useAdminDashboardStats } from '../../hooks/useAdmin';
 
 function formatUsd(value: number) {
-  return `$${value.toFixed(2)}`;
+  return `$${value.toFixed(4)}`;
 }
 
 function formatInt(value: number) {
@@ -23,8 +23,7 @@ export function AdminDashboardPage() {
     );
   }
 
-  const stats = data;
-  if (!stats) {
+  if (!data) {
     return (
       <AdminLayout>
         <div className="py-16 text-center text-muted-foreground">Статистика недоступна</div>
@@ -32,12 +31,14 @@ export function AdminDashboardPage() {
     );
   }
 
+  const stats = data;
+
   return (
     <AdminLayout>
       <div className="space-y-6">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <MetricCard label="Пользователи" value={formatInt(stats.totals.users)} hint={`Активных: ${formatInt(stats.totals.active_users)}`} />
-          <MetricCard label="Всего чатов" value={formatInt(stats.totals.chats)} hint={`Общение: ${formatInt(stats.totals.chats_general)}, Боты: ${formatInt(stats.totals.chats_agent)}`} />
+          <MetricCard label="Всего чатов" value={formatInt(stats.totals.chats)} hint={`Общение: ${formatInt(stats.totals.chats_general)}, Агент: ${formatInt(stats.totals.chats_agent)}`} />
           <MetricCard label="Токены (все чаты)" value={formatInt(stats.totals.total_tokens)} hint={`Prompt: ${formatInt(stats.totals.prompt_tokens)}, Completion: ${formatInt(stats.totals.completion_tokens)}`} />
           <MetricCard label="Расход чатов" value={formatUsd(stats.totals.chat_cost_usd)} hint={`За всё время: ${formatUsd(stats.totals.chat_cost_usd)}`} />
         </div>
@@ -102,7 +103,7 @@ export function AdminDashboardPage() {
                 {stats.top_expensive_chats.map((row) => (
                   <tr key={row.id} className="border-b">
                     <td className="px-4 py-2">{row.title}</td>
-                    <td className="px-4 py-2">{row.mode === 'general' ? 'Общение' : 'Бот'}</td>
+                    <td className="px-4 py-2">{row.mode === 'general' ? 'Общение' : 'Агент'}</td>
                     <td className="px-4 py-2 text-right">{formatInt(row.message_count)}</td>
                     <td className="px-4 py-2 text-right">{formatUsd(row.usd_cost)}</td>
                   </tr>

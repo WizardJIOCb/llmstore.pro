@@ -694,41 +694,140 @@ export async function getDashboardStats() {
     db
       .select({
         model: sql<string>`coalesce(${chatConversationMessages.usage_json}->>'model', ${chatConversations.model_external_id}, 'unknown')`,
-        prompt_tokens: sql<number>`coalesce(sum(((${chatConversationMessages.usage_json}->>'prompt_tokens')::numeric)), 0)::int`,
-        completion_tokens: sql<number>`coalesce(sum(((${chatConversationMessages.usage_json}->>'completion_tokens')::numeric)), 0)::int`,
-        total_tokens: sql<number>`coalesce(sum(((${chatConversationMessages.usage_json}->>'total_tokens')::numeric)), 0)::int`,
-        usd_cost: sql<string>`coalesce(sum(((${chatConversationMessages.usage_json}->>'estimated_cost')::numeric)), 0)`,
+        prompt_tokens: sql<number>`coalesce(sum(
+          coalesce(
+            nullif(${chatConversationMessages.usage_json}->>'prompt_tokens', '')::numeric,
+            (
+              select ul.prompt_tokens
+              from usage_ledger ul
+              where ul.run_id = ${chatConversationMessages.run_id}
+              limit 1
+            ),
+            0
+          )
+        ), 0)::int`,
+        completion_tokens: sql<number>`coalesce(sum(
+          coalesce(
+            nullif(${chatConversationMessages.usage_json}->>'completion_tokens', '')::numeric,
+            (
+              select ul.completion_tokens
+              from usage_ledger ul
+              where ul.run_id = ${chatConversationMessages.run_id}
+              limit 1
+            ),
+            0
+          )
+        ), 0)::int`,
+        total_tokens: sql<number>`coalesce(sum(
+          coalesce(
+            nullif(${chatConversationMessages.usage_json}->>'total_tokens', '')::numeric,
+            (
+              select coalesce(ul.total_tokens, ul.prompt_tokens + ul.completion_tokens, 0)
+              from usage_ledger ul
+              where ul.run_id = ${chatConversationMessages.run_id}
+              limit 1
+            ),
+            0
+          )
+        ), 0)::int`,
+        usd_cost: sql<string>`coalesce(sum(
+          coalesce(
+            nullif(${chatConversationMessages.usage_json}->>'estimated_cost', '')::numeric,
+            (
+              select ul.estimated_cost
+              from usage_ledger ul
+              where ul.run_id = ${chatConversationMessages.run_id}
+              limit 1
+            ),
+            0
+          )
+        ), 0)`,
         messages: sql<number>`count(*)::int`,
       })
       .from(chatConversationMessages)
       .innerJoin(chatConversations, eq(chatConversationMessages.conversation_id, chatConversations.id))
-      .where(sql`${chatConversationMessages.usage_json} is not null`)
+      .where(sql`${chatConversationMessages.usage_json} is not null OR ${chatConversationMessages.run_id} is not null`)
       .groupBy(sql`coalesce(${chatConversationMessages.usage_json}->>'model', ${chatConversations.model_external_id}, 'unknown')`)
-      .orderBy(sql`coalesce(sum(((${chatConversationMessages.usage_json}->>'estimated_cost')::numeric)), 0) desc`),
+      .orderBy(sql`coalesce(sum(
+        coalesce(
+          nullif(${chatConversationMessages.usage_json}->>'estimated_cost', '')::numeric,
+          (
+            select ul.estimated_cost
+            from usage_ledger ul
+            where ul.run_id = ${chatConversationMessages.run_id}
+            limit 1
+          ),
+          0
+        )
+      ), 0) desc`),
     db
       .select({
         id: chatConversations.id,
         title: chatConversations.title,
         mode: chatConversations.mode,
         message_count: sql<number>`count(${chatConversationMessages.id})::int`,
-        usd_cost: sql<string>`coalesce(sum(((${chatConversationMessages.usage_json}->>'estimated_cost')::numeric)), 0)`,
+        usd_cost: sql<string>`coalesce(sum(
+          coalesce(
+            nullif(${chatConversationMessages.usage_json}->>'estimated_cost', '')::numeric,
+            (
+              select ul.estimated_cost
+              from usage_ledger ul
+              where ul.run_id = ${chatConversationMessages.run_id}
+              limit 1
+            ),
+            0
+          )
+        ), 0)`,
       })
       .from(chatConversations)
       .leftJoin(chatConversationMessages, eq(chatConversationMessages.conversation_id, chatConversations.id))
       .groupBy(chatConversations.id, chatConversations.title, chatConversations.mode)
-      .orderBy(sql`coalesce(sum(((${chatConversationMessages.usage_json}->>'estimated_cost')::numeric)), 0) desc`)
+      .orderBy(sql`coalesce(sum(
+        coalesce(
+          nullif(${chatConversationMessages.usage_json}->>'estimated_cost', '')::numeric,
+          (
+            select ul.estimated_cost
+            from usage_ledger ul
+            where ul.run_id = ${chatConversationMessages.run_id}
+            limit 1
+          ),
+          0
+        )
+      ), 0) desc`)
       .limit(5),
   ]);
 
   const usage30Rows = await db
     .select({
-      total_tokens: sql<number>`coalesce(sum(((${chatConversationMessages.usage_json}->>'total_tokens')::numeric)), 0)::int`,
-      usd_cost: sql<string>`coalesce(sum(((${chatConversationMessages.usage_json}->>'estimated_cost')::numeric)), 0)`,
+      total_tokens: sql<number>`coalesce(sum(
+        coalesce(
+          nullif(${chatConversationMessages.usage_json}->>'total_tokens', '')::numeric,
+          (
+            select coalesce(ul.total_tokens, ul.prompt_tokens + ul.completion_tokens, 0)
+            from usage_ledger ul
+            where ul.run_id = ${chatConversationMessages.run_id}
+            limit 1
+          ),
+          0
+        )
+      ), 0)::int`,
+      usd_cost: sql<string>`coalesce(sum(
+        coalesce(
+          nullif(${chatConversationMessages.usage_json}->>'estimated_cost', '')::numeric,
+          (
+            select ul.estimated_cost
+            from usage_ledger ul
+            where ul.run_id = ${chatConversationMessages.run_id}
+            limit 1
+          ),
+          0
+        )
+      ), 0)`,
     })
     .from(chatConversationMessages)
     .where(
       and(
-        sql`${chatConversationMessages.usage_json} is not null`,
+        sql`${chatConversationMessages.usage_json} is not null OR ${chatConversationMessages.run_id} is not null`,
         sql`${chatConversationMessages.created_at} >= ${days30.toISOString()}`,
       ),
     );

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+﻿import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ChatInput } from '../../components/agents/ChatInput';
 import { ChatMessage } from '../../components/agents/ChatMessage';
@@ -25,7 +25,7 @@ const GENERAL_MODELS = [
   { value: 'openai/gpt-4o-mini', label: 'OpenAI GPT-4o Mini' },
   { value: 'openai/gpt-4o', label: 'OpenAI GPT-4o' },
   { value: 'google/gemini-2.0-flash-001', label: 'Gemini 2.0 Flash' },
-  { value: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+  { value: 'google/gemini-2.5-flash-preview', label: 'Gemini 2.5 Flash Preview' },
 ];
 
 function formatDate(iso: string): string {
@@ -54,16 +54,6 @@ function extractUsage(value: Record<string, unknown> | null) {
   };
 }
 
-function extractToolNames(value: Record<string, unknown> | null): string[] {
-  if (!value) return [];
-  const raw = value.tool_names;
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .filter((entry): entry is string => typeof entry === 'string')
-    .map((name) => name.trim())
-    .filter((name) => name.length > 0);
-}
-
 type MenuItem = { kind: 'chat'; id: string } | null;
 
 function getApiErrorCode(err: unknown): string | undefined {
@@ -88,6 +78,7 @@ export function ChatsPage() {
   const [isPropertiesOpen, setIsPropertiesOpen] = useState(false);
   const [isTopUpOpen, setIsTopUpOpen] = useState(false);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(() => window.matchMedia('(min-width: 768px)').matches);
   const [newChatMode, setNewChatMode] = useState<'general' | 'agent'>('general');
   const [newChatAgentId, setNewChatAgentId] = useState('');
   const [propertiesModel, setPropertiesModel] = useState('openai/gpt-4o-mini');
@@ -106,10 +97,39 @@ export function ChatsPage() {
   const messages = activeChatData?.messages ?? [];
 
   useEffect(() => {
-    if (!activeChatId && chats && chats.length > 0) {
+    const media = window.matchMedia('(min-width: 768px)');
+    const onChange = (event: MediaQueryListEvent) => setIsDesktop(event.matches);
+    setIsDesktop(media.matches);
+    media.addEventListener('change', onChange);
+    return () => media.removeEventListener('change', onChange);
+  }, []);
+
+  useEffect(() => {
+    if (isDesktop && !activeChatId && chats && chats.length > 0) {
       setActiveChatId(chats[0].id);
     }
-  }, [activeChatId, chats]);
+  }, [activeChatId, chats, isDesktop]);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const custom = event as CustomEvent<string>;
+      if (typeof custom.detail === 'string' && custom.detail.length > 0) {
+        setActiveChatId(custom.detail);
+      }
+    };
+    window.addEventListener('select-chat', handler as EventListener);
+    return () => window.removeEventListener('select-chat', handler as EventListener);
+  }, []);
+
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('mobile-chat-active', { detail: Boolean(activeChatId) }));
+  }, [activeChatId]);
+
+  useEffect(() => {
+    const handler = () => setActiveChatId(null);
+    window.addEventListener('show-chat-list', handler);
+    return () => window.removeEventListener('show-chat-list', handler);
+  }, []);
 
   useEffect(() => {
     if (!openMenu) return;
@@ -149,6 +169,9 @@ export function ChatsPage() {
 
   const draftChats = filteredChats.filter((chat) => chat.message_count === 0);
   const regularChats = filteredChats.filter((chat) => chat.message_count > 0);
+  const showMobileList = !isDesktop && !activeChatId;
+  const showSidebar = isDesktop || showMobileList;
+  const showChatPane = isDesktop || !!activeChatId;
 
   const modeOptions = useMemo(
     () => [
@@ -363,7 +386,8 @@ export function ChatsPage() {
       </div>
 
       <div className="mx-auto flex h-[calc(100vh-12rem)] max-w-7xl overflow-hidden rounded-xl border bg-white">
-        <aside className="flex w-full max-w-xs shrink-0 flex-col border-r">
+        {showSidebar && (
+        <aside className={cn('flex w-full shrink-0 flex-col', isDesktop ? 'max-w-xs border-r' : 'max-w-none')}>
           <div className="border-b p-3 space-y-3">
             <Button className="w-full" onClick={createNewChat} disabled={createChatMutation.isPending}>Новый чат</Button>
             <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Поиск чата..." />
@@ -375,7 +399,9 @@ export function ChatsPage() {
             {!sidebarLoading && (!chats || chats.length === 0) && <div className="p-2 text-sm text-muted-foreground space-y-2"><p>У вас пока нет чатов.</p><button type="button" className="text-primary hover:underline" onClick={createNewChat}>Создать первый чат</button></div>}
           </div>
         </aside>
+        )}
 
+        {showChatPane && (
         <section className="flex min-w-0 flex-1 flex-col">
           <div className="border-b px-4 py-3 flex items-center justify-between gap-3">
             <div className="min-w-0">
@@ -431,7 +457,6 @@ export function ChatsPage() {
                       usage={extractUsage(msg.usage)}
                       latencyMs={msg.latency_ms ?? undefined}
                       agentName={activeChat?.mode === 'agent' ? (activeAgentName ?? undefined) : undefined}
-                      toolNames={extractToolNames(msg.usage)}
                     />
                   </div>
                 )}
@@ -456,6 +481,7 @@ export function ChatsPage() {
             <ChatInput onSend={sendMessage} disabled={!activeChat || sendMessageMutation.isPending} placeholder={activeChat ? 'Введите сообщение...' : 'Сначала выберите чат'} />
           </div>
         </section>
+        )}
       </div>
 
       {isTopUpOpen && (
