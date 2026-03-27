@@ -34,8 +34,34 @@ function getAllowedRedirectUris(): string[] {
   return Array.from(new Set([...configured, ...defaults]));
 }
 
+function normalizeUri(uri: string): string {
+  const parsed = new URL(uri);
+  const path = parsed.pathname.replace(/\/+$/, '') || '/';
+  parsed.pathname = path;
+  parsed.search = '';
+  parsed.hash = '';
+  return parsed.toString();
+}
+
 export function isAllowedRedirectUri(uri: string): boolean {
-  return getAllowedRedirectUris().includes(uri);
+  let candidate: string;
+  try {
+    candidate = normalizeUri(uri);
+  } catch {
+    return false;
+  }
+
+  const allowed = getAllowedRedirectUris()
+    .map((item) => {
+      try {
+        return normalizeUri(item);
+      } catch {
+        return null;
+      }
+    })
+    .filter((item): item is string => Boolean(item));
+
+  return allowed.includes(candidate);
 }
 
 export function validateAuthorizeRequest(input: Partial<AliceAuthorizeRequest>): AliceAuthorizeRequest {

@@ -58,6 +58,22 @@ function extractAccessToken(req: Request, payload: any): string | null {
   return typeof tokenFromSession === 'string' && tokenFromSession.length > 0 ? tokenFromSession : null;
 }
 
+function parseBasicClientCredentials(req: Request): { clientId?: string; clientSecret?: string } {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Basic ')) return {};
+  try {
+    const raw = Buffer.from(authHeader.slice('Basic '.length), 'base64').toString('utf-8');
+    const separatorIndex = raw.indexOf(':');
+    if (separatorIndex < 0) return {};
+    return {
+      clientId: raw.slice(0, separatorIndex),
+      clientSecret: raw.slice(separatorIndex + 1),
+    };
+  } catch {
+    return {};
+  }
+}
+
 function renderConsentPage(request: AliceAuthorizeRequest): string {
   const stateInput = request.state ? `<input type="hidden" name="state" value="${escapeHtml(request.state)}" />` : '';
   const scopeInput = request.scope ? `<input type="hidden" name="scope" value="${escapeHtml(request.scope)}" />` : '';
@@ -99,6 +115,32 @@ function renderConsentPage(request: AliceAuthorizeRequest): string {
 </html>`;
 }
 
+function renderLoginRequiredPage(loginUrl: string): string {
+  const safeLoginUrl = escapeHtml(loginUrl);
+  return `<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Вход в LLM Store</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; background: #f4f6f8; color: #111827; }
+    .wrap { max-width: 560px; margin: 64px auto; background: #fff; border-radius: 16px; padding: 28px; box-shadow: 0 12px 30px rgba(0,0,0,.08); }
+    h1 { margin: 0 0 12px; font-size: 22px; }
+    p { margin: 0 0 18px; line-height: 1.5; color: #374151; }
+    a { display: inline-block; text-decoration: none; background: #111827; color: #fff; border-radius: 10px; padding: 10px 16px; font-size: 15px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Нужен вход в LLM Store</h1>
+    <p>Чтобы продолжить привязку аккаунта Алисы, сначала войдите в llmstore.pro. После входа вы вернетесь к подтверждению доступа.</p>
+    <a href="${safeLoginUrl}">Войти в llmstore.pro</a>
+  </div>
+</body>
+</html>`;
+}
+
 export async function oauthAuthorize(req: Request, res: Response, next: NextFunction) {
   try {
     applyAliceOAuthEmbedHeaders(res);
@@ -122,8 +164,9 @@ export async function oauthAuthorize(req: Request, res: Response, next: NextFunc
         ...(request.scope ? { scope: request.scope } : {}),
       }).toString()}`;
       const nextUrl = `${env.BACKEND_URL}${nextPath}`;
-
-      res.redirect(`${env.FRONTEND_URL}/login?next=${encodeURIComponent(nextUrl)}`);
+      const loginUrl = `${env.FRONTEND_URL}/login?next=${encodeURIComponent(nextUrl)}`;
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.status(200).send(renderLoginRequiredPage(loginUrl));
       return;
     }
 
@@ -190,8 +233,9 @@ export async function oauthAuthorizeDecision(req: Request, res: Response, next: 
 export async function oauthToken(req: Request, res: Response, next: NextFunction) {
   try {
     const grantType = toStringOrUndefined(req.body.grant_type);
-    const clientId = toStringOrUndefined(req.body.client_id);
-    const clientSecret = toStringOrUndefined(req.body.client_secret);
+    const basicCreds = parseBasicClientCredentials(req);
+    const clientId = toStringOrUndefined(req.body.client_id) ?? basicCreds.clientId;
+    const clientSecret = toStringOrUndefined(req.body.client_secret) ?? basicCreds.clientSecret;
     oauthService.validateClientCredentials(clientId, clientSecret);
 
     if (grantType === 'authorization_code') {
@@ -228,8 +272,9 @@ export async function oauthToken(req: Request, res: Response, next: NextFunction
 
 export async function oauthRevoke(req: Request, res: Response, next: NextFunction) {
   try {
-    const clientId = toStringOrUndefined(req.body.client_id);
-    const clientSecret = toStringOrUndefined(req.body.client_secret);
+    const basicCreds = parseBasicClientCredentials(req);
+    const clientId = toStringOrUndefined(req.body.client_id) ?? basicCreds.clientId;
+    const clientSecret = toStringOrUndefined(req.body.client_secret) ?? basicCreds.clientSecret;
     const token = toStringOrUndefined(req.body.token);
 
     oauthService.validateClientCredentials(clientId, clientSecret);
