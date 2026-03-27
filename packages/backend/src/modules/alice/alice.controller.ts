@@ -24,6 +24,30 @@ function oauthJsonError(res: Response, err: AliceOAuthError): void {
   res.status(err.statusCode).json(payload);
 }
 
+function aliceTextResponse(text: string, tts?: string) {
+  return {
+    response: {
+      text,
+      tts: tts ?? text,
+      end_session: false,
+    },
+    version: '1.0',
+  };
+}
+
+function supportsAccountLinking(payload: any): boolean {
+  return Boolean(payload?.meta?.interfaces?.account_linking);
+}
+
+function extractAccessToken(req: Request, payload: any): string | null {
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith('Bearer ')) {
+    return authHeader.slice('Bearer '.length).trim() || null;
+  }
+  const tokenFromSession = payload?.session?.user?.access_token;
+  return typeof tokenFromSession === 'string' && tokenFromSession.length > 0 ? tokenFromSession : null;
+}
+
 function renderConsentPage(request: AliceAuthorizeRequest): string {
   const stateInput = request.state ? `<input type="hidden" name="state" value="${escapeHtml(request.state)}" />` : '';
   const scopeInput = request.scope ? `<input type="hidden" name="scope" value="${escapeHtml(request.scope)}" />` : '';
@@ -204,6 +228,60 @@ export async function oauthRevoke(req: Request, res: Response, next: NextFunctio
       oauthJsonError(res, err);
       return;
     }
+    next(err);
+  }
+}
+
+export async function webhook(req: Request, res: Response, next: NextFunction) {
+  try {
+    const payload = req.body ?? {};
+    const token = extractAccessToken(req, payload);
+    const canLink = supportsAccountLinking(payload);
+
+    if (!token) {
+      if (canLink) {
+        res.status(200).json({ start_account_linking: {}, version: '1.0' });
+        return;
+      }
+      res.status(200).json(
+        aliceTextResponse(
+          'Чтобы использовать навык, нужно привязать аккаунт llmstore. Откройте настройки навыка и выполните привязку.',
+        ),
+      );
+      return;
+    }
+
+    const userId = await oauthService.resolveUserByAccessToken(token);
+    if (!userId) {
+      if (canLink) {
+        res.status(200).json({ start_account_linking: {}, version: '1.0' });
+        return;
+      }
+      res.status(200).json(
+        aliceTextResponse('Сессия истекла. Пожалуйста, заново привяжите аккаунт llmstore.'),
+      );
+      return;
+    }
+
+    const command = typeof payload?.request?.command === 'string'
+      ? payload.request.command.trim()
+      : '';
+
+    if (!command) {
+      res.status(200).json(
+        aliceTextResponse(
+          'Аккаунт llmstore подключен. Скажите, что сделать в чате.',
+        ),
+      );
+      return;
+    }
+
+    res.status(200).json(
+      aliceTextResponse(
+        `Команда получена: ${command}. Интеграция с выбранным чатом сейчас завершается.`,
+      ),
+    );
+  } catch (err) {
     next(err);
   }
 }

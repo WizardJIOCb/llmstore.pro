@@ -224,3 +224,30 @@ export async function revokeTokenByValue(token: string, clientId: string): Promi
       ),
     );
 }
+
+export async function resolveUserByAccessToken(accessToken: string): Promise<string | null> {
+  const hash = sha256(accessToken);
+  const now = new Date();
+
+  const [row] = await db
+    .select({
+      id: aliceOauthTokens.id,
+      user_id: aliceOauthTokens.user_id,
+      access_expires_at: aliceOauthTokens.access_expires_at,
+      revoked_at: aliceOauthTokens.revoked_at,
+    })
+    .from(aliceOauthTokens)
+    .where(eq(aliceOauthTokens.access_token_hash, hash))
+    .limit(1);
+
+  if (!row) return null;
+  if (row.revoked_at) return null;
+  if (row.access_expires_at <= now) return null;
+
+  await db
+    .update(aliceOauthTokens)
+    .set({ last_used_at: now })
+    .where(eq(aliceOauthTokens.id, row.id));
+
+  return row.user_id;
+}
