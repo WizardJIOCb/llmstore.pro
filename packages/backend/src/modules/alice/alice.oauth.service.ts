@@ -22,6 +22,22 @@ function addSeconds(date: Date, seconds: number): Date {
   return new Date(date.getTime() + seconds * 1000);
 }
 
+function getAllowedRedirectUris(): string[] {
+  const configured = env.ALICE_ALLOWED_REDIRECT_URI
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean);
+  const defaults = [
+    'https://social.yandex.net/broker/redirect',
+    'https://dialogs.yandex.ru/developer/account-linking/redirect/',
+  ];
+  return Array.from(new Set([...configured, ...defaults]));
+}
+
+export function isAllowedRedirectUri(uri: string): boolean {
+  return getAllowedRedirectUris().includes(uri);
+}
+
 export function validateAuthorizeRequest(input: Partial<AliceAuthorizeRequest>): AliceAuthorizeRequest {
   if (input.response_type !== 'code') {
     throw new AliceOAuthError('unsupported_response_type', 'response_type must be code');
@@ -35,7 +51,7 @@ export function validateAuthorizeRequest(input: Partial<AliceAuthorizeRequest>):
   if (input.client_id !== env.ALICE_SKILL_CLIENT_ID) {
     throw new AliceOAuthError('unauthorized_client', 'Invalid client_id', 401);
   }
-  if (input.redirect_uri !== env.ALICE_ALLOWED_REDIRECT_URI) {
+  if (!isAllowedRedirectUri(input.redirect_uri)) {
     throw new AliceOAuthError('invalid_request', 'Invalid redirect_uri');
   }
 

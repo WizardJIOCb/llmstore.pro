@@ -133,7 +133,7 @@ export async function oauthAuthorize(req: Request, res: Response, next: NextFunc
     if (err instanceof AliceOAuthError) {
       const redirectUri = toStringOrUndefined(req.query.redirect_uri);
       const state = toStringOrUndefined(req.query.state);
-      if (redirectUri === env.ALICE_ALLOWED_REDIRECT_URI) {
+      if (redirectUri && oauthService.isAllowedRedirectUri(redirectUri)) {
         res.redirect(oauthService.createAuthorizeErrorRedirect(redirectUri, err.code, state));
         return;
       }
@@ -176,7 +176,7 @@ export async function oauthAuthorizeDecision(req: Request, res: Response, next: 
     if (err instanceof AliceOAuthError) {
       const redirectUri = toStringOrUndefined(req.body.redirect_uri);
       const state = toStringOrUndefined(req.body.state);
-      if (redirectUri === env.ALICE_ALLOWED_REDIRECT_URI) {
+      if (redirectUri && oauthService.isAllowedRedirectUri(redirectUri)) {
         res.redirect(oauthService.createAuthorizeErrorRedirect(redirectUri, err.code, state));
         return;
       }
@@ -198,7 +198,7 @@ export async function oauthToken(req: Request, res: Response, next: NextFunction
       const code = toStringOrUndefined(req.body.code);
       const redirectUri = toStringOrUndefined(req.body.redirect_uri);
       if (!code || !redirectUri) throw new AliceOAuthError('invalid_request', 'code and redirect_uri are required');
-      if (redirectUri !== env.ALICE_ALLOWED_REDIRECT_URI) {
+      if (!oauthService.isAllowedRedirectUri(redirectUri)) {
         throw new AliceOAuthError('invalid_request', 'Invalid redirect_uri');
       }
 
