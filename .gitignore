@@ -8,4 +8,8 @@ Thumbs.db
 *.tsbuildinfo
 coverage/
 .turbo/
-packages/backend/drizzle/
+packages/backend/drizzle/*
+!packages/backend/drizzle/*.sql
+!packages/backend/drizzle/meta/
+packages/backend/drizzle/meta/*
+!packages/backend/drizzle/meta/_journal.json

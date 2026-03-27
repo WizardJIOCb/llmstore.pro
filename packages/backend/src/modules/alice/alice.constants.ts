@@ -1,0 +1,1 @@
+export const ALICE_AUTH_CODE_TTL_SECONDS = 5 * 60;

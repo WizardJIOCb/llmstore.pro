@@ -25,6 +25,32 @@ export interface LinkedAccount {
   created_at: string;
 }
 
+export type AliceTargetType = 'general_chat' | 'agent_chat' | 'specific_chat';
+export type AliceTtsMode = 'brief' | 'standard';
+
+export interface AliceProfileSettingsDto {
+  is_enabled: boolean;
+  default_target_type: AliceTargetType;
+  default_chat_id: string | null;
+  default_agent_id: string | null;
+  default_model_external_id: string | null;
+  save_messages: boolean;
+  tts_mode: AliceTtsMode;
+  max_tts_chars: number;
+}
+
+export interface AliceProfileStatusDto {
+  is_linked: boolean;
+  linked_at: string | null;
+  last_seen_at: string | null;
+  linked_skill_user_id: string | null;
+}
+
+export interface AliceProfileDto {
+  settings: AliceProfileSettingsDto;
+  status: AliceProfileStatusDto;
+}
+
 export interface AgentUsageSummary {
   agent_id: string;
   agent_name: string;
@@ -59,6 +85,7 @@ export interface UserProfile extends UserPublic {
   balance_usd: string;
   balance_rub: string;
   linked_accounts: LinkedAccount[];
+  alice: AliceProfileDto | null;
   usage: UserUsageSummary;
   balance_history: BalanceHistoryItem[];
   limits: UserLimits;

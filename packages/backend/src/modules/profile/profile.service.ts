@@ -237,6 +237,7 @@ export async function getProfile(userId: string): Promise<UserProfile> {
     balance_usd: String(user.balance_usd),
     balance_rub: balanceRub,
     linked_accounts,
+    alice: null,
     usage,
     balance_history: balanceHistory,
     limits,

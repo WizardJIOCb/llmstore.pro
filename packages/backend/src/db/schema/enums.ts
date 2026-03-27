@@ -39,6 +39,8 @@ export const agentRunStatusEnum = pgEnum('agent_run_status', [
 export const agentRunModeEnum = pgEnum('agent_run_mode', ['chat', 'scenario', 'comparison', 'preflight']);
 export const toolCallStatusEnum = pgEnum('tool_call_status', ['pending', 'running', 'success', 'error', 'timeout']);
 export const chatConversationModeEnum = pgEnum('chat_conversation_mode', ['general', 'agent']);
+export const aliceDefaultTargetTypeEnum = pgEnum('alice_default_target_type', ['general_chat', 'agent_chat', 'specific_chat']);
+export const aliceTtsModeEnum = pgEnum('alice_tts_mode', ['brief', 'standard']);
 
 // Subtype enums
 export const assetTypeEnum = pgEnum('asset_type', [

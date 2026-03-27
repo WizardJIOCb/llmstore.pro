@@ -30,3 +30,6 @@ export * from './user-data';
 
 // News
 export * from './news';
+
+// Alice integration
+export * from './alice';

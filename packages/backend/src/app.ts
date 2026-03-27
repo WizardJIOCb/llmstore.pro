@@ -15,6 +15,7 @@ import { agentBuilderRoutes } from './modules/agent-builder/index.js';
 import { agentRuntimeRoutes } from './modules/agent-runtime/index.js';
 import { profileRoutes } from './modules/profile/index.js';
 import { newsRoutes } from './modules/news/index.js';
+import { aliceRoutes } from './modules/alice/index.js';
 import { UPLOADS_DIR } from './config/upload.js';
 
 export function createApp() {
@@ -78,6 +79,7 @@ export function createApp() {
   app.use('/api/builder/stack', stackBuilderRoutes);
   app.use('/api/agents', agentBuilderRoutes);
   app.use('/api', agentRuntimeRoutes);
+  app.use('/api/integrations/alice', aliceRoutes);
 
   // Error handler (must be last)
   app.use(errorHandler);
