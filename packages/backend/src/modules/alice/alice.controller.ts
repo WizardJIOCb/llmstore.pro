@@ -165,11 +165,13 @@ export async function oauthAuthorize(req: Request, res: Response, next: NextFunc
       }).toString()}`;
       const nextUrl = `${env.BACKEND_URL}${nextPath}`;
       const loginUrl = `${env.FRONTEND_URL}/login?next=${encodeURIComponent(nextUrl)}`;
+      logger.info({ redirectTo: loginUrl }, 'alice oauth authorize: login required page');
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       res.status(200).send(renderLoginRequiredPage(loginUrl));
       return;
     }
 
+    logger.info({ userId: req.session.userId }, 'alice oauth authorize: consent page');
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.status(200).send(renderConsentPage(request));
   } catch (err) {
