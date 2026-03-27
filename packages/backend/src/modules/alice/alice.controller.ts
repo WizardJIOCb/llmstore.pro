@@ -24,6 +24,16 @@ function oauthJsonError(res: Response, err: AliceOAuthError): void {
   res.status(err.statusCode).json(payload);
 }
 
+function applyAliceOAuthEmbedHeaders(res: Response): void {
+  // Yandex account-linking flow can open authorize pages in an embedded context.
+  // Relax frame restrictions for this OAuth flow only.
+  res.removeHeader('X-Frame-Options');
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self'; frame-ancestors 'self' https://dialogs.yandex.ru https://social.yandex.net",
+  );
+}
+
 function aliceTextResponse(text: string, tts?: string) {
   return {
     response: {
@@ -91,6 +101,8 @@ function renderConsentPage(request: AliceAuthorizeRequest): string {
 
 export async function oauthAuthorize(req: Request, res: Response, next: NextFunction) {
   try {
+    applyAliceOAuthEmbedHeaders(res);
+
     const request = oauthService.validateAuthorizeRequest({
       response_type: toStringOrUndefined(req.query.response_type) as 'code' | undefined,
       client_id: toStringOrUndefined(req.query.client_id),
@@ -134,6 +146,8 @@ export async function oauthAuthorize(req: Request, res: Response, next: NextFunc
 
 export async function oauthAuthorizeDecision(req: Request, res: Response, next: NextFunction) {
   try {
+    applyAliceOAuthEmbedHeaders(res);
+
     if (!req.session.userId) {
       res.redirect(`${env.FRONTEND_URL}/login`);
       return;
