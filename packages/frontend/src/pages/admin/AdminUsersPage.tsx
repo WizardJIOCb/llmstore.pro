@@ -135,6 +135,10 @@ export function AdminUsersPage() {
                 <tr>
                   <th className="px-4 py-3 text-left font-medium">Email</th>
                   <th className="px-4 py-3 text-left font-medium">Имя</th>
+                  <th className="px-4 py-3 text-right font-medium">Чаты</th>
+                  <th className="px-4 py-3 text-right font-medium">Агенты</th>
+                  <th className="px-4 py-3 text-right font-medium">Потрачено, токены</th>
+                  <th className="px-4 py-3 text-right font-medium">Потрачено, $</th>
                   <th className="px-4 py-3 text-left font-medium">Роль</th>
                   <th className="px-4 py-3 text-left font-medium">Статус</th>
                   <th className="px-4 py-3 text-right font-medium">Баланс, $</th>
@@ -152,6 +156,18 @@ export function AdminUsersPage() {
                       )}
                     </td>
                     <td className="px-4 py-3">{user.name || '-'}</td>
+                    <td className="px-4 py-3 text-right font-mono">
+                      {Number(user.chats_count ?? 0).toLocaleString('ru-RU')}
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono">
+                      {Number(user.agents_count ?? 0).toLocaleString('ru-RU')}
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono">
+                      {Number(user.spent_tokens ?? 0).toLocaleString('ru-RU')}
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono">
+                      ${Number(user.spent_usd ?? 0).toFixed(4)}
+                    </td>
                     <td className="px-4 py-3">
                       <Badge variant={roleVariants[user.role] ?? 'secondary'}>
                         {roleLabels[user.role] ?? user.role}

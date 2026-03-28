@@ -414,10 +414,63 @@ export async function listUsers(query: AdminUsersQuery) {
   ]);
 
   const total = countResult[0]?.count ?? 0;
+  const userIds = rows.map((row) => row.id);
+
+  const chatsByUser = new Map<string, number>();
+  const agentsByUser = new Map<string, number>();
+  const spendByUser = new Map<string, { spent_tokens: number; spent_usd: number }>();
+
+  if (userIds.length > 0) {
+    const [chatRows, agentRows, spendRows] = await Promise.all([
+      db
+        .select({
+          user_id: chatConversations.user_id,
+          count: sql<number>`count(*)::int`,
+        })
+        .from(chatConversations)
+        .where(inArray(chatConversations.user_id, userIds))
+        .groupBy(chatConversations.user_id),
+      db
+        .select({
+          user_id: agents.owner_user_id,
+          count: sql<number>`count(*)::int`,
+        })
+        .from(agents)
+        .where(inArray(agents.owner_user_id, userIds))
+        .groupBy(agents.owner_user_id),
+      db
+        .select({
+          user_id: agentRuns.user_id,
+          spent_tokens: sql<number>`coalesce(sum(coalesce(${usageLedger.total_tokens}, ${usageLedger.prompt_tokens} + ${usageLedger.completion_tokens})), 0)::int`,
+          spent_usd: sql<string>`coalesce(sum(${usageLedger.estimated_cost}::numeric), 0)`,
+        })
+        .from(agentRuns)
+        .leftJoin(usageLedger, eq(usageLedger.run_id, agentRuns.id))
+        .where(inArray(agentRuns.user_id, userIds))
+        .groupBy(agentRuns.user_id),
+    ]);
+
+    for (const row of chatRows) {
+      chatsByUser.set(row.user_id, row.count ?? 0);
+    }
+    for (const row of agentRows) {
+      agentsByUser.set(row.user_id, row.count ?? 0);
+    }
+    for (const row of spendRows) {
+      spendByUser.set(row.user_id, {
+        spent_tokens: row.spent_tokens ?? 0,
+        spent_usd: Number(row.spent_usd ?? 0),
+      });
+    }
+  }
 
   return {
     users: rows.map((r) => ({
       ...r,
+      chats_count: chatsByUser.get(r.id) ?? 0,
+      agents_count: agentsByUser.get(r.id) ?? 0,
+      spent_tokens: spendByUser.get(r.id)?.spent_tokens ?? 0,
+      spent_usd: spendByUser.get(r.id)?.spent_usd ?? 0,
       created_at: r.created_at.toISOString(),
       updated_at: r.updated_at.toISOString(),
     })),
