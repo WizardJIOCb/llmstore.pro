@@ -145,8 +145,19 @@ export async function sendChatMessage(req: Request<{ chatId: string }>, res: Res
       req.params.chatId,
       req.session.userId!,
       req.body.content,
+      req.body.attachments,
       req.session.userRole,
     );
+    res.status(201).json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function uploadChatFiles(req: Request, res: Response, next: NextFunction) {
+  try {
+    const files = req.files as Express.Multer.File[] | undefined;
+    const result = await runtimeService.prepareUploadedChatFiles(files ?? []);
     res.status(201).json({ data: result });
   } catch (err) {
     next(err);

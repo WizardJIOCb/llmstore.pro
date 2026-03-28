@@ -2,7 +2,13 @@
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string | null;
+  content:
+    | string
+    | null
+    | Array<
+      | { type: 'text'; text: string }
+      | { type: 'image_url'; image_url: { url: string } }
+    >;
   name?: string;
   tool_calls?: ToolCall[];
   tool_call_id?: string;

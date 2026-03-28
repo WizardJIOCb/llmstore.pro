@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireAuth } from '../../middleware/auth-guard.js';
 import * as controller from './runtime.controller.js';
+import { chatUpload } from '../../config/upload.js';
 import {
   validateStartRun,
   validateCreateChat,
@@ -27,6 +28,7 @@ router.get('/chats/:chatId/stats', requireAuth, controller.getChatStats);
 router.patch('/chats/:chatId', requireAuth, validateUpdateChat, controller.updateChat);
 router.delete('/chats/:chatId', requireAuth, controller.deleteChat);
 router.post('/chats/:chatId/share', requireAuth, controller.shareChatById);
+router.post('/chats/uploads', requireAuth, chatUpload.array('files', 8), controller.uploadChatFiles);
 router.post('/chats/:chatId/messages', requireAuth, validateSendChatMessage, controller.sendChatMessage);
 
 // Shared conversation (public, no auth)

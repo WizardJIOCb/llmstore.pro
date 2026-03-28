@@ -28,7 +28,17 @@ const updateChatSchema = z.object({
 });
 
 const sendMessageSchema = z.object({
-  content: z.string().min(1).max(32000),
+  content: z.string().max(32000).default(''),
+  attachments: z.array(
+    z.object({
+      filename: z.string().min(1).max(500),
+      original_name: z.string().max(500).optional().nullable(),
+      url: z.string().max(2000).optional().nullable(),
+      kind: z.enum(['image', 'text', 'file']).optional().nullable(),
+      mime_type: z.string().max(200).optional().nullable(),
+      size: z.coerce.number().int().min(0).optional().nullable(),
+    }),
+  ).max(8).optional().default([]),
 });
 
 export const validateCreateChat = validate(createChatSchema, 'body');

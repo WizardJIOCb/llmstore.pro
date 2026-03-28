@@ -22,8 +22,19 @@ export interface ChatMessage {
   content: string;
   run_id: string | null;
   usage: Record<string, unknown> | null;
+  attachments?: ChatAttachment[];
   latency_ms: number | null;
   created_at: string;
+}
+
+export interface ChatAttachment {
+  filename: string;
+  original_name: string;
+  mime_type: string;
+  size: number;
+  kind: 'image' | 'text' | 'file';
+  url: string;
+  text_preview?: string;
 }
 
 export interface ChatDetails {
@@ -126,8 +137,20 @@ export const chatsApi = {
   share: (chatId: string) =>
     apiClient.post<{ data: { share_token: string } }>(`/chats/${chatId}/share`).then((r) => r.data.data),
 
-  sendMessage: (chatId: string, content: string) =>
-    apiClient.post<{ data: SendMessageResult }>(`/chats/${chatId}/messages`, { content }).then((r) => r.data.data),
+  sendMessage: (chatId: string, content: string, attachments?: ChatAttachment[]) =>
+    apiClient
+      .post<{ data: SendMessageResult }>(`/chats/${chatId}/messages`, { content, attachments: attachments ?? [] })
+      .then((r) => r.data.data),
+
+  uploadFiles: (files: File[]) => {
+    const formData = new FormData();
+    files.forEach((file) => formData.append('files', file));
+    return apiClient
+      .post<{ data: ChatAttachment[] }>('/chats/uploads', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      .then((r) => r.data.data);
+  },
 
   stats: (chatId: string) =>
     apiClient.get<{ data: ChatStats }>(`/chats/${chatId}/stats`).then((r) => r.data.data),

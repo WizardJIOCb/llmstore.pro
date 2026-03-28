@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { chatsApi, type ChatMode } from '../lib/api/chats';
+import { chatsApi, type ChatAttachment, type ChatMode } from '../lib/api/chats';
 
 export function useChatsList(enabled = true) {
   return useQuery({
@@ -79,12 +79,18 @@ export function useShareChatById() {
 export function useSendChatMessage() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ chatId, content }: { chatId: string; content: string }) =>
-      chatsApi.sendMessage(chatId, content),
+    mutationFn: ({ chatId, content, attachments }: { chatId: string; content: string; attachments?: ChatAttachment[] }) =>
+      chatsApi.sendMessage(chatId, content, attachments),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['chats'] });
       qc.invalidateQueries({ queryKey: ['chats', vars.chatId] });
     },
+  });
+}
+
+export function useUploadChatFiles() {
+  return useMutation({
+    mutationFn: (files: File[]) => chatsApi.uploadFiles(files),
   });
 }
 

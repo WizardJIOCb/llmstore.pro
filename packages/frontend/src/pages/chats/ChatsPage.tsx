@@ -15,6 +15,7 @@ import {
   useCreateChat,
   useDeleteChat,
   useSendChatMessage,
+  useUploadChatFiles,
   useShareChatById,
   useUpdateChat,
 } from '../../hooks/useChats';
@@ -76,6 +77,21 @@ function extractUsage(value: Record<string, unknown> | null) {
   };
 }
 
+function extractAttachments(value: Record<string, unknown> | null) {
+  if (!value || !Array.isArray((value as { attachments?: unknown[] }).attachments)) return [];
+  return ((value as { attachments: unknown[] }).attachments ?? [])
+    .filter((item) => item && typeof item === 'object')
+    .map((item) => item as {
+      filename: string;
+      original_name: string;
+      mime_type: string;
+      size: number;
+      kind: 'image' | 'text' | 'file';
+      url: string;
+      text_preview?: string;
+    });
+}
+
 type MenuItem = { kind: 'chat'; id: string } | null;
 
 function getApiErrorCode(err: unknown): string | undefined {
@@ -91,6 +107,7 @@ export function ChatsPage() {
   const deleteChatMutation = useDeleteChat();
   const shareChatMutation = useShareChatById();
   const sendMessageMutation = useSendChatMessage();
+  const uploadFilesMutation = useUploadChatFiles();
 
   const [search, setSearch] = useState('');
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
@@ -337,11 +354,12 @@ export function ChatsPage() {
     }
   };
 
-  const sendMessage = async (content: string) => {
+  const sendMessage = async (content: string, files: File[] = []) => {
     if (!activeChat) return;
     setLocalError(null);
     try {
-      await sendMessageMutation.mutateAsync({ chatId: activeChat.id, content });
+      const attachments = files.length > 0 ? await uploadFilesMutation.mutateAsync(files) : [];
+      await sendMessageMutation.mutateAsync({ chatId: activeChat.id, content, attachments });
     } catch (err) {
       const code = getApiErrorCode(err);
       if (code === 'INSUFFICIENT_BALANCE') {
@@ -484,7 +502,7 @@ export function ChatsPage() {
             {!activeChatLoading && !activeChat && <div className="py-12 text-center text-muted-foreground">Выберите чат слева или создайте новый.</div>}
             {messages.map((msg: ChatMessageType) => (
               <div key={msg.id}>
-                <ChatMessage role={msg.role} content={msg.content} />
+                <ChatMessage role={msg.role} content={msg.content} attachments={msg.attachments ?? extractAttachments(msg.usage)} />
                 {msg.role === 'assistant' && (
                   <div className="mt-1 ml-1">
                     <RunMetadata
@@ -512,7 +530,12 @@ export function ChatsPage() {
                 ))}
               </div>
             )}
-            <ChatInput onSend={sendMessage} disabled={!activeChat || sendMessageMutation.isPending} placeholder={activeChat ? 'Введите сообщение...' : 'Сначала выберите чат'} />
+            <ChatInput
+              onSend={sendMessage}
+              allowAttachments
+              disabled={!activeChat || sendMessageMutation.isPending || uploadFilesMutation.isPending}
+              placeholder={activeChat ? 'Введите сообщение...' : 'Сначала выберите чат'}
+            />
           </div>
         </section>
         )}

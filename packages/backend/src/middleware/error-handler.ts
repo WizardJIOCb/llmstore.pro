@@ -54,11 +54,16 @@ export function errorHandler(err: Error, _req: Request, res: Response, _next: Ne
     return;
   }
 
-  if (err.message === 'Only image files (jpeg, png, webp, gif) are allowed') {
+  if (
+    err.message === 'Only image files (jpeg, png, webp, gif) are allowed'
+    || err.message === 'Unsupported file type. Allowed: images, txt, md, csv, json, xml'
+  ) {
     res.status(400).json({
       error: {
         code: 'BAD_REQUEST',
-        message: 'Разрешены только изображения: jpeg, png, webp, gif',
+        message: err.message === 'Only image files (jpeg, png, webp, gif) are allowed'
+          ? 'Разрешены только изображения: jpeg, png, webp, gif'
+          : 'Разрешены только изображения и текстовые файлы: txt, md, csv, json, xml',
       },
     });
     return;

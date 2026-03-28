@@ -1,4 +1,6 @@
-import { db } from '../../config/database.js';
+﻿import { db } from '../../config/database.js';
+import { readFile, stat } from 'fs/promises';
+import path from 'path';
 import { agents, agentVersions, agentVersionTools, toolDefinitions } from '../../db/schema/agents.js';
 import {
   agentRuns,
@@ -17,9 +19,30 @@ import { executeTool } from '../tool-execution/index.js';
 import { NotFoundError, AppError } from '../../middleware/error-handler.js';
 import { logger } from '../../lib/logger.js';
 import type { ChatMessage, ToolDefinitionParam } from '../openrouter/types.js';
+import { UPLOADS_DIR } from '../../config/upload.js';
 
 const DEFAULT_MODEL = 'google/gemini-2.0-flash-001';
 const DEFAULT_MAX_ITERATIONS = 4;
+const CHAT_UPLOADS_DIR = path.join(UPLOADS_DIR, 'chat');
+
+interface ChatAttachmentInput {
+  filename: string;
+  original_name?: string | null;
+  url?: string | null;
+  kind?: 'image' | 'text' | 'file' | null;
+  mime_type?: string | null;
+  size?: number | null;
+}
+
+interface ChatAttachmentMeta {
+  filename: string;
+  original_name: string;
+  mime_type: string;
+  size: number;
+  kind: 'image' | 'text' | 'file';
+  url: string;
+  text_preview?: string;
+}
 
 // Pricing per 1M tokens (USD) - OpenRouter rates for common models
 const MODEL_PRICING: Record<string, { input: number; output: number }> = {
@@ -43,14 +66,14 @@ async function ensureSufficientBalance(userId: string) {
     .where(eq(users.id, userId))
     .limit(1);
 
-  if (!user) throw new NotFoundError('Ресурс не найден');
+  if (!user) throw new NotFoundError('Р РµСЃСѓСЂСЃ РЅРµ РЅР°Р№РґРµРЅ');
 
   const balance = Number(user.balance_usd);
   if (!(balance > 0)) {
     throw new AppError(
       402,
       'INSUFFICIENT_BALANCE',
-      'Недостаточно баланса. Пополните баланс, чтобы продолжить общение.',
+      'РќРµРґРѕСЃС‚Р°С‚РѕС‡РЅРѕ Р±Р°Р»Р°РЅСЃР°. РџРѕРїРѕР»РЅРёС‚Рµ Р±Р°Р»Р°РЅСЃ, С‡С‚РѕР±С‹ РїСЂРѕРґРѕР»Р¶РёС‚СЊ РѕР±С‰РµРЅРёРµ.',
     );
   }
 }
@@ -73,11 +96,11 @@ async function ensureAgentIsVisibleForUser(agentId: string, userId: string, user
     .limit(1);
 
   if (!agent) {
-    throw new NotFoundError('Ресурс не найден');
+    throw new NotFoundError('Р РµСЃСѓСЂСЃ РЅРµ РЅР°Р№РґРµРЅ');
   }
 
   if (agent.status !== 'active' || !agent.current_version_id) {
-    throw new AppError(400, 'AGENT_UNAVAILABLE', 'Выбранный агент недоступен');
+    throw new AppError(400, 'AGENT_UNAVAILABLE', 'Р’С‹Р±СЂР°РЅРЅС‹Р№ Р°РіРµРЅС‚ РЅРµРґРѕСЃС‚СѓРїРµРЅ');
   }
 
   if (
@@ -88,7 +111,7 @@ async function ensureAgentIsVisibleForUser(agentId: string, userId: string, user
     return;
   }
 
-  throw new AppError(403, 'FORBIDDEN', 'Этот агент недоступен для выбранного пользователя');
+  throw new AppError(403, 'FORBIDDEN', 'Р­С‚РѕС‚ Р°РіРµРЅС‚ РЅРµРґРѕСЃС‚СѓРїРµРЅ РґР»СЏ РІС‹Р±СЂР°РЅРЅРѕРіРѕ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ');
 }
 
 // --- Types ---
@@ -183,6 +206,68 @@ function normalizeOpenRouterModelId(modelId: string): string {
   return aliases[value] ?? value;
 }
 
+function getAttachmentMimeType(filename: string): string {
+  const ext = path.extname(filename).toLowerCase();
+  switch (ext) {
+    case '.png': return 'image/png';
+    case '.jpg':
+    case '.jpeg': return 'image/jpeg';
+    case '.webp': return 'image/webp';
+    case '.gif': return 'image/gif';
+    case '.txt':
+    case '.log': return 'text/plain';
+    case '.md': return 'text/markdown';
+    case '.csv': return 'text/csv';
+    case '.json': return 'application/json';
+    case '.xml': return 'application/xml';
+    default: return 'application/octet-stream';
+  }
+}
+
+function isImageMime(mimeType: string): boolean {
+  return mimeType.startsWith('image/');
+}
+
+function isTextMime(mimeType: string): boolean {
+  return (
+    mimeType.startsWith('text/')
+    || mimeType === 'application/json'
+    || mimeType === 'application/xml'
+  );
+}
+
+function safeAttachmentPath(filename: string): string {
+  return path.join(CHAT_UPLOADS_DIR, path.basename(filename));
+}
+
+export async function prepareUploadedChatFiles(files: Express.Multer.File[]): Promise<ChatAttachmentMeta[]> {
+  const result: ChatAttachmentMeta[] = [];
+  for (const file of files) {
+    const mime = file.mimetype || getAttachmentMimeType(file.filename);
+    const kind: ChatAttachmentMeta['kind'] = isImageMime(mime) ? 'image' : (isTextMime(mime) ? 'text' : 'file');
+    let textPreview: string | undefined;
+    if (kind === 'text') {
+      try {
+        const raw = await readFile(file.path, 'utf8');
+        const compact = raw.replace(/\r\n/g, '\n').trim();
+        if (compact.length > 0) textPreview = compact.slice(0, 400);
+      } catch {
+        textPreview = undefined;
+      }
+    }
+    result.push({
+      filename: file.filename,
+      original_name: file.originalname || file.filename,
+      mime_type: mime,
+      size: file.size,
+      kind,
+      url: `/uploads/chat/${file.filename}`,
+      text_preview: textPreview,
+    });
+  }
+  return result;
+}
+
 // --- Core Runtime ---
 
 export async function startRun(
@@ -202,14 +287,14 @@ export async function startRun(
 
   // 1. Load agent + version + tools
   const [agent] = await db.select().from(agents).where(eq(agents.id, agentId)).limit(1);
-  if (!agent) throw new NotFoundError('Ресурс не найден');
+  if (!agent) throw new NotFoundError('Р РµСЃСѓСЂСЃ РЅРµ РЅР°Р№РґРµРЅ');
 
   if (!agent.current_version_id) {
-    throw new AppError(400, 'NO_VERSION', 'У агента нет активной версии');
+    throw new AppError(400, 'NO_VERSION', 'РЈ Р°РіРµРЅС‚Р° РЅРµС‚ Р°РєС‚РёРІРЅРѕР№ РІРµСЂСЃРёРё');
   }
 
   const [version] = await db.select().from(agentVersions).where(eq(agentVersions.id, agent.current_version_id)).limit(1);
-  if (!version) throw new NotFoundError('Ресурс не найден');
+  if (!version) throw new NotFoundError('Р РµСЃСѓСЂСЃ РЅРµ РЅР°Р№РґРµРЅ');
 
   const versionToolRows = await db
     .select({ tool: toolDefinitions })
@@ -259,7 +344,7 @@ export async function startRun(
         user_id: userId,
         mode: 'agent',
         agent_id: agentId,
-        title: (latestUserMessage || 'Новый чат').slice(0, 500),
+        title: (latestUserMessage || 'РќРѕРІС‹Р№ С‡Р°С‚').slice(0, 500),
         model_external_id: modelId,
         last_message_at: new Date(),
       }).returning({ id: chatConversations.id });
@@ -315,10 +400,10 @@ export async function startRun(
     systemParts.push(version.system_prompt.trim());
   }
   if (typeof runtimeConfig.chat_intro === 'string' && runtimeConfig.chat_intro.trim().length > 0) {
-    systemParts.push(`Описание агента для чата:\n${runtimeConfig.chat_intro.trim()}`);
+    systemParts.push(`РћРїРёСЃР°РЅРёРµ Р°РіРµРЅС‚Р° РґР»СЏ С‡Р°С‚Р°:\n${runtimeConfig.chat_intro.trim()}`);
   }
   if (typeof agent.description === 'string' && agent.description.trim().length > 0) {
-    systemParts.push(`Краткое описание агента:\n${agent.description.trim()}`);
+    systemParts.push(`РљСЂР°С‚РєРѕРµ РѕРїРёСЃР°РЅРёРµ Р°РіРµРЅС‚Р°:\n${agent.description.trim()}`);
   }
   if (systemParts.length > 0) {
     messages.push({ role: 'system', content: systemParts.join('\n\n') });
@@ -499,8 +584,8 @@ export async function startRun(
   if (runStatus === 'completed' && !finalOutput.trim()) {
     runStatus = 'failed';
     errorMessage = gotTerminalAssistantMessage
-      ? 'Модель не вернула текстовый ответ.'
-      : `Агент не вернул итоговый ответ: достигнут лимит итераций (${maxIterations}).`;
+      ? 'РњРѕРґРµР»СЊ РЅРµ РІРµСЂРЅСѓР»Р° С‚РµРєСЃС‚РѕРІС‹Р№ РѕС‚РІРµС‚.'
+      : `РђРіРµРЅС‚ РЅРµ РІРµСЂРЅСѓР» РёС‚РѕРіРѕРІС‹Р№ РѕС‚РІРµС‚: РґРѕСЃС‚РёРіРЅСѓС‚ Р»РёРјРёС‚ РёС‚РµСЂР°С†РёР№ (${maxIterations}).`;
     logger.warn({ runId: run.id, modelId, maxIterations }, 'Agent run completed without final text output');
   }
 
@@ -590,7 +675,7 @@ export async function getRun(runId: string, userId: string) {
     and(eq(agentRuns.id, runId), eq(agentRuns.user_id, userId)),
   ).limit(1);
 
-  if (!run) throw new NotFoundError('Ресурс не найден');
+  if (!run) throw new NotFoundError('Р РµСЃСѓСЂСЃ РЅРµ РЅР°Р№РґРµРЅ');
 
   const messages = await db.select().from(agentRunMessages).where(eq(agentRunMessages.run_id, runId)).orderBy(agentRunMessages.created_at);
   const toolCalls = await db.select().from(agentRunToolCalls).where(eq(agentRunToolCalls.run_id, runId)).orderBy(agentRunToolCalls.created_at);
@@ -813,7 +898,7 @@ export async function shareChat(agentId: string, userId: string) {
     .where(and(eq(chatSessions.agent_id, agentId), eq(chatSessions.user_id, userId)))
     .limit(1);
 
-  if (!session) throw new NotFoundError('Ресурс не найден');
+  if (!session) throw new NotFoundError('Р РµСЃСѓСЂСЃ РЅРµ РЅР°Р№РґРµРЅ');
 
   if (session.share_token) {
     return { share_token: session.share_token };
@@ -833,7 +918,7 @@ export async function getSharedChat(token: string) {
     .where(eq(chatSessions.share_token, token))
     .limit(1);
 
-  if (!session) throw new NotFoundError('Ресурс не найден');
+  if (!session) throw new NotFoundError('Р РµСЃСѓСЂСЃ РЅРµ РЅР°Р№РґРµРЅ');
 
   // Load agent name
   const [agent] = await db.select({ name: agents.name }).from(agents).where(eq(agents.id, session.agent_id)).limit(1);
@@ -999,7 +1084,7 @@ function toNumberOrNull(value: unknown): number | null {
 
 function compactTitle(content: string): string {
   const text = content.replace(/\s+/g, ' ').trim();
-  return text.length > 80 ? `${text.slice(0, 80)}...` : text || 'Новый чат';
+  return text.length > 80 ? `${text.slice(0, 80)}...` : text || 'РќРѕРІС‹Р№ С‡Р°С‚';
 }
 
 function extractStarterPrompts(value: unknown): string[] {
@@ -1017,7 +1102,7 @@ async function getConversationForUser(chatId: string, userId: string): Promise<C
     .where(and(eq(chatConversations.id, chatId), eq(chatConversations.user_id, userId)))
     .limit(1);
 
-  if (!chat) throw new NotFoundError('Ресурс не найден');
+  if (!chat) throw new NotFoundError('Р РµСЃСѓСЂСЃ РЅРµ РЅР°Р№РґРµРЅ');
   return chat as ChatConversationRow;
 }
 
@@ -1187,7 +1272,7 @@ export async function createChat(userId: string, input: {
 }, userRole?: string) {
   const mode = input.mode ?? 'general';
   if (mode === 'agent' && !input.agent_id) {
-    throw new AppError(400, 'VALIDATION_ERROR', 'Для режима чата с агентом требуется agent_id');
+    throw new AppError(400, 'VALIDATION_ERROR', 'Р”Р»СЏ СЂРµР¶РёРјР° С‡Р°С‚Р° СЃ Р°РіРµРЅС‚РѕРј С‚СЂРµР±СѓРµС‚СЃСЏ agent_id');
   }
   
   if (mode === 'agent' && input.agent_id) {
@@ -1198,7 +1283,7 @@ export async function createChat(userId: string, input: {
     user_id: userId,
     mode,
     agent_id: input.agent_id ?? null,
-    title: (input.title?.trim() || 'Новый чат').slice(0, 500),
+    title: (input.title?.trim() || 'РќРѕРІС‹Р№ С‡Р°С‚').slice(0, 500),
     model_external_id: input.model_external_id ?? null,
     system_prompt: input.system_prompt ?? null,
     last_message_at: new Date(),
@@ -1364,7 +1449,7 @@ export async function updateChat(chatId: string, userId: string, input: {
   const nextAgentId = input.agent_id === undefined ? existing.agent_id : input.agent_id;
 
   if (nextMode === 'agent' && !nextAgentId) {
-    throw new AppError(400, 'VALIDATION_ERROR', 'Для режима чата с агентом требуется agent_id');
+    throw new AppError(400, 'VALIDATION_ERROR', 'Р”Р»СЏ СЂРµР¶РёРјР° С‡Р°С‚Р° СЃ Р°РіРµРЅС‚РѕРј С‚СЂРµР±СѓРµС‚СЃСЏ agent_id');
   }
 
   
@@ -1425,13 +1510,76 @@ export async function shareChatById(chatId: string, userId: string) {
   return { share_token: token };
 }
 
-export async function sendChatMessage(chatId: string, userId: string, content: string, userRole?: string) {
+export async function sendChatMessage(
+  chatId: string,
+  userId: string,
+  content: string,
+  attachmentsInput?: ChatAttachmentInput[],
+  userRole?: string,
+) {
   const chat = await getConversationForUser(chatId, userId);
   await ensureSufficientBalance(userId);
   const trimmedContent = content.trim();
-  if (!trimmedContent) {
-    throw new AppError(400, 'VALIDATION_ERROR', 'Сообщение не может быть пустым');
+  if (!trimmedContent && (attachmentsInput ?? []).length === 0) {
+    throw new AppError(400, 'VALIDATION_ERROR', 'Message cannot be empty');
   }
+
+  const attachments = (attachmentsInput ?? []).slice(0, 8);
+  const attachmentMetas: ChatAttachmentMeta[] = [];
+  const attachmentContextChunks: string[] = [];
+  const imageDataUrls: string[] = [];
+
+  for (const item of attachments) {
+    const filename = path.basename(item.filename || '');
+    if (!filename) continue;
+    const filePath = safeAttachmentPath(filename);
+    let fileStats;
+    try {
+      fileStats = await stat(filePath);
+    } catch {
+      continue;
+    }
+    if (!fileStats.isFile()) continue;
+
+    const mime = getAttachmentMimeType(filename);
+    const kind: ChatAttachmentMeta['kind'] = isImageMime(mime) ? 'image' : (isTextMime(mime) ? 'text' : 'file');
+    const meta: ChatAttachmentMeta = {
+      filename,
+      original_name: (item.original_name ?? '').trim() || filename,
+      mime_type: mime,
+      size: fileStats.size,
+      kind,
+      url: `/uploads/chat/${filename}`,
+    };
+
+    if (kind === 'text') {
+      try {
+        const raw = await readFile(filePath, 'utf8');
+        const compact = raw.replace(/\r\n/g, '\n').trim().slice(0, 12000);
+        if (compact.length > 0) {
+          meta.text_preview = compact.slice(0, 400);
+          attachmentContextChunks.push(`Файл \"${meta.original_name}\":\n${compact}`);
+        }
+      } catch {
+      }
+    } else if (kind === 'image') {
+      attachmentContextChunks.push(`Изображение \"${meta.original_name}\" приложено.`);
+      try {
+        const buffer = await readFile(filePath);
+        imageDataUrls.push(`data:${mime};base64,${buffer.toString('base64')}`);
+      } catch {
+      }
+    } else {
+      attachmentContextChunks.push(`Файл \"${meta.original_name}\" приложен.`);
+    }
+
+    attachmentMetas.push(meta);
+  }
+
+  const attachmentContext = attachmentContextChunks.length > 0
+    ? `\n\nВложения пользователя:\n${attachmentContextChunks.join('\n\n')}`
+    : '';
+  const userModelText = `${trimmedContent}${attachmentContext}`.trim();
 
   const previousMessages = await getConversationMessages(chatId);
   const userMessage: ConversationMessage = {
@@ -1439,7 +1587,7 @@ export async function sendChatMessage(chatId: string, userId: string, content: s
     role: 'user',
     content: trimmedContent,
     run_id: null,
-    usage: null,
+    usage: attachmentMetas.length > 0 ? ({ attachments: attachmentMetas } as Record<string, unknown>) : null,
     latency_ms: null,
     created_at: new Date().toISOString(),
   };
@@ -1448,12 +1596,13 @@ export async function sendChatMessage(chatId: string, userId: string, content: s
     conversation_id: chatId,
     role: 'user',
     content_text: trimmedContent,
+    usage_json: attachmentMetas.length > 0 ? ({ attachments: attachmentMetas } as Record<string, unknown>) : null,
   });
 
   const historyForModel = [
     ...(chat.system_prompt ? [{ role: 'system' as const, content: chat.system_prompt }] : []),
     ...previousMessages.map((m) => ({ role: m.role, content: m.content })),
-    { role: 'user' as const, content: trimmedContent },
+    { role: 'user' as const, content: userModelText },
   ];
 
   let assistantText = '';
@@ -1463,7 +1612,7 @@ export async function sendChatMessage(chatId: string, userId: string, content: s
 
   if (chat.mode === 'agent') {
     if (!chat.agent_id) {
-      throw new AppError(400, 'CHAT_CONFIG_ERROR', 'Этот чат не настроен как агент');
+      throw new AppError(400, 'CHAT_CONFIG_ERROR', 'Р­С‚РѕС‚ С‡Р°С‚ РЅРµ РЅР°СЃС‚СЂРѕРµРЅ РєР°Рє Р°РіРµРЅС‚');
     }
     await ensureAgentIsVisibleForUser(chat.agent_id, userId, userRole);
 
@@ -1480,7 +1629,7 @@ export async function sendChatMessage(chatId: string, userId: string, content: s
       throw new AppError(
         502,
         'AGENT_RUNTIME_FAILED',
-        result.error_message ?? 'Агент не смог сформировать ответ. Попробуйте изменить запрос.',
+        result.error_message ?? 'РђРіРµРЅС‚ РЅРµ СЃРјРѕРі СЃС„РѕСЂРјРёСЂРѕРІР°С‚СЊ РѕС‚РІРµС‚. РџРѕРїСЂРѕР±СѓР№С‚Рµ РёР·РјРµРЅРёС‚СЊ Р·Р°РїСЂРѕСЃ.',
       );
     }
 
@@ -1492,7 +1641,7 @@ export async function sendChatMessage(chatId: string, userId: string, content: s
       ),
     );
 
-    assistantText = result.output || '(пустой ответ)';
+    assistantText = result.output || '(РїСѓСЃС‚РѕР№ РѕС‚РІРµС‚)';
     runId = result.run_id;
     latencyMs = result.latency_ms;
     if (result.usage) {
@@ -1506,14 +1655,21 @@ export async function sendChatMessage(chatId: string, userId: string, content: s
   } else {
     const model = normalizeOpenRouterModelId(chat.model_external_id || DEFAULT_GENERAL_MODEL);
     const startedAt = Date.now();
+    const userContentForGeneral = imageDataUrls.length > 0
+      ? ([{ type: 'text' as const, text: userModelText }, ...imageDataUrls.map((url) => ({ type: 'image_url' as const, image_url: { url } }))])
+      : userModelText;
     const response = await openRouterClient.chatCompletion({
       model,
-      messages: historyForModel.map((m) => ({ role: m.role, content: m.content })),
+      messages: [
+        ...historyForModel.slice(0, -1).map((m) => ({ role: m.role, content: m.content })),
+        { role: 'user', content: userContentForGeneral },
+      ],
       temperature: 0.5,
       max_tokens: 2048,
     });
     latencyMs = Date.now() - startedAt;
-    assistantText = response.choices?.[0]?.message?.content || '(пустой ответ)';
+    const rawAssistant = response.choices?.[0]?.message?.content;
+    assistantText = typeof rawAssistant === 'string' ? rawAssistant : '(пустой ответ)';
     if (response.usage) {
       usagePayload = estimateGeneralChatCost(model, response.usage) as unknown as Record<string, unknown>;
     }
@@ -1527,9 +1683,8 @@ export async function sendChatMessage(chatId: string, userId: string, content: s
     usage_json: usagePayload ?? null,
     latency_ms: latencyMs ?? null,
   }).returning();
-
   const isDefaultTitle = chat.title === 'Новый чат';
-  const nextTitle = isDefaultTitle ? compactTitle(trimmedContent) : chat.title;
+  const nextTitle = isDefaultTitle ? compactTitle(trimmedContent || 'Вложение') : chat.title;
   await db.update(chatConversations).set({
     title: nextTitle,
     last_message_at: new Date(),
@@ -1565,7 +1720,7 @@ export async function getSharedChatById(token: string) {
     .where(eq(chatConversations.share_token, token))
     .limit(1);
 
-  if (!chat) throw new NotFoundError('Ресурс не найден');
+  if (!chat) throw new NotFoundError('Р РµСЃСѓСЂСЃ РЅРµ РЅР°Р№РґРµРЅ');
 
   const messages = await getConversationMessages(chat.id);
   let agentName: string | null = null;
