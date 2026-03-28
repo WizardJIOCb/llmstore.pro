@@ -521,21 +521,7 @@ export async function getByTypeAndSlug(type: string, slug: string): Promise<Cata
 export async function getBySlug(slug: string): Promise<CatalogItemFull> {
   const [row] = await db
     .select({
-      id: catalogItems.id,
       type: catalogItems.type,
-      title: catalogItems.title,
-      slug: catalogItems.slug,
-      short_description: catalogItems.short_description,
-      full_description: catalogItems.full_description,
-      hero_image_url: catalogItems.hero_image_url,
-      curated_score: catalogItems.curated_score,
-      featured: catalogItems.featured,
-      status: catalogItems.status,
-      visibility: catalogItems.visibility,
-      seo_title: catalogItems.seo_title,
-      seo_description: catalogItems.seo_description,
-      author_user_id: catalogItems.author_user_id,
-      published_at: catalogItems.published_at,
     })
     .from(catalogItems)
     .where(
@@ -551,112 +537,7 @@ export async function getBySlug(slug: string): Promise<CatalogItemFull> {
     throw new NotFoundError('Элемент каталога не найден');
   }
 
-  const [tagsMap, catsMap, useCasesMap, metaMap] = await Promise.all([
-    loadTagsForItems([row.id]),
-    loadCategoriesForItems([row.id]),
-    loadUseCasesForItems([row.id]),
-    loadMetaForItems([row.id]),
-  ]);
-
-  let author: UserSlim | null = null;
-  if (row.author_user_id) {
-    const [authorRow] = await db
-      .select({
-        id: users.id,
-        username: users.username,
-        name: users.name,
-        avatar_url: users.avatar_url,
-      })
-      .from(users)
-      .where(eq(users.id, row.author_user_id))
-      .limit(1);
-    author = authorRow ?? null;
-  }
-
-  const relatedRows = await db
-    .select({
-      id: catalogItems.id,
-      type: catalogItems.type,
-      title: catalogItems.title,
-      slug: catalogItems.slug,
-      short_description: catalogItems.short_description,
-      hero_image_url: catalogItems.hero_image_url,
-      curated_score: catalogItems.curated_score,
-      featured: catalogItems.featured,
-      published_at: catalogItems.published_at,
-    })
-    .from(catalogItems)
-    .where(
-      and(
-        eq(catalogItems.type, row.type),
-        eq(catalogItems.status, 'published'),
-        eq(catalogItems.visibility, 'public'),
-        sql`${catalogItems.id} != ${row.id}`,
-      ),
-    )
-    .orderBy(desc(catalogItems.curated_score))
-    .limit(4);
-
-  const relatedIds = relatedRows.map((r) => r.id);
-  const [relTagsMap, relCatsMap, relMetaMap] = await Promise.all([
-    loadTagsForItems(relatedIds),
-    loadCategoriesForItems(relatedIds),
-    loadMetaForItems(relatedIds),
-  ]);
-
-  const relatedItems: CatalogItemCard[] = relatedRows.map((r) => {
-    const meta = relMetaMap.get(r.id) ?? emptyMeta;
-    return {
-      id: r.id,
-      type: r.type,
-      title: r.title,
-      slug: r.slug,
-      short_description: r.short_description,
-      hero_image_url: r.hero_image_url,
-      curated_score: r.curated_score,
-      featured: r.featured,
-      tags: relTagsMap.get(r.id) ?? [],
-      categories: relCatsMap.get(r.id) ?? [],
-      meta: {
-        pricing_type: meta.pricing_type,
-        deployment_type: meta.deployment_type,
-        language_support: meta.language_support,
-        privacy_type: meta.privacy_type,
-      },
-      published_at: r.published_at?.toISOString() ?? null,
-    };
-  });
-
-  const fullMeta = metaMap.get(row.id) ?? emptyMeta;
-
-  return {
-    id: row.id,
-    type: row.type,
-    title: row.title,
-    slug: row.slug,
-    short_description: row.short_description,
-    full_description: row.full_description,
-    hero_image_url: row.hero_image_url,
-    curated_score: row.curated_score,
-    featured: row.featured,
-    status: row.status,
-    visibility: row.visibility,
-    seo_title: row.seo_title,
-    seo_description: row.seo_description,
-    tags: tagsMap.get(row.id) ?? [],
-    categories: catsMap.get(row.id) ?? [],
-    meta: {
-      pricing_type: fullMeta.pricing_type,
-      deployment_type: fullMeta.deployment_type,
-      language_support: fullMeta.language_support,
-      privacy_type: fullMeta.privacy_type,
-    },
-    published_at: row.published_at?.toISOString() ?? null,
-    author,
-    meta_full: fullMeta,
-    use_cases: useCasesMap.get(row.id) ?? [],
-    related_items: relatedItems,
-  };
+  return getByTypeAndSlug(row.type, slug);
 }
 
 async function resolvePublishedItemIdBySlug(slug: string): Promise<string> {
