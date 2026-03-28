@@ -28,6 +28,18 @@ export async function get(req: Request<{ id: string }>, res: Response, next: Nex
   }
 }
 
+export async function discover(req: Request, res: Response, next: NextFunction) {
+  try {
+    const agents = await agentService.discoverPublicAgents(req.session.userId!, {
+      search: req.query.search as string | undefined,
+      limit: req.query.limit ? Number(req.query.limit) : undefined,
+    });
+    res.json({ data: agents });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function update(req: Request<{ id: string }>, res: Response, next: NextFunction) {
   try {
     const agent = await agentService.updateAgent(req.params.id, req.session.userId!, req.body, req.session.userRole);
@@ -50,6 +62,15 @@ export async function createVersion(req: Request<{ id: string }>, res: Response,
   try {
     const version = await agentService.createAgentVersion(req.params.id, req.session.userId!, req.body, req.session.userRole);
     res.status(201).json({ data: version });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function adopt(req: Request<{ id: string }>, res: Response, next: NextFunction) {
+  try {
+    const agent = await agentService.adoptPublicAgent(req.params.id, req.session.userId!);
+    res.status(201).json({ data: agent });
   } catch (err) {
     next(err);
   }

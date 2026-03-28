@@ -10,10 +10,12 @@ router.get('/tools/builtin', controller.listBuiltinTools);
 
 // Agent stats (must be before /:id to avoid param collision)
 router.get('/stats', requireAuth, controller.getStats);
+router.get('/discover', requireAuth, controller.discover);
 
 // Agent CRUD
 router.post('/', requireAuth, validateCreateAgent, controller.create);
 router.get('/', requireAuth, controller.list);
+router.post('/:id/adopt', requireAuth, controller.adopt);
 router.get('/:id', requireAuth, controller.get);
 router.put('/:id', requireAuth, validateUpdateAgent, controller.update);
 router.delete('/:id', requireAuth, controller.remove);

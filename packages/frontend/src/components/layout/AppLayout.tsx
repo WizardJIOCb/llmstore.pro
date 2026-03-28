@@ -5,14 +5,9 @@ import { useChatsList } from '../../hooks/useChats';
 import { Button } from '../../components/ui';
 
 const navItems = [
-  { label: 'Инструменты', href: '/tools' },
-  { label: 'Модели', href: '/models' },
-  { label: 'Паки', href: '/packs' },
-  { label: 'Локальные', href: '/local' },
   { label: 'Чаты', href: '/chats' },
   { label: 'Агенты', href: '/my/agents' },
-  { label: 'RU Рынок', href: '/russian-market' },
-  { label: 'Сравнение', href: '/compare' },
+  { label: 'Статьи', href: '/russian-market' },
 ];
 
 export function AppLayout() {
@@ -89,25 +84,25 @@ export function AppLayout() {
               Меню
             </button>
           </div>
-          <nav className="hidden md:flex items-center gap-6">
-            {navItems.map((item) => (
-              item.href === '/chats' ? (
-                <button
-                  key={item.href}
-                  type="button"
-                  className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-                  onClick={openChatsSection}
-                >
-                  {item.label}
-                </button>
-              ) : (
-                <Link key={item.href} to={item.href} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-                  {item.label}
-                </Link>
-              )
-            ))}
-          </nav>
-          <div className="hidden md:flex items-center gap-3">
+          <div className="hidden md:flex items-center gap-6">
+            <nav className="flex items-center gap-6">
+              {navItems.map((item) => (
+                item.href === '/chats' ? (
+                  <button
+                    key={item.href}
+                    type="button"
+                    className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                    onClick={openChatsSection}
+                  >
+                    {item.label}
+                  </button>
+                ) : (
+                  <Link key={item.href} to={item.href} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                    {item.label}
+                  </Link>
+                )
+              ))}
+            </nav>
             {isAuthenticated ? (
               <>
                 {isAdmin && (

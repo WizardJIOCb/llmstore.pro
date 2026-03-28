@@ -1,6 +1,12 @@
-import { useState, useMemo } from 'react';
-import { Link } from 'react-router-dom';
-import { useAgentList, useDeleteAgent, useAgentStats } from '../../hooks/useAgents';
+import { useMemo, useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import {
+  useAgentList,
+  useDeleteAgent,
+  useAgentStats,
+  useDiscoverAgents,
+  useAdoptAgent,
+} from '../../hooks/useAgents';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
@@ -70,120 +76,205 @@ function StatsRow({ stats }: { stats: AgentStats }) {
   );
 }
 
+type HubTab = 'my' | 'search';
+
 export function AgentsHubPage() {
-  const { data: agents, isLoading: agentsLoading } = useAgentList();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab = (searchParams.get('tab') === 'search' ? 'search' : 'my') as HubTab;
+
+  const [searchMy, setSearchMy] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [searchDiscover, setSearchDiscover] = useState('');
+
+  const { data: myAgents, isLoading: myAgentsLoading } = useAgentList();
   const { data: statsMap } = useAgentStats();
   const deleteAgent = useDeleteAgent();
 
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const { data: discoverAgents, isLoading: discoverLoading } = useDiscoverAgents(searchDiscover);
+  const adoptAgent = useAdoptAgent();
 
-  const filtered = useMemo(() => {
-    if (!agents) return [];
-    return agents.filter((agent) => {
+  const filteredMyAgents = useMemo(() => {
+    if (!myAgents) return [];
+    return myAgents.filter((agent) => {
       if (statusFilter !== 'all' && agent.status !== statusFilter) return false;
-      if (search) {
-        const q = search.toLowerCase();
+      if (searchMy) {
+        const q = searchMy.toLowerCase();
         const name = (agent.name || '').toLowerCase();
         const desc = (agent.description || '').toLowerCase();
         if (!name.includes(q) && !desc.includes(q)) return false;
       }
       return true;
     });
-  }, [agents, search, statusFilter]);
+  }, [myAgents, searchMy, statusFilter]);
 
-  if (agentsLoading) {
-    return (
-      <div className="flex justify-center py-16">
-        <Spinner />
-      </div>
-    );
-  }
+  const setTab = (nextTab: HubTab) => {
+    const next = new URLSearchParams(searchParams);
+    next.set('tab', nextTab);
+    setSearchParams(next, { replace: true });
+  };
+
+  const handleAdopt = (agentId: string) => {
+    adoptAgent.mutate(agentId, {
+      onSuccess: (newAgent) => {
+        navigate(`/playground/agent/${newAgent.id}`);
+      },
+    });
+  };
 
   return (
     <div className="container mx-auto max-w-4xl px-4 py-8">
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">Мои агенты</h1>
+        <h1 className="text-2xl font-bold">Агенты</h1>
         <Link to="/builder/agent">
           <Button>Создать агента</Button>
         </Link>
       </div>
 
-      {agents && agents.length > 0 && (
-        <div className="flex items-center gap-3 mb-6">
-          <div className="flex-1">
-            <Input
-              placeholder="Поиск по названию..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
-          <Select
-            options={statusFilterOptions}
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="w-40"
-          />
-        </div>
+      <div className="mb-6 flex items-center gap-2 rounded-lg border p-1 w-fit">
+        <Button variant={tab === 'my' ? 'primary' : 'ghost'} size="sm" onClick={() => setTab('my')}>
+          Мои агенты
+        </Button>
+        <Button variant={tab === 'search' ? 'primary' : 'ghost'} size="sm" onClick={() => setTab('search')}>
+          Поиск
+        </Button>
+      </div>
+
+      {tab === 'my' && (
+        <>
+          {myAgents && myAgents.length > 0 && (
+            <div className="flex items-center gap-3 mb-6">
+              <div className="flex-1">
+                <Input
+                  placeholder="Поиск по названию..."
+                  value={searchMy}
+                  onChange={(e) => setSearchMy(e.target.value)}
+                />
+              </div>
+              <Select
+                options={statusFilterOptions}
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="w-40"
+              />
+            </div>
+          )}
+
+          {myAgentsLoading ? (
+            <div className="flex justify-center py-16">
+              <Spinner />
+            </div>
+          ) : !myAgents || myAgents.length === 0 ? (
+            <div className="text-center py-12">
+              <p className="text-muted-foreground mb-4">У вас ещё нет агентов</p>
+              <Link to="/builder/agent">
+                <Button>Создать первого агента</Button>
+              </Link>
+            </div>
+          ) : filteredMyAgents.length === 0 ? (
+            <div className="text-center py-12">
+              <p className="text-muted-foreground">Ничего не найдено</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {filteredMyAgents.map((agent) => {
+                const stats = statsMap?.[agent.id] ?? emptyStats;
+                return (
+                  <Card key={agent.id}>
+                    <CardHeader className="pb-2">
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-base">{agent.name}</CardTitle>
+                        <Badge variant={statusVariants[agent.status] ?? 'secondary'}>
+                          {statusLabels[agent.status] ?? agent.status}
+                        </Badge>
+                      </div>
+                      {agent.description && (
+                        <CardDescription>{agent.description}</CardDescription>
+                      )}
+                    </CardHeader>
+                    <CardContent>
+                      <div className="mb-3">
+                        <StatsRow stats={stats} />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Link to={`/playground/agent/${agent.id}`}>
+                          <Button variant="primary" size="sm">Запустить</Button>
+                        </Link>
+                        <Link to={`/builder/agent/${agent.id}`}>
+                          <Button variant="outline" size="sm">Редактировать</Button>
+                        </Link>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => {
+                            if (confirm('Удалить этого агента?')) {
+                              deleteAgent.mutate(agent.id);
+                            }
+                          }}
+                        >
+                          Удалить
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+        </>
       )}
 
-      {!agents || agents.length === 0 ? (
-        <div className="text-center py-12">
-          <p className="text-muted-foreground mb-4">У вас ещё нет агентов</p>
-          <Link to="/builder/agent">
-            <Button>Создать первого агента</Button>
-          </Link>
-        </div>
-      ) : filtered.length === 0 ? (
-        <div className="text-center py-12">
-          <p className="text-muted-foreground">Ничего не найдено</p>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {filtered.map((agent) => {
-            const stats = statsMap?.[agent.id] ?? emptyStats;
-            return (
-              <Card key={agent.id}>
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-base">{agent.name}</CardTitle>
-                    <Badge variant={statusVariants[agent.status] ?? 'secondary'}>
-                      {statusLabels[agent.status] ?? agent.status}
-                    </Badge>
-                  </div>
-                  {agent.description && (
-                    <CardDescription>{agent.description}</CardDescription>
-                  )}
-                </CardHeader>
-                <CardContent>
-                  <div className="mb-3">
-                    <StatsRow stats={stats} />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Link to={`/playground/agent/${agent.id}`}>
-                      <Button variant="primary" size="sm">Площадка</Button>
-                    </Link>
-                    <Link to={`/builder/agent/${agent.id}`}>
-                      <Button variant="outline" size="sm">Редактировать</Button>
-                    </Link>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-destructive hover:text-destructive"
-                      onClick={() => {
-                        if (confirm('Удалить этого агента?')) {
-                          deleteAgent.mutate(agent.id);
-                        }
-                      }}
-                    >
-                      Удалить
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
+      {tab === 'search' && (
+        <>
+          <div className="mb-6">
+            <Input
+              placeholder="Искать агентов по названию, описанию или автору..."
+              value={searchDiscover}
+              onChange={(e) => setSearchDiscover(e.target.value)}
+            />
+          </div>
+
+          {discoverLoading ? (
+            <div className="flex justify-center py-16">
+              <Spinner />
+            </div>
+          ) : !discoverAgents || discoverAgents.length === 0 ? (
+            <div className="text-center py-12">
+              <p className="text-muted-foreground">Публичные агенты не найдены</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {discoverAgents.map((agent) => (
+                <Card key={agent.id}>
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between gap-4">
+                      <CardTitle className="text-base">{agent.name}</CardTitle>
+                      <span className="text-xs text-muted-foreground whitespace-nowrap">
+                        Автор: {agent.owner_name || (agent.owner_username ? `@${agent.owner_username}` : 'пользователь')}
+                      </span>
+                    </div>
+                    {agent.description && <CardDescription>{agent.description}</CardDescription>}
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex flex-col items-start gap-3">
+                      <span className="text-xs text-muted-foreground">
+                        Создан: {new Date(agent.created_at).toLocaleDateString('ru-RU')}
+                      </span>
+                      <Button
+                        size="sm"
+                        onClick={() => handleAdopt(agent.id)}
+                        disabled={adoptAgent.isPending}
+                      >
+                        Запустить
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   );

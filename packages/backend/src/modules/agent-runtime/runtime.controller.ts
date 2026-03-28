@@ -3,7 +3,9 @@ import * as runtimeService from './runtime.service.js';
 
 export async function startRun(req: Request<{ agentId: string }>, res: Response, next: NextFunction) {
   try {
-    const result = await runtimeService.startRun(req.params.agentId, req.session.userId!, req.body);
+    const result = await runtimeService.startRun(req.params.agentId, req.session.userId!, req.body, {
+      sync_to_chats: true,
+    });
     res.status(201).json({ data: result });
   } catch (err) {
     next(err);

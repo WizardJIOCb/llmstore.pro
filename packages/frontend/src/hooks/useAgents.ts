@@ -8,6 +8,13 @@ export function useAgentList() {
   });
 }
 
+export function useDiscoverAgents(search?: string) {
+  return useQuery({
+    queryKey: ['agents', 'discover', search ?? ''],
+    queryFn: () => agentApi.discover({ search: search || undefined, limit: 50 }),
+  });
+}
+
 export function useAgent(id: string | undefined) {
   return useQuery({
     queryKey: ['agents', id],
@@ -67,6 +74,17 @@ export function useDeleteAgent() {
   });
 }
 
+export function useAdoptAgent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => agentApi.adopt(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['agents'] });
+      qc.invalidateQueries({ queryKey: ['agents', 'discover'] });
+    },
+  });
+}
+
 export function useCreateVersion() {
   const qc = useQueryClient();
   return useMutation({
@@ -91,6 +109,7 @@ export function useStartRun() {
     }) => agentApi.startRun(agentId, { messages }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['runs'] });
+      qc.invalidateQueries({ queryKey: ['chats'] });
     },
   });
 }

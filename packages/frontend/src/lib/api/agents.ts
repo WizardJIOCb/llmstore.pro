@@ -84,6 +84,16 @@ export interface AgentStats {
   last_run_at: string | null;
 }
 
+export interface DiscoverAgent {
+  id: string;
+  owner_user_id: string;
+  name: string;
+  description: string | null;
+  owner_name: string | null;
+  owner_username: string | null;
+  created_at: string;
+}
+
 export interface ChatHistoryMessage {
   role: 'user' | 'assistant';
   content: string;
@@ -150,6 +160,9 @@ export const agentApi = {
   list: () =>
     apiClient.get<{ data: Agent[] }>('/agents').then(r => r.data.data),
 
+  discover: (params?: { search?: string; limit?: number }) =>
+    apiClient.get<{ data: DiscoverAgent[] }>('/agents/discover', { params }).then(r => r.data.data),
+
   get: (id: string) =>
     apiClient.get<{ data: AgentFull }>(`/agents/${id}`).then(r => r.data.data),
 
@@ -168,6 +181,9 @@ export const agentApi = {
 
   delete: (id: string) =>
     apiClient.delete(`/agents/${id}`),
+
+  adopt: (id: string) =>
+    apiClient.post<{ data: AgentFull }>(`/agents/${id}/adopt`).then(r => r.data.data),
 
   createVersion: (agentId: string, data: {
     system_prompt?: string;

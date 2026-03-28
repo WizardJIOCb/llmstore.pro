@@ -99,6 +99,10 @@ interface StartRunInput {
   model_external_id?: string | null;
 }
 
+interface StartRunOptions {
+  sync_to_chats?: boolean;
+}
+
 interface RunResult {
   run_id: string;
   status: string;
@@ -181,9 +185,20 @@ function normalizeOpenRouterModelId(modelId: string): string {
 
 // --- Core Runtime ---
 
-export async function startRun(agentId: string, userId: string, input: StartRunInput): Promise<RunResult> {
+export async function startRun(
+  agentId: string,
+  userId: string,
+  input: StartRunInput,
+  options: StartRunOptions = {},
+): Promise<RunResult> {
   const startTime = Date.now();
   await ensureSufficientBalance(userId);
+  const syncToChats = options.sync_to_chats ?? false;
+  const latestUserMessage = [...input.messages]
+    .reverse()
+    .find((msg) => msg.role === 'user' && msg.content.trim().length > 0)
+    ?.content
+    .trim() ?? '';
 
   // 1. Load agent + version + tools
   const [agent] = await db.select().from(agents).where(eq(agents.id, agentId)).limit(1);
@@ -216,6 +231,44 @@ export async function startRun(agentId: string, userId: string, input: StartRunI
     input.model_external_id ?? runtimeConfig.model_external_id ?? DEFAULT_MODEL,
   );
   const maxIterations = runtimeConfig.max_iterations ?? DEFAULT_MAX_ITERATIONS;
+  let syncedConversationId: string | null = null;
+
+  if (syncToChats) {
+    const [existingConversation] = await db
+      .select({ id: chatConversations.id })
+      .from(chatConversations)
+      .where(
+        and(
+          eq(chatConversations.user_id, userId),
+          eq(chatConversations.mode, 'agent'),
+          eq(chatConversations.agent_id, agentId),
+        ),
+      )
+      .orderBy(desc(chatConversations.last_message_at))
+      .limit(1);
+
+    if (existingConversation) {
+      syncedConversationId = existingConversation.id;
+    } else {
+      const [createdConversation] = await db.insert(chatConversations).values({
+        user_id: userId,
+        mode: 'agent',
+        agent_id: agentId,
+        title: (latestUserMessage || 'Новый чат').slice(0, 500),
+        model_external_id: modelId,
+        last_message_at: new Date(),
+      }).returning({ id: chatConversations.id });
+      syncedConversationId = createdConversation.id;
+    }
+
+    if (latestUserMessage) {
+      await db.insert(chatConversationMessages).values({
+        conversation_id: syncedConversationId,
+        role: 'user',
+        content_text: latestUserMessage,
+      });
+    }
+  }
 
   // 4. Create run record
   const traceId = uuidv4();
@@ -483,6 +536,34 @@ export async function startRun(agentId: string, userId: string, input: StartRunI
     output_summary: finalOutput?.slice(0, 200) || null,
     error_message: errorMessage ?? null,
   }).where(eq(agentRuns.id, run.id));
+
+  if (syncToChats && syncedConversationId) {
+    const usagePayload = totalUsage.total_tokens > 0
+      ? {
+        ...totalUsage,
+        estimated_cost: estCost,
+        model: modelId,
+      }
+      : null;
+
+    if (runStatus === 'completed' && finalOutput.trim().length > 0) {
+      await db.insert(chatConversationMessages).values({
+        conversation_id: syncedConversationId,
+        role: 'assistant',
+        content_text: finalOutput,
+        run_id: run.id,
+        usage_json: usagePayload as Record<string, unknown> | null,
+        latency_ms: latencyMs,
+      });
+    }
+
+    await db.update(chatConversations).set({
+      title: latestUserMessage ? compactTitle(latestUserMessage) : undefined,
+      model_external_id: modelId,
+      last_message_at: new Date(),
+      updated_at: new Date(),
+    }).where(eq(chatConversations.id, syncedConversationId));
+  }
 
   return {
     run_id: run.id,
@@ -1307,6 +1388,8 @@ export async function sendChatMessage(chatId: string, userId: string, content: s
         .filter((m) => m.role === 'user' || m.role === 'assistant')
         .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
       model_external_id: chat.model_external_id ?? null,
+    }, {
+      sync_to_chats: false,
     });
 
     if (result.status !== 'completed') {

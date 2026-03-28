@@ -2,7 +2,8 @@ import { db } from '../../config/database.js';
 import {
   agents, agentVersions, agentVersionTools, toolDefinitions,
 } from '../../db/schema/agents.js';
-import { eq, and, desc, sql } from 'drizzle-orm';
+import { users } from '../../db/schema/auth.js';
+import { eq, and, desc, sql, ilike, or } from 'drizzle-orm';
 import { NotFoundError, AppError } from '../../middleware/error-handler.js';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -39,6 +40,11 @@ interface CreateVersionInput {
   runtime_config?: Record<string, unknown>;
   tool_ids?: string[];
   response_mode?: 'text' | 'json_object' | 'json_schema';
+}
+
+interface DiscoverAgentsQuery {
+  search?: string;
+  limit?: number;
 }
 
 function canManageAllAgents(role?: string): boolean {
@@ -169,6 +175,105 @@ export async function listAgents(userId: string) {
     .orderBy(desc(agents.created_at));
 
   return result;
+}
+
+export async function discoverPublicAgents(userId: string, query: DiscoverAgentsQuery) {
+  const limit = Math.min(Math.max(query.limit ?? 30, 1), 100);
+  const searchTerm = query.search?.trim();
+  const where = [
+    eq(agents.visibility, 'public'),
+    eq(agents.status, 'active'),
+    sql`${agents.current_version_id} is not null`,
+    sql`${agents.owner_user_id} != ${userId}`,
+  ];
+
+  if (searchTerm) {
+    const term = `%${searchTerm}%`;
+    where.push(
+      or(
+        ilike(agents.name, term),
+        ilike(agents.description, term),
+        ilike(users.name, term),
+        ilike(users.username, term),
+      )!,
+    );
+  }
+
+  const rows = await db
+    .select({
+      id: agents.id,
+      owner_user_id: agents.owner_user_id,
+      name: agents.name,
+      description: agents.description,
+      created_at: agents.created_at,
+      owner_name: users.name,
+      owner_username: users.username,
+    })
+    .from(agents)
+    .leftJoin(users, eq(users.id, agents.owner_user_id))
+    .where(and(...where))
+    .orderBy(desc(agents.created_at))
+    .limit(limit);
+
+  return rows.map((row) => ({
+    id: row.id,
+    owner_user_id: row.owner_user_id,
+    name: row.name,
+    description: row.description,
+    owner_name: row.owner_name,
+    owner_username: row.owner_username,
+    created_at: row.created_at.toISOString(),
+  }));
+}
+
+export async function adoptPublicAgent(agentId: string, userId: string) {
+  const [sourceAgent] = await db
+    .select()
+    .from(agents)
+    .where(
+      and(
+        eq(agents.id, agentId),
+        eq(agents.visibility, 'public'),
+        eq(agents.status, 'active'),
+        sql`${agents.current_version_id} is not null`,
+      ),
+    )
+    .limit(1);
+
+  if (!sourceAgent) {
+    throw new NotFoundError('Агент не найден');
+  }
+
+  const [sourceVersion] = await db
+    .select()
+    .from(agentVersions)
+    .where(eq(agentVersions.id, sourceAgent.current_version_id!))
+    .limit(1);
+
+  if (!sourceVersion) {
+    throw new NotFoundError('Версия агента не найдена');
+  }
+
+  const sourceToolRows = await db
+    .select({ tool_definition_id: agentVersionTools.tool_definition_id })
+    .from(agentVersionTools)
+    .where(eq(agentVersionTools.agent_version_id, sourceVersion.id))
+    .orderBy(agentVersionTools.order_index);
+
+  const cloned = await createAgent(userId, {
+    name: `${sourceAgent.name} (копия)`,
+    description: sourceAgent.description ?? undefined,
+    visibility: 'private',
+    system_prompt: sourceVersion.system_prompt ?? undefined,
+    model_id: sourceVersion.model_id ?? null,
+    runtime_config: (sourceVersion.runtime_config as Record<string, unknown> | null) ?? undefined,
+    tool_ids: sourceToolRows.map((row) => row.tool_definition_id),
+  });
+
+  return {
+    ...cloned,
+    adopted_from_agent_id: sourceAgent.id,
+  };
 }
 
 export async function updateAgent(agentId: string, userId: string, input: UpdateAgentInput, userRole?: string) {
