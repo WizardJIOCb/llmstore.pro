@@ -436,7 +436,19 @@ export function ChatsPage() {
                     : 'Чат с агентом'}
               </p>
             </div>
-            {activeChat && <Select options={modeOptions} value={activeModeValue} onChange={(e) => handleModeChange(e.target.value)} className="w-64" />}
+            {activeChat && (
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => shareChat(activeChat.id)}
+                  disabled={shareChatMutation.isPending}
+                >
+                  Поделиться
+                </Button>
+                <Select options={modeOptions} value={activeModeValue} onChange={(e) => handleModeChange(e.target.value)} className="w-64" />
+              </div>
+            )}
           </div>
 
           <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">

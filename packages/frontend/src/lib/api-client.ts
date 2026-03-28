@@ -12,9 +12,15 @@ apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      // Clear local auth state on 401
+      const requestUrl = String(error.config?.url ?? '');
+      const isAuthMeRequest = requestUrl.includes('/auth/me');
       const { pathname } = window.location;
-      if (pathname !== '/login' && pathname !== '/register') {
+      const isPublicSharedPage = pathname.startsWith('/shared/chat/') || pathname.startsWith('/shared/chats/');
+
+      // Do not force-login on expected 401s:
+      // - /auth/me for guests
+      // - public shared chat pages
+      if (!isAuthMeRequest && !isPublicSharedPage && pathname !== '/login' && pathname !== '/register') {
         window.location.href = '/login';
       }
     }

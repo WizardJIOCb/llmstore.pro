@@ -27,6 +27,18 @@ const statusVariants: Record<string, 'default' | 'secondary' | 'outline'> = {
   archived: 'outline',
 };
 
+const visibilityLabels: Record<string, string> = {
+  public: 'Публичный',
+  private: 'Приватный',
+  unlisted: 'По ссылке',
+};
+
+const visibilityVariants: Record<string, 'default' | 'secondary' | 'outline'> = {
+  public: 'default',
+  private: 'secondary',
+  unlisted: 'outline',
+};
+
 const statusFilterOptions = [
   { value: 'all', label: 'Все статусы' },
   { value: 'active', label: 'Активный' },
@@ -206,9 +218,14 @@ export function AgentsHubPage() {
                     <CardHeader className="pb-2">
                       <div className="flex items-center justify-between">
                         <CardTitle className="text-base">{agent.name}</CardTitle>
-                        <Badge variant={statusVariants[agent.status] ?? 'secondary'}>
-                          {statusLabels[agent.status] ?? agent.status}
-                        </Badge>
+                        <div className="flex items-center gap-2">
+                          <Badge variant={visibilityVariants[agent.visibility] ?? 'secondary'}>
+                            {visibilityLabels[agent.visibility] ?? agent.visibility}
+                          </Badge>
+                          <Badge variant={statusVariants[agent.status] ?? 'secondary'}>
+                            {statusLabels[agent.status] ?? agent.status}
+                          </Badge>
+                        </div>
                       </div>
                       {agent.description && (
                         <CardDescription>{agent.description}</CardDescription>
