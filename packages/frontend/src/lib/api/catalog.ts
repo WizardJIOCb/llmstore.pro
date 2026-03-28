@@ -30,6 +30,9 @@ export const catalogApi = {
   getByTypeAndSlug: (type: string, slug: string) =>
     apiClient.get<{ data: CatalogItemFull }>(`/catalog/${type}/${slug}`).then((r) => r.data.data),
 
+  getBySlug: (slug: string) =>
+    apiClient.get<{ data: CatalogItemFull }>(`/catalog/article/${slug}`).then((r) => r.data.data),
+
   getCategories: () =>
     apiClient.get<{ data: CategorySlim[] }>('/catalog/categories').then((r) => r.data.data),
 

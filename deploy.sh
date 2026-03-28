@@ -16,8 +16,13 @@ git pull origin main
 echo "[2/8] Installing dependencies..."
 npm install
 
-echo "[3/8] Applying database schema..."
-npm run db:push -w @llmstore/backend
+echo "[3/8] Applying database schema (only pending changes)..."
+if npm run db:push -w @llmstore/backend; then
+  echo "Schema check/apply completed."
+else
+  echo "Schema apply failed."
+  exit 1
+fi
 
 echo "[4/8] Building shared package..."
 npm run build -w @llmstore/shared

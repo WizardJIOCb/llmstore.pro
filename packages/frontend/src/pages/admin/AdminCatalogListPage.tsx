@@ -38,9 +38,9 @@ export function AdminCatalogListPage() {
   return (
     <AdminLayout>
       <div className="mb-6 flex items-center justify-between">
-        <h2 className="text-xl font-semibold">Управление каталогом</h2>
+        <h2 className="text-xl font-semibold">Управление статьями</h2>
         <Link to="/admin/items/new">
-          <Button>Добавить элемент</Button>
+          <Button>Добавить статью</Button>
         </Link>
       </div>
 

@@ -20,3 +20,21 @@ export async function getBySlug(req: Request<{ slug: string }>, res: Response, n
     next(err);
   }
 }
+
+export async function listComments(req: Request<{ slug: string }>, res: Response, next: NextFunction) {
+  try {
+    const comments = await newsService.listCommentsBySlug(req.params.slug);
+    res.json({ data: comments });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function createComment(req: Request<{ slug: string }>, res: Response, next: NextFunction) {
+  try {
+    const comment = await newsService.createCommentBySlug(req.params.slug, req.session.userId!, req.body.content);
+    res.status(201).json({ data: comment });
+  } catch (err) {
+    next(err);
+  }
+}

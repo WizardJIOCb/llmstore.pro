@@ -5,6 +5,7 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { HomePage } from './pages/home/HomePage';
 import { CatalogListPage } from './pages/catalog/CatalogListPage';
 import { CatalogDetailPage } from './pages/catalog/CatalogDetailPage';
+import { ArticleDetailPage } from './pages/catalog/ArticleDetailPage';
 import { LoginPage } from './pages/auth/LoginPage';
 import { RegisterPage } from './pages/auth/RegisterPage';
 import { AdminCatalogListPage } from './pages/admin/AdminCatalogListPage';
@@ -65,6 +66,8 @@ export function App() {
         <Route path="/stacks" element={<CatalogListPage type="stack_preset" />} />
         <Route path="/stacks/:slug" element={<CatalogDetailPage type="stack_preset" />} />
         <Route path="/guides" element={<CatalogListPage type="guide" />} />
+        <Route path="/articles" element={<CatalogListPage title="Статьи" articleMode />} />
+        <Route path="/article/:slug" element={<ArticleDetailPage />} />
 
         {/* News routes */}
         <Route path="/news" element={<NewsListPage />} />
@@ -116,8 +119,8 @@ export function App() {
         {/* Compare */}
         <Route path="/compare" element={<PlaceholderPage title="Сравнение" />} />
 
-        {/* Russian market */}
-        <Route path="/russian-market" element={<CatalogListPage type="model" filterLanguage="ru" />} />
+        {/* Backward-compatible route */}
+        <Route path="/russian-market" element={<CatalogListPage title="Статьи" articleMode />} />
 
         {/* Dashboard — placeholder */}
         <Route path="/dashboard" element={<PlaceholderPage title="Панель управления" />} />

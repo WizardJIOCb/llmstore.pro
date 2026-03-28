@@ -4,6 +4,7 @@ import {
   catalogItems, catalogItemMeta,
   catalogItemCategories, catalogItemTags, catalogItemUseCases,
   categories, tags, useCases,
+  catalogComments,
 } from '../../db/schema/index.js';
 import { users } from '../../db/schema/index.js';
 import { NotFoundError } from '../../middleware/error-handler.js';
@@ -139,6 +140,19 @@ const emptyMeta: CatalogItemMeta = {
   vendor_name: null, source_url: null, docs_url: null,
   github_url: null, website_url: null, metadata_json: null,
 };
+
+export interface PublicComment {
+  id: string;
+  content: string;
+  created_at: string;
+  updated_at: string;
+  user: {
+    id: string;
+    name: string | null;
+    username: string | null;
+    avatar_url: string | null;
+  };
+}
 
 // ─── list() — public catalog with dynamic filtering ─────────
 
@@ -501,5 +515,236 @@ export async function getByTypeAndSlug(type: string, slug: string): Promise<Cata
     meta_full: fullMeta,
     use_cases: useCasesMap.get(row.id) ?? [],
     related_items: relatedItems,
+  };
+}
+
+export async function getBySlug(slug: string): Promise<CatalogItemFull> {
+  const [row] = await db
+    .select({
+      id: catalogItems.id,
+      type: catalogItems.type,
+      title: catalogItems.title,
+      slug: catalogItems.slug,
+      short_description: catalogItems.short_description,
+      full_description: catalogItems.full_description,
+      hero_image_url: catalogItems.hero_image_url,
+      curated_score: catalogItems.curated_score,
+      featured: catalogItems.featured,
+      status: catalogItems.status,
+      visibility: catalogItems.visibility,
+      seo_title: catalogItems.seo_title,
+      seo_description: catalogItems.seo_description,
+      author_user_id: catalogItems.author_user_id,
+      published_at: catalogItems.published_at,
+    })
+    .from(catalogItems)
+    .where(
+      and(
+        eq(catalogItems.slug, slug),
+        eq(catalogItems.status, 'published'),
+        eq(catalogItems.visibility, 'public'),
+      ),
+    )
+    .limit(1);
+
+  if (!row) {
+    throw new NotFoundError('Элемент каталога не найден');
+  }
+
+  const [tagsMap, catsMap, useCasesMap, metaMap] = await Promise.all([
+    loadTagsForItems([row.id]),
+    loadCategoriesForItems([row.id]),
+    loadUseCasesForItems([row.id]),
+    loadMetaForItems([row.id]),
+  ]);
+
+  let author: UserSlim | null = null;
+  if (row.author_user_id) {
+    const [authorRow] = await db
+      .select({
+        id: users.id,
+        username: users.username,
+        name: users.name,
+        avatar_url: users.avatar_url,
+      })
+      .from(users)
+      .where(eq(users.id, row.author_user_id))
+      .limit(1);
+    author = authorRow ?? null;
+  }
+
+  const relatedRows = await db
+    .select({
+      id: catalogItems.id,
+      type: catalogItems.type,
+      title: catalogItems.title,
+      slug: catalogItems.slug,
+      short_description: catalogItems.short_description,
+      hero_image_url: catalogItems.hero_image_url,
+      curated_score: catalogItems.curated_score,
+      featured: catalogItems.featured,
+      published_at: catalogItems.published_at,
+    })
+    .from(catalogItems)
+    .where(
+      and(
+        eq(catalogItems.type, row.type),
+        eq(catalogItems.status, 'published'),
+        eq(catalogItems.visibility, 'public'),
+        sql`${catalogItems.id} != ${row.id}`,
+      ),
+    )
+    .orderBy(desc(catalogItems.curated_score))
+    .limit(4);
+
+  const relatedIds = relatedRows.map((r) => r.id);
+  const [relTagsMap, relCatsMap, relMetaMap] = await Promise.all([
+    loadTagsForItems(relatedIds),
+    loadCategoriesForItems(relatedIds),
+    loadMetaForItems(relatedIds),
+  ]);
+
+  const relatedItems: CatalogItemCard[] = relatedRows.map((r) => {
+    const meta = relMetaMap.get(r.id) ?? emptyMeta;
+    return {
+      id: r.id,
+      type: r.type,
+      title: r.title,
+      slug: r.slug,
+      short_description: r.short_description,
+      hero_image_url: r.hero_image_url,
+      curated_score: r.curated_score,
+      featured: r.featured,
+      tags: relTagsMap.get(r.id) ?? [],
+      categories: relCatsMap.get(r.id) ?? [],
+      meta: {
+        pricing_type: meta.pricing_type,
+        deployment_type: meta.deployment_type,
+        language_support: meta.language_support,
+        privacy_type: meta.privacy_type,
+      },
+      published_at: r.published_at?.toISOString() ?? null,
+    };
+  });
+
+  const fullMeta = metaMap.get(row.id) ?? emptyMeta;
+
+  return {
+    id: row.id,
+    type: row.type,
+    title: row.title,
+    slug: row.slug,
+    short_description: row.short_description,
+    full_description: row.full_description,
+    hero_image_url: row.hero_image_url,
+    curated_score: row.curated_score,
+    featured: row.featured,
+    status: row.status,
+    visibility: row.visibility,
+    seo_title: row.seo_title,
+    seo_description: row.seo_description,
+    tags: tagsMap.get(row.id) ?? [],
+    categories: catsMap.get(row.id) ?? [],
+    meta: {
+      pricing_type: fullMeta.pricing_type,
+      deployment_type: fullMeta.deployment_type,
+      language_support: fullMeta.language_support,
+      privacy_type: fullMeta.privacy_type,
+    },
+    published_at: row.published_at?.toISOString() ?? null,
+    author,
+    meta_full: fullMeta,
+    use_cases: useCasesMap.get(row.id) ?? [],
+    related_items: relatedItems,
+  };
+}
+
+async function resolvePublishedItemIdBySlug(slug: string): Promise<string> {
+  const [row] = await db
+    .select({ id: catalogItems.id })
+    .from(catalogItems)
+    .where(
+      and(
+        eq(catalogItems.slug, slug),
+        eq(catalogItems.status, 'published'),
+        eq(catalogItems.visibility, 'public'),
+      ),
+    )
+    .limit(1);
+
+  if (!row) throw new NotFoundError('Элемент каталога не найден');
+  return row.id;
+}
+
+export async function listCommentsBySlug(slug: string): Promise<PublicComment[]> {
+  const itemId = await resolvePublishedItemIdBySlug(slug);
+  const rows = await db
+    .select({
+      id: catalogComments.id,
+      content: catalogComments.content,
+      created_at: catalogComments.created_at,
+      updated_at: catalogComments.updated_at,
+      user_id: users.id,
+      name: users.name,
+      username: users.username,
+      avatar_url: users.avatar_url,
+    })
+    .from(catalogComments)
+    .innerJoin(users, eq(users.id, catalogComments.user_id))
+    .where(eq(catalogComments.item_id, itemId))
+    .orderBy(asc(catalogComments.created_at));
+
+  return rows.map((row) => ({
+    id: row.id,
+    content: row.content,
+    created_at: row.created_at.toISOString(),
+    updated_at: row.updated_at.toISOString(),
+    user: {
+      id: row.user_id,
+      name: row.name,
+      username: row.username,
+      avatar_url: row.avatar_url,
+    },
+  }));
+}
+
+export async function createCommentBySlug(slug: string, userId: string, content: string): Promise<PublicComment> {
+  const itemId = await resolvePublishedItemIdBySlug(slug);
+  const [inserted] = await db
+    .insert(catalogComments)
+    .values({
+      item_id: itemId,
+      user_id: userId,
+      content: content.trim(),
+    })
+    .returning({
+      id: catalogComments.id,
+      content: catalogComments.content,
+      created_at: catalogComments.created_at,
+      updated_at: catalogComments.updated_at,
+    });
+
+  const [user] = await db
+    .select({
+      id: users.id,
+      name: users.name,
+      username: users.username,
+      avatar_url: users.avatar_url,
+    })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+
+  return {
+    id: inserted.id,
+    content: inserted.content,
+    created_at: inserted.created_at.toISOString(),
+    updated_at: inserted.updated_at.toISOString(),
+    user: {
+      id: user?.id ?? userId,
+      name: user?.name ?? null,
+      username: user?.username ?? null,
+      avatar_url: user?.avatar_url ?? null,
+    },
   };
 }

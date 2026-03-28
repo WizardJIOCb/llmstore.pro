@@ -17,11 +17,12 @@ const typeRouteMap: Record<string, string> = {
 
 interface CatalogCardProps {
   item: CatalogItemCard;
+  hrefOverride?: string;
 }
 
-export function CatalogCard({ item }: CatalogCardProps) {
+export function CatalogCard({ item, hrefOverride }: CatalogCardProps) {
   const basePath = typeRouteMap[item.type] ?? '/tools';
-  const href = `${basePath}/${item.slug}`;
+  const href = hrefOverride ?? `${basePath}/${item.slug}`;
 
   return (
     <Link to={href} className="group block">

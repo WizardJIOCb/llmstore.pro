@@ -31,5 +31,8 @@ export * from './user-data';
 // News
 export * from './news';
 
+// Comments
+export * from './comments';
+
 // Alice integration
 export * from './alice';

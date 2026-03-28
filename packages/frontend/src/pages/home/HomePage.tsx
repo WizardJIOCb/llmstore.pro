@@ -28,10 +28,10 @@ const sections = [
     label: 'Локальные сборки',
   },
   {
-    title: 'Русский рынок',
-    description: 'Лучшие модели и инструменты для русского языка.',
-    href: '/russian-market',
-    label: 'Обзор',
+    title: 'Статьи',
+    description: 'Публичные материалы из каталога: обзоры, гайды и заметки.',
+    href: '/articles',
+    label: 'Смотреть статьи',
   },
   {
     title: 'Паки и ассеты',
@@ -48,28 +48,27 @@ export function HomePage() {
 
   return (
     <div>
-      {/* Hero */}
       <section className="bg-gradient-to-b from-primary/5 to-background py-20">
         <div className="container mx-auto px-4 text-center">
-          <h1 className="text-4xl md:text-5xl font-bold mb-6 tracking-tight">
+          <h1 className="mb-6 text-4xl font-bold tracking-tight md:text-5xl">
             Находите, сравнивайте и собирайте
             <br />
             <span className="text-primary">AI-решения</span>
           </h1>
-          <p className="text-lg text-muted-foreground max-w-2xl mx-auto mb-8">
-            LLMStore.pro — единая платформа для поиска LLM-инструментов, моделей, промпт-паков,
+          <p className="mx-auto mb-8 max-w-2xl text-lg text-muted-foreground">
+            LLMStore.pro - единая платформа для поиска LLM-инструментов, моделей, промпт-паков,
             локальных сборок и создания AI-агентов.
           </p>
           <div className="flex justify-center gap-4">
             <Link
               to="/tools"
-              className="inline-flex items-center justify-center rounded-md bg-primary px-6 py-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+              className="inline-flex items-center justify-center rounded-md bg-primary px-6 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
             >
               Каталог
             </Link>
             <Link
               to="/builder/stack"
-              className="inline-flex items-center justify-center rounded-md border border-input bg-background px-6 py-3 text-sm font-medium hover:bg-accent hover:text-accent-foreground transition-colors"
+              className="inline-flex items-center justify-center rounded-md border border-input bg-background px-6 py-3 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
             >
               Собрать стек
             </Link>
@@ -77,18 +76,17 @@ export function HomePage() {
         </div>
       </section>
 
-      {/* Latest News */}
       {newsItems.length > 0 && (
         <section className="container mx-auto px-4 py-12">
-          <div className="flex items-center justify-between mb-6">
+          <div className="mb-6 flex items-center justify-between">
             <h2 className="text-2xl font-bold">Последние новости</h2>
             {totalNews > 3 && (
-              <Link to="/news" className="text-sm text-primary font-medium hover:underline">
+              <Link to="/news" className="text-sm font-medium text-primary hover:underline">
                 Показать все &rarr;
               </Link>
             )}
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
             {newsItems.map((article: any) => (
               <NewsCard key={article.id} article={article} />
             ))}
@@ -96,18 +94,17 @@ export function HomePage() {
         </section>
       )}
 
-      {/* Sections grid */}
       <section className="container mx-auto px-4 py-16">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
           {sections.map((section) => (
             <Link
               key={section.href}
               to={section.href}
-              className="block rounded-lg border p-6 hover:shadow-md transition-shadow"
+              className="block rounded-lg border p-6 transition-shadow hover:shadow-md"
             >
-              <h3 className="font-semibold text-lg mb-2">{section.title}</h3>
-              <p className="text-sm text-muted-foreground mb-4">{section.description}</p>
-              <span className="text-sm text-primary font-medium">{section.label} &rarr;</span>
+              <h3 className="mb-2 text-lg font-semibold">{section.title}</h3>
+              <p className="mb-4 text-sm text-muted-foreground">{section.description}</p>
+              <span className="text-sm font-medium text-primary">{section.label} &rarr;</span>
             </Link>
           ))}
         </div>

@@ -18,3 +18,11 @@ export function useCatalogItem(type: string, slug: string) {
     enabled: !!type && !!slug,
   });
 }
+
+export function useCatalogItemBySlug(slug: string) {
+  return useQuery({
+    queryKey: ['catalog', 'article', slug],
+    queryFn: () => catalogApi.getBySlug(slug),
+    enabled: !!slug,
+  });
+}

@@ -5,9 +5,10 @@ import { useChatsList } from '../../hooks/useChats';
 import { Button } from '../../components/ui';
 
 const navItems = [
+  { label: 'Новости', href: '/news' },
   { label: 'Чаты', href: '/chats' },
   { label: 'Агенты', href: '/my/agents' },
-  { label: 'Статьи', href: '/russian-market' },
+  { label: 'Статьи', href: '/articles' },
 ];
 
 export function AppLayout() {

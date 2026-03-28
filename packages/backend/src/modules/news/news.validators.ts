@@ -29,10 +29,15 @@ const adminNewsListQuerySchema = z.object({
   search: z.string().max(200).optional(),
 });
 
+const createCommentSchema = z.object({
+  content: z.string().trim().min(1).max(5000),
+});
+
 export const validateCreateNews = validate(createNewsSchema, 'body');
 export const validateUpdateNews = validate(updateNewsSchema, 'body');
 export const validateNewsListQuery = validate(newsListQuerySchema, 'query');
 export const validateAdminNewsListQuery = validate(adminNewsListQuerySchema, 'query');
+export const validateCreateNewsComment = validate(createCommentSchema, 'body');
 
 export type CreateNewsInput = z.infer<typeof createNewsSchema>;
 export type UpdateNewsInput = z.infer<typeof updateNewsSchema>;

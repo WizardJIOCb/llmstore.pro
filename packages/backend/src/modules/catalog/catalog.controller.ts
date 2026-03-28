@@ -22,6 +22,33 @@ export async function getByTypeAndSlug(req: Request<{ type: string; slug: string
   }
 }
 
+export async function getBySlug(req: Request<{ slug: string }>, res: Response, next: NextFunction) {
+  try {
+    const item = await catalogService.getBySlug(req.params.slug);
+    res.json({ data: item });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function listCommentsBySlug(req: Request<{ slug: string }>, res: Response, next: NextFunction) {
+  try {
+    const comments = await catalogService.listCommentsBySlug(req.params.slug);
+    res.json({ data: comments });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function createCommentBySlug(req: Request<{ slug: string }>, res: Response, next: NextFunction) {
+  try {
+    const comment = await catalogService.createCommentBySlug(req.params.slug, req.session.userId!, req.body.content);
+    res.status(201).json({ data: comment });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function getCategories(_req: Request, res: Response, next: NextFunction) {
   try {
     const data = await catalogService.listCategories();

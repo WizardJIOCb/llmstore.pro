@@ -1,9 +1,9 @@
-import { eq, sql, desc, and, ilike } from 'drizzle-orm';
+import { eq, sql, desc, and, ilike, asc } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import { unlink } from 'fs/promises';
 import path from 'path';
 import { db } from '../../config/database.js';
-import { news, newsImages } from '../../db/schema/index.js';
+import { news, newsImages, newsComments, users } from '../../db/schema/index.js';
 import { UPLOADS_DIR } from '../../config/upload.js';
 import { NotFoundError } from '../../middleware/error-handler.js';
 import type { CreateNewsInput, UpdateNewsInput } from './news.validators.js';
@@ -62,6 +62,29 @@ function formatArticle(row: typeof news.$inferSelect, images: Awaited<ReturnType
   };
 }
 
+export interface PublicComment {
+  id: string;
+  content: string;
+  created_at: string;
+  updated_at: string;
+  user: {
+    id: string;
+    name: string | null;
+    username: string | null;
+    avatar_url: string | null;
+  };
+}
+
+async function resolvePublishedNewsIdBySlug(slug: string): Promise<string> {
+  const [row] = await db
+    .select({ id: news.id })
+    .from(news)
+    .where(and(eq(news.slug, slug), eq(news.status, 'published')))
+    .limit(1);
+  if (!row) throw new NotFoundError('Новость не найдена');
+  return row.id;
+}
+
 // ─── Public ─────────────────────────────────────────────────
 
 export async function listPublished(query: { page: number; per_page: number }) {
@@ -112,6 +135,79 @@ export async function getBySlug(slug: string) {
 
   const images = await loadImages(row.id);
   return formatArticle(row, images);
+}
+
+export async function listCommentsBySlug(slug: string): Promise<PublicComment[]> {
+  const newsId = await resolvePublishedNewsIdBySlug(slug);
+  const rows = await db
+    .select({
+      id: newsComments.id,
+      content: newsComments.content,
+      created_at: newsComments.created_at,
+      updated_at: newsComments.updated_at,
+      user_id: users.id,
+      name: users.name,
+      username: users.username,
+      avatar_url: users.avatar_url,
+    })
+    .from(newsComments)
+    .innerJoin(users, eq(users.id, newsComments.user_id))
+    .where(eq(newsComments.news_id, newsId))
+    .orderBy(asc(newsComments.created_at));
+
+  return rows.map((row) => ({
+    id: row.id,
+    content: row.content,
+    created_at: row.created_at.toISOString(),
+    updated_at: row.updated_at.toISOString(),
+    user: {
+      id: row.user_id,
+      name: row.name,
+      username: row.username,
+      avatar_url: row.avatar_url,
+    },
+  }));
+}
+
+export async function createCommentBySlug(slug: string, userId: string, content: string): Promise<PublicComment> {
+  const newsId = await resolvePublishedNewsIdBySlug(slug);
+  const [inserted] = await db
+    .insert(newsComments)
+    .values({
+      news_id: newsId,
+      user_id: userId,
+      content: content.trim(),
+    })
+    .returning({
+      id: newsComments.id,
+      content: newsComments.content,
+      created_at: newsComments.created_at,
+      updated_at: newsComments.updated_at,
+    });
+
+  const [user] = await db
+    .select({
+      id: users.id,
+      name: users.name,
+      username: users.username,
+      avatar_url: users.avatar_url,
+    })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+
+  return {
+    id: inserted.id,
+    content: inserted.content,
+    created_at: inserted.created_at.toISOString(),
+    updated_at: inserted.updated_at.toISOString(),
+    user: {
+      id: user?.id ?? userId,
+      name: user?.name ?? null,
+      username: user?.username ?? null,
+      avatar_url: user?.avatar_url ?? null,
+    },
+  };
 }
 
 // ─── Admin ──────────────────────────────────────────────────
