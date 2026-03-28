@@ -42,6 +42,9 @@ export function NewsCard({ article }: NewsCardProps) {
         {displayDate && (
           <p className="text-xs text-muted-foreground">{displayDate}</p>
         )}
+        <p className="mt-2 text-xs text-muted-foreground">
+          {article.comments_count ?? 0} комментариев • {article.views_count ?? 0} просмотров
+        </p>
       </div>
     </Link>
   );

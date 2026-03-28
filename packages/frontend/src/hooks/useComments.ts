@@ -15,6 +15,7 @@ export function useCreateNewsComment(slug: string) {
     mutationFn: (content: string) => commentsApi.createNewsComment(slug, content),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['comments', 'news', slug] });
+      queryClient.invalidateQueries({ queryKey: ['news'] });
     },
   });
 }
@@ -25,6 +26,7 @@ export function useDeleteNewsComment(slug: string) {
     mutationFn: (commentId: string) => commentsApi.deleteNewsComment(slug, commentId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['comments', 'news', slug] });
+      queryClient.invalidateQueries({ queryKey: ['news'] });
     },
   });
 }
@@ -43,6 +45,7 @@ export function useCreateArticleComment(slug: string) {
     mutationFn: (content: string) => commentsApi.createArticleComment(slug, content),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['comments', 'article', slug] });
+      queryClient.invalidateQueries({ queryKey: ['catalog'] });
     },
   });
 }
@@ -53,6 +56,7 @@ export function useDeleteArticleComment(slug: string) {
     mutationFn: (commentId: string) => commentsApi.deleteArticleComment(slug, commentId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['comments', 'article', slug] });
+      queryClient.invalidateQueries({ queryKey: ['catalog'] });
     },
   });
 }

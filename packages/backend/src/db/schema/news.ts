@@ -9,6 +9,7 @@ export const news = pgTable('news', {
   content: text('content').notNull(),
   excerpt: text('excerpt'),
   status: newsStatusEnum('status').notNull().default('draft'),
+  views_count: integer('views_count').notNull().default(0),
   author_user_id: uuid('author_user_id').references(() => users.id, { onDelete: 'set null' }),
   published_at: timestamp('published_at', { withTimezone: true }),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

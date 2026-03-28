@@ -54,6 +54,8 @@ export interface CatalogItemCard {
   hero_image_url: string | null;
   curated_score: number;
   featured: boolean;
+  views_count?: number;
+  comments_count?: number;
   tags: TagSlim[];
   categories: CategorySlim[];
   meta: Pick<CatalogItemMeta, 'pricing_type' | 'deployment_type' | 'language_support' | 'privacy_type'>;

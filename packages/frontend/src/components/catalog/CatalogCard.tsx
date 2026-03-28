@@ -75,6 +75,9 @@ export function CatalogCard({ item, hrefOverride }: CatalogCardProps) {
               )}
             </div>
           )}
+          <p className="mt-2 text-xs text-muted-foreground">
+            {item.comments_count ?? 0} комментариев • {item.views_count ?? 0} просмотров
+          </p>
         </CardContent>
       </Card>
     </Link>

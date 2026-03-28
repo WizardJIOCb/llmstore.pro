@@ -54,6 +54,8 @@ function formatArticle(row: typeof news.$inferSelect, images: Awaited<ReturnType
     content: row.content,
     excerpt: row.excerpt,
     status: row.status,
+    views_count: row.views_count,
+    comments_count: 0,
     author_user_id: row.author_user_id,
     published_at: row.published_at?.toISOString() ?? null,
     created_at: row.created_at.toISOString(),
@@ -99,7 +101,24 @@ export async function listPublished(query: { page: number; per_page: number }) {
   const total = countResult.count;
 
   const rows = await db
-    .select()
+    .select({
+      id: news.id,
+      title: news.title,
+      slug: news.slug,
+      content: news.content,
+      excerpt: news.excerpt,
+      status: news.status,
+      views_count: news.views_count,
+      author_user_id: news.author_user_id,
+      published_at: news.published_at,
+      created_at: news.created_at,
+      updated_at: news.updated_at,
+      comments_count: sql<number>`(
+        select count(*)::int
+        from ${newsComments}
+        where ${newsComments.news_id} = ${news.id}
+      )`,
+    })
     .from(news)
     .where(eq(news.status, 'published'))
     .orderBy(desc(news.published_at))
@@ -109,7 +128,10 @@ export async function listPublished(query: { page: number; per_page: number }) {
   const items = await Promise.all(
     rows.map(async (row) => {
       const images = await loadImages(row.id);
-      return formatArticle(row, images);
+      return {
+        ...formatArticle(row, images),
+        comments_count: row.comments_count,
+      };
     }),
   );
 
@@ -126,15 +148,41 @@ export async function listPublished(query: { page: number; per_page: number }) {
 
 export async function getBySlug(slug: string) {
   const [row] = await db
-    .select()
+    .select({
+      id: news.id,
+      title: news.title,
+      slug: news.slug,
+      content: news.content,
+      excerpt: news.excerpt,
+      status: news.status,
+      views_count: news.views_count,
+      author_user_id: news.author_user_id,
+      published_at: news.published_at,
+      created_at: news.created_at,
+      updated_at: news.updated_at,
+      comments_count: sql<number>`(
+        select count(*)::int
+        from ${newsComments}
+        where ${newsComments.news_id} = ${news.id}
+      )`,
+    })
     .from(news)
     .where(and(eq(news.slug, slug), eq(news.status, 'published')))
     .limit(1);
 
   if (!row) throw new NotFoundError('Новость не найдена');
 
+  await db
+    .update(news)
+    .set({ views_count: sql`${news.views_count} + 1` })
+    .where(eq(news.id, row.id));
+
   const images = await loadImages(row.id);
-  return formatArticle(row, images);
+  return {
+    ...formatArticle(row, images),
+    views_count: row.views_count + 1,
+    comments_count: row.comments_count,
+  };
 }
 
 export async function listCommentsBySlug(slug: string): Promise<PublicComment[]> {

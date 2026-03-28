@@ -27,6 +27,8 @@ export interface NewsArticle {
   content: string;
   excerpt: string | null;
   status: string;
+  views_count: number;
+  comments_count: number;
   author_user_id: string | null;
   published_at: string | null;
   created_at: string;

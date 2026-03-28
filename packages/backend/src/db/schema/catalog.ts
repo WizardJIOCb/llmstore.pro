@@ -22,6 +22,7 @@ export const catalogItems = pgTable('catalog_items', {
   author_user_id: uuid('author_user_id').references(() => users.id, { onDelete: 'set null' }),
   curated_score: integer('curated_score').notNull().default(0),
   featured: boolean('featured').notNull().default(false),
+  views_count: integer('views_count').notNull().default(0),
   seo_title: varchar('seo_title', { length: 255 }),
   seo_description: text('seo_description'),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

@@ -134,6 +134,24 @@ async function loadMetaForItems(itemIds: string[]): Promise<Map<string, CatalogI
   return map;
 }
 
+async function loadCommentCountsForItems(itemIds: string[]): Promise<Map<string, number>> {
+  if (itemIds.length === 0) return new Map();
+  const rows = await db
+    .select({
+      item_id: catalogComments.item_id,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(catalogComments)
+    .where(inArray(catalogComments.item_id, itemIds))
+    .groupBy(catalogComments.item_id);
+
+  const map = new Map<string, number>();
+  for (const r of rows) {
+    map.set(r.item_id, r.count);
+  }
+  return map;
+}
+
 const emptyMeta: CatalogItemMeta = {
   pricing_type: null, deployment_type: null, privacy_type: null,
   language_support: null, difficulty: null, readiness: null,
@@ -325,6 +343,7 @@ export async function list(query: CatalogQueryInput): Promise<{ items: CatalogIt
       hero_image_url: catalogItems.hero_image_url,
       curated_score: catalogItems.curated_score,
       featured: catalogItems.featured,
+      views_count: catalogItems.views_count,
       published_at: catalogItems.published_at,
     })
     .from(catalogItems)
@@ -339,10 +358,11 @@ export async function list(query: CatalogQueryInput): Promise<{ items: CatalogIt
   const itemIds = pageRows.map((r) => r.id);
 
   // Eager-load tags, categories, meta
-  const [tagsMap, catsMap, metaMap] = await Promise.all([
+  const [tagsMap, catsMap, metaMap, commentsMap] = await Promise.all([
     loadTagsForItems(itemIds),
     loadCategoriesForItems(itemIds),
     loadMetaForItems(itemIds),
+    loadCommentCountsForItems(itemIds),
   ]);
 
   const items: CatalogItemCard[] = pageRows.map((r) => {
@@ -356,6 +376,8 @@ export async function list(query: CatalogQueryInput): Promise<{ items: CatalogIt
       hero_image_url: r.hero_image_url,
       curated_score: r.curated_score,
       featured: r.featured,
+      views_count: r.views_count,
+      comments_count: commentsMap.get(r.id) ?? 0,
       tags: tagsMap.get(r.id) ?? [],
       categories: catsMap.get(r.id) ?? [],
       meta: {
@@ -385,6 +407,7 @@ export async function getByTypeAndSlug(type: string, slug: string): Promise<Cata
       hero_image_url: catalogItems.hero_image_url,
       curated_score: catalogItems.curated_score,
       featured: catalogItems.featured,
+      views_count: catalogItems.views_count,
       status: catalogItems.status,
       visibility: catalogItems.visibility,
       seo_title: catalogItems.seo_title,
@@ -407,12 +430,18 @@ export async function getByTypeAndSlug(type: string, slug: string): Promise<Cata
     throw new NotFoundError('Элемент каталога не найден');
   }
 
+  await db
+    .update(catalogItems)
+    .set({ views_count: sql`${catalogItems.views_count} + 1` })
+    .where(eq(catalogItems.id, row.id));
+
   // Load related data in parallel
-  const [tagsMap, catsMap, useCasesMap, metaMap] = await Promise.all([
+  const [tagsMap, catsMap, useCasesMap, metaMap, commentsMap] = await Promise.all([
     loadTagsForItems([row.id]),
     loadCategoriesForItems([row.id]),
     loadUseCasesForItems([row.id]),
     loadMetaForItems([row.id]),
+    loadCommentCountsForItems([row.id]),
   ]);
 
   // Load author
@@ -442,6 +471,7 @@ export async function getByTypeAndSlug(type: string, slug: string): Promise<Cata
       hero_image_url: catalogItems.hero_image_url,
       curated_score: catalogItems.curated_score,
       featured: catalogItems.featured,
+      views_count: catalogItems.views_count,
       published_at: catalogItems.published_at,
     })
     .from(catalogItems)
@@ -457,10 +487,11 @@ export async function getByTypeAndSlug(type: string, slug: string): Promise<Cata
     .limit(4);
 
   const relatedIds = relatedRows.map((r) => r.id);
-  const [relTagsMap, relCatsMap, relMetaMap] = await Promise.all([
+  const [relTagsMap, relCatsMap, relMetaMap, relCommentsMap] = await Promise.all([
     loadTagsForItems(relatedIds),
     loadCategoriesForItems(relatedIds),
     loadMetaForItems(relatedIds),
+    loadCommentCountsForItems(relatedIds),
   ]);
 
   const relatedItems: CatalogItemCard[] = relatedRows.map((r) => {
@@ -474,6 +505,8 @@ export async function getByTypeAndSlug(type: string, slug: string): Promise<Cata
       hero_image_url: r.hero_image_url,
       curated_score: r.curated_score,
       featured: r.featured,
+      views_count: r.views_count,
+      comments_count: relCommentsMap.get(r.id) ?? 0,
       tags: relTagsMap.get(r.id) ?? [],
       categories: relCatsMap.get(r.id) ?? [],
       meta: {
@@ -498,6 +531,8 @@ export async function getByTypeAndSlug(type: string, slug: string): Promise<Cata
     hero_image_url: row.hero_image_url,
     curated_score: row.curated_score,
     featured: row.featured,
+    views_count: row.views_count + 1,
+    comments_count: commentsMap.get(row.id) ?? 0,
     status: row.status,
     visibility: row.visibility,
     seo_title: row.seo_title,
