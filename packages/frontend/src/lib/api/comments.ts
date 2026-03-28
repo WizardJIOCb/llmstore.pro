@@ -20,9 +20,15 @@ export const commentsApi = {
   createNewsComment: (slug: string, content: string) =>
     apiClient.post<{ data: PublicComment }>(`/news/${slug}/comments`, { content }).then((r) => r.data.data),
 
+  deleteNewsComment: (slug: string, commentId: string) =>
+    apiClient.delete(`/news/${slug}/comments/${commentId}`).then((r) => r.data),
+
   listArticleComments: (slug: string) =>
     apiClient.get<{ data: PublicComment[] }>(`/catalog/article/${slug}/comments`).then((r) => r.data.data),
 
   createArticleComment: (slug: string, content: string) =>
     apiClient.post<{ data: PublicComment }>(`/catalog/article/${slug}/comments`, { content }).then((r) => r.data.data),
+
+  deleteArticleComment: (slug: string, commentId: string) =>
+    apiClient.delete(`/catalog/article/${slug}/comments/${commentId}`).then((r) => r.data),
 };

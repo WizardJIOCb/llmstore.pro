@@ -19,6 +19,16 @@ export function useCreateNewsComment(slug: string) {
   });
 }
 
+export function useDeleteNewsComment(slug: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (commentId: string) => commentsApi.deleteNewsComment(slug, commentId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['comments', 'news', slug] });
+    },
+  });
+}
+
 export function useArticleComments(slug: string) {
   return useQuery({
     queryKey: ['comments', 'article', slug],
@@ -31,6 +41,16 @@ export function useCreateArticleComment(slug: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (content: string) => commentsApi.createArticleComment(slug, content),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['comments', 'article', slug] });
+    },
+  });
+}
+
+export function useDeleteArticleComment(slug: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (commentId: string) => commentsApi.deleteArticleComment(slug, commentId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['comments', 'article', slug] });
     },

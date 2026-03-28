@@ -1,6 +1,6 @@
 import { Link, useParams } from 'react-router-dom';
 import { useCatalogItemBySlug } from '../../hooks/useCatalog';
-import { useCreateArticleComment, useArticleComments } from '../../hooks/useComments';
+import { useCreateArticleComment, useDeleteArticleComment, useArticleComments } from '../../hooks/useComments';
 import { useAuth } from '../../hooks/useAuth';
 import { CatalogCard } from '../../components/catalog/CatalogCard';
 import { CommentsSection } from '../../components/comments/CommentsSection';
@@ -16,10 +16,11 @@ import {
 
 export function ArticleDetailPage() {
   const { slug } = useParams<{ slug: string }>();
-  const { isAuthenticated } = useAuth();
+  const { user, isAuthenticated, isAdmin } = useAuth();
   const { data: item, isLoading, error } = useCatalogItemBySlug(slug ?? '');
   const { data: comments = [], isLoading: commentsLoading } = useArticleComments(slug ?? '');
   const createComment = useCreateArticleComment(slug ?? '');
+  const deleteComment = useDeleteArticleComment(slug ?? '');
 
   if (isLoading) {
     return (
@@ -197,7 +198,10 @@ export function ArticleDetailPage() {
         isLoading={commentsLoading}
         isAuthenticated={isAuthenticated}
         isSubmitting={createComment.isPending}
+        currentUserId={user?.id}
+        canDeleteAny={isAdmin}
         onSubmit={(content) => createComment.mutateAsync(content)}
+        onDelete={(commentId) => deleteComment.mutateAsync(commentId)}
       />
     </div>
   );

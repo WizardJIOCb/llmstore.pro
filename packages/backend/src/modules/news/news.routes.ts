@@ -9,6 +9,7 @@ const router = Router();
 router.get('/', validateNewsListQuery, controller.list);
 router.get('/:slug/comments', controller.listComments);
 router.post('/:slug/comments', requireAuth, validateCreateNewsComment, controller.createComment);
+router.delete('/:slug/comments/:commentId', requireAuth, controller.deleteComment);
 router.get('/:slug', controller.getBySlug);
 
 export const newsRoutes = router;

@@ -17,6 +17,7 @@ router.get('/', validateCatalogQuery, controller.list);
 router.get('/article/:slug', controller.getBySlug);
 router.get('/article/:slug/comments', controller.listCommentsBySlug);
 router.post('/article/:slug/comments', requireAuth, validateCreateCatalogComment, controller.createCommentBySlug);
+router.delete('/article/:slug/comments/:commentId', requireAuth, controller.deleteCommentBySlug);
 
 // Single item by type and slug
 router.get('/:type/:slug', controller.getByTypeAndSlug);

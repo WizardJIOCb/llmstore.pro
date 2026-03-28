@@ -5,7 +5,7 @@ import path from 'path';
 import { db } from '../../config/database.js';
 import { news, newsImages, newsComments, users } from '../../db/schema/index.js';
 import { UPLOADS_DIR } from '../../config/upload.js';
-import { NotFoundError } from '../../middleware/error-handler.js';
+import { AppError, NotFoundError } from '../../middleware/error-handler.js';
 import type { CreateNewsInput, UpdateNewsInput } from './news.validators.js';
 
 // ─── Slug generation ────────────────────────────────────────
@@ -208,6 +208,38 @@ export async function createCommentBySlug(slug: string, userId: string, content:
       avatar_url: user?.avatar_url ?? null,
     },
   };
+}
+
+export async function deleteCommentBySlug(
+  slug: string,
+  commentId: string,
+  requesterUserId: string,
+  requesterRole?: string,
+) {
+  const newsId = await resolvePublishedNewsIdBySlug(slug);
+  const [comment] = await db
+    .select({
+      id: newsComments.id,
+      user_id: newsComments.user_id,
+    })
+    .from(newsComments)
+    .where(
+      and(
+        eq(newsComments.id, commentId),
+        eq(newsComments.news_id, newsId),
+      ),
+    )
+    .limit(1);
+
+  if (!comment) throw new NotFoundError('Комментарий не найден');
+
+  const canDeleteAny = requesterRole === 'admin' || requesterRole === 'curator';
+  if (!canDeleteAny && comment.user_id !== requesterUserId) {
+    throw new AppError(403, 'FORBIDDEN', 'Недостаточно прав для удаления комментария');
+  }
+
+  await db.delete(newsComments).where(eq(newsComments.id, commentId));
+  return { success: true };
 }
 
 // ─── Admin ──────────────────────────────────────────────────

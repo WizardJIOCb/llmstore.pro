@@ -4,6 +4,7 @@ import * as newsService from '../news/news.service.js';
 import { unlink } from 'fs/promises';
 import path from 'path';
 import { UPLOADS_DIR } from '../../config/upload.js';
+import { AppError } from '../../middleware/error-handler.js';
 
 type IdParams = { id: string };
 
@@ -303,7 +304,10 @@ export async function deleteNews(req: Request<IdParams>, res: Response, next: Ne
 
 export async function uploadNewsImages(req: Request, res: Response, next: NextFunction) {
   try {
-    const files = req.files as Express.Multer.File[];
+    const files = req.files as Express.Multer.File[] | undefined;
+    if (!files || files.length === 0) {
+      throw new AppError(400, 'BAD_REQUEST', 'Не переданы изображения для загрузки');
+    }
     const result = files.map((f) => ({
       filename: f.filename,
       original_name: f.originalname,

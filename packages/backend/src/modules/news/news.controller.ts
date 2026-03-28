@@ -38,3 +38,21 @@ export async function createComment(req: Request<{ slug: string }>, res: Respons
     next(err);
   }
 }
+
+export async function deleteComment(
+  req: Request<{ slug: string; commentId: string }>,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const result = await newsService.deleteCommentBySlug(
+      req.params.slug,
+      req.params.commentId,
+      req.session.userId!,
+      req.session.userRole,
+    );
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+}

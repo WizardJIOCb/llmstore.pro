@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type KeyboardEvent } from 'react';
 import { Button } from '../ui/Button';
 import { Textarea } from '../ui/Textarea';
 import { Spinner } from '../ui/Spinner';
@@ -10,7 +10,10 @@ interface CommentsSectionProps {
   isLoading: boolean;
   isAuthenticated: boolean;
   isSubmitting: boolean;
+  currentUserId?: string | null;
+  canDeleteAny?: boolean;
   onSubmit: (content: string) => Promise<unknown>;
+  onDelete?: (commentId: string) => Promise<unknown>;
 }
 
 function formatDate(value: string) {
@@ -33,10 +36,14 @@ export function CommentsSection({
   isLoading,
   isAuthenticated,
   isSubmitting,
+  currentUserId,
+  canDeleteAny = false,
   onSubmit,
+  onDelete,
 }: CommentsSectionProps) {
   const [value, setValue] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const handleSubmit = async () => {
     const trimmed = value.trim();
@@ -50,6 +57,26 @@ export function CommentsSection({
     }
   };
 
+  const handleInputKeyDown = async (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+      await handleSubmit();
+    }
+  };
+
+  const handleDelete = async (commentId: string) => {
+    if (!onDelete) return;
+    setError(null);
+    setDeletingId(commentId);
+    try {
+      await onDelete(commentId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Не удалось удалить комментарий');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   return (
     <section className="mt-12 rounded-lg border p-4 md:p-6">
       <h2 className="mb-4 text-xl font-semibold">{title}</h2>
@@ -60,8 +87,10 @@ export function CommentsSection({
             rows={4}
             value={value}
             onChange={(e) => setValue(e.target.value)}
+            onKeyDown={handleInputKeyDown}
             placeholder="Напишите комментарий..."
           />
+          <p className="text-xs text-muted-foreground">Ctrl + Enter - отправить</p>
           {error && <p className="text-sm text-destructive">{error}</p>}
           <Button onClick={handleSubmit} disabled={isSubmitting || value.trim().length === 0}>
             {isSubmitting ? 'Отправка...' : 'Отправить комментарий'}
@@ -81,7 +110,19 @@ export function CommentsSection({
             <article key={comment.id} className="rounded-md border p-3">
               <div className="mb-2 flex items-center justify-between gap-3">
                 <p className="text-sm font-medium">{displayUserName(comment)}</p>
-                <p className="text-xs text-muted-foreground">{formatDate(comment.created_at)}</p>
+                <div className="flex items-center gap-3">
+                  <p className="text-xs text-muted-foreground">{formatDate(comment.created_at)}</p>
+                  {onDelete && (canDeleteAny || currentUserId === comment.user.id) && (
+                    <button
+                      type="button"
+                      className="text-xs text-destructive hover:underline disabled:opacity-60"
+                      onClick={() => handleDelete(comment.id)}
+                      disabled={deletingId === comment.id}
+                    >
+                      {deletingId === comment.id ? 'Удаление...' : 'Удалить'}
+                    </button>
+                  )}
+                </div>
               </div>
               <p className="whitespace-pre-wrap text-sm">{comment.content}</p>
             </article>

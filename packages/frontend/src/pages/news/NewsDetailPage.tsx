@@ -1,6 +1,6 @@
 import { Link, useParams } from 'react-router-dom';
 import { useNewsArticle } from '../../hooks/useNews';
-import { useCreateNewsComment, useNewsComments } from '../../hooks/useComments';
+import { useCreateNewsComment, useDeleteNewsComment, useNewsComments } from '../../hooks/useComments';
 import { useAuth } from '../../hooks/useAuth';
 import { ImageGallery } from '../../components/news/ImageGallery';
 import { CommentsSection } from '../../components/comments/CommentsSection';
@@ -8,10 +8,11 @@ import { Spinner } from '../../components/ui/Spinner';
 
 export function NewsDetailPage() {
   const { slug } = useParams<{ slug: string }>();
-  const { isAuthenticated } = useAuth();
+  const { user, isAuthenticated, isAdmin } = useAuth();
   const { data: article, isLoading, error } = useNewsArticle(slug || '');
   const { data: comments = [], isLoading: commentsLoading } = useNewsComments(slug || '');
   const createComment = useCreateNewsComment(slug || '');
+  const deleteComment = useDeleteNewsComment(slug || '');
 
   if (isLoading) {
     return (
@@ -83,7 +84,10 @@ export function NewsDetailPage() {
         isLoading={commentsLoading}
         isAuthenticated={isAuthenticated}
         isSubmitting={createComment.isPending}
+        currentUserId={user?.id}
+        canDeleteAny={isAdmin}
         onSubmit={(content) => createComment.mutateAsync(content)}
+        onDelete={(commentId) => deleteComment.mutateAsync(commentId)}
       />
     </div>
   );

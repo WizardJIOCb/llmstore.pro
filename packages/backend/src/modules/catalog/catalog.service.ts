@@ -7,7 +7,7 @@ import {
   catalogComments,
 } from '../../db/schema/index.js';
 import { users } from '../../db/schema/index.js';
-import { NotFoundError } from '../../middleware/error-handler.js';
+import { AppError, NotFoundError } from '../../middleware/error-handler.js';
 import type { CatalogItemCard, CatalogItemFull, CatalogItemMeta, TagSlim, CategorySlim, UseCaseSlim, UserSlim } from '@llmstore/shared';
 import type { CatalogQueryInput } from '@llmstore/shared/schemas';
 
@@ -628,4 +628,36 @@ export async function createCommentBySlug(slug: string, userId: string, content:
       avatar_url: user?.avatar_url ?? null,
     },
   };
+}
+
+export async function deleteCommentBySlug(
+  slug: string,
+  commentId: string,
+  requesterUserId: string,
+  requesterRole?: string,
+) {
+  const itemId = await resolvePublishedItemIdBySlug(slug);
+  const [comment] = await db
+    .select({
+      id: catalogComments.id,
+      user_id: catalogComments.user_id,
+    })
+    .from(catalogComments)
+    .where(
+      and(
+        eq(catalogComments.id, commentId),
+        eq(catalogComments.item_id, itemId),
+      ),
+    )
+    .limit(1);
+
+  if (!comment) throw new NotFoundError('Комментарий не найден');
+
+  const canDeleteAny = requesterRole === 'admin' || requesterRole === 'curator';
+  if (!canDeleteAny && comment.user_id !== requesterUserId) {
+    throw new AppError(403, 'FORBIDDEN', 'Недостаточно прав для удаления комментария');
+  }
+
+  await db.delete(catalogComments).where(eq(catalogComments.id, commentId));
+  return { success: true };
 }

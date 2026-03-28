@@ -49,6 +49,24 @@ export async function createCommentBySlug(req: Request<{ slug: string }>, res: R
   }
 }
 
+export async function deleteCommentBySlug(
+  req: Request<{ slug: string; commentId: string }>,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const result = await catalogService.deleteCommentBySlug(
+      req.params.slug,
+      req.params.commentId,
+      req.session.userId!,
+      req.session.userRole,
+    );
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function getCategories(_req: Request, res: Response, next: NextFunction) {
   try {
     const data = await catalogService.listCategories();

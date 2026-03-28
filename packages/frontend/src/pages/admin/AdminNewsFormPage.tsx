@@ -1,13 +1,13 @@
-import { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { AdminLayout } from '../../components/admin/AdminLayout';
 import { useAdminNews, useCreateNews, useUpdateNews, useUploadNewsImages } from '../../hooks/useNews';
 import { newsApi, type NewsImage } from '../../lib/api/news';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
-import { Textarea } from '../../components/ui/Textarea';
 import { Select } from '../../components/ui/Select';
 import { Spinner } from '../../components/ui/Spinner';
+import { Textarea } from '../../components/ui/Textarea';
 
 const STATUS_OPTIONS = [
   { value: 'draft', label: 'Черновик' },
@@ -24,7 +24,7 @@ interface ImageEntry {
 export function AdminNewsFormPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const isEdit = !!id;
+  const isEdit = Boolean(id);
 
   const { data: existing, isLoading: loadingExisting } = useAdminNews(id || '');
   const createMutation = useCreateNews();
@@ -38,6 +38,7 @@ export function AdminNewsFormPage() {
   const [status, setStatus] = useState('draft');
   const [images, setImages] = useState<ImageEntry[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   useEffect(() => {
     if (isEdit && existing && !loaded) {
@@ -60,17 +61,22 @@ export function AdminNewsFormPage() {
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files?.length) return;
-    const result = await uploadMutation.mutateAsync(Array.from(files));
-    setImages((prev) => [
-      ...prev,
-      ...result.map((r, i) => ({
-        filename: r.filename,
-        original_name: r.original_name,
-        url: r.url,
-        sort_order: prev.length + i,
-      })),
-    ]);
-    if (fileInputRef.current) fileInputRef.current.value = '';
+    setUploadError(null);
+    try {
+      const result = await uploadMutation.mutateAsync(Array.from(files));
+      setImages((prev) => [
+        ...prev,
+        ...result.map((r, i) => ({
+          filename: r.filename,
+          original_name: r.original_name,
+          url: r.url,
+          sort_order: prev.length + i,
+        })),
+      ]);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    } catch (err: any) {
+      setUploadError(err?.response?.data?.error?.message || 'Не удалось загрузить изображение');
+    }
   };
 
   const handleRemoveImage = (filename: string) => {
@@ -110,7 +116,7 @@ export function AdminNewsFormPage() {
   };
 
   const isPending = createMutation.isPending || updateMutation.isPending;
-  const error = createMutation.error || updateMutation.error;
+  const submitError = createMutation.error || updateMutation.error;
 
   if (isEdit && loadingExisting) {
     return (
@@ -125,9 +131,7 @@ export function AdminNewsFormPage() {
       <div className="max-w-3xl space-y-6">
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-semibold">{isEdit ? 'Редактировать новость' : 'Новая новость'}</h2>
-          <Button variant="outline" onClick={() => navigate('/admin/news')}>
-            Назад
-          </Button>
+          <Button variant="outline" onClick={() => navigate('/admin/news')}>Назад</Button>
         </div>
 
         <div className="space-y-4">
@@ -161,20 +165,19 @@ export function AdminNewsFormPage() {
             <Select options={STATUS_OPTIONS} value={status} onChange={(e) => setStatus(e.target.value)} className="w-48" />
           </div>
 
-          {/* Image Gallery Manager */}
           <div>
             <label className="text-sm font-medium">Изображения</label>
             <div className="mt-2 space-y-3">
               {images.length > 0 && (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
                   {images.map((img, idx) => (
-                    <div key={img.filename} className="relative group rounded-lg overflow-hidden border">
+                    <div key={img.filename} className="group relative overflow-hidden rounded-lg border">
                       <img src={img.url} alt={img.original_name || ''} className="aspect-square w-full object-cover" />
-                      <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1">
+                      <div className="absolute inset-0 flex items-center justify-center gap-1 bg-black/50 opacity-0 transition-opacity group-hover:opacity-100">
                         {idx > 0 && (
                           <button
                             type="button"
-                            className="bg-white/90 text-black rounded px-2 py-1 text-xs font-medium hover:bg-white"
+                            className="rounded bg-white/90 px-2 py-1 text-xs font-medium text-black hover:bg-white"
                             onClick={() => handleMoveImage(idx, -1)}
                           >
                             &larr;
@@ -182,7 +185,7 @@ export function AdminNewsFormPage() {
                         )}
                         <button
                           type="button"
-                          className="bg-red-600 text-white rounded px-2 py-1 text-xs font-medium hover:bg-red-700"
+                          className="rounded bg-red-600 px-2 py-1 text-xs font-medium text-white hover:bg-red-700"
                           onClick={() => handleRemoveImage(img.filename)}
                         >
                           X
@@ -190,7 +193,7 @@ export function AdminNewsFormPage() {
                         {idx < images.length - 1 && (
                           <button
                             type="button"
-                            className="bg-white/90 text-black rounded px-2 py-1 text-xs font-medium hover:bg-white"
+                            className="rounded bg-white/90 px-2 py-1 text-xs font-medium text-black hover:bg-white"
                             onClick={() => handleMoveImage(idx, 1)}
                           >
                             &rarr;
@@ -219,14 +222,15 @@ export function AdminNewsFormPage() {
                 >
                   {uploadMutation.isPending ? 'Загрузка...' : 'Загрузить изображения'}
                 </Button>
+                {uploadError && <p className="mt-2 text-sm text-destructive">{uploadError}</p>}
               </div>
             </div>
           </div>
         </div>
 
-        {error && (
+        {submitError && (
           <p className="text-sm text-destructive">
-            {(error as any)?.response?.data?.error?.message || 'Ошибка сохранения'}
+            {(submitError as any)?.response?.data?.error?.message || 'Ошибка сохранения'}
           </p>
         )}
 
