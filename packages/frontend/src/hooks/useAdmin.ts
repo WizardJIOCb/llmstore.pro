@@ -118,3 +118,54 @@ export function useAdminAgents(params: AdminAgentsParams) {
     queryFn: () => adminApi.listAgents(params),
   });
 }
+
+export function useAdminTools() {
+  return useQuery({
+    queryKey: ['admin', 'tools'],
+    queryFn: () => adminApi.listTools(),
+  });
+}
+
+export function useCreateAdminTool() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: {
+      name: string;
+      slug: string;
+      tool_type: string;
+      description?: string | null;
+      input_schema: Record<string, unknown>;
+      output_schema?: Record<string, unknown> | null;
+      config_json?: Record<string, unknown> | null;
+      is_builtin?: boolean;
+      is_active?: boolean;
+    }) => adminApi.createTool(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'tools'] });
+      queryClient.invalidateQueries({ queryKey: ['builtin-tools'] });
+    },
+  });
+}
+
+export function useDeleteAdminTool() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => adminApi.deleteTool(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'tools'] });
+      queryClient.invalidateQueries({ queryKey: ['builtin-tools'] });
+    },
+  });
+}
+
+export function useUpdateAdminTool() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
+      adminApi.updateTool(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'tools'] });
+      queryClient.invalidateQueries({ queryKey: ['builtin-tools'] });
+    },
+  });
+}

@@ -1,10 +1,11 @@
-import { Link, useLocation } from 'react-router-dom';
+﻿import { Link, useLocation } from 'react-router-dom';
 import { cn } from '../../lib/utils';
 
 const adminNav = [
   { to: '/admin/dashboard', label: 'Дашборд' },
   { to: '/admin/news', label: 'Новости' },
   { to: '/admin', label: 'Каталог', exact: true },
+  { to: '/admin/tools', label: 'Инструменты' },
   { to: '/admin/users', label: 'Пользователи' },
   { to: '/admin/agents', label: 'Агенты' },
 ];

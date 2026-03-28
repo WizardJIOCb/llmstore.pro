@@ -3,6 +3,7 @@ import * as controller from './admin.controller.js';
 import {
   validateCreateItem, validateUpdateItem, validateAdminListQuery,
   validateTaxonomyCreate, validateTaxonomyUpdate,
+  validateCreateTool, validateUpdateTool,
 } from './admin.validators.js';
 import { validateCreateNews, validateUpdateNews, validateAdminNewsListQuery } from '../news/news.validators.js';
 import { requireRole } from '../../middleware/auth-guard.js';
@@ -37,6 +38,12 @@ router.delete('/tags/:id', controller.deleteTag);
 router.post('/use-cases', validateTaxonomyCreate, controller.createUseCase);
 router.put('/use-cases/:id', validateTaxonomyUpdate, controller.updateUseCase);
 router.delete('/use-cases/:id', controller.deleteUseCase);
+
+// Tools CRUD
+router.get('/tools', controller.listTools);
+router.post('/tools', validateCreateTool, controller.createTool);
+router.put('/tools/:id', validateUpdateTool, controller.updateTool);
+router.delete('/tools/:id', controller.deleteTool);
 
 // User management (admin only)
 router.get('/users', controller.listUsers);

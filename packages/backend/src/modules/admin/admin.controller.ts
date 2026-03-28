@@ -150,6 +150,44 @@ export async function deleteUseCase(req: Request<IdParams>, res: Response, next:
   }
 }
 
+// ─── Tools ──────────────────────────────────────────────────────────
+
+export async function listTools(_req: Request, res: Response, next: NextFunction) {
+  try {
+    const tools = await adminService.listTools();
+    res.json({ data: tools });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function createTool(req: Request, res: Response, next: NextFunction) {
+  try {
+    const tool = await adminService.createTool(req.body);
+    res.status(201).json({ data: tool });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function updateTool(req: Request<IdParams>, res: Response, next: NextFunction) {
+  try {
+    const tool = await adminService.updateTool(req.params.id, req.body);
+    res.json({ data: tool });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function deleteTool(req: Request<IdParams>, res: Response, next: NextFunction) {
+  try {
+    const result = await adminService.deleteTool(req.params.id);
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
 // ─── Users ──────────────────────────────────────────────────
 
 export async function listUsers(req: Request, res: Response, next: NextFunction) {

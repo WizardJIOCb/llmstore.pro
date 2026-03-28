@@ -24,6 +24,21 @@ export interface AdminAgentsParams {
   owner_id?: string;
 }
 
+export interface AdminTool {
+  id: string;
+  name: string;
+  slug: string;
+  tool_type: string;
+  description: string | null;
+  input_schema: Record<string, unknown>;
+  output_schema: Record<string, unknown> | null;
+  config_json: Record<string, unknown> | null;
+  is_builtin: boolean;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface AdminDashboardStats {
   totals: {
     users: number;
@@ -134,4 +149,27 @@ export const adminApi = {
   // Agents
   listAgents: (params: AdminAgentsParams) =>
     apiClient.get('/admin/agents', { params }).then((r) => r.data),
+
+  // Tools
+  listTools: () =>
+    apiClient.get<{ data: AdminTool[] }>('/admin/tools').then((r) => r.data.data),
+
+  createTool: (data: {
+    name: string;
+    slug: string;
+    tool_type: string;
+    description?: string | null;
+    input_schema: Record<string, unknown>;
+    output_schema?: Record<string, unknown> | null;
+    config_json?: Record<string, unknown> | null;
+    is_builtin?: boolean;
+    is_active?: boolean;
+  }) =>
+    apiClient.post<{ data: AdminTool }>('/admin/tools', data).then((r) => r.data.data),
+
+  updateTool: (id: string, data: Record<string, unknown>) =>
+    apiClient.put<{ data: AdminTool }>(`/admin/tools/${id}`, data).then((r) => r.data.data),
+
+  deleteTool: (id: string) =>
+    apiClient.delete(`/admin/tools/${id}`).then((r) => r.data),
 };

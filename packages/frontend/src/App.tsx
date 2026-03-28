@@ -14,6 +14,7 @@ import { AdminAgentsPage } from './pages/admin/AdminAgentsPage';
 import { AdminNewsListPage } from './pages/admin/AdminNewsListPage';
 import { AdminNewsFormPage } from './pages/admin/AdminNewsFormPage';
 import { AdminDashboardPage } from './pages/admin/AdminDashboardPage';
+import { AdminToolsPage } from './pages/admin/AdminToolsPage';
 import { NewsListPage } from './pages/news/NewsListPage';
 import { NewsDetailPage } from './pages/news/NewsDetailPage';
 import { NotFoundPage } from './pages/NotFoundPage';
@@ -204,6 +205,14 @@ export function App() {
           element={
             <ProtectedRoute requireAdmin>
               <AdminUsersPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/tools"
+          element={
+            <ProtectedRoute requireAdmin>
+              <AdminToolsPage />
             </ProtectedRoute>
           }
         />

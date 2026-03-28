@@ -7,6 +7,7 @@ import {
   users, balanceTransactions,
   usageLedger,
   agents, agentRuns,
+  toolDefinitions,
   chatConversations, chatConversationMessages,
 } from '../../db/schema/index.js';
 import { NotFoundError, ConflictError, AppError } from '../../middleware/error-handler.js';
@@ -353,6 +354,126 @@ export async function updateUseCase(id: string, input: { name?: string; slug?: s
 export async function deleteUseCase(id: string) {
   const [uc] = await db.delete(useCases).where(eq(useCases.id, id)).returning();
   if (!uc) throw new NotFoundError('Кейс не найден');
+  return { success: true };
+}
+
+// ─── Tools Management ───────────────────────────────────────────────
+
+export async function listTools() {
+  const rows = await db
+    .select({
+      id: toolDefinitions.id,
+      name: toolDefinitions.name,
+      slug: toolDefinitions.slug,
+      tool_type: toolDefinitions.tool_type,
+      description: toolDefinitions.description,
+      input_schema: toolDefinitions.input_schema,
+      output_schema: toolDefinitions.output_schema,
+      config_json: toolDefinitions.config_json,
+      is_builtin: toolDefinitions.is_builtin,
+      is_active: toolDefinitions.is_active,
+      created_at: toolDefinitions.created_at,
+      updated_at: toolDefinitions.updated_at,
+    })
+    .from(toolDefinitions)
+    .orderBy(desc(toolDefinitions.created_at));
+
+  return rows.map((r) => ({
+    ...r,
+    created_at: r.created_at.toISOString(),
+    updated_at: r.updated_at.toISOString(),
+  }));
+}
+
+export async function createTool(input: {
+  name: string;
+  slug: string;
+  tool_type: string;
+  description?: string | null;
+  input_schema: Record<string, unknown>;
+  output_schema?: Record<string, unknown> | null;
+  config_json?: Record<string, unknown> | null;
+  is_builtin?: boolean;
+  is_active?: boolean;
+}) {
+  const [existing] = await db
+    .select({ id: toolDefinitions.id })
+    .from(toolDefinitions)
+    .where(eq(toolDefinitions.slug, input.slug))
+    .limit(1);
+
+  if (existing) throw new ConflictError('Инструмент с таким slug уже существует');
+
+  const [tool] = await db
+    .insert(toolDefinitions)
+    .values({
+      name: input.name,
+      slug: input.slug,
+      tool_type: input.tool_type as any,
+      description: input.description ?? null,
+      input_schema: input.input_schema,
+      output_schema: input.output_schema ?? null,
+      config_json: input.config_json ?? null,
+      is_builtin: input.is_builtin ?? false,
+      is_active: input.is_active ?? true,
+    })
+    .returning();
+
+  return {
+    ...tool,
+    created_at: tool.created_at.toISOString(),
+    updated_at: tool.updated_at.toISOString(),
+  };
+}
+
+export async function updateTool(id: string, input: {
+  name?: string;
+  slug?: string;
+  tool_type?: string;
+  description?: string | null;
+  input_schema?: Record<string, unknown>;
+  output_schema?: Record<string, unknown> | null;
+  config_json?: Record<string, unknown> | null;
+  is_builtin?: boolean;
+  is_active?: boolean;
+}) {
+  const [existing] = await db
+    .select({ id: toolDefinitions.id })
+    .from(toolDefinitions)
+    .where(eq(toolDefinitions.id, id))
+    .limit(1);
+
+  if (!existing) throw new NotFoundError('Инструмент не найден');
+
+  if (input.slug) {
+    const [conflict] = await db
+      .select({ id: toolDefinitions.id })
+      .from(toolDefinitions)
+      .where(and(eq(toolDefinitions.slug, input.slug), sql`${toolDefinitions.id} != ${id}`))
+      .limit(1);
+    if (conflict) throw new ConflictError('Инструмент с таким slug уже существует');
+  }
+
+  const [tool] = await db
+    .update(toolDefinitions)
+    .set(input as any)
+    .where(eq(toolDefinitions.id, id))
+    .returning();
+
+  return {
+    ...tool,
+    created_at: tool.created_at.toISOString(),
+    updated_at: tool.updated_at.toISOString(),
+  };
+}
+
+export async function deleteTool(id: string) {
+  const [tool] = await db
+    .delete(toolDefinitions)
+    .where(eq(toolDefinitions.id, id))
+    .returning({ id: toolDefinitions.id });
+
+  if (!tool) throw new NotFoundError('Инструмент не найден');
   return { success: true };
 }
 

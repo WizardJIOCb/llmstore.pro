@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { TemplatePicker } from '../../components/agents/TemplatePicker';
 import { AgentForm } from '../../components/agents/AgentForm';
+import { AgentWizardBuilder } from '../../components/agents/AgentWizardBuilder';
 import { useBuiltinTools, useCreateAgent } from '../../hooks/useAgents';
 import { Spinner } from '../../components/ui/Spinner';
 
@@ -37,12 +38,17 @@ const DTF_TEMPLATE = {
 
 export function AgentBuilderPage() {
   const navigate = useNavigate();
-  const [step, setStep] = useState<'template' | 'form'>('template');
+  const [step, setStep] = useState<'template' | 'form' | 'wizard'>('template');
   const [templateId, setTemplateId] = useState<string | null>(null);
   const { data: tools, isLoading: toolsLoading } = useBuiltinTools();
   const createAgent = useCreateAgent();
 
   const handleTemplateSelect = (id: string) => {
+    if (id === 'agent-wizard') {
+      setTemplateId(null);
+      setStep('wizard');
+      return;
+    }
     setTemplateId(id);
     setStep('form');
   };
@@ -126,6 +132,33 @@ export function AgentBuilderPage() {
               onSubmit={handleSubmit}
               isSubmitting={createAgent.isPending}
               submitLabel="Создать и открыть"
+            />
+          )}
+          {createAgent.isError && (
+            <p className="mt-4 text-sm text-destructive">
+              Ошибка: {(createAgent.error as Error).message}
+            </p>
+          )}
+        </>
+      )}
+
+      {step === 'wizard' && (
+        <>
+          <button
+            onClick={() => setStep('template')}
+            className="text-sm text-muted-foreground hover:text-foreground mb-4 inline-flex items-center gap-1"
+          >
+            &larr; Назад к шаблонам
+          </button>
+          {toolsLoading ? (
+            <div className="flex justify-center py-12">
+              <Spinner />
+            </div>
+          ) : (
+            <AgentWizardBuilder
+              tools={tools ?? []}
+              onSubmit={handleSubmit}
+              isSubmitting={createAgent.isPending}
             />
           )}
           {createAgent.isError && (

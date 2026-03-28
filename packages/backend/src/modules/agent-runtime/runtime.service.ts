@@ -215,7 +215,12 @@ export async function startRun(
     .select({ tool: toolDefinitions })
     .from(agentVersionTools)
     .innerJoin(toolDefinitions, eq(agentVersionTools.tool_definition_id, toolDefinitions.id))
-    .where(eq(agentVersionTools.agent_version_id, version.id))
+    .where(
+      and(
+        eq(agentVersionTools.agent_version_id, version.id),
+        eq(toolDefinitions.is_active, true),
+      ),
+    )
     .orderBy(agentVersionTools.order_index);
   const tools = versionToolRows.map(r => r.tool);
 

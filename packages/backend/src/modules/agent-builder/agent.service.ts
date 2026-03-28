@@ -550,5 +550,6 @@ export async function listBuiltinTools() {
   return db
     .select()
     .from(toolDefinitions)
-    .where(and(eq(toolDefinitions.is_builtin, true), eq(toolDefinitions.is_active, true)));
+    .where(eq(toolDefinitions.is_active, true))
+    .orderBy(desc(toolDefinitions.created_at));
 }
