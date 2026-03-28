@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+﻿import { useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   useAgentList,
@@ -54,6 +54,10 @@ function formatTime(ms: number): string {
   return `${minutes}m ${remaining.toFixed(0)}s`;
 }
 
+function formatCreatedAt(iso: string): string {
+  return new Date(iso).toLocaleDateString('ru-RU');
+}
+
 const emptyStats: AgentStats = {
   agent_id: '',
   total_runs: 0,
@@ -64,10 +68,19 @@ const emptyStats: AgentStats = {
   last_run_at: null,
 };
 
-function StatsRow({ stats }: { stats: AgentStats }) {
+function hasUsage(stats: AgentStats): boolean {
+  return stats.total_runs > 0
+    || stats.total_prompt_tokens > 0
+    || stats.total_completion_tokens > 0
+    || Number(stats.total_cost) > 0
+    || stats.total_latency_ms > 0;
+}
+
+function StatsRow({ stats, label }: { stats: AgentStats; label?: string }) {
   const totalTokens = stats.total_prompt_tokens + stats.total_completion_tokens;
   return (
     <div className="flex items-center gap-4 text-xs text-muted-foreground">
+      {label && <span className="font-medium text-foreground">{label}</span>}
       <span title="Запусков">{stats.total_runs} запуск.</span>
       <span title="Токенов">{formatTokens(totalTokens)} ток.</span>
       <span title="Стоимость">{formatCost(stats.total_cost)}</span>
@@ -178,7 +191,16 @@ export function AgentsHubPage() {
           ) : (
             <div className="space-y-3">
               {filteredMyAgents.map((agent) => {
-                const stats = statsMap?.[agent.id] ?? emptyStats;
+                const myStats = statsMap?.[agent.id] ?? emptyStats;
+                const totalStats: AgentStats = {
+                  agent_id: agent.id,
+                  total_runs: agent.total_runs ?? 0,
+                  total_prompt_tokens: agent.total_prompt_tokens ?? 0,
+                  total_completion_tokens: agent.total_completion_tokens ?? 0,
+                  total_cost: agent.total_cost ?? '0',
+                  total_latency_ms: agent.total_latency_ms ?? 0,
+                  last_run_at: null,
+                };
                 return (
                   <Card key={agent.id}>
                     <CardHeader className="pb-2">
@@ -193,8 +215,14 @@ export function AgentsHubPage() {
                       )}
                     </CardHeader>
                     <CardContent>
-                      <div className="mb-3">
-                        <StatsRow stats={stats} />
+                      <div className="mb-3 space-y-1">
+                        <div className="text-xs text-muted-foreground">
+                          Создан: {formatCreatedAt(agent.created_at)}
+                        </div>
+                        <StatsRow label="Всего:" stats={totalStats} />
+                        {hasUsage(myStats) && (
+                          <StatsRow label="Моё:" stats={myStats} />
+                        )}
                       </div>
                       <div className="flex items-center gap-2">
                         <Link to={`/playground/agent/${agent.id}`}>
@@ -245,33 +273,52 @@ export function AgentsHubPage() {
             </div>
           ) : (
             <div className="space-y-3">
-              {discoverAgents.map((agent) => (
-                <Card key={agent.id}>
-                  <CardHeader className="pb-2">
-                    <div className="flex items-center justify-between gap-4">
-                      <CardTitle className="text-base">{agent.name}</CardTitle>
-                      <span className="text-xs text-muted-foreground whitespace-nowrap">
-                        Автор: {agent.owner_name || (agent.owner_username ? `@${agent.owner_username}` : 'пользователь')}
-                      </span>
-                    </div>
-                    {agent.description && <CardDescription>{agent.description}</CardDescription>}
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex flex-col items-start gap-3">
-                      <span className="text-xs text-muted-foreground">
-                        Создан: {new Date(agent.created_at).toLocaleDateString('ru-RU')}
-                      </span>
-                      <Button
-                        size="sm"
-                        onClick={() => handleAdopt(agent.id)}
-                        disabled={adoptAgent.isPending}
-                      >
-                        Запустить
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+              {discoverAgents.map((agent) => {
+                const totalStats: AgentStats = {
+                  agent_id: agent.id,
+                  total_runs: agent.total_runs ?? 0,
+                  total_prompt_tokens: agent.total_prompt_tokens ?? 0,
+                  total_completion_tokens: agent.total_completion_tokens ?? 0,
+                  total_cost: agent.total_cost ?? '0',
+                  total_latency_ms: agent.total_latency_ms ?? 0,
+                  last_run_at: null,
+                };
+                const myStats = statsMap?.[agent.id] ?? emptyStats;
+
+                return (
+                  <Card key={agent.id}>
+                    <CardHeader className="pb-2">
+                      <div className="flex items-center justify-between gap-4">
+                        <CardTitle className="text-base">{agent.name}</CardTitle>
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">
+                          Автор: {agent.owner_name || (agent.owner_username ? `@${agent.owner_username}` : 'пользователь')}
+                        </span>
+                      </div>
+                      {agent.description && <CardDescription>{agent.description}</CardDescription>}
+                    </CardHeader>
+                    <CardContent>
+                      <div className="mb-3 space-y-1">
+                        <div className="text-xs text-muted-foreground">
+                          Создан: {formatCreatedAt(agent.created_at)}
+                        </div>
+                        <StatsRow label="Всего:" stats={totalStats} />
+                        {hasUsage(myStats) && (
+                          <StatsRow label="Моё:" stats={myStats} />
+                        )}
+                      </div>
+                      <div className="flex flex-col items-start gap-3">
+                        <Button
+                          size="sm"
+                          onClick={() => handleAdopt(agent.id)}
+                          disabled={adoptAgent.isPending}
+                        >
+                          Запустить
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </div>
           )}
         </>

@@ -110,6 +110,9 @@ export function useStartRun() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['runs'] });
       qc.invalidateQueries({ queryKey: ['chats'] });
+      qc.invalidateQueries({ queryKey: ['agent-stats'] });
+      qc.invalidateQueries({ queryKey: ['agents'] });
+      qc.invalidateQueries({ queryKey: ['agents', 'discover'] });
     },
   });
 }

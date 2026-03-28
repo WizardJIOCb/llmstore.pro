@@ -13,6 +13,11 @@ export interface Agent {
   current_version_id: string | null;
   created_at: string;
   updated_at: string;
+  total_runs?: number;
+  total_prompt_tokens?: number;
+  total_completion_tokens?: number;
+  total_cost?: string;
+  total_latency_ms?: number;
 }
 
 export interface AgentVersion {
@@ -92,6 +97,16 @@ export interface DiscoverAgent {
   owner_name: string | null;
   owner_username: string | null;
   created_at: string;
+  total_runs: number;
+  total_prompt_tokens: number;
+  total_completion_tokens: number;
+  total_cost: string;
+  total_latency_ms: number;
+  my_total_runs?: number;
+  my_total_prompt_tokens?: number;
+  my_total_completion_tokens?: number;
+  my_total_cost?: string;
+  my_total_latency_ms?: number;
 }
 
 export interface ChatHistoryMessage {

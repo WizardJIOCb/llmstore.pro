@@ -631,6 +631,85 @@ interface ChatHistoryMessage {
 }
 
 export async function getChatHistory(agentId: string, userId: string) {
+  const [conversation] = await db
+    .select({
+      id: chatConversations.id,
+      share_token: chatConversations.share_token,
+    })
+    .from(chatConversations)
+    .where(
+      and(
+        eq(chatConversations.user_id, userId),
+        eq(chatConversations.mode, 'agent'),
+        eq(chatConversations.agent_id, agentId),
+      ),
+    )
+    .orderBy(desc(chatConversations.last_message_at))
+    .limit(1);
+
+  if (conversation) {
+    const conversationMessages = await db
+      .select({
+        role: chatConversationMessages.role,
+        content_text: chatConversationMessages.content_text,
+        run_id: chatConversationMessages.run_id,
+        usage_json: chatConversationMessages.usage_json,
+        latency_ms: chatConversationMessages.latency_ms,
+      })
+      .from(chatConversationMessages)
+      .where(eq(chatConversationMessages.conversation_id, conversation.id))
+      .orderBy(asc(chatConversationMessages.created_at));
+
+    const mappedConversationMessages: ChatHistoryMessage[] = conversationMessages
+      .filter((row) => row.role === 'user' || row.role === 'assistant')
+      .map((row) => {
+        const rawUsage = (row.usage_json as Record<string, unknown> | null) ?? null;
+        const promptTokens = rawUsage ? toNumberOrNull(rawUsage.prompt_tokens) : null;
+        const completionTokens = rawUsage ? toNumberOrNull(rawUsage.completion_tokens) : null;
+        const totalTokens = rawUsage
+          ? (toNumberOrNull(rawUsage.total_tokens)
+            ?? ((promptTokens ?? 0) + (completionTokens ?? 0)))
+          : null;
+        const estimatedCostRaw = rawUsage
+          ? (rawUsage.estimated_cost as string | number | undefined)
+          : undefined;
+        const modelRaw = rawUsage ? rawUsage.model : undefined;
+
+        const usage = (
+          promptTokens !== null
+          && completionTokens !== null
+          && totalTokens !== null
+        )
+          ? {
+            prompt_tokens: promptTokens,
+            completion_tokens: completionTokens,
+            total_tokens: totalTokens,
+            estimated_cost:
+              typeof estimatedCostRaw === 'string'
+                ? estimatedCostRaw
+                : String(estimatedCostRaw ?? '0'),
+            model: typeof modelRaw === 'string' ? modelRaw : 'unknown',
+          }
+          : null;
+
+        return {
+          role: row.role as 'user' | 'assistant',
+          content: row.content_text,
+          runId: row.run_id ?? undefined,
+          usage,
+          latencyMs: row.latency_ms ?? undefined,
+        };
+      });
+
+    if (mappedConversationMessages.length > 0) {
+      return {
+        session_id: null,
+        share_token: conversation.share_token ?? null,
+        messages: mappedConversationMessages,
+      };
+    }
+  }
+
   const [session] = await db
     .select().from(chatSessions)
     .where(and(eq(chatSessions.agent_id, agentId), eq(chatSessions.user_id, userId)))

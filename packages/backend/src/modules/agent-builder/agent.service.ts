@@ -2,8 +2,10 @@ import { db } from '../../config/database.js';
 import {
   agents, agentVersions, agentVersionTools, toolDefinitions,
 } from '../../db/schema/agents.js';
+import { agentRuns } from '../../db/schema/runtime.js';
+import { usageLedger } from '../../db/schema/analytics.js';
 import { users } from '../../db/schema/auth.js';
-import { eq, and, desc, sql, ilike, or } from 'drizzle-orm';
+import { eq, and, desc, sql, ilike, or, inArray } from 'drizzle-orm';
 import { NotFoundError, AppError } from '../../middleware/error-handler.js';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -174,7 +176,51 @@ export async function listAgents(userId: string) {
     .where(eq(agents.owner_user_id, userId))
     .orderBy(desc(agents.created_at));
 
-  return result;
+  const agentIds = result.map((row) => row.id);
+  const totalsByAgent = new Map<string, {
+    total_runs: number;
+    total_prompt_tokens: number;
+    total_completion_tokens: number;
+    total_cost: string;
+    total_latency_ms: number;
+  }>();
+
+  if (agentIds.length > 0) {
+    const statRows = await db
+      .select({
+        agent_id: agentRuns.agent_id,
+        total_runs: sql<number>`count(${agentRuns.id})::int`,
+        total_prompt_tokens: sql<number>`coalesce(sum(${usageLedger.prompt_tokens}), 0)::int`,
+        total_completion_tokens: sql<number>`coalesce(sum(${usageLedger.completion_tokens}), 0)::int`,
+        total_cost: sql<string>`coalesce(sum(${usageLedger.estimated_cost}::numeric), 0)`,
+        total_latency_ms: sql<number>`coalesce(sum(${agentRuns.latency_ms}), 0)::int`,
+      })
+      .from(agentRuns)
+      .leftJoin(usageLedger, eq(usageLedger.run_id, agentRuns.id))
+      .where(inArray(agentRuns.agent_id, agentIds))
+      .groupBy(agentRuns.agent_id);
+
+    for (const row of statRows) {
+      totalsByAgent.set(row.agent_id, {
+        total_runs: row.total_runs ?? 0,
+        total_prompt_tokens: row.total_prompt_tokens ?? 0,
+        total_completion_tokens: row.total_completion_tokens ?? 0,
+        total_cost: String(row.total_cost ?? '0'),
+        total_latency_ms: row.total_latency_ms ?? 0,
+      });
+    }
+  }
+
+  return result.map((row) => ({
+    ...row,
+    ...(totalsByAgent.get(row.id) ?? {
+      total_runs: 0,
+      total_prompt_tokens: 0,
+      total_completion_tokens: 0,
+      total_cost: '0',
+      total_latency_ms: 0,
+    }),
+  }));
 }
 
 export async function discoverPublicAgents(userId: string, query: DiscoverAgentsQuery) {
@@ -215,7 +261,49 @@ export async function discoverPublicAgents(userId: string, query: DiscoverAgents
     .orderBy(desc(agents.created_at))
     .limit(limit);
 
+  const agentIds = rows.map((row) => row.id);
+  const statsMap = new Map<string, {
+    total_runs: number;
+    total_prompt_tokens: number;
+    total_completion_tokens: number;
+    total_cost: string;
+    total_latency_ms: number;
+  }>();
+
+  if (agentIds.length > 0) {
+    const statRows = await db
+      .select({
+        agent_id: agentRuns.agent_id,
+        total_runs: sql<number>`count(${agentRuns.id})::int`,
+        total_prompt_tokens: sql<number>`coalesce(sum(${usageLedger.prompt_tokens}), 0)::int`,
+        total_completion_tokens: sql<number>`coalesce(sum(${usageLedger.completion_tokens}), 0)::int`,
+        total_cost: sql<string>`coalesce(sum(${usageLedger.estimated_cost}::numeric), 0)`,
+        total_latency_ms: sql<number>`coalesce(sum(${agentRuns.latency_ms}), 0)::int`,
+      })
+      .from(agentRuns)
+      .leftJoin(usageLedger, eq(usageLedger.run_id, agentRuns.id))
+      .where(inArray(agentRuns.agent_id, agentIds))
+      .groupBy(agentRuns.agent_id);
+
+    for (const row of statRows) {
+      statsMap.set(row.agent_id, {
+        total_runs: row.total_runs ?? 0,
+        total_prompt_tokens: row.total_prompt_tokens ?? 0,
+        total_completion_tokens: row.total_completion_tokens ?? 0,
+        total_cost: String(row.total_cost ?? '0'),
+        total_latency_ms: row.total_latency_ms ?? 0,
+      });
+    }
+  }
+
   return rows.map((row) => ({
+    ...(statsMap.get(row.id) ?? {
+      total_runs: 0,
+      total_prompt_tokens: 0,
+      total_completion_tokens: 0,
+      total_cost: '0',
+      total_latency_ms: 0,
+    }),
     id: row.id,
     owner_user_id: row.owner_user_id,
     name: row.name,
