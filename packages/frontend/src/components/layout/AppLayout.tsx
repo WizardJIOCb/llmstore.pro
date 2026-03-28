@@ -58,6 +58,31 @@ export function AppLayout() {
     window.dispatchEvent(new CustomEvent('show-chat-list'));
   };
 
+  const isNavItemActive = (href: string) => {
+    if (href === '/news') return location.pathname === '/news' || location.pathname.startsWith('/news/');
+    if (href === '/chats') return location.pathname.startsWith('/chats');
+    if (href === '/articles') {
+      return (
+        location.pathname === '/articles'
+        || location.pathname.startsWith('/article/')
+        || location.pathname.startsWith('/articles/')
+        || location.pathname === '/russian-market'
+      );
+    }
+    if (href === '/my/agents') {
+      return (
+        location.pathname.startsWith('/my/agents')
+        || location.pathname.startsWith('/playground/agent/')
+        || location.pathname.startsWith('/builder/agent')
+      );
+    }
+    return location.pathname === href || location.pathname.startsWith(`${href}/`);
+  };
+
+  const isProfileActive = location.pathname === '/profile' || location.pathname.startsWith('/profile/');
+  const isAdminActive = location.pathname === '/admin' || location.pathname.startsWith('/admin/');
+  const activeMenuClass = 'bg-[hsl(222.2deg_53.33%_74.69%_/_10%)]';
+
   return (
     <div className="min-h-screen flex flex-col">
       <header className="border-b bg-white sticky top-0 z-50">
@@ -92,13 +117,25 @@ export function AppLayout() {
                   <button
                     key={item.href}
                     type="button"
-                    className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                    className={
+                      isNavItemActive(item.href)
+                        ? `rounded-md ${activeMenuClass} px-3 py-1.5 text-sm font-medium text-primary transition-colors`
+                        : 'rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors'
+                    }
                     onClick={openChatsSection}
                   >
                     {item.label}
                   </button>
                 ) : (
-                  <Link key={item.href} to={item.href} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                  <Link
+                    key={item.href}
+                    to={item.href}
+                    className={
+                      isNavItemActive(item.href)
+                        ? `rounded-md ${activeMenuClass} px-3 py-1.5 text-sm font-medium text-primary transition-colors`
+                        : 'rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors'
+                    }
+                  >
                     {item.label}
                   </Link>
                 )
@@ -107,12 +144,26 @@ export function AppLayout() {
             {isAuthenticated ? (
               <>
                 {isAdmin && (
-                  <Link to="/admin" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                  <Link
+                    to="/admin"
+                    className={
+                      isAdminActive
+                        ? `rounded-md ${activeMenuClass} px-3 py-1.5 text-sm font-medium text-primary transition-colors`
+                        : 'rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors'
+                    }
+                  >
                     Админ
                   </Link>
                 )}
-                <span className="text-sm text-muted-foreground">
-                  <Link to="/profile" className="hover:text-foreground hover:underline transition-colors">
+                <span className={isProfileActive ? 'text-sm text-primary' : 'text-sm text-muted-foreground'}>
+                  <Link
+                    to="/profile"
+                    className={
+                      isProfileActive
+                        ? `rounded-md ${activeMenuClass} px-3 py-1.5 font-medium transition-colors`
+                        : 'rounded-md px-3 py-1.5 hover:text-foreground hover:underline transition-colors'
+                    }
+                  >
                     {user?.name || user?.email}
                   </Link>
                 </span>
@@ -142,7 +193,11 @@ export function AppLayout() {
                   <button
                     key={item.href}
                     type="button"
-                    className="block w-full rounded-md px-3 py-2 text-left text-sm hover:bg-accent"
+                    className={
+                      isNavItemActive(item.href)
+                        ? `block w-full rounded-md ${activeMenuClass} px-3 py-2 text-left text-sm font-medium text-primary`
+                        : 'block w-full rounded-md px-3 py-2 text-left text-sm hover:bg-accent'
+                    }
                     onClick={openChatsSection}
                   >
                     {item.label}
@@ -151,7 +206,11 @@ export function AppLayout() {
                   <Link
                     key={item.href}
                     to={item.href}
-                    className="block rounded-md px-3 py-2 text-sm hover:bg-accent"
+                    className={
+                      isNavItemActive(item.href)
+                        ? `block rounded-md ${activeMenuClass} px-3 py-2 text-sm font-medium text-primary`
+                        : 'block rounded-md px-3 py-2 text-sm hover:bg-accent'
+                    }
                     onClick={() => setIsMobileMenuOpen(false)}
                   >
                     {item.label}
@@ -183,11 +242,27 @@ export function AppLayout() {
               {isAuthenticated ? (
                 <>
                   {isAdmin && (
-                    <Link to="/admin" className="block rounded-md px-3 py-2 text-sm hover:bg-accent" onClick={() => setIsMobileMenuOpen(false)}>
+                    <Link
+                      to="/admin"
+                      className={
+                        isAdminActive
+                          ? `block rounded-md ${activeMenuClass} px-3 py-2 text-sm font-medium text-primary`
+                          : 'block rounded-md px-3 py-2 text-sm hover:bg-accent'
+                      }
+                      onClick={() => setIsMobileMenuOpen(false)}
+                    >
                       Админ
                     </Link>
                   )}
-                  <Link to="/profile" className="block rounded-md px-3 py-2 text-sm hover:bg-accent" onClick={() => setIsMobileMenuOpen(false)}>
+                  <Link
+                    to="/profile"
+                    className={
+                      isProfileActive
+                        ? `block rounded-md ${activeMenuClass} px-3 py-2 text-sm font-medium text-primary`
+                        : 'block rounded-md px-3 py-2 text-sm hover:bg-accent'
+                    }
+                    onClick={() => setIsMobileMenuOpen(false)}
+                  >
                     {user?.name || user?.email}
                   </Link>
                   <Button className="w-full" variant="outline" size="sm" onClick={handleLogout}>Выйти</Button>
