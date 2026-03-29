@@ -5,7 +5,6 @@ import { usePlaygroundStore } from '../../stores/playground-store';
 import { ChatMessage } from '../../components/agents/ChatMessage';
 import { ChatInput } from '../../components/agents/ChatInput';
 import { ToolTracePanel } from '../../components/agents/ToolTracePanel';
-import { QuickActions } from '../../components/agents/QuickActions';
 import { RunMetadata } from '../../components/agents/RunMetadata';
 import { Spinner } from '../../components/ui/Spinner';
 import { Button } from '../../components/ui/Button';
@@ -151,6 +150,14 @@ export function AgentPlaygroundPage() {
     );
   }
 
+  const starterPrompts = (() => {
+    const config = agent.version?.runtime_config as { starter_prompts?: unknown } | null | undefined;
+    if (!config || !Array.isArray(config.starter_prompts)) return [];
+    return config.starter_prompts.filter((prompt): prompt is string => (
+      typeof prompt === 'string' && prompt.trim().length > 0
+    ));
+  })();
+
   return (
     <div className="flex h-[calc(100vh-4rem)] overflow-hidden">
       <div className="flex-1 flex flex-col min-w-0">
@@ -185,7 +192,22 @@ export function AgentPlaygroundPage() {
               <p className="text-muted-foreground">
                 Отправьте сообщение или выберите быстрое действие
               </p>
-              <QuickActions onSelect={handleSend} disabled={isRunning} />
+              {starterPrompts.length > 0 && (
+                <div className="flex flex-wrap justify-center gap-2">
+                  {starterPrompts.map((prompt, idx) => (
+                    <Button
+                      key={`${prompt}-${idx}`}
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleSend(prompt)}
+                      disabled={isRunning}
+                    >
+                      {prompt}
+                    </Button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -216,8 +238,21 @@ export function AgentPlaygroundPage() {
         </div>
 
         <div className="border-t px-4 py-3 shrink-0 space-y-2">
-          {messages.length > 0 && (
-            <QuickActions onSelect={handleSend} disabled={isRunning} />
+          {messages.length > 0 && starterPrompts.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {starterPrompts.map((prompt, idx) => (
+                <Button
+                  key={`quick-${prompt}-${idx}`}
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleSend(prompt)}
+                  disabled={isRunning}
+                >
+                  {prompt}
+                </Button>
+              ))}
+            </div>
           )}
           <ChatInput onSend={handleSend} disabled={isRunning} />
         </div>
