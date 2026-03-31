@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { chatsApi, type ChatAttachment, type ChatMode } from '../lib/api/chats';
+import { chatsApi, type ChatAttachment, type ChatListItem, type ChatMode } from '../lib/api/chats';
 
 export function useChatsList(enabled = true) {
   return useQuery({
@@ -35,7 +35,12 @@ export function useCreateChat() {
       model_external_id?: string | null;
       system_prompt?: string | null;
     }) => chatsApi.create(payload),
-    onSuccess: () => {
+    onSuccess: (chat) => {
+      qc.setQueryData<ChatListItem[] | undefined>(['chats'], (prev) => {
+        const existing = prev ?? [];
+        const withoutCreated = existing.filter((item) => item.id !== chat.id);
+        return [chat, ...withoutCreated];
+      });
       qc.invalidateQueries({ queryKey: ['chats'] });
     },
   });
