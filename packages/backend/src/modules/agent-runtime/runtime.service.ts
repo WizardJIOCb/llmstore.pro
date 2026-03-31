@@ -67,19 +67,54 @@ interface CodingReport {
   preview?: CodingReportPreview | null;
 }
 
-// Pricing per 1M tokens (USD) - OpenRouter rates for common models
+// Pricing per 1M tokens (USD) - OpenRouter rates, verified on April 1, 2026.
 const MODEL_PRICING: Record<string, { input: number; output: number }> = {
   'google/gemini-2.0-flash-001': { input: 0.10, output: 0.40 },
   'google/gemini-2.0-flash-lite-001': { input: 0.075, output: 0.30 },
   'google/gemini-2.5-flash': { input: 0.15, output: 0.60 },
   'google/gemini-2.5-flash-preview': { input: 0.15, output: 0.60 },
+  'openai/gpt-4o': { input: 2.50, output: 10.00 },
+  'gpt-4o': { input: 2.50, output: 10.00 },
   'openai/gpt-4o-mini': { input: 0.15, output: 0.60 },
+  'gpt-4o-mini': { input: 0.15, output: 0.60 },
+  'openai/gpt-5.4-mini': { input: 0.75, output: 4.50 },
+  'gpt-5.4-mini': { input: 0.75, output: 4.50 },
+  'anthropic/claude-haiku-4.5': { input: 1.00, output: 5.00 },
+  'claude-haiku-4.5': { input: 1.00, output: 5.00 },
+  'anthropic/claude-sonnet-4.6': { input: 3.00, output: 15.00 },
+  'claude-sonnet-4.6': { input: 3.00, output: 15.00 },
+  'anthropic/claude-opus-4.6': { input: 5.00, output: 25.00 },
+  'claude-opus-4.6': { input: 5.00, output: 25.00 },
+  'qwen/qwen3-coder-plus': { input: 0.65, output: 3.25 },
+  'qwen3-coder-plus': { input: 0.65, output: 3.25 },
 };
 
 function estimateCost(model: string, promptTokens: number, completionTokens: number): string {
-  const pricing = MODEL_PRICING[model] ?? { input: 0.10, output: 0.40 };
+  const normalizedModel = model.trim().toLowerCase();
+  const pricing = MODEL_PRICING[normalizedModel] ?? { input: 0.10, output: 0.40 };
   const cost = (promptTokens * pricing.input + completionTokens * pricing.output) / 1_000_000;
   return cost.toFixed(6);
+}
+
+function recalculateUsageCost<T extends Record<string, unknown> | null>(usage: T): T {
+  if (!usage) return usage;
+
+  const model = typeof usage.model === 'string' ? usage.model.trim() : '';
+  const promptTokens = toNumberOrNull(usage.prompt_tokens);
+  const completionTokens = toNumberOrNull(usage.completion_tokens);
+  const totalTokens = toNumberOrNull(usage.total_tokens)
+    ?? ((promptTokens ?? 0) + (completionTokens ?? 0));
+
+  if (!model || promptTokens === null || completionTokens === null) {
+    return usage;
+  }
+
+  return {
+    ...usage,
+    total_tokens: totalTokens,
+    estimated_cost: estimateCost(model, promptTokens, completionTokens),
+    model,
+  } as T;
 }
 
 async function ensureSufficientBalance(userId: string) {
@@ -1215,7 +1250,7 @@ export async function getChatHistory(agentId: string, userId: string) {
         const normalized = row.role === 'assistant'
           ? normalizeAssistantChatPayload(row.content_text, rawUsage)
           : { content: row.content_text, usage: rawUsage, codingReport: null };
-        const normalizedUsage = normalized.usage;
+        const normalizedUsage = recalculateUsageCost(normalized.usage);
         const promptTokens = normalizedUsage ? toNumberOrNull(normalizedUsage.prompt_tokens) : null;
         const completionTokens = normalizedUsage ? toNumberOrNull(normalizedUsage.completion_tokens) : null;
         const totalTokens = normalizedUsage
@@ -1340,7 +1375,11 @@ export async function getChatHistory(agentId: string, userId: string) {
         prompt_tokens: u.prompt_tokens,
         completion_tokens: u.completion_tokens,
         total_tokens: u.total_tokens ?? (u.prompt_tokens + u.completion_tokens),
-        estimated_cost: String(u.estimated_cost ?? '0'),
+        estimated_cost: estimateCost(
+          u.model_external_id,
+          u.prompt_tokens,
+          u.completion_tokens,
+        ),
         model: u.model_external_id,
       } : null;
 
@@ -1587,13 +1626,14 @@ async function getConversationMessages(chatId: string): Promise<ConversationMess
       const normalized = row.role === 'assistant'
         ? normalizeAssistantChatPayload(row.content_text, rawUsage)
         : { content: row.content_text, usage: rawUsage, codingReport: null };
+      const normalizedUsage = recalculateUsageCost(normalized.usage);
 
       return {
         id: row.id,
         role: row.role as 'user' | 'assistant',
         content: normalized.content,
         run_id: row.run_id ?? null,
-        usage: normalized.usage,
+        usage: normalizedUsage,
         latency_ms: row.latency_ms ?? null,
         created_at: toIso(row.created_at),
       };
@@ -1913,10 +1953,10 @@ export async function getChatStats(chatId: string, userId: string): Promise<Chat
     const p = toNumberOrNull(usage.prompt_tokens) ?? 0;
     const c = toNumberOrNull(usage.completion_tokens) ?? 0;
     const t = toNumberOrNull(usage.total_tokens) ?? (p + c);
-    const usd = toNumberOrNull(usage.estimated_cost) ?? 0;
     const model = (typeof usage.model === 'string' && usage.model.trim().length > 0)
       ? usage.model
       : (chat.model_external_id || DEFAULT_GENERAL_MODEL);
+    const usd = Number(estimateCost(model, p, c));
 
     promptTokens += p;
     completionTokens += c;
