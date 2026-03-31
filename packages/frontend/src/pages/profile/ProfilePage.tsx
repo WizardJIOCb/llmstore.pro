@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useProfile, useUnlinkAccount, useUpdateProfile } from '../../hooks/useProfile';
+import { useAppSettings } from '../../hooks/useAppSettings';
 import { getOAuthLinkUrl } from '../../lib/api/profile';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
 import { Spinner } from '../../components/ui/Spinner';
+import { TopUpHelp } from '../../components/billing/TopUpHelp';
 
 const ROLE_LABELS: Record<string, string> = {
   user: 'Пользователь',
@@ -47,6 +49,7 @@ function eventTypeLabel(type: string): string {
 
 export function ProfilePage() {
   const { data: profile, isLoading, error } = useProfile();
+  const { data: appSettings } = useAppSettings();
   const updateMutation = useUpdateProfile();
   const unlinkMutation = useUnlinkAccount();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -262,9 +265,12 @@ export function ProfilePage() {
               ~ {Number(profile.balance_rub).toLocaleString('ru-RU')} руб.
             </span>
           </div>
-          <p className="text-xs text-muted-foreground mt-2">
-            Курс: 1 USD = {usdToRubRate} руб. Для пополнения пока: Попросите у Родиона.
+          <p className="mt-2 text-xs text-muted-foreground">
+            Курс: 1 USD = {usdToRubRate} руб.
           </p>
+          <div className="mt-3">
+            <TopUpHelp settings={appSettings} />
+          </div>
         </CardContent>
       </Card>
 

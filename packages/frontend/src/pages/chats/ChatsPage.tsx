@@ -19,6 +19,8 @@ import {
   useShareChatById,
   useUpdateChat,
 } from '../../hooks/useChats';
+import { useAppSettings } from '../../hooks/useAppSettings';
+import { useProfile } from '../../hooks/useProfile';
 import type {
   ChatListItem,
   ChatMessage as ChatMessageType,
@@ -26,6 +28,7 @@ import type {
   ToolTrace,
 } from '../../lib/api/chats';
 import { cn } from '../../lib/utils';
+import { TopUpHelp } from '../../components/billing/TopUpHelp';
 
 const GENERAL_MODELS = [
   { value: 'openai/gpt-4o-mini', label: 'OpenAI GPT-4o Mini' },
@@ -208,9 +211,16 @@ function getApiErrorCode(err: unknown): string | undefined {
   return maybe?.response?.data?.error?.code;
 }
 
+function getApiErrorMessage(err: unknown): string | undefined {
+  const maybe = err as { response?: { data?: { error?: { message?: string } } } };
+  return maybe?.response?.data?.error?.message;
+}
+
 export function ChatsPage() {
   const { data: chats, isLoading: chatsLoading } = useChatsList();
   const { data: agents, isLoading: agentsLoading } = useChatAgents();
+  const { data: appSettings } = useAppSettings();
+  const { data: profile } = useProfile();
   const createChatMutation = useCreateChat();
   const updateChatMutation = useUpdateChat();
   const deleteChatMutation = useDeleteChat();
@@ -454,6 +464,7 @@ export function ChatsPage() {
     activeChatData?.chat.agent_starter_prompts
     ?? activeAgentListMeta?.starter_prompts
     ?? [];
+  const hasAvailableBalance = profile ? Number(profile.balance_usd) > 0 : true;
 
   const sidebarLoading = chatsLoading || agentsLoading;
 
@@ -569,6 +580,11 @@ export function ChatsPage() {
 
   const sendMessage = async (content: string, files: File[] = []) => {
     if (!activeChat) return;
+    if (!hasAvailableBalance) {
+      setIsTopUpOpen(true);
+      setLocalError('У вас не осталось баланса. Скоро вы сможете пополнить его на сайте, а пока можете написать Родиону.');
+      return;
+    }
     setLocalError(null);
     setStreamEvents([]);
     try {
@@ -578,7 +594,7 @@ export function ChatsPage() {
       const code = getApiErrorCode(err);
       if (code === 'INSUFFICIENT_BALANCE') {
         setIsTopUpOpen(true);
-        setLocalError('Недостаточно баланса');
+        setLocalError(getApiErrorMessage(err) || 'У вас не осталось баланса. Скоро вы сможете пополнить его на сайте.');
         return;
       }
       setLocalError(err instanceof Error ? err.message : 'Не удалось отправить сообщение');
@@ -700,7 +716,7 @@ export function ChatsPage() {
                         <p className="text-xs uppercase tracking-wide text-muted-foreground">Примеры сообщений</p>
                         <div className="flex flex-wrap gap-2">
                           {activeStarterPrompts.map((prompt, idx) => (
-                            <Button key={`${prompt}-${idx}`} type="button" variant="outline" size="sm" disabled={sendMessageMutation.isPending} onClick={() => sendMessage(prompt)}>
+                            <Button key={`${prompt}-${idx}`} type="button" variant="outline" size="sm" disabled={sendMessageMutation.isPending || !hasAvailableBalance} onClick={() => sendMessage(prompt)}>
                               {prompt}
                             </Button>
                           ))}
@@ -783,17 +799,33 @@ export function ChatsPage() {
             {activeChat?.mode === 'agent' && activeStarterPrompts.length > 0 && (
               <div className="flex flex-wrap gap-2">
                 {activeStarterPrompts.map((prompt, idx) => (
-                  <Button key={`quick-${prompt}-${idx}`} type="button" variant="outline" size="sm" disabled={sendMessageMutation.isPending} onClick={() => sendMessage(prompt)}>
+                  <Button key={`quick-${prompt}-${idx}`} type="button" variant="outline" size="sm" disabled={sendMessageMutation.isPending || !hasAvailableBalance} onClick={() => sendMessage(prompt)}>
                     {prompt}
                   </Button>
                 ))}
               </div>
             )}
+            {!hasAvailableBalance && activeChat && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+                <TopUpHelp settings={appSettings} />
+                <div className="mt-3">
+                  <Link to="/profile">
+                    <Button size="sm">Открыть профиль</Button>
+                  </Link>
+                </div>
+              </div>
+            )}
             <ChatInput
               onSend={sendMessage}
               allowAttachments
-              disabled={!activeChat || sendMessageMutation.isPending || uploadFilesMutation.isPending}
-              placeholder={activeChat ? 'Введите сообщение...' : 'Сначала выберите чат'}
+              disabled={!activeChat || sendMessageMutation.isPending || uploadFilesMutation.isPending || !hasAvailableBalance}
+              placeholder={
+                !activeChat
+                  ? 'Сначала выберите чат'
+                  : hasAvailableBalance
+                    ? 'Введите сообщение...'
+                    : 'Баланс закончился'
+              }
             />
           </div>
         </section>
@@ -804,7 +836,9 @@ export function ChatsPage() {
         <div className="fixed inset-0 z-[85] flex items-center justify-center bg-black/40 p-4" onClick={() => setIsTopUpOpen(false)}>
           <div className="w-full max-w-md rounded-xl border bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="border-b px-5 py-4"><h3 className="text-lg font-semibold">Недостаточно баланса</h3></div>
-            <div className="px-5 py-4 space-y-3"><p className="text-sm text-muted-foreground">Чтобы продолжить общение в чатах и с агентами, пополните баланс.</p><div className="rounded-md border bg-muted/40 px-3 py-2 text-sm">Попросите у Родиона</div></div>
+            <div className="px-5 py-4">
+              <TopUpHelp settings={appSettings} />
+            </div>
             <div className="border-t px-5 py-4 flex items-center justify-end gap-2">
               <Button variant="outline" size="sm" onClick={() => setIsTopUpOpen(false)}>Закрыть</Button>
               <Link to="/profile" onClick={() => setIsTopUpOpen(false)}><Button size="sm">Открыть профиль</Button></Link>

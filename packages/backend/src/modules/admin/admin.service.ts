@@ -16,6 +16,7 @@ import type { UserRole, UserStatus } from '@llmstore/shared';
 import {
   getAdminSettings as getGlobalAdminSettings,
   setUsdToRubRate,
+  updateTopUpSettings,
 } from '../../lib/app-settings.js';
 
 // ─── Admin catalog list (offset pagination) ─────────────────
@@ -34,12 +35,26 @@ export async function getAdminSettings() {
 }
 
 export async function updateAdminSettings(
-  input: { usd_to_rub_rate: number },
+  input: {
+    usd_to_rub_rate: number;
+    topup_message: string;
+    topup_telegram: string;
+    topup_email: string;
+    topup_phone: string;
+  },
   adminUserId: string,
 ) {
-  const usdToRubRate = await setUsdToRubRate(input.usd_to_rub_rate, adminUserId);
+  const [usdToRubRate, topUp] = await Promise.all([
+    setUsdToRubRate(input.usd_to_rub_rate, adminUserId),
+    updateTopUpSettings(input, adminUserId),
+  ]);
+
   return {
     usd_to_rub_rate: usdToRubRate,
+    topup_message: topUp.message,
+    topup_telegram: topUp.telegram,
+    topup_email: topUp.email,
+    topup_phone: topUp.phone,
   };
 }
 

@@ -66,6 +66,10 @@ export const validateUpdateTool = validate(updateToolSchema, 'body');
 
 const updateAdminSettingsSchema = z.object({
   usd_to_rub_rate: z.coerce.number().positive().max(1000),
+  topup_message: z.string().min(1).max(500),
+  topup_telegram: z.string().min(1).max(100),
+  topup_email: z.string().email().max(255),
+  topup_phone: z.string().min(1).max(50),
 });
 
 export const validateUpdateAdminSettings = validate(updateAdminSettingsSchema, 'body');

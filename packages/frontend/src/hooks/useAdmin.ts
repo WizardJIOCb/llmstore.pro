@@ -19,9 +19,16 @@ export function useAdminSettings() {
 export function useUpdateAdminSettings() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (data: { usd_to_rub_rate: number }) => adminApi.updateSettings(data),
+    mutationFn: (data: {
+      usd_to_rub_rate: number;
+      topup_message: string;
+      topup_telegram: string;
+      topup_email: string;
+      topup_phone: string;
+    }) => adminApi.updateSettings(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'settings'] });
+      queryClient.invalidateQueries({ queryKey: ['app', 'settings'] });
       queryClient.invalidateQueries({ queryKey: ['profile'] });
       queryClient.invalidateQueries({ queryKey: ['chat'] });
       queryClient.invalidateQueries({ queryKey: ['chats'] });
@@ -126,6 +133,7 @@ export function useAdjustUserBalance() {
       adminApi.adjustUserBalance(id, amount, description),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+      queryClient.invalidateQueries({ queryKey: ['profile'] });
     },
   });
 }

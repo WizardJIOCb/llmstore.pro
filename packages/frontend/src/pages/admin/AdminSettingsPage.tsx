@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { AdminLayout } from '../../components/admin/AdminLayout';
 import { Button, Input, Spinner } from '../../components/ui';
@@ -23,11 +23,25 @@ export function AdminSettingsPage() {
   const adjustBalanceMutation = useAdjustUserBalance();
 
   const [rateInput, setRateInput] = useState('');
+  const [topupMessage, setTopupMessage] = useState('');
+  const [topupTelegram, setTopupTelegram] = useState('');
+  const [topupEmail, setTopupEmail] = useState('');
+  const [topupPhone, setTopupPhone] = useState('');
+  const [settingsSaved, setSettingsSaved] = useState(false);
+
   const [userSearch, setUserSearch] = useState('');
   const [balanceModal, setBalanceModal] = useState<BalanceTargetUser | null>(null);
   const [balanceAmount, setBalanceAmount] = useState('');
   const [balanceDescription, setBalanceDescription] = useState('');
-  const [settingsSaved, setSettingsSaved] = useState(false);
+
+  useEffect(() => {
+    if (!settings) return;
+    setRateInput(String(settings.usd_to_rub_rate));
+    setTopupMessage(settings.topup_message);
+    setTopupTelegram(settings.topup_telegram);
+    setTopupEmail(settings.topup_email);
+    setTopupPhone(settings.topup_phone);
+  }, [settings]);
 
   const searchTerm = userSearch.trim();
   const usersQuery = useQuery({
@@ -41,17 +55,20 @@ export function AdminSettingsPage() {
     [usersQuery.data],
   );
 
-  const currentRate = settings?.usd_to_rub_rate ?? null;
-
-  const handleSaveRate = () => {
-    const value = Number(rateInput || currentRate || 0);
+  const handleSaveSettings = () => {
+    const value = Number(rateInput || 0);
     if (!Number.isFinite(value) || value <= 0) return;
 
     updateSettingsMutation.mutate(
-      { usd_to_rub_rate: value },
       {
-        onSuccess: (next) => {
-          setRateInput(String(next.usd_to_rub_rate));
+        usd_to_rub_rate: value,
+        topup_message: topupMessage,
+        topup_telegram: topupTelegram,
+        topup_email: topupEmail,
+        topup_phone: topupPhone,
+      },
+      {
+        onSuccess: () => {
           setSettingsSaved(true);
           window.setTimeout(() => setSettingsSaved(false), 2000);
         },
@@ -89,9 +106,9 @@ export function AdminSettingsPage() {
       <div className="space-y-6">
         <section className="rounded-xl border bg-background p-5 shadow-sm">
           <div className="mb-4">
-            <h2 className="text-lg font-semibold">Курс USD к RUB</h2>
+            <h2 className="text-lg font-semibold">Глобальные настройки</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Это значение используется для отображения рублей в профиле, чатах и статистике.
+              Здесь можно менять курс доллара и контакты, которые видит пользователь при нехватке баланса.
             </p>
           </div>
 
@@ -100,27 +117,61 @@ export function AdminSettingsPage() {
               <Spinner />
             </div>
           ) : (
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
-              <div className="w-full max-w-xs">
-                <label className="mb-1 block text-sm font-medium">1 USD = сколько RUB</label>
+            <div className="space-y-5">
+              <div className="max-w-xs">
+                <label className="mb-1 block text-sm font-medium">Курс USD к RUB</label>
                 <Input
                   type="number"
                   min="0.01"
                   step="0.01"
-                  value={rateInput || (currentRate != null ? String(currentRate) : '')}
+                  value={rateInput}
                   onChange={(e) => setRateInput(e.target.value)}
-                  placeholder="90"
+                  placeholder="81.3"
                 />
               </div>
+
+              <div className="grid gap-4">
+                <div>
+                  <label className="mb-1 block text-sm font-medium">Сообщение при нехватке баланса</label>
+                  <Input
+                    value={topupMessage}
+                    onChange={(e) => setTopupMessage(e.target.value)}
+                    placeholder="У вас не осталось баланса..."
+                  />
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div>
+                    <label className="mb-1 block text-sm font-medium">Telegram</label>
+                    <Input
+                      value={topupTelegram}
+                      onChange={(e) => setTopupTelegram(e.target.value)}
+                      placeholder="@WizardJIOCb"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium">Email</label>
+                    <Input
+                      value={topupEmail}
+                      onChange={(e) => setTopupEmail(e.target.value)}
+                      placeholder="rodion89@list.ru"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium">Телефон</label>
+                    <Input
+                      value={topupPhone}
+                      onChange={(e) => setTopupPhone(e.target.value)}
+                      placeholder="89264769929"
+                    />
+                  </div>
+                </div>
+              </div>
+
               <div className="flex items-center gap-3">
-                <Button onClick={handleSaveRate} disabled={updateSettingsMutation.isPending}>
-                  {updateSettingsMutation.isPending ? 'Сохраняю...' : 'Сохранить курс'}
+                <Button onClick={handleSaveSettings} disabled={updateSettingsMutation.isPending}>
+                  {updateSettingsMutation.isPending ? 'Сохраняю...' : 'Сохранить настройки'}
                 </Button>
-                {currentRate != null && (
-                  <span className="text-sm text-muted-foreground">
-                    Текущий курс: <span className="font-medium text-foreground">{currentRate}</span>
-                  </span>
-                )}
                 {settingsSaved && <span className="text-sm text-green-600">Сохранено</span>}
               </div>
             </div>

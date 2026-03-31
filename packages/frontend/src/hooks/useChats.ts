@@ -89,6 +89,7 @@ export function useSendChatMessage() {
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['chats'] });
       qc.invalidateQueries({ queryKey: ['chats', vars.chatId] });
+      qc.invalidateQueries({ queryKey: ['profile'] });
     },
   });
 }

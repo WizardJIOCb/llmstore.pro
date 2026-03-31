@@ -1,6 +1,8 @@
 import { useRef, useEffect, useCallback, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useAgent, useStartRun, useChatHistory, useShareChat, useClearChat } from '../../hooks/useAgents';
+import { useAppSettings } from '../../hooks/useAppSettings';
+import { useProfile } from '../../hooks/useProfile';
 import { usePlaygroundStore } from '../../stores/playground-store';
 import { ChatMessage } from '../../components/agents/ChatMessage';
 import { ChatInput } from '../../components/agents/ChatInput';
@@ -9,16 +11,24 @@ import { RunMetadata } from '../../components/agents/RunMetadata';
 import { Spinner } from '../../components/ui/Spinner';
 import { Button } from '../../components/ui/Button';
 import type { ToolTrace } from '../../lib/api/agents';
+import { TopUpHelp } from '../../components/billing/TopUpHelp';
 
 function getApiErrorCode(err: unknown): string | undefined {
-  const maybe = err as { response?: { data?: { error?: { code?: string } } } };
+  const maybe = err as { response?: { data?: { error?: { code?: string; message?: string } } } };
   return maybe?.response?.data?.error?.code;
+}
+
+function getApiErrorMessage(err: unknown): string | undefined {
+  const maybe = err as { response?: { data?: { error?: { message?: string } } } };
+  return maybe?.response?.data?.error?.message;
 }
 
 export function AgentPlaygroundPage() {
   const { id } = useParams<{ id: string }>();
   const { data: agent, isLoading } = useAgent(id);
   const { data: chatHistory, isLoading: historyLoading } = useChatHistory(id);
+  const { data: appSettings } = useAppSettings();
+  const { data: profile } = useProfile();
   const startRun = useStartRun();
   const shareChatMutation = useShareChat();
   const clearChatMutation = useClearChat();
@@ -66,6 +76,7 @@ export function AgentPlaygroundPage() {
     if (msg.toolTraces) acc.push(...msg.toolTraces);
     return acc;
   }, []);
+  const hasAvailableBalance = profile ? Number(profile.balance_usd) > 0 : true;
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -73,6 +84,11 @@ export function AgentPlaygroundPage() {
 
   const handleSend = useCallback(async (content: string) => {
     if (!id || isRunning) return;
+    if (!hasAvailableBalance) {
+      setIsTopUpOpen(true);
+      setError('У вас не осталось баланса. Скоро вы сможете пополнить его на сайте, а пока можете написать Родиону.');
+      return;
+    }
 
     addUserMessage(content);
     setRunning(true);
@@ -100,9 +116,11 @@ export function AgentPlaygroundPage() {
       });
     } catch (err) {
       const code = getApiErrorCode(err);
+      const apiMessage = getApiErrorMessage(err);
       if (code === 'INSUFFICIENT_BALANCE') {
+        setMessages(messages);
         setIsTopUpOpen(true);
-        setError('Недостаточно баланса');
+        setError(apiMessage || 'У вас не осталось баланса. Скоро вы сможете пополнить его на сайте.');
       } else {
         const msg = err instanceof Error ? err.message : 'Неизвестная ошибка';
         setError(msg);
@@ -110,7 +128,7 @@ export function AgentPlaygroundPage() {
     } finally {
       setRunning(false);
     }
-  }, [id, isRunning, messages, addUserMessage, addAssistantMessage, setRunning, setError, startRun]);
+  }, [id, isRunning, hasAvailableBalance, messages, addUserMessage, addAssistantMessage, setMessages, setRunning, setError, startRun]);
 
   const handleShare = useCallback(async () => {
     if (!id) return;
@@ -162,8 +180,8 @@ export function AgentPlaygroundPage() {
 
   return (
     <div className="flex h-[calc(100vh-4rem)] overflow-hidden">
-      <div className="flex-1 flex flex-col min-w-0">
-        <div className="border-b px-4 py-3 flex items-center justify-between shrink-0">
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="shrink-0 border-b px-4 py-3 flex items-center justify-between">
           <div>
             <h1 className="font-semibold">{agent.name}</h1>
             <p className="text-xs text-muted-foreground">{agent.description}</p>
@@ -190,7 +208,7 @@ export function AgentPlaygroundPage() {
 
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
           {messages.length === 0 && (
-            <div className="text-center py-12 space-y-4">
+            <div className="py-12 text-center space-y-4">
               <p className="text-muted-foreground">
                 Отправьте сообщение или выберите быстрое действие
               </p>
@@ -203,7 +221,7 @@ export function AgentPlaygroundPage() {
                       variant="outline"
                       size="sm"
                       onClick={() => handleSend(prompt)}
-                      disabled={isRunning}
+                      disabled={isRunning || !hasAvailableBalance}
                     >
                       {prompt}
                     </Button>
@@ -236,7 +254,7 @@ export function AgentPlaygroundPage() {
           )}
 
           {error && (
-            <div className="text-sm text-destructive bg-destructive/10 rounded-md px-3 py-2">
+            <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
               {error}
             </div>
           )}
@@ -244,7 +262,7 @@ export function AgentPlaygroundPage() {
           <div ref={messagesEndRef} />
         </div>
 
-        <div className="border-t px-4 py-3 shrink-0 space-y-2">
+        <div className="shrink-0 border-t px-4 py-3 space-y-2">
           {messages.length > 0 && starterPrompts.length > 0 && (
             <div className="flex flex-wrap gap-2">
               {starterPrompts.map((prompt, idx) => (
@@ -254,20 +272,34 @@ export function AgentPlaygroundPage() {
                   variant="outline"
                   size="sm"
                   onClick={() => handleSend(prompt)}
-                  disabled={isRunning}
+                  disabled={isRunning || !hasAvailableBalance}
                 >
                   {prompt}
                 </Button>
               ))}
             </div>
           )}
-          <ChatInput onSend={handleSend} disabled={isRunning} />
+          {!hasAvailableBalance && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+              <TopUpHelp settings={appSettings} />
+              <div className="mt-3">
+                <Link to="/profile">
+                  <Button size="sm">Открыть профиль</Button>
+                </Link>
+              </div>
+            </div>
+          )}
+          <ChatInput
+            onSend={handleSend}
+            disabled={isRunning || !hasAvailableBalance}
+            placeholder={hasAvailableBalance ? 'Введите сообщение...' : 'Баланс закончился'}
+          />
         </div>
       </div>
 
-      <div className="hidden lg:flex w-80 border-l flex-col shrink-0">
-        <div className="border-b px-4 py-3 shrink-0">
-          <h2 className="font-semibold text-sm">Инструменты</h2>
+      <div className="hidden w-80 shrink-0 border-l lg:flex flex-col">
+        <div className="shrink-0 border-b px-4 py-3">
+          <h2 className="text-sm font-semibold">Инструменты</h2>
         </div>
         <div className="flex-1 overflow-y-auto px-4 py-3">
           <ToolTracePanel traces={allToolTraces} />
@@ -286,13 +318,8 @@ export function AgentPlaygroundPage() {
             <div className="border-b px-5 py-4">
               <h3 className="text-lg font-semibold">Недостаточно баланса</h3>
             </div>
-            <div className="px-5 py-4 space-y-3">
-              <p className="text-sm text-muted-foreground">
-                Чтобы продолжить общение с агентами, пополните баланс.
-              </p>
-              <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
-                Попросите у Родиона
-              </div>
+            <div className="px-5 py-4">
+              <TopUpHelp settings={appSettings} />
             </div>
             <div className="border-t px-5 py-4 flex items-center justify-end gap-2">
               <Button variant="outline" size="sm" onClick={() => setIsTopUpOpen(false)}>

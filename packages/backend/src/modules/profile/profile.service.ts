@@ -40,6 +40,8 @@ function txTypeTitle(type: string, description: string | null): string {
   if (description && description.trim().length > 0) return description.trim();
   if (type === 'signup_bonus') return 'Стартовый бонус';
   if (type === 'admin_adjustment') return 'Корректировка администратором';
+  if (type === 'admin_credit') return 'Пополнение администратором';
+  if (type === 'admin_debit') return 'Списание администратором';
   if (type === 'topup') return 'Пополнение баланса';
   return `Операция: ${type}`;
 }
@@ -103,7 +105,9 @@ async function getBalanceHistory(userId: string): Promise<BalanceHistoryItem[]> 
     `),
   ]);
 
-  const txHistory: BalanceHistoryItem[] = txRows.map((tx) => {
+  const txHistory: BalanceHistoryItem[] = txRows
+    .filter((tx) => tx.type !== 'chat_usage' && tx.type !== 'agent_run_usage')
+    .map((tx) => {
     const amount = toNumberOrZero(tx.amount);
     const direction: BalanceHistoryItem['direction'] = amount >= 0 ? 'credit' : 'debit';
     const category: BalanceHistoryItem['category'] = amount >= 0 ? 'topup' : 'writeoff';
@@ -118,7 +122,7 @@ async function getBalanceHistory(userId: string): Promise<BalanceHistoryItem[]> 
       tokens: 0,
       model: null,
     };
-  });
+    });
 
   const chatUsageHistory: BalanceHistoryItem[] = chatUsageRows.map((row): BalanceHistoryItem => {
     const estimatedCost = Math.max(0, toNumberOrZero(row.estimated_cost));

@@ -16,6 +16,7 @@ import { agentRuntimeRoutes } from './modules/agent-runtime/index.js';
 import { profileRoutes } from './modules/profile/index.js';
 import { newsRoutes } from './modules/news/index.js';
 import { aliceRoutes } from './modules/alice/index.js';
+import { appSettingsRoutes } from './modules/app-settings/index.js';
 import { UPLOADS_DIR } from './config/upload.js';
 
 export function createApp() {
@@ -72,6 +73,7 @@ export function createApp() {
 
   // Module routes
   app.use('/api/auth', authRoutes);
+  app.use('/api/app', appSettingsRoutes);
   app.use('/api/profile', profileRoutes);
   app.use('/api/news', newsRoutes);
   app.use('/api/catalog', catalogRoutes);

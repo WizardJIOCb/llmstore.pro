@@ -26,6 +26,10 @@ export interface AdminAgentsParams {
 
 export interface AdminSettings {
   usd_to_rub_rate: number;
+  topup_message: string;
+  topup_telegram: string;
+  topup_email: string;
+  topup_phone: string;
 }
 
 export interface AdminTool {

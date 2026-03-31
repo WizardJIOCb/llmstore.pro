@@ -23,6 +23,7 @@ import type { ChatMessage, ToolDefinitionParam } from '../openrouter/types.js';
 import { UPLOADS_DIR } from '../../config/upload.js';
 import { openChatEventStream, publishChatEvent } from './chat-events.service.js';
 import { getUsdToRubRate } from '../../lib/app-settings.js';
+import { chargeUserBalanceForUsage } from '../../lib/billing.js';
 
 const DEFAULT_MODEL = 'google/gemini-2.0-flash-001';
 const DEFAULT_MAX_ITERATIONS = 4;
@@ -141,7 +142,7 @@ async function ensureSufficientBalance(userId: string) {
     throw new AppError(
       402,
       'INSUFFICIENT_BALANCE',
-      'РќРµРґРѕСЃС‚Р°С‚РѕС‡РЅРѕ Р±Р°Р»Р°РЅСЃР°. РџРѕРїРѕР»РЅРёС‚Рµ Р±Р°Р»Р°РЅСЃ, С‡С‚РѕР±С‹ РїСЂРѕРґРѕР»Р¶РёС‚СЊ РѕР±С‰РµРЅРёРµ.',
+      'У вас не осталось баланса. Скоро вы сможете пополнить его на сайте, а пока можете написать Родиону.',
     );
   }
 }
@@ -1147,6 +1148,15 @@ export async function startRun(
       last_message_at: new Date(),
       updated_at: new Date(),
     }).where(eq(chatConversations.id, syncedConversationId));
+  }
+
+  if (totalUsage.total_tokens > 0) {
+    await chargeUserBalanceForUsage({
+      user_id: userId,
+      amount_usd: Number(estCost),
+      type: 'agent_run_usage',
+      description: `Списание за запуск агента ${agent.name}`,
+    });
   }
 
   if (runStatus === 'completed') {
@@ -2368,6 +2378,20 @@ export async function sendChatMessage(
     mode: chat.mode,
     label: 'Ответ сохранён в чате',
   });
+
+  const chargedCost = Number(
+    typeof usagePayload?.estimated_cost === 'string'
+      ? usagePayload.estimated_cost
+      : (typeof usagePayload?.estimated_cost === 'number' ? usagePayload.estimated_cost : 0),
+  );
+  if (chat.mode === 'general' && chargedCost > 0) {
+    await chargeUserBalanceForUsage({
+      user_id: userId,
+      amount_usd: chargedCost,
+      type: 'chat_usage',
+      description: `Списание за чат ${nextTitle}`,
+    });
+  }
 
   return {
     user_message: userMessage,

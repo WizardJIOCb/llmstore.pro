@@ -113,6 +113,7 @@ export function useStartRun() {
       qc.invalidateQueries({ queryKey: ['agent-stats'] });
       qc.invalidateQueries({ queryKey: ['agents'] });
       qc.invalidateQueries({ queryKey: ['agents', 'discover'] });
+      qc.invalidateQueries({ queryKey: ['profile'] });
     },
   });
 }
