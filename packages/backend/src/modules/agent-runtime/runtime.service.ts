@@ -437,7 +437,7 @@ function sanitizeCodingReport(value: unknown): CodingReport | null {
   return normalized;
 }
 
-function extractFirstJsonObject(value: string): string | null {
+function extractFirstJsonObject(value: string): { json: string; endIndex: number } | null {
   const start = value.indexOf('{');
   if (start === -1) return null;
 
@@ -476,7 +476,10 @@ function extractFirstJsonObject(value: string): string | null {
     if (char === '}') {
       depth -= 1;
       if (depth === 0) {
-        return value.slice(start, index + 1);
+        return {
+          json: value.slice(start, index + 1),
+          endIndex: index + 1,
+        };
       }
     }
   }
@@ -485,28 +488,49 @@ function extractFirstJsonObject(value: string): string | null {
 }
 
 function extractCodingReport(content: string): { cleanText: string; report: CodingReport | null } {
-  const match = content.match(/<dev-report>\s*([\s\S]*?)\s*<\/dev-report>/i);
-  if (!match) {
+  const openMatch = content.match(/<dev-report>\s*/i);
+  if (!openMatch || openMatch.index == null) {
     return { cleanText: content.trim(), report: null };
   }
 
+  const startIndex = openMatch.index;
+  const payloadStart = startIndex + openMatch[0].length;
+  const tail = content.slice(payloadStart);
+  const closeMatch = tail.match(/\s*<\/dev-report>/i);
+  const payloadEnd = closeMatch?.index ?? tail.length;
+  const closeEnd = closeMatch
+    ? payloadStart + payloadEnd + closeMatch[0].length
+    : payloadStart + payloadEnd;
+  const payload = content.slice(payloadStart, payloadStart + payloadEnd);
+
   let report: CodingReport | null = null;
+  let recoveredJsonEnd: number | null = null;
   try {
-    report = sanitizeCodingReport(JSON.parse(match[1]));
+    report = sanitizeCodingReport(JSON.parse(payload));
   } catch {
-    const rawJson = extractFirstJsonObject(match[1]);
+    const rawJson = extractFirstJsonObject(payload);
     if (rawJson) {
       try {
-        report = sanitizeCodingReport(JSON.parse(rawJson));
+        report = sanitizeCodingReport(JSON.parse(rawJson.json));
+        recoveredJsonEnd = rawJson.endIndex;
       } catch {
         report = null;
       }
-    } else {
-      report = null;
     }
   }
 
-  const cleanText = content.replace(match[0], '').trim();
+  const before = content.slice(0, startIndex).trim();
+  const after = closeMatch
+    ? content.slice(closeEnd).trim()
+    : (
+      recoveredJsonEnd !== null
+        ? payload
+          .slice(recoveredJsonEnd)
+          .replace(/^(\s*<\/script>\s*)+/gi, '')
+          .trim()
+        : ''
+    );
+  const cleanText = [before, after].filter(Boolean).join('\n\n').trim();
   return { cleanText, report };
 }
 

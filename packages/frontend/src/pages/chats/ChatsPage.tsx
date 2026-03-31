@@ -180,6 +180,12 @@ export function ChatsPage() {
   }, [activeChatId, chats, isDesktop]);
 
   useEffect(() => {
+    if (!chats || chats.length === 0 || !activeChatId) return;
+    if (chats.some((chat) => chat.id === activeChatId)) return;
+    setActiveChatId(isDesktop ? chats[0]?.id ?? null : null);
+  }, [activeChatId, chats, isDesktop]);
+
+  useEffect(() => {
     const handler = (event: Event) => {
       const custom = event as CustomEvent<string>;
       if (typeof custom.detail === 'string' && custom.detail.length > 0) {
@@ -198,13 +204,13 @@ export function ChatsPage() {
     setStreamEvents([]);
     setStreamConnected(false);
 
-    if (!activeChatId) {
+    if (!activeChat || activeChat.mode !== 'agent') {
       eventSourceRef.current?.close();
       eventSourceRef.current = null;
       return;
     }
 
-    const source = new EventSource(`/api/chats/${activeChatId}/events`, { withCredentials: true });
+    const source = new EventSource(`/api/chats/${activeChat.id}/events`, { withCredentials: true });
     eventSourceRef.current = source;
 
     const pushEvent = (eventName: string, payload: {
@@ -272,7 +278,7 @@ export function ChatsPage() {
         eventSourceRef.current = null;
       }
     };
-  }, [activeChatId]);
+  }, [activeChat?.id, activeChat?.mode]);
 
   useEffect(() => {
     const handler = () => setActiveChatId(null);

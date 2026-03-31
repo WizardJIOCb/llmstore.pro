@@ -24,7 +24,7 @@ interface ChatMessageProps {
 }
 
 function stripDevReportEnvelope(content: string): string {
-  return content.replace(/<dev-report>\s*[\s\S]*?\s*<\/dev-report>/gi, '').trim();
+  return content.replace(/<dev-report>\s*[\s\S]*?(?:\s*<\/dev-report>|$)/gi, '').trim();
 }
 
 function SectionCard({ title, children }: { title: string; children: ReactNode }) {

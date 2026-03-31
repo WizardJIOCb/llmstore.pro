@@ -54,6 +54,9 @@ const BASE_SYSTEM_PROMPT = `Ты — OpenRouter Coding Agent для llmstore.pro
 - preview.type="html" используй только для standalone preview, который реально можно отрисовать в iframe;
 - если preview не нужен, передай null или не указывай поле;
 - JSON должен быть валидным, без комментариев и markdown fences.
+- If preview is present, do not repeat the full HTML/CSS/JS outside preview.html.
+- Keep the markdown after </dev-report> short and high-level.
+- If the answer is getting long, prioritize closing valid JSON and completing preview.html first.
 
 После блока <dev-report>:
 - дай краткое объяснение того, что сделал;
@@ -95,7 +98,7 @@ const CODING_PRESETS: CodingPreset[] = [
     name: 'OpenRouter Coding Agent Fast',
     description: 'Быстрый и более дешёвый coding-agent на Claude Haiku 4.5 для small edits, чтения контекста и простых задач.',
     model_external_id: 'anthropic/claude-haiku-4.5',
-    version_number: 2,
+    version_number: 3,
     chat_intro: 'Быстрый coding-agent на Claude Haiku 4.5. Лучше подходит для маленьких правок, чтения проекта, summary и коротких задач.',
     starter_prompts: [
       'Коротко разберись в приложенном коде и предложи улучшения',
@@ -104,7 +107,7 @@ const CODING_PRESETS: CodingPreset[] = [
     ],
     max_iterations: 4,
     temperature: 0.2,
-    max_tokens: 6144,
+    max_tokens: 12288,
   },
   {
     slug: 'openrouter-coding-agent-heavy-planning',
