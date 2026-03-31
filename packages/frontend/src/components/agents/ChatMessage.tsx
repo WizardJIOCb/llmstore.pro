@@ -185,7 +185,7 @@ function HtmlPreviewBrowser({
     : (previewPageUrl ?? currentHref);
 
   return (
-    <div className="space-y-2">
+    <div className={cn('flex flex-col gap-2', className)}>
       <div className="flex flex-wrap items-center gap-2 rounded-md border border-border/70 bg-background/80 p-2">
         <Button type="button" variant="outline" size="sm" onClick={() => sendCommand('back')} disabled={!canGoBack}>
           Back
@@ -214,25 +214,27 @@ function HtmlPreviewBrowser({
         </Button>
       </div>
 
-      {objectUrl && (
-        <iframe
-          ref={iframeRef}
-          title={title}
-          src={embeddedPreviewUrl ?? objectUrl}
-          sandbox="allow-scripts"
-          className={cn('w-full', className)}
-        />
-      )}
+      <div className="min-h-0 flex-1 overflow-hidden rounded-md border bg-white">
+        {objectUrl && (
+          <iframe
+            ref={iframeRef}
+            title={title}
+            src={embeddedPreviewUrl ?? objectUrl}
+            sandbox="allow-scripts"
+            className="h-full w-full bg-white"
+          />
+        )}
 
-      {!objectUrl && embeddedPreviewUrl && (
-        <iframe
-          ref={iframeRef}
-          title={title}
-          src={embeddedPreviewUrl}
-          sandbox="allow-scripts"
-          className={cn('w-full', className)}
-        />
-      )}
+        {!objectUrl && embeddedPreviewUrl && (
+          <iframe
+            ref={iframeRef}
+            title={title}
+            src={embeddedPreviewUrl}
+            sandbox="allow-scripts"
+            className="h-full w-full bg-white"
+          />
+        )}
+      </div>
     </div>
   );
 }
@@ -399,7 +401,7 @@ export function ChatMessage({
                     title={codingReport.preview.title || 'Agent preview'}
                     html={codingReport.preview.html}
                     previewPageUrl={previewPageUrl}
-                    className="h-80 w-full rounded-md border bg-white"
+                    className="h-80 w-full"
                   />
                 </SectionCard>
               )}
@@ -491,7 +493,7 @@ export function ChatMessage({
               title={htmlPreview.title}
               html={htmlPreview.html}
               previewPageUrl={previewPageUrl}
-              className="min-h-0 flex-1 w-full bg-white"
+              className="min-h-0 flex-1"
             />
           </div>
         </div>
