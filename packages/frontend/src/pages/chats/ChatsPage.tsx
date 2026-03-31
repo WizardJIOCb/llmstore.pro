@@ -237,21 +237,25 @@ export function ChatsPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const shareToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const knownChatIds = useMemo(() => new Set((chats ?? []).map((chat) => chat.id)), [chats]);
+  const safeActiveChatId = activeChatId && (chats == null || chats.length === 0 || knownChatIds.has(activeChatId))
+    ? activeChatId
+    : null;
 
-  const { data: activeChatData, isLoading: activeChatLoading, error: activeChatError } = useChat(activeChatId ?? undefined);
+  const { data: activeChatData, isLoading: activeChatLoading, error: activeChatError } = useChat(safeActiveChatId ?? undefined);
   const { data: activeChatStats, isLoading: chatStatsLoading } = useChatStats(
-    activeChatId ?? undefined,
+    safeActiveChatId ?? undefined,
     isPropertiesOpen,
   );
   const activeChat = activeChatData?.chat ?? null;
-  const isActiveChatResolved = Boolean(activeChatId && activeChat?.id === activeChatId);
+  const isActiveChatResolved = Boolean(safeActiveChatId && activeChat?.id === safeActiveChatId);
   const messages = activeChatData?.messages ?? [];
 
   useEffect(() => {
-    if (!activeChatId || !activeChatError) return;
+    if (!safeActiveChatId || !activeChatError) return;
     if (getApiErrorCode(activeChatError) !== 'NOT_FOUND') return;
     setActiveChatId(isDesktop ? chats?.[0]?.id ?? null : null);
-  }, [activeChatError, activeChatId, chats, isDesktop]);
+  }, [activeChatError, chats, isDesktop, safeActiveChatId]);
 
   useEffect(() => {
     const media = window.matchMedia('(min-width: 768px)');
@@ -292,13 +296,13 @@ export function ChatsPage() {
     setStreamEvents([]);
     setStreamConnected(false);
 
-    if (!activeChatId || !isActiveChatResolved || !activeChat || activeChat.mode !== 'agent') {
+    if (!safeActiveChatId || !isActiveChatResolved || !activeChat || activeChat.mode !== 'agent') {
       eventSourceRef.current?.close();
       eventSourceRef.current = null;
       return;
     }
 
-    const source = new EventSource(`/api/chats/${activeChatId}/events`, { withCredentials: true });
+    const source = new EventSource(`/api/chats/${safeActiveChatId}/events`, { withCredentials: true });
     eventSourceRef.current = source;
 
     const pushEvent = (eventName: string, payload: {
@@ -370,7 +374,7 @@ export function ChatsPage() {
         eventSourceRef.current = null;
       }
     };
-  }, [activeChat?.id, activeChat?.mode, activeChatId, isActiveChatResolved]);
+  }, [activeChat?.id, activeChat?.mode, isActiveChatResolved, safeActiveChatId]);
 
   useEffect(() => {
     const handler = () => setActiveChatId(null);

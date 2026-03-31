@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import Markdown from 'react-markdown';
 import type { CodingReport, ToolTrace } from '../../lib/api/agents';
@@ -35,6 +35,178 @@ function SectionCard({ title, children }: { title: string; children: ReactNode }
         {title}
       </p>
       {children}
+    </div>
+  );
+}
+
+function injectPreviewBridge(html: string, previewId: string): string {
+  const bridge = `
+<script>
+(() => {
+  const previewId = ${JSON.stringify(previewId)};
+  const sendState = () => {
+    try {
+      window.parent.postMessage({
+        type: 'llmstore-preview-state',
+        previewId,
+        href: window.location.href,
+        title: document.title || ''
+      }, '*');
+    } catch {}
+  };
+
+  const wrapHistory = (method) => {
+    const original = history[method];
+    if (typeof original !== 'function') return;
+    history[method] = function(...args) {
+      const result = original.apply(this, args);
+      setTimeout(sendState, 0);
+      return result;
+    };
+  };
+
+  wrapHistory('pushState');
+  wrapHistory('replaceState');
+  window.addEventListener('load', sendState);
+  window.addEventListener('hashchange', sendState);
+  window.addEventListener('popstate', sendState);
+  window.addEventListener('message', (event) => {
+    const data = event.data;
+    if (!data || data.type !== 'llmstore-preview-command' || data.previewId !== previewId) return;
+    if (data.command === 'reload') window.location.reload();
+    if (data.command === 'back') history.back();
+    if (data.command === 'forward') history.forward();
+  });
+  sendState();
+})();
+</script>`;
+
+  if (/<head[^>]*>/i.test(html)) {
+    return html.replace(/<head[^>]*>/i, (match) => `${match}${bridge}`);
+  }
+
+  return `${bridge}${html}`;
+}
+
+function HtmlPreviewBrowser({
+  html,
+  title,
+  className,
+}: {
+  html: string;
+  title: string;
+  className?: string;
+}) {
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const [previewId] = useState(() => `preview-${Math.random().toString(36).slice(2, 10)}`);
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+  const [currentHref, setCurrentHref] = useState('about:blank');
+  const [currentTitle, setCurrentTitle] = useState(title);
+  const [historyEntries, setHistoryEntries] = useState<string[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+
+  useEffect(() => {
+    const blob = new Blob([injectPreviewBridge(html, previewId)], { type: 'text/html' });
+    const nextUrl = URL.createObjectURL(blob);
+    setObjectUrl(nextUrl);
+    setCurrentHref(nextUrl);
+    setCurrentTitle(title);
+    setHistoryEntries([nextUrl]);
+    setHistoryIndex(0);
+
+    return () => URL.revokeObjectURL(nextUrl);
+  }, [html, previewId, title]);
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      const data = event.data as {
+        type?: string;
+        previewId?: string;
+        href?: string;
+        title?: string;
+      };
+      if (!data || data.type !== 'llmstore-preview-state' || data.previewId !== previewId) return;
+
+      const nextHref = typeof data.href === 'string' && data.href.length > 0
+        ? data.href
+        : (objectUrl ?? 'about:blank');
+
+      setCurrentHref(nextHref);
+      setCurrentTitle(typeof data.title === 'string' && data.title.trim().length > 0 ? data.title : title);
+      setHistoryEntries((prev) => {
+        if (prev.length === 0) {
+          setHistoryIndex(0);
+          return [nextHref];
+        }
+
+        if (prev[historyIndex] === nextHref) return prev;
+
+        const existingIndex = prev.lastIndexOf(nextHref);
+        if (existingIndex >= 0) {
+          setHistoryIndex(existingIndex);
+          return prev;
+        }
+
+        const nextHistory = [...prev.slice(0, historyIndex + 1), nextHref];
+        setHistoryIndex(nextHistory.length - 1);
+        return nextHistory.slice(-24);
+      });
+    };
+
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [historyIndex, objectUrl, previewId, title]);
+
+  const sendCommand = (command: 'reload' | 'back' | 'forward') => {
+    iframeRef.current?.contentWindow?.postMessage({
+      type: 'llmstore-preview-command',
+      previewId,
+      command,
+    }, '*');
+  };
+
+  const canGoBack = historyIndex > 0;
+  const canGoForward = historyIndex >= 0 && historyIndex < historyEntries.length - 1;
+  const shareableHref = currentHref && !currentHref.startsWith('about:') ? currentHref : (objectUrl ?? currentHref);
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2 rounded-md border border-border/70 bg-background/80 p-2">
+        <Button type="button" variant="outline" size="sm" onClick={() => sendCommand('back')} disabled={!canGoBack}>
+          Back
+        </Button>
+        <Button type="button" variant="outline" size="sm" onClick={() => sendCommand('forward')} disabled={!canGoForward}>
+          Forward
+        </Button>
+        <Button type="button" variant="outline" size="sm" onClick={() => sendCommand('reload')} disabled={!objectUrl}>
+          Reload
+        </Button>
+        <div className="min-w-0 flex-1 rounded-md border border-border/70 bg-muted/50 px-3 py-1.5">
+          <p className="truncate text-[11px] text-muted-foreground">{currentTitle}</p>
+          <p className="truncate font-mono text-xs text-foreground">{shareableHref || 'about:blank'}</p>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={async () => {
+            await navigator.clipboard.writeText(shareableHref || 'about:blank');
+          }}
+          disabled={!shareableHref}
+        >
+          Copy Link
+        </Button>
+      </div>
+
+      {objectUrl && (
+        <iframe
+          ref={iframeRef}
+          title={title}
+          src={objectUrl}
+          sandbox="allow-scripts"
+          className={className}
+        />
+      )}
     </div>
   );
 }
@@ -178,10 +350,9 @@ export function ChatMessage({
                       </Button>
                     </div>
                   </div>
-                  <iframe
+                  <HtmlPreviewBrowser
                     title={codingReport.preview.title || 'Agent preview'}
-                    srcDoc={codingReport.preview.html}
-                    sandbox="allow-scripts"
+                    html={codingReport.preview.html}
                     className="h-80 w-full rounded-md border bg-white"
                   />
                 </SectionCard>
@@ -265,28 +436,14 @@ export function ChatMessage({
                 <p className="text-xs text-slate-500">Standalone preview</p>
               </div>
               <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    const blob = new Blob([htmlPreview.html], { type: 'text/html' });
-                    const url = URL.createObjectURL(blob);
-                    window.open(url, '_blank', 'noopener,noreferrer');
-                    setTimeout(() => URL.revokeObjectURL(url), 60_000);
-                  }}
-                >
-                  Открыть в новой вкладке
-                </Button>
                 <Button type="button" variant="outline" size="sm" onClick={() => setHtmlPreview(null)}>
                   Закрыть
                 </Button>
               </div>
             </div>
-            <iframe
+            <HtmlPreviewBrowser
               title={htmlPreview.title}
-              srcDoc={htmlPreview.html}
-              sandbox="allow-scripts"
+              html={htmlPreview.html}
               className="min-h-0 flex-1 bg-white"
             />
           </div>
