@@ -44,10 +44,16 @@ export function AgentForm({
   actions = [],
 }: AgentFormProps) {
   const OPENROUTER_MODELS = [
-    { value: 'google/gemini-2.0-flash-001', label: 'Google Gemini 2.0 Flash' },
-    { value: 'google/gemini-2.5-flash', label: 'Google Gemini 2.5 Flash' },
-    { value: 'openai/gpt-4o-mini', label: 'OpenAI GPT-4o Mini' },
+    { value: 'anthropic/claude-sonnet-4.6', label: 'Claude Sonnet 4.6' },
+    { value: 'anthropic/claude-opus-4.6', label: 'Claude Opus 4.6' },
+    { value: 'openai/gpt-5.4-mini', label: 'OpenAI GPT-5.4 Mini' },
+    { value: 'anthropic/claude-haiku-4.5', label: 'Claude Haiku 4.5' },
+    { value: 'qwen/qwen3-coder-plus', label: 'Qwen3 Coder Plus' },
+    { value: 'google/gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro Preview' },
+    { value: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+    { value: 'google/gemini-2.0-flash-001', label: 'Gemini 2.0 Flash' },
     { value: 'openai/gpt-4o', label: 'OpenAI GPT-4o' },
+    { value: 'openai/gpt-4o-mini', label: 'OpenAI GPT-4o Mini' },
   ];
 
   const buildFormState = (source?: Partial<AgentFormData>): AgentFormData => ({
@@ -60,7 +66,7 @@ export function AgentForm({
       max_iterations: 4,
       temperature: 0.3,
       max_tokens: 4096,
-      model_external_id: 'google/gemini-2.0-flash-001',
+      model_external_id: 'anthropic/claude-sonnet-4.6',
       chat_intro: '',
       starter_prompts: [],
     },
@@ -129,7 +135,7 @@ export function AgentForm({
       <div>
         <label className="block text-sm font-medium mb-1">OpenRouter модель</label>
         <select
-          value={form.runtime_config.model_external_id ?? 'google/gemini-2.0-flash-001'}
+          value={form.runtime_config.model_external_id ?? 'anthropic/claude-sonnet-4.6'}
           onChange={(e) =>
             setForm({
               ...form,

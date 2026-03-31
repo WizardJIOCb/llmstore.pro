@@ -73,7 +73,7 @@ const OPENROUTER_CODING_TEMPLATE = {
     max_iterations: 6,
     temperature: 0.2,
     max_tokens: 8192,
-    model_external_id: 'google/gemini-2.5-flash',
+    model_external_id: 'anthropic/claude-sonnet-4.6',
     chat_intro: 'Опишите задачу по разработке, прикрепите ТЗ или кодовые файлы, и агент вернет ход работы, список измененных файлов и preview, если его можно показать прямо в чате.',
     starter_prompts: [
       'Сделай одностраничный лендинг и покажи preview',
@@ -126,7 +126,7 @@ export function AgentBuilderPage() {
         max_iterations: 4,
         temperature: 0.3,
         max_tokens: 4096,
-        model_external_id: 'google/gemini-2.0-flash-001',
+        model_external_id: 'anthropic/claude-sonnet-4.6',
         chat_intro: '',
         starter_prompts: [],
       },
