@@ -683,7 +683,7 @@ export function ChatsPage() {
           </div>
 
           <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-            {(activeChatLoading || sendMessageMutation.isPending) && messages.length === 0 && <div className="flex justify-center py-8"><Spinner /></div>}
+            {activeChatLoading && messages.length === 0 && <div className="flex justify-center py-8"><Spinner /></div>}
             {!activeChatLoading && activeChat && messages.length === 0 && (
               <div className="py-8">
                 {activeChat.mode === 'agent' && (activeAgentName || activeStarterPrompts.length > 0 || activeAgentDescription) ? (
