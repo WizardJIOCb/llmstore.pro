@@ -22,6 +22,7 @@ interface ChatMessageProps {
   attachments?: Attachment[];
   toolTraces?: ToolTrace[];
   codingReport?: CodingReport | null;
+  previewPageUrl?: string | null;
 }
 
 function stripDevReportEnvelope(content: string): string {
@@ -91,31 +92,42 @@ function injectPreviewBridge(html: string, previewId: string): string {
 function HtmlPreviewBrowser({
   html,
   title,
+  previewPageUrl,
   className,
 }: {
   html: string;
   title: string;
+  previewPageUrl?: string | null;
   className?: string;
 }) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [previewId] = useState(() => `preview-${Math.random().toString(36).slice(2, 10)}`);
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
-  const [currentHref, setCurrentHref] = useState('about:blank');
-  const [currentTitle, setCurrentTitle] = useState(title);
+  const embeddedPreviewUrl = previewPageUrl
+    ? `${previewPageUrl}${previewPageUrl.includes('?') ? '&' : '?'}previewId=${encodeURIComponent(previewId)}`
+    : null;
+  const [currentHref, setCurrentHref] = useState(previewPageUrl || 'about:blank');
   const [historyEntries, setHistoryEntries] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
 
   useEffect(() => {
+    if (previewPageUrl) {
+      setObjectUrl(null);
+      setCurrentHref(previewPageUrl);
+      setHistoryEntries([previewPageUrl]);
+      setHistoryIndex(0);
+      return;
+    }
+
     const blob = new Blob([injectPreviewBridge(html, previewId)], { type: 'text/html' });
     const nextUrl = URL.createObjectURL(blob);
     setObjectUrl(nextUrl);
     setCurrentHref(nextUrl);
-    setCurrentTitle(title);
     setHistoryEntries([nextUrl]);
     setHistoryIndex(0);
 
     return () => URL.revokeObjectURL(nextUrl);
-  }, [html, previewId, title]);
+  }, [html, previewId, previewPageUrl]);
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
@@ -129,10 +141,9 @@ function HtmlPreviewBrowser({
 
       const nextHref = typeof data.href === 'string' && data.href.length > 0
         ? data.href
-        : (objectUrl ?? 'about:blank');
+        : (previewPageUrl ?? objectUrl ?? 'about:blank');
 
       setCurrentHref(nextHref);
-      setCurrentTitle(typeof data.title === 'string' && data.title.trim().length > 0 ? data.title : title);
       setHistoryEntries((prev) => {
         if (prev.length === 0) {
           setHistoryIndex(0);
@@ -155,7 +166,7 @@ function HtmlPreviewBrowser({
 
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [historyIndex, objectUrl, previewId, title]);
+  }, [historyIndex, objectUrl, previewId, previewPageUrl]);
 
   const sendCommand = (command: 'reload' | 'back' | 'forward') => {
     iframeRef.current?.contentWindow?.postMessage({
@@ -167,7 +178,11 @@ function HtmlPreviewBrowser({
 
   const canGoBack = historyIndex > 0;
   const canGoForward = historyIndex >= 0 && historyIndex < historyEntries.length - 1;
-  const shareableHref = currentHref && !currentHref.startsWith('about:') ? currentHref : (objectUrl ?? currentHref);
+  const shareableHref = currentHref
+    && !currentHref.startsWith('about:')
+    && !currentHref.startsWith('blob:')
+    ? currentHref
+    : (previewPageUrl ?? currentHref);
 
   return (
     <div className="space-y-2">
@@ -178,12 +193,13 @@ function HtmlPreviewBrowser({
         <Button type="button" variant="outline" size="sm" onClick={() => sendCommand('forward')} disabled={!canGoForward}>
           Forward
         </Button>
-        <Button type="button" variant="outline" size="sm" onClick={() => sendCommand('reload')} disabled={!objectUrl}>
+        <Button type="button" variant="outline" size="sm" onClick={() => sendCommand('reload')} disabled={!(embeddedPreviewUrl || objectUrl)}>
           Reload
         </Button>
         <div className="min-w-0 flex-1 rounded-md border border-border/70 bg-muted/50 px-3 py-1.5">
-          <p className="truncate text-[11px] text-muted-foreground">{currentTitle}</p>
-          <p className="truncate font-mono text-xs text-foreground">{shareableHref || 'about:blank'}</p>
+          <p className="truncate font-mono text-xs text-foreground" title={shareableHref || 'about:blank'}>
+            {shareableHref || 'about:blank'}
+          </p>
         </div>
         <Button
           type="button"
@@ -202,9 +218,19 @@ function HtmlPreviewBrowser({
         <iframe
           ref={iframeRef}
           title={title}
-          src={objectUrl}
+          src={embeddedPreviewUrl ?? objectUrl}
           sandbox="allow-scripts"
-          className={className}
+          className={cn('w-full', className)}
+        />
+      )}
+
+      {!objectUrl && embeddedPreviewUrl && (
+        <iframe
+          ref={iframeRef}
+          title={title}
+          src={embeddedPreviewUrl}
+          sandbox="allow-scripts"
+          className={cn('w-full', className)}
         />
       )}
     </div>
@@ -217,6 +243,7 @@ export function ChatMessage({
   attachments = [],
   toolTraces = [],
   codingReport = null,
+  previewPageUrl = null,
 }: ChatMessageProps) {
   const isUser = role === 'user';
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -341,6 +368,24 @@ export function ChatMessage({
                         type="button"
                         variant="outline"
                         size="sm"
+                        onClick={() => {
+                          if (previewPageUrl) {
+                            window.open(previewPageUrl, '_blank', 'noopener,noreferrer');
+                            return;
+                          }
+
+                          const blob = new Blob([codingReport.preview?.html || ''], { type: 'text/html' });
+                          const url = URL.createObjectURL(blob);
+                          window.open(url, '_blank', 'noopener,noreferrer');
+                          setTimeout(() => URL.revokeObjectURL(url), 60_000);
+                        }}
+                      >
+                        В новом окне
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
                         onClick={() => setHtmlPreview({
                           title: codingReport.preview?.title || 'Agent preview',
                           html: codingReport.preview?.html || '',
@@ -353,6 +398,7 @@ export function ChatMessage({
                   <HtmlPreviewBrowser
                     title={codingReport.preview.title || 'Agent preview'}
                     html={codingReport.preview.html}
+                    previewPageUrl={previewPageUrl}
                     className="h-80 w-full rounded-md border bg-white"
                   />
                 </SectionCard>
@@ -444,7 +490,8 @@ export function ChatMessage({
             <HtmlPreviewBrowser
               title={htmlPreview.title}
               html={htmlPreview.html}
-              className="min-h-0 flex-1 bg-white"
+              previewPageUrl={previewPageUrl}
+              className="min-h-0 flex-1 w-full bg-white"
             />
           </div>
         </div>

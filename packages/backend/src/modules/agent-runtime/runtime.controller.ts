@@ -103,6 +103,22 @@ export async function getChatById(req: Request<{ chatId: string }>, res: Respons
   }
 }
 
+export async function getChatMessagePreview(req: Request<{ chatId: string; messageId: string }>, res: Response, next: NextFunction) {
+  try {
+    const html = await runtimeService.getChatMessagePreviewHtml(
+      req.params.chatId,
+      req.params.messageId,
+      req.session.userId!,
+      typeof req.query.previewId === 'string' ? req.query.previewId : undefined,
+    );
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+    res.send(html);
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function streamChatEvents(req: Request<{ chatId: string }>, res: Response, next: NextFunction) {
   try {
     await runtimeService.streamChatEvents(req.params.chatId, req.session.userId!, res);

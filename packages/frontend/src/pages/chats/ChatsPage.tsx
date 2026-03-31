@@ -759,6 +759,7 @@ export function ChatsPage() {
                   attachments={msg.attachments ?? extractAttachments(msg.usage)}
                   toolTraces={msg.role === 'assistant' ? extractToolTraces(msg.usage) : undefined}
                   codingReport={msg.role === 'assistant' ? extractCodingReport(msg.usage, msg.content) : undefined}
+                  previewPageUrl={msg.role === 'assistant' && activeChat ? `/api/chats/${activeChat.id}/messages/${msg.id}/preview` : undefined}
                 />
                 {msg.role === 'assistant' && (
                   <div className="mt-1 ml-1">

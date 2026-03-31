@@ -554,6 +554,57 @@ function normalizeAssistantChatPayload(
   };
 }
 
+function injectPreviewBridgeHtml(html: string, previewId?: string): string {
+  if (!previewId) return html;
+
+  const bridge = `
+<script>
+(() => {
+  const previewId = ${JSON.stringify(previewId)};
+  const sendState = () => {
+    try {
+      window.parent.postMessage({
+        type: 'llmstore-preview-state',
+        previewId,
+        href: window.location.href,
+        title: document.title || ''
+      }, '*');
+    } catch {}
+  };
+
+  const wrapHistory = (method) => {
+    const original = history[method];
+    if (typeof original !== 'function') return;
+    history[method] = function(...args) {
+      const result = original.apply(this, args);
+      setTimeout(sendState, 0);
+      return result;
+    };
+  };
+
+  wrapHistory('pushState');
+  wrapHistory('replaceState');
+  window.addEventListener('load', sendState);
+  window.addEventListener('hashchange', sendState);
+  window.addEventListener('popstate', sendState);
+  window.addEventListener('message', (event) => {
+    const data = event.data;
+    if (!data || data.type !== 'llmstore-preview-command' || data.previewId !== previewId) return;
+    if (data.command === 'reload') window.location.reload();
+    if (data.command === 'back') history.back();
+    if (data.command === 'forward') history.forward();
+  });
+  sendState();
+})();
+</script>`;
+
+  if (/<head[^>]*>/i.test(html)) {
+    return html.replace(/<head[^>]*>/i, (match) => `${match}${bridge}`);
+  }
+
+  return `${bridge}${html}`;
+}
+
 export async function prepareUploadedChatFiles(files: Express.Multer.File[]): Promise<ChatAttachmentMeta[]> {
   const result: ChatAttachmentMeta[] = [];
   for (const file of files) {
@@ -1753,6 +1804,38 @@ export async function getChatById(chatId: string, userId: string): Promise<Conve
     },
     messages,
   };
+}
+
+export async function getChatMessagePreviewHtml(
+  chatId: string,
+  messageId: string,
+  userId: string,
+  previewId?: string,
+): Promise<string> {
+  await getConversationForUser(chatId, userId);
+
+  const [message] = await db
+    .select()
+    .from(chatConversationMessages)
+    .where(and(
+      eq(chatConversationMessages.id, messageId),
+      eq(chatConversationMessages.conversation_id, chatId),
+    ))
+    .limit(1);
+
+  if (!message || message.role !== 'assistant') {
+    throw new NotFoundError('Preview not found');
+  }
+
+  const rawUsage = (message.usage_json as Record<string, unknown> | null) ?? null;
+  const normalized = normalizeAssistantChatPayload(message.content_text, rawUsage);
+  const preview = normalized.codingReport?.preview;
+
+  if (!preview || preview.type !== 'html' || !preview.html) {
+    throw new NotFoundError('Preview not found');
+  }
+
+  return injectPreviewBridgeHtml(preview.html, previewId);
 }
 
 export async function streamChatEvents(chatId: string, userId: string, res: Response) {
