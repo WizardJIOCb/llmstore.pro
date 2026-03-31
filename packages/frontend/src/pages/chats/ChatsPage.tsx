@@ -104,9 +104,90 @@ function extractToolTraces(value: Record<string, unknown> | null): ToolTrace[] {
     .map((item) => item as ToolTrace);
 }
 
-function extractCodingReport(value: Record<string, unknown> | null): CodingReport | null {
-  if (!value || !value.coding_report || typeof value.coding_report !== 'object') return null;
-  return value.coding_report as CodingReport;
+function extractFirstJsonObject(value: string): string | null {
+  const start = value.indexOf('{');
+  if (start === -1) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = start; index < value.length; index += 1) {
+    const char = value[index];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (char === '\\') {
+        escaped = true;
+        continue;
+      }
+      if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+
+    if (char === '{') {
+      depth += 1;
+      continue;
+    }
+
+    if (char === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return value.slice(start, index + 1);
+      }
+    }
+  }
+
+  return null;
+}
+
+function extractCodingReportFromContent(content: string): CodingReport | null {
+  const openMatch = content.match(/<dev-report>\s*/i);
+  if (!openMatch || openMatch.index == null) return null;
+
+  const payload = content.slice(openMatch.index + openMatch[0].length);
+  const closeMatch = payload.match(/\s*<\/dev-report>/i);
+  const candidate = closeMatch ? payload.slice(0, closeMatch.index) : payload;
+
+  try {
+    return JSON.parse(candidate) as CodingReport;
+  } catch {
+    const rescued = extractFirstJsonObject(candidate);
+    if (!rescued) return null;
+    try {
+      return JSON.parse(rescued) as CodingReport;
+    } catch {
+      return null;
+    }
+  }
+}
+
+function extractCodingReport(value: Record<string, unknown> | null, content?: string): CodingReport | null {
+  if (value && value.coding_report && typeof value.coding_report === 'object') {
+    return value.coding_report as CodingReport;
+  }
+  if (typeof content === 'string' && content.includes('<dev-report>')) {
+    return extractCodingReportFromContent(content);
+  }
+  return null;
+}
+
+function formatChatPreview(preview: string | null): string | null {
+  if (!preview) return preview;
+  const cleaned = preview.replace(/<dev-report>\s*[\s\S]*?(?:\s*<\/dev-report>|$)/gi, '').trim();
+  if (cleaned) return cleaned;
+  const summaryMatch = preview.match(/"summary"\s*:\s*"([^"]+)/);
+  return summaryMatch?.[1] ?? preview;
 }
 
 type MenuItem = { kind: 'chat'; id: string } | null;
@@ -499,7 +580,7 @@ export function ChatsPage() {
       <button type="button" onClick={() => setActiveChatId(chat.id)} className="w-full pr-8 text-left">
         <p className="truncate text-sm font-medium">{chat.title}</p>
         <p className="truncate text-xs text-muted-foreground">
-          {chat.last_message_preview || (chat.mode === 'general' ? 'Общение' : 'Чат с ботом')}
+          {formatChatPreview(chat.last_message_preview) || (chat.mode === 'general' ? 'Общение' : 'Чат с ботом')}
         </p>
         <p className="text-xs text-muted-foreground">{formatDate(chat.last_message_at)}</p>
       </button>
@@ -662,7 +743,7 @@ export function ChatsPage() {
                   content={msg.content}
                   attachments={msg.attachments ?? extractAttachments(msg.usage)}
                   toolTraces={msg.role === 'assistant' ? extractToolTraces(msg.usage) : undefined}
-                  codingReport={msg.role === 'assistant' ? extractCodingReport(msg.usage) : undefined}
+                  codingReport={msg.role === 'assistant' ? extractCodingReport(msg.usage, msg.content) : undefined}
                 />
                 {msg.role === 'assistant' && (
                   <div className="mt-1 ml-1">
