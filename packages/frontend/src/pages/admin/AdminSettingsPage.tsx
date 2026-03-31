@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { AdminLayout } from '../../components/admin/AdminLayout';
-import { Button, Input, Spinner } from '../../components/ui';
+import { Button, Input, Spinner, Textarea } from '../../components/ui';
 import { adminApi } from '../../lib/api/admin';
 import { useAdminSettings, useAdjustUserBalance, useUpdateAdminSettings } from '../../hooks/useAdmin';
 
@@ -17,6 +17,18 @@ function formatBalanceUsd(value: string | number): string {
   return `$${Number(value ?? 0).toFixed(2)}`;
 }
 
+function promptsToText(value: string[]): string {
+  return value.join('\n');
+}
+
+function textToPrompts(value: string): string[] {
+  return value
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .filter((item, index, list) => item.length > 0 && list.indexOf(item) === index)
+    .slice(0, 12);
+}
+
 export function AdminSettingsPage() {
   const { data: settings, isLoading: settingsLoading } = useAdminSettings();
   const updateSettingsMutation = useUpdateAdminSettings();
@@ -27,6 +39,11 @@ export function AdminSettingsPage() {
   const [topupTelegram, setTopupTelegram] = useState('');
   const [topupEmail, setTopupEmail] = useState('');
   const [topupPhone, setTopupPhone] = useState('');
+  const [codingPrompts, setCodingPrompts] = useState('');
+  const [codingFastPrompts, setCodingFastPrompts] = useState('');
+  const [codingHeavyPrompts, setCodingHeavyPrompts] = useState('');
+  const [codingAlternativePrompts, setCodingAlternativePrompts] = useState('');
+  const [dtfPrompts, setDtfPrompts] = useState('');
   const [settingsSaved, setSettingsSaved] = useState(false);
 
   const [userSearch, setUserSearch] = useState('');
@@ -41,6 +58,11 @@ export function AdminSettingsPage() {
     setTopupTelegram(settings.topup_telegram);
     setTopupEmail(settings.topup_email);
     setTopupPhone(settings.topup_phone);
+    setCodingPrompts(promptsToText(settings.starter_prompts_openrouter_coding_agent));
+    setCodingFastPrompts(promptsToText(settings.starter_prompts_openrouter_coding_agent_fast));
+    setCodingHeavyPrompts(promptsToText(settings.starter_prompts_openrouter_coding_agent_heavy_planning));
+    setCodingAlternativePrompts(promptsToText(settings.starter_prompts_openrouter_coding_agent_coding_alternative));
+    setDtfPrompts(promptsToText(settings.starter_prompts_dtf_news_agent));
   }, [settings]);
 
   const searchTerm = userSearch.trim();
@@ -66,6 +88,11 @@ export function AdminSettingsPage() {
         topup_telegram: topupTelegram,
         topup_email: topupEmail,
         topup_phone: topupPhone,
+        starter_prompts_openrouter_coding_agent: textToPrompts(codingPrompts),
+        starter_prompts_openrouter_coding_agent_fast: textToPrompts(codingFastPrompts),
+        starter_prompts_openrouter_coding_agent_heavy_planning: textToPrompts(codingHeavyPrompts),
+        starter_prompts_openrouter_coding_agent_coding_alternative: textToPrompts(codingAlternativePrompts),
+        starter_prompts_dtf_news_agent: textToPrompts(dtfPrompts),
       },
       {
         onSuccess: () => {
@@ -164,6 +191,38 @@ export function AdminSettingsPage() {
                       onChange={(e) => setTopupPhone(e.target.value)}
                       placeholder="89264769929"
                     />
+                  </div>
+                </div>
+
+                <div className="rounded-xl border bg-muted/20 p-4 space-y-4">
+                  <div>
+                    <p className="text-sm font-medium">Стартовые промпты встроенных агентов</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Один промпт с новой строки. Эти значения используются в чатах, playground и шаблонах конструктора.
+                    </p>
+                  </div>
+
+                  <div className="grid gap-4">
+                    <div>
+                      <label className="mb-1 block text-sm font-medium">OpenRouter Coding Agent</label>
+                      <Textarea value={codingPrompts} onChange={(e) => setCodingPrompts(e.target.value)} rows={4} />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-sm font-medium">OpenRouter Coding Agent Fast</label>
+                      <Textarea value={codingFastPrompts} onChange={(e) => setCodingFastPrompts(e.target.value)} rows={4} />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-sm font-medium">OpenRouter Coding Agent Heavy Planning</label>
+                      <Textarea value={codingHeavyPrompts} onChange={(e) => setCodingHeavyPrompts(e.target.value)} rows={4} />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-sm font-medium">OpenRouter Coding Agent Coding Alternative</label>
+                      <Textarea value={codingAlternativePrompts} onChange={(e) => setCodingAlternativePrompts(e.target.value)} rows={4} />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-sm font-medium">DTF News Agent</label>
+                      <Textarea value={dtfPrompts} onChange={(e) => setDtfPrompts(e.target.value)} rows={4} />
+                    </div>
                   </div>
                 </div>
               </div>

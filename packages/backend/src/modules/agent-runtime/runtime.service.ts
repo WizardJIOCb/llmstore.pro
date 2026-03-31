@@ -22,7 +22,11 @@ import { logger } from '../../lib/logger.js';
 import type { ChatMessage, ToolDefinitionParam } from '../openrouter/types.js';
 import { UPLOADS_DIR } from '../../config/upload.js';
 import { openChatEventStream, publishChatEvent } from './chat-events.service.js';
-import { getUsdToRubRate } from '../../lib/app-settings.js';
+import {
+  getStarterPromptSettings,
+  getUsdToRubRate,
+  resolveStarterPromptsForAgentSlug,
+} from '../../lib/app-settings.js';
 import { chargeUserBalanceForUsage } from '../../lib/billing.js';
 
 const DEFAULT_MODEL = 'google/gemini-2.0-flash-001';
@@ -1689,6 +1693,7 @@ async function getAgentChatMeta(agentId: string | null): Promise<{
 
   const [row] = await db
     .select({
+      slug: agents.slug,
       name: agents.name,
       description: agents.description,
       runtime_config: agentVersions.runtime_config,
@@ -1704,10 +1709,16 @@ async function getAgentChatMeta(agentId: string | null): Promise<{
 
   const runtime = row.runtime_config as Record<string, unknown> | null;
   const chatIntro = typeof runtime?.chat_intro === 'string' ? runtime.chat_intro.trim() : '';
+  const starterPrompts = resolveStarterPromptsForAgentSlug(
+    row.slug,
+    extractStarterPrompts(runtime?.starter_prompts),
+    await getStarterPromptSettings(),
+  );
+
   return {
     agent_name: row.name ?? null,
     agent_chat_description: chatIntro || row.description || null,
-    agent_starter_prompts: extractStarterPrompts(runtime?.starter_prompts),
+    agent_starter_prompts: starterPrompts,
   };
 }
 
@@ -1775,9 +1786,11 @@ export async function listChats(userId: string): Promise<ConversationListItem[]>
 
 export async function listChatAgents(userId: string, userRole?: string): Promise<ChatAgentOption[]> {
   const canSeeRestrictedAgents = isPrivilegedRole(userRole);
+  const starterPromptSettings = await getStarterPromptSettings();
   const rows = await db
     .select({
       id: agents.id,
+      slug: agents.slug,
       name: agents.name,
       owner_user_id: agents.owner_user_id,
       description: agents.description,
@@ -1810,8 +1823,10 @@ export async function listChatAgents(userId: string, userRole?: string): Promise
       (typeof (row.runtime_config as Record<string, unknown> | null)?.chat_intro === 'string'
         ? ((row.runtime_config as Record<string, unknown>).chat_intro as string).trim()
         : '') || row.description || null,
-    starter_prompts: extractStarterPrompts(
-      (row.runtime_config as Record<string, unknown> | null)?.starter_prompts,
+    starter_prompts: resolveStarterPromptsForAgentSlug(
+      row.slug,
+      extractStarterPrompts((row.runtime_config as Record<string, unknown> | null)?.starter_prompts),
+      starterPromptSettings,
     ),
   }));
 }

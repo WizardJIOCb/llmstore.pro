@@ -8,6 +8,10 @@ import { users } from '../../db/schema/auth.js';
 import { eq, and, desc, sql, ilike, or, inArray } from 'drizzle-orm';
 import { NotFoundError, AppError } from '../../middleware/error-handler.js';
 import { v4 as uuidv4 } from 'uuid';
+import {
+  getStarterPromptSettings,
+  resolveStarterPromptsForAgentSlug,
+} from '../../lib/app-settings.js';
 
 // --- Types ---
 
@@ -71,6 +75,30 @@ function generateSlug(name: string): string {
     .replace(/^-|-$/g, '')
     .slice(0, 200)
     + '-' + uuidv4().slice(0, 6);
+}
+
+async function applyStarterPromptOverrides<T extends {
+  slug: string | null;
+  version: { runtime_config: Record<string, unknown> | null } | null;
+}>(agent: T): Promise<T> {
+  if (!agent.version?.runtime_config) return agent;
+
+  const runtimeConfig = agent.version.runtime_config as Record<string, unknown>;
+  const currentPrompts = Array.isArray(runtimeConfig.starter_prompts)
+    ? runtimeConfig.starter_prompts.filter((item): item is string => typeof item === 'string')
+    : [];
+  const starterPromptSettings = await getStarterPromptSettings();
+
+  return {
+    ...agent,
+    version: {
+      ...agent.version,
+      runtime_config: {
+        ...runtimeConfig,
+        starter_prompts: resolveStarterPromptsForAgentSlug(agent.slug, currentPrompts, starterPromptSettings),
+      },
+    },
+  };
 }
 
 // --- Service ---
@@ -143,7 +171,7 @@ export async function getAgent(agentId: string, userId: string, userRole?: strin
     tools = versionTools.map(vt => vt.tool);
   }
 
-  return { ...agent, version, tools };
+  return applyStarterPromptOverrides({ ...agent, version, tools });
 }
 
 export async function getAgentById(agentId: string) {
@@ -166,7 +194,7 @@ export async function getAgentById(agentId: string) {
     tools = versionTools.map(vt => vt.tool);
   }
 
-  return { ...agent, version, tools };
+  return applyStarterPromptOverrides({ ...agent, version, tools });
 }
 
 export async function listAgents(userId: string) {
@@ -348,13 +376,25 @@ export async function adoptPublicAgent(agentId: string, userId: string) {
     .where(eq(agentVersionTools.agent_version_id, sourceVersion.id))
     .orderBy(agentVersionTools.order_index);
 
+  const runtimeConfig = (sourceVersion.runtime_config as Record<string, unknown> | null) ?? {};
+  const starterPromptSettings = await getStarterPromptSettings();
+
   const cloned = await createAgent(userId, {
     name: `${sourceAgent.name} (копия)`,
     description: sourceAgent.description ?? undefined,
     visibility: 'private',
     system_prompt: sourceVersion.system_prompt ?? undefined,
     model_id: sourceVersion.model_id ?? null,
-    runtime_config: (sourceVersion.runtime_config as Record<string, unknown> | null) ?? undefined,
+    runtime_config: {
+      ...runtimeConfig,
+      starter_prompts: resolveStarterPromptsForAgentSlug(
+        sourceAgent.slug,
+        Array.isArray(runtimeConfig.starter_prompts)
+          ? runtimeConfig.starter_prompts.filter((item): item is string => typeof item === 'string')
+          : [],
+        starterPromptSettings,
+      ),
+    },
     tool_ids: sourceToolRows.map((row) => row.tool_definition_id),
   });
 

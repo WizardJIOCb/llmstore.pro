@@ -70,6 +70,11 @@ const updateAdminSettingsSchema = z.object({
   topup_telegram: z.string().min(1).max(100),
   topup_email: z.string().email().max(255),
   topup_phone: z.string().min(1).max(50),
+  starter_prompts_openrouter_coding_agent: z.array(z.string().trim().min(1).max(300)).min(1).max(12),
+  starter_prompts_openrouter_coding_agent_fast: z.array(z.string().trim().min(1).max(300)).min(1).max(12),
+  starter_prompts_openrouter_coding_agent_heavy_planning: z.array(z.string().trim().min(1).max(300)).min(1).max(12),
+  starter_prompts_openrouter_coding_agent_coding_alternative: z.array(z.string().trim().min(1).max(300)).min(1).max(12),
+  starter_prompts_dtf_news_agent: z.array(z.string().trim().min(1).max(300)).min(1).max(12),
 });
 
 export const validateUpdateAdminSettings = validate(updateAdminSettingsSchema, 'body');

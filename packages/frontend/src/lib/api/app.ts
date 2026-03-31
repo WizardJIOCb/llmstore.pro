@@ -8,6 +8,13 @@ export interface AppSettings {
     email: string;
     phone: string;
   };
+  starter_prompts: {
+    openrouter_coding_agent: string[];
+    openrouter_coding_agent_fast: string[];
+    openrouter_coding_agent_heavy_planning: string[];
+    openrouter_coding_agent_coding_alternative: string[];
+    dtf_news_agent: string[];
+  };
 }
 
 export const appApi = {

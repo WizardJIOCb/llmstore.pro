@@ -4,6 +4,7 @@ import { TemplatePicker } from '../../components/agents/TemplatePicker';
 import { AgentForm } from '../../components/agents/AgentForm';
 import { AgentWizardBuilder } from '../../components/agents/AgentWizardBuilder';
 import { useBuiltinTools, useCreateAgent } from '../../hooks/useAgents';
+import { useAppSettings } from '../../hooks/useAppSettings';
 import { Spinner } from '../../components/ui/Spinner';
 
 const DTF_TEMPLATE = {
@@ -28,11 +29,7 @@ const DTF_TEMPLATE = {
     max_tokens: 4096,
     model_external_id: 'google/gemini-2.0-flash-001',
     chat_intro: 'Помогаю с новостями DTF: могу показать свежие статьи, разобрать выбранную и сделать краткий пересказ.',
-    starter_prompts: [
-      'Покажи 5 последних новостей DTF',
-      'Найди самую обсуждаемую новость и кратко объясни контекст',
-      'Сделай короткий дайджест главных тем за сегодня',
-    ],
+    starter_prompts: [],
   },
 };
 
@@ -75,11 +72,7 @@ const OPENROUTER_CODING_TEMPLATE = {
     max_tokens: 8192,
     model_external_id: 'anthropic/claude-sonnet-4.6',
     chat_intro: 'Опишите задачу по разработке, прикрепите ТЗ или кодовые файлы, и агент вернет ход работы, список измененных файлов и preview, если его можно показать прямо в чате.',
-    starter_prompts: [
-      'Сделай одностраничный лендинг и покажи preview',
-      'Проанализируй приложенный файл и предложи улучшенную версию',
-      'Собери структуру небольшой React-фичи по ТЗ',
-    ],
+    starter_prompts: [],
   },
 };
 
@@ -88,6 +81,7 @@ export function AgentBuilderPage() {
   const [step, setStep] = useState<'template' | 'form' | 'wizard'>('template');
   const [templateId, setTemplateId] = useState<string | null>(null);
   const { data: tools, isLoading: toolsLoading } = useBuiltinTools();
+  const { data: appSettings } = useAppSettings();
   const createAgent = useCreateAgent();
 
   const handleTemplateSelect = (id: string) => {
@@ -109,11 +103,25 @@ export function AgentBuilderPage() {
 
   const getInitialData = () => {
     if (templateId === 'dtf-news') {
-      return { ...DTF_TEMPLATE, tool_ids: getDtfToolIds() };
+      return {
+        ...DTF_TEMPLATE,
+        tool_ids: getDtfToolIds(),
+        runtime_config: {
+          ...DTF_TEMPLATE.runtime_config,
+          starter_prompts: appSettings?.starter_prompts.dtf_news_agent ?? [],
+        },
+      };
     }
 
     if (templateId === 'openrouter-coding') {
-      return { ...OPENROUTER_CODING_TEMPLATE, tool_ids: [] };
+      return {
+        ...OPENROUTER_CODING_TEMPLATE,
+        tool_ids: [],
+        runtime_config: {
+          ...OPENROUTER_CODING_TEMPLATE.runtime_config,
+          starter_prompts: appSettings?.starter_prompts.openrouter_coding_agent ?? [],
+        },
+      };
     }
 
     return {

@@ -17,6 +17,7 @@ import {
   getAdminSettings as getGlobalAdminSettings,
   setUsdToRubRate,
   updateTopUpSettings,
+  updateStarterPromptSettings,
 } from '../../lib/app-settings.js';
 
 // ─── Admin catalog list (offset pagination) ─────────────────
@@ -41,12 +42,24 @@ export async function updateAdminSettings(
     topup_telegram: string;
     topup_email: string;
     topup_phone: string;
+    starter_prompts_openrouter_coding_agent: string[];
+    starter_prompts_openrouter_coding_agent_fast: string[];
+    starter_prompts_openrouter_coding_agent_heavy_planning: string[];
+    starter_prompts_openrouter_coding_agent_coding_alternative: string[];
+    starter_prompts_dtf_news_agent: string[];
   },
   adminUserId: string,
 ) {
-  const [usdToRubRate, topUp] = await Promise.all([
+  const [usdToRubRate, topUp, starterPrompts] = await Promise.all([
     setUsdToRubRate(input.usd_to_rub_rate, adminUserId),
     updateTopUpSettings(input, adminUserId),
+    updateStarterPromptSettings({
+      openrouter_coding_agent: input.starter_prompts_openrouter_coding_agent,
+      openrouter_coding_agent_fast: input.starter_prompts_openrouter_coding_agent_fast,
+      openrouter_coding_agent_heavy_planning: input.starter_prompts_openrouter_coding_agent_heavy_planning,
+      openrouter_coding_agent_coding_alternative: input.starter_prompts_openrouter_coding_agent_coding_alternative,
+      dtf_news_agent: input.starter_prompts_dtf_news_agent,
+    }, adminUserId),
   ]);
 
   return {
@@ -55,6 +68,11 @@ export async function updateAdminSettings(
     topup_telegram: topUp.telegram,
     topup_email: topUp.email,
     topup_phone: topUp.phone,
+    starter_prompts_openrouter_coding_agent: starterPrompts.openrouter_coding_agent,
+    starter_prompts_openrouter_coding_agent_fast: starterPrompts.openrouter_coding_agent_fast,
+    starter_prompts_openrouter_coding_agent_heavy_planning: starterPrompts.openrouter_coding_agent_heavy_planning,
+    starter_prompts_openrouter_coding_agent_coding_alternative: starterPrompts.openrouter_coding_agent_coding_alternative,
+    starter_prompts_dtf_news_agent: starterPrompts.dtf_news_agent,
   };
 }
 
