@@ -29,6 +29,16 @@ function stripDevReportEnvelope(content: string): string {
   return content.replace(/<dev-report>\s*[\s\S]*?(?:\s*<\/dev-report>|$)/gi, '').trim();
 }
 
+function resolveBrowserUrl(url?: string | null): string | null {
+  if (!url) return null;
+
+  try {
+    return new URL(url, window.location.origin).toString();
+  } catch {
+    return url;
+  }
+}
+
 function SectionCard({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="rounded-lg border border-border/70 bg-background/70 p-3">
@@ -103,18 +113,19 @@ function HtmlPreviewBrowser({
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [previewId] = useState(() => `preview-${Math.random().toString(36).slice(2, 10)}`);
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
-  const embeddedPreviewUrl = previewPageUrl
-    ? `${previewPageUrl}${previewPageUrl.includes('?') ? '&' : '?'}previewId=${encodeURIComponent(previewId)}`
+  const resolvedPreviewPageUrl = resolveBrowserUrl(previewPageUrl);
+  const embeddedPreviewUrl = resolvedPreviewPageUrl
+    ? `${resolvedPreviewPageUrl}${resolvedPreviewPageUrl.includes('?') ? '&' : '?'}previewId=${encodeURIComponent(previewId)}`
     : null;
-  const [currentHref, setCurrentHref] = useState(previewPageUrl || 'about:blank');
+  const [currentHref, setCurrentHref] = useState(resolvedPreviewPageUrl || 'about:blank');
   const [historyEntries, setHistoryEntries] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
 
   useEffect(() => {
-    if (previewPageUrl) {
+    if (resolvedPreviewPageUrl) {
       setObjectUrl(null);
-      setCurrentHref(previewPageUrl);
-      setHistoryEntries([previewPageUrl]);
+      setCurrentHref(resolvedPreviewPageUrl);
+      setHistoryEntries([resolvedPreviewPageUrl]);
       setHistoryIndex(0);
       return;
     }
@@ -127,7 +138,7 @@ function HtmlPreviewBrowser({
     setHistoryIndex(0);
 
     return () => URL.revokeObjectURL(nextUrl);
-  }, [html, previewId, previewPageUrl]);
+  }, [html, previewId, resolvedPreviewPageUrl]);
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
@@ -141,7 +152,7 @@ function HtmlPreviewBrowser({
 
       const nextHref = typeof data.href === 'string' && data.href.length > 0
         ? data.href
-        : (previewPageUrl ?? objectUrl ?? 'about:blank');
+        : (resolvedPreviewPageUrl ?? objectUrl ?? 'about:blank');
 
       setCurrentHref(nextHref);
       setHistoryEntries((prev) => {
@@ -166,7 +177,7 @@ function HtmlPreviewBrowser({
 
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [historyIndex, objectUrl, previewId, previewPageUrl]);
+  }, [historyIndex, objectUrl, previewId, resolvedPreviewPageUrl]);
 
   const sendCommand = (command: 'reload' | 'back' | 'forward') => {
     iframeRef.current?.contentWindow?.postMessage({
@@ -182,7 +193,7 @@ function HtmlPreviewBrowser({
     && !currentHref.startsWith('about:')
     && !currentHref.startsWith('blob:')
     ? currentHref
-    : (previewPageUrl ?? currentHref);
+    : (resolvedPreviewPageUrl ?? currentHref);
 
   return (
     <div className={cn('flex flex-col gap-2', className)}>
@@ -251,6 +262,7 @@ export function ChatMessage({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewAlt, setPreviewAlt] = useState('');
   const [htmlPreview, setHtmlPreview] = useState<{ title: string; html: string } | null>(null);
+  const absolutePreviewPageUrl = resolveBrowserUrl(previewPageUrl);
   const renderedContent = !isUser ? stripDevReportEnvelope(content) : content;
 
   return (
@@ -371,8 +383,8 @@ export function ChatMessage({
                         variant="outline"
                         size="sm"
                         onClick={() => {
-                          if (previewPageUrl) {
-                            window.open(previewPageUrl, '_blank', 'noopener,noreferrer');
+                          if (absolutePreviewPageUrl) {
+                            window.open(absolutePreviewPageUrl, '_blank', 'noopener,noreferrer');
                             return;
                           }
 
@@ -400,7 +412,7 @@ export function ChatMessage({
                   <HtmlPreviewBrowser
                     title={codingReport.preview.title || 'Agent preview'}
                     html={codingReport.preview.html}
-                    previewPageUrl={previewPageUrl}
+                    previewPageUrl={absolutePreviewPageUrl}
                     className="h-80 w-full"
                   />
                 </SectionCard>
@@ -492,7 +504,7 @@ export function ChatMessage({
             <HtmlPreviewBrowser
               title={htmlPreview.title}
               html={htmlPreview.html}
-              previewPageUrl={previewPageUrl}
+              previewPageUrl={absolutePreviewPageUrl}
               className="min-h-0 flex-1"
             />
           </div>
