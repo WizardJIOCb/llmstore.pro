@@ -24,6 +24,7 @@ router.get('/chats', requireAuth, controller.listChats);
 router.get('/chats/agents', requireAuth, controller.listChatAgents);
 router.post('/chats', requireAuth, validateCreateChat, controller.createChat);
 router.get('/chats/:chatId', requireAuth, controller.getChatById);
+router.get('/chats/:chatId/events', requireAuth, controller.streamChatEvents);
 router.get('/chats/:chatId/stats', requireAuth, controller.getChatStats);
 router.patch('/chats/:chatId', requireAuth, validateUpdateChat, controller.updateChat);
 router.delete('/chats/:chatId', requireAuth, controller.deleteChat);

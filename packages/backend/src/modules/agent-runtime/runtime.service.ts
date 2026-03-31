@@ -1,6 +1,7 @@
 ﻿import { db } from '../../config/database.js';
 import { readFile, stat } from 'fs/promises';
 import path from 'path';
+import type { Response } from 'express';
 import { agents, agentVersions, agentVersionTools, toolDefinitions } from '../../db/schema/agents.js';
 import {
   agentRuns,
@@ -20,6 +21,7 @@ import { NotFoundError, AppError } from '../../middleware/error-handler.js';
 import { logger } from '../../lib/logger.js';
 import type { ChatMessage, ToolDefinitionParam } from '../openrouter/types.js';
 import { UPLOADS_DIR } from '../../config/upload.js';
+import { openChatEventStream, publishChatEvent } from './chat-events.service.js';
 
 const DEFAULT_MODEL = 'google/gemini-2.0-flash-001';
 const DEFAULT_MAX_ITERATIONS = 4;
@@ -42,6 +44,27 @@ interface ChatAttachmentMeta {
   kind: 'image' | 'text' | 'file';
   url: string;
   text_preview?: string;
+}
+
+interface CodingReportChangedFile {
+  path: string;
+  summary?: string;
+}
+
+interface CodingReportPreview {
+  type: 'html' | 'url';
+  title?: string;
+  html?: string;
+  url?: string;
+}
+
+interface CodingReport {
+  summary?: string;
+  worklog?: string[];
+  changed_files?: CodingReportChangedFile[];
+  how_to_run?: string[];
+  notes?: string[];
+  preview?: CodingReportPreview | null;
 }
 
 // Pricing per 1M tokens (USD) - OpenRouter rates for common models
@@ -124,6 +147,7 @@ interface StartRunInput {
 
 interface StartRunOptions {
   sync_to_chats?: boolean;
+  on_event?: (event: string, payload: Record<string, unknown>) => void;
 }
 
 interface RunResult {
@@ -133,6 +157,7 @@ interface RunResult {
   tool_traces: ToolTrace[];
   usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number; estimated_cost: string; model: string } | null;
   latency_ms: number;
+  coding_report?: CodingReport | null;
   error_message?: string;
 }
 
@@ -145,6 +170,50 @@ interface ToolTrace {
   duration_ms: number | null;
   error?: string;
 }
+
+const TEXT_ATTACHMENT_EXTENSIONS = new Set([
+  '.txt',
+  '.log',
+  '.md',
+  '.csv',
+  '.json',
+  '.xml',
+  '.html',
+  '.htm',
+  '.css',
+  '.scss',
+  '.sass',
+  '.less',
+  '.js',
+  '.jsx',
+  '.mjs',
+  '.cjs',
+  '.ts',
+  '.tsx',
+  '.py',
+  '.java',
+  '.kt',
+  '.go',
+  '.rs',
+  '.php',
+  '.rb',
+  '.sh',
+  '.bash',
+  '.zsh',
+  '.sql',
+  '.yml',
+  '.yaml',
+  '.toml',
+  '.ini',
+  '.conf',
+  '.svg',
+]);
+
+const TEXT_ATTACHMENT_BASENAMES = new Set([
+  '.env',
+  '.gitignore',
+  'dockerfile',
+]);
 
 function extractAssistantText(content: unknown): string {
   if (typeof content === 'string') return content.trim();
@@ -206,8 +275,18 @@ function normalizeOpenRouterModelId(modelId: string): string {
   return aliases[value] ?? value;
 }
 
+function isTextFilename(filename: string): boolean {
+  const ext = path.extname(filename).toLowerCase();
+  const basename = path.basename(filename).toLowerCase();
+  return TEXT_ATTACHMENT_EXTENSIONS.has(ext) || TEXT_ATTACHMENT_BASENAMES.has(basename);
+}
+
 function getAttachmentMimeType(filename: string): string {
   const ext = path.extname(filename).toLowerCase();
+  const basename = path.basename(filename).toLowerCase();
+  if (TEXT_ATTACHMENT_BASENAMES.has(basename)) {
+    return 'text/plain';
+  }
   switch (ext) {
     case '.png': return 'image/png';
     case '.jpg':
@@ -220,6 +299,35 @@ function getAttachmentMimeType(filename: string): string {
     case '.csv': return 'text/csv';
     case '.json': return 'application/json';
     case '.xml': return 'application/xml';
+    case '.html':
+    case '.htm': return 'text/html';
+    case '.css':
+    case '.scss':
+    case '.sass':
+    case '.less': return 'text/css';
+    case '.js':
+    case '.jsx':
+    case '.mjs':
+    case '.cjs': return 'application/javascript';
+    case '.ts':
+    case '.tsx': return 'application/typescript';
+    case '.py':
+    case '.java':
+    case '.kt':
+    case '.go':
+    case '.rs':
+    case '.php':
+    case '.rb':
+    case '.sh':
+    case '.bash':
+    case '.zsh':
+    case '.sql':
+    case '.yml':
+    case '.yaml':
+    case '.toml':
+    case '.ini':
+    case '.conf':
+    case '.svg': return 'text/plain';
     default: return 'application/octet-stream';
   }
 }
@@ -233,6 +341,10 @@ function isTextMime(mimeType: string): boolean {
     mimeType.startsWith('text/')
     || mimeType === 'application/json'
     || mimeType === 'application/xml'
+    || mimeType === 'text/xml'
+    || mimeType === 'application/javascript'
+    || mimeType === 'application/x-javascript'
+    || mimeType === 'application/typescript'
   );
 }
 
@@ -240,11 +352,115 @@ function safeAttachmentPath(filename: string): string {
   return path.join(CHAT_UPLOADS_DIR, path.basename(filename));
 }
 
+function clampText(value: unknown, max = 4000): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  return trimmed.slice(0, max);
+}
+
+function normalizeStringArray(value: unknown, maxItems = 12, maxItemLength = 1000): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const normalized = value
+    .map((item) => clampText(item, maxItemLength))
+    .filter((item): item is string => Boolean(item))
+    .slice(0, maxItems);
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function normalizeChangedFiles(value: unknown): CodingReportChangedFile[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const normalized = value
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null;
+      const row = item as { path?: unknown; summary?: unknown };
+      const filePath = clampText(row.path, 500);
+      if (!filePath) return null;
+      const summary = clampText(row.summary, 500);
+      return summary
+        ? { path: filePath, summary }
+        : { path: filePath };
+    })
+    .filter((item): item is NonNullable<typeof item> => Boolean(item))
+    .slice(0, 20);
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function normalizePreview(value: unknown): CodingReportPreview | null | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const preview = value as { type?: unknown; title?: unknown; html?: unknown; url?: unknown };
+  const type = preview.type === 'url' ? 'url' : (preview.type === 'html' ? 'html' : undefined);
+  if (!type) return undefined;
+
+  if (type === 'url') {
+    const url = clampText(preview.url, 2000);
+    if (!url) return null;
+    return {
+      type,
+      title: clampText(preview.title, 200),
+      url,
+    };
+  }
+
+  const html = clampText(preview.html, 50_000);
+  if (!html) return null;
+  return {
+    type,
+    title: clampText(preview.title, 200),
+    html,
+  };
+}
+
+function sanitizeCodingReport(value: unknown): CodingReport | null {
+  if (!value || typeof value !== 'object') return null;
+  const report = value as Record<string, unknown>;
+  const normalized: CodingReport = {
+    summary: clampText(report.summary, 2000),
+    worklog: normalizeStringArray(report.worklog, 16, 1200),
+    changed_files: normalizeChangedFiles(report.changed_files),
+    how_to_run: normalizeStringArray(report.how_to_run, 12, 1200),
+    notes: normalizeStringArray(report.notes, 12, 1200),
+    preview: normalizePreview(report.preview) ?? null,
+  };
+
+  if (
+    !normalized.summary
+    && !normalized.worklog
+    && !normalized.changed_files
+    && !normalized.how_to_run
+    && !normalized.notes
+    && !normalized.preview
+  ) {
+    return null;
+  }
+
+  return normalized;
+}
+
+function extractCodingReport(content: string): { cleanText: string; report: CodingReport | null } {
+  const match = content.match(/<dev-report>\s*([\s\S]*?)\s*<\/dev-report>/i);
+  if (!match) {
+    return { cleanText: content.trim(), report: null };
+  }
+
+  let report: CodingReport | null = null;
+  try {
+    report = sanitizeCodingReport(JSON.parse(match[1]));
+  } catch {
+    report = null;
+  }
+
+  const cleanText = content.replace(match[0], '').trim();
+  return { cleanText, report };
+}
+
 export async function prepareUploadedChatFiles(files: Express.Multer.File[]): Promise<ChatAttachmentMeta[]> {
   const result: ChatAttachmentMeta[] = [];
   for (const file of files) {
     const mime = file.mimetype || getAttachmentMimeType(file.filename);
-    const kind: ChatAttachmentMeta['kind'] = isImageMime(mime) ? 'image' : (isTextMime(mime) ? 'text' : 'file');
+    const kind: ChatAttachmentMeta['kind'] = isImageMime(mime)
+      ? 'image'
+      : ((isTextMime(mime) || isTextFilename(file.originalname || file.filename)) ? 'text' : 'file');
     let textPreview: string | undefined;
     if (kind === 'text') {
       try {
@@ -279,6 +495,7 @@ export async function startRun(
   const startTime = Date.now();
   await ensureSufficientBalance(userId);
   const syncToChats = options.sync_to_chats ?? false;
+  const emitEvent = options.on_event ?? (() => undefined);
   const latestUserMessage = [...input.messages]
     .reverse()
     .find((msg) => msg.role === 'user' && msg.content.trim().length > 0)
@@ -426,10 +643,22 @@ export async function startRun(
 
   // 7. Update run to running
   await db.update(agentRuns).set({ status: 'running' }).where(eq(agentRuns.id, run.id));
+  emitEvent('chat.run.started', {
+    run_id: run.id,
+    agent_id: agentId,
+    model: modelId,
+    max_iterations: maxIterations,
+  });
+  emitEvent('chat.run.status', {
+    run_id: run.id,
+    status: 'running',
+    label: 'Агент начал выполнение задачи',
+  });
 
   const toolTraces: ToolTrace[] = [];
   let totalUsage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
   let finalOutput = '';
+  let codingReport: CodingReport | null = null;
   let runStatus: 'completed' | 'failed' = 'completed';
   let errorMessage: string | undefined;
   let gotTerminalAssistantMessage = false;
@@ -438,6 +667,12 @@ export async function startRun(
     // 8. Main loop
     for (let iteration = 0; iteration < maxIterations; iteration++) {
       logger.info({ runId: run.id, iteration, messageCount: messages.length, hasTools: toolParams.length > 0 }, 'Runtime loop iteration');
+      emitEvent('chat.run.status', {
+        run_id: run.id,
+        status: 'thinking',
+        iteration: iteration + 1,
+        label: `Итерация ${iteration + 1}: анализирую задачу`,
+      });
 
       const response = await openRouterClient.chatCompletion({
         model: modelId,
@@ -475,6 +710,12 @@ export async function startRun(
         messages.push(assistantMessage);
 
         await db.update(agentRuns).set({ status: 'tool_executing' }).where(eq(agentRuns.id, run.id));
+        emitEvent('chat.run.status', {
+          run_id: run.id,
+          status: 'tool_executing',
+          iteration: iteration + 1,
+          label: `Запускаю инструменты: ${assistantMessage.tool_calls.length}`,
+        });
 
         for (const toolCall of assistantMessage.tool_calls) {
           const toolSlug = toolCall.function.name;
@@ -497,6 +738,13 @@ export async function startRun(
             tool_input: toolInput,
             status: 'running',
           }).returning();
+          emitEvent('chat.run.tool.started', {
+            run_id: run.id,
+            tool_call_id: toolCall.id,
+            tool_name: toolSlug,
+            input: toolInput,
+            label: `Запущен инструмент ${toolSlug}`,
+          });
 
           let trace: ToolTrace;
           try {
@@ -524,6 +772,14 @@ export async function startRun(
               status: 'success',
               duration_ms: execResult.duration_ms,
             };
+            emitEvent('chat.run.tool.finished', {
+              run_id: run.id,
+              tool_call_id: toolCall.id,
+              tool_name: toolSlug,
+              status: 'success',
+              duration_ms: execResult.duration_ms,
+              label: `Инструмент ${toolSlug} завершён успешно`,
+            });
           } catch (err) {
             const errMsg = err instanceof Error ? err.message : 'Unknown error';
 
@@ -549,18 +805,41 @@ export async function startRun(
               duration_ms: 0,
               error: errMsg,
             };
+            emitEvent('chat.run.tool.finished', {
+              run_id: run.id,
+              tool_call_id: toolCall.id,
+              tool_name: toolSlug,
+              status: 'error',
+              duration_ms: 0,
+              error: errMsg,
+              label: `Инструмент ${toolSlug} завершился с ошибкой`,
+            });
           }
 
           toolTraces.push(trace);
         }
 
         await db.update(agentRuns).set({ status: 'continuing' }).where(eq(agentRuns.id, run.id));
+        emitEvent('chat.run.status', {
+          run_id: run.id,
+          status: 'continuing',
+          iteration: iteration + 1,
+          label: 'Обрабатываю результаты инструментов',
+        });
                 continue; // Next iteration: LLM processes tool results
       }
 
       // No tool calls: final answer
       gotTerminalAssistantMessage = true;
       finalOutput = extractAssistantTextFromMessage(assistantMessage);
+      if (finalOutput) {
+        const parsed = extractCodingReport(finalOutput);
+        finalOutput = parsed.cleanText;
+        codingReport = parsed.report;
+        if (!finalOutput && codingReport?.summary) {
+          finalOutput = codingReport.summary;
+        }
+      }
       if (!finalOutput) {
         logger.warn(
           {
@@ -623,6 +902,7 @@ export async function startRun(
     completed_at: new Date(),
     latency_ms: latencyMs,
     final_output: finalOutput || null,
+    final_output_json: codingReport as Record<string, unknown> | null,
     output_summary: finalOutput?.slice(0, 200) || null,
     error_message: errorMessage ?? null,
   }).where(eq(agentRuns.id, run.id));
@@ -633,8 +913,17 @@ export async function startRun(
         ...totalUsage,
         estimated_cost: estCost,
         model: modelId,
+        tool_traces: toolTraces,
+        coding_report: codingReport,
       }
-      : null;
+      : (
+        toolTraces.length > 0 || codingReport
+          ? {
+            tool_traces: toolTraces,
+            coding_report: codingReport,
+          }
+          : null
+      );
 
     if (runStatus === 'completed' && finalOutput.trim().length > 0) {
       await db.insert(chatConversationMessages).values({
@@ -655,6 +944,22 @@ export async function startRun(
     }).where(eq(chatConversations.id, syncedConversationId));
   }
 
+  if (runStatus === 'completed') {
+    emitEvent('chat.run.completed', {
+      run_id: run.id,
+      latency_ms: latencyMs,
+      tool_count: toolTraces.length,
+      has_preview: Boolean(codingReport?.preview),
+      label: 'Агент завершил выполнение задачи',
+    });
+  } else {
+    emitEvent('chat.run.failed', {
+      run_id: run.id,
+      error: errorMessage ?? 'Unknown error',
+      label: 'Выполнение завершилось с ошибкой',
+    });
+  }
+
   return {
     run_id: run.id,
     status: runStatus,
@@ -664,6 +969,7 @@ export async function startRun(
       ? { ...totalUsage, estimated_cost: estCost, model: modelId }
       : null,
     latency_ms: latencyMs,
+    coding_report: codingReport,
     error_message: errorMessage,
   };
 }
@@ -718,6 +1024,7 @@ interface ChatHistoryMessage {
   usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number; estimated_cost: string; model: string } | null;
   latencyMs?: number;
   toolTraces?: ToolTrace[];
+  codingReport?: CodingReport | null;
 }
 
 export async function getChatHistory(agentId: string, userId: string) {
@@ -764,6 +1071,8 @@ export async function getChatHistory(agentId: string, userId: string) {
           ? (rawUsage.estimated_cost as string | number | undefined)
           : undefined;
         const modelRaw = rawUsage ? rawUsage.model : undefined;
+        const rawToolTraces = rawUsage?.tool_traces;
+        const rawCodingReport = rawUsage?.coding_report;
 
         const usage = (
           promptTokens !== null
@@ -788,6 +1097,8 @@ export async function getChatHistory(agentId: string, userId: string) {
           runId: row.run_id ?? undefined,
           usage,
           latencyMs: row.latency_ms ?? undefined,
+          toolTraces: Array.isArray(rawToolTraces) ? rawToolTraces as ToolTrace[] : undefined,
+          codingReport: sanitizeCodingReport(rawCodingReport),
         };
       });
 
@@ -815,6 +1126,7 @@ export async function getChatHistory(agentId: string, userId: string) {
       id: agentRuns.id,
       input_summary: agentRuns.input_summary,
       final_output: agentRuns.final_output,
+      final_output_json: agentRuns.final_output_json,
       latency_ms: agentRuns.latency_ms,
       status: agentRuns.status,
       started_at: agentRuns.started_at,
@@ -885,6 +1197,7 @@ export async function getChatHistory(agentId: string, userId: string) {
         usage,
         latencyMs: run.latency_ms ?? undefined,
         toolTraces: toolCallsByRun.get(run.id),
+        codingReport: sanitizeCodingReport(run.final_output_json),
       });
     }
   }
@@ -1331,6 +1644,10 @@ export async function getChatById(chatId: string, userId: string): Promise<Conve
   };
 }
 
+export async function streamChatEvents(chatId: string, userId: string, res: Response) {
+  await openChatEventStream(chatId, userId, res);
+}
+
 export async function getChatStats(chatId: string, userId: string): Promise<ChatStatsResponse> {
   const chat = await getConversationForUser(chatId, userId);
   const messages = await db
@@ -1519,6 +1836,9 @@ export async function sendChatMessage(
 ) {
   const chat = await getConversationForUser(chatId, userId);
   await ensureSufficientBalance(userId);
+  const emitChatEvent = (event: string, payload: Record<string, unknown>) => {
+    publishChatEvent(chatId, userId, event, payload);
+  };
   const trimmedContent = content.trim();
   if (!trimmedContent && (attachmentsInput ?? []).length === 0) {
     throw new AppError(400, 'VALIDATION_ERROR', 'Message cannot be empty');
@@ -1542,7 +1862,9 @@ export async function sendChatMessage(
     if (!fileStats.isFile()) continue;
 
     const mime = getAttachmentMimeType(filename);
-    const kind: ChatAttachmentMeta['kind'] = isImageMime(mime) ? 'image' : (isTextMime(mime) ? 'text' : 'file');
+    const kind: ChatAttachmentMeta['kind'] = isImageMime(mime)
+      ? 'image'
+      : ((isTextMime(mime) || isTextFilename(item.original_name ?? filename)) ? 'text' : 'file');
     const meta: ChatAttachmentMeta = {
       filename,
       original_name: (item.original_name ?? '').trim() || filename,
@@ -1598,6 +1920,13 @@ export async function sendChatMessage(
     content_text: trimmedContent,
     usage_json: attachmentMetas.length > 0 ? ({ attachments: attachmentMetas } as Record<string, unknown>) : null,
   });
+  emitChatEvent('chat.message.accepted', {
+    mode: chat.mode,
+    has_attachments: attachmentMetas.length > 0,
+    label: attachmentMetas.length > 0
+      ? 'Сообщение принято, подготавливаю вложения'
+      : 'Сообщение принято, запускаю обработку',
+  });
 
   const historyForModel = [
     ...(chat.system_prompt ? [{ role: 'system' as const, content: chat.system_prompt }] : []),
@@ -1623,6 +1952,7 @@ export async function sendChatMessage(
       model_external_id: chat.model_external_id ?? null,
     }, {
       sync_to_chats: false,
+      on_event: emitChatEvent,
     });
 
     if (result.status !== 'completed') {
@@ -1648,30 +1978,63 @@ export async function sendChatMessage(
       usagePayload = {
         ...(result.usage as unknown as Record<string, unknown>),
         tool_names: toolNames,
+        tool_traces: result.tool_traces,
+        coding_report: result.coding_report ?? null,
       };
     } else {
-      usagePayload = toolNames.length > 0 ? { tool_names: toolNames } : null;
+      usagePayload = (
+        toolNames.length > 0
+        || (result.tool_traces?.length ?? 0) > 0
+        || result.coding_report
+      )
+        ? {
+          tool_names: toolNames,
+          tool_traces: result.tool_traces,
+          coding_report: result.coding_report ?? null,
+        }
+        : null;
     }
   } else {
     const model = normalizeOpenRouterModelId(chat.model_external_id || DEFAULT_GENERAL_MODEL);
     const startedAt = Date.now();
-    const userContentForGeneral = imageDataUrls.length > 0
-      ? ([{ type: 'text' as const, text: userModelText }, ...imageDataUrls.map((url) => ({ type: 'image_url' as const, image_url: { url } }))])
-      : userModelText;
-    const response = await openRouterClient.chatCompletion({
+    emitChatEvent('chat.run.started', {
+      mode: 'general',
       model,
-      messages: [
-        ...historyForModel.slice(0, -1).map((m) => ({ role: m.role, content: m.content })),
-        { role: 'user', content: userContentForGeneral },
-      ],
-      temperature: 0.5,
-      max_tokens: 2048,
+      label: 'Отправляю запрос в OpenRouter',
     });
-    latencyMs = Date.now() - startedAt;
-    const rawAssistant = response.choices?.[0]?.message?.content;
-    assistantText = typeof rawAssistant === 'string' ? rawAssistant : '(пустой ответ)';
-    if (response.usage) {
-      usagePayload = estimateGeneralChatCost(model, response.usage) as unknown as Record<string, unknown>;
+    try {
+      const userContentForGeneral = imageDataUrls.length > 0
+        ? ([{ type: 'text' as const, text: userModelText }, ...imageDataUrls.map((url) => ({ type: 'image_url' as const, image_url: { url } }))])
+        : userModelText;
+      const response = await openRouterClient.chatCompletion({
+        model,
+        messages: [
+          ...historyForModel.slice(0, -1).map((m) => ({ role: m.role, content: m.content })),
+          { role: 'user', content: userContentForGeneral },
+        ],
+        temperature: 0.5,
+        max_tokens: 2048,
+      });
+      latencyMs = Date.now() - startedAt;
+      const rawAssistant = response.choices?.[0]?.message?.content;
+      assistantText = typeof rawAssistant === 'string' ? rawAssistant : '(пустой ответ)';
+      if (response.usage) {
+        usagePayload = estimateGeneralChatCost(model, response.usage) as unknown as Record<string, unknown>;
+      }
+      emitChatEvent('chat.run.completed', {
+        mode: 'general',
+        model,
+        latency_ms: latencyMs,
+        label: 'OpenRouter вернул ответ',
+      });
+    } catch (err) {
+      emitChatEvent('chat.run.failed', {
+        mode: 'general',
+        model,
+        error: err instanceof Error ? err.message : 'Unknown error',
+        label: 'OpenRouter вернул ошибку',
+      });
+      throw err;
     }
   }
 
@@ -1690,6 +2053,11 @@ export async function sendChatMessage(
     last_message_at: new Date(),
     updated_at: new Date(),
   }).where(eq(chatConversations.id, chatId));
+  emitChatEvent('chat.message.completed', {
+    run_id: runId,
+    mode: chat.mode,
+    label: 'Ответ сохранён в чате',
+  });
 
   return {
     user_message: userMessage,

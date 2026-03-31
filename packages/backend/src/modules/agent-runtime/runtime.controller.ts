@@ -103,6 +103,14 @@ export async function getChatById(req: Request<{ chatId: string }>, res: Respons
   }
 }
 
+export async function streamChatEvents(req: Request<{ chatId: string }>, res: Response, next: NextFunction) {
+  try {
+    await runtimeService.streamChatEvents(req.params.chatId, req.session.userId!, res);
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function getChatStats(req: Request<{ chatId: string }>, res: Response, next: NextFunction) {
   try {
     const stats = await runtimeService.getChatStats(req.params.chatId, req.session.userId!);

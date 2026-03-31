@@ -12,8 +12,8 @@ const DTF_TEMPLATE = {
   system_prompt: `Ты — новостной помощник DTF.ru. Твоя задача — помогать пользователю получать и анализировать новости с сайта DTF.ru.
 
 Возможности:
-- Получить список последних статей с DTF (используй инструмент dtf-latest-feed)
-- Загрузить полный текст конкретной статьи по URL (используй инструмент dtf-article-fetch)
+- Получить список последних статей с DTF через инструмент dtf-latest-feed
+- Загрузить полный текст конкретной статьи по URL через инструмент dtf-article-fetch
 - Сделать краткий пересказ статьи
 - Ответить на вопросы по содержанию статей
 
@@ -21,7 +21,7 @@ const DTF_TEMPLATE = {
 - Всегда отвечай на русском языке
 - При перечислении статей указывай заголовок, автора и ссылку
 - При пересказе выделяй ключевые моменты
-- Если пользователь просит "последние новости" — сначала получи ленту, затем предложи пересказать интересные статьи`,
+- Если пользователь просит последние новости, сначала получи ленту, затем предложи пересказать интересные статьи`,
   runtime_config: {
     max_iterations: 6,
     temperature: 0.3,
@@ -32,6 +32,53 @@ const DTF_TEMPLATE = {
       'Покажи 5 последних новостей DTF',
       'Найди самую обсуждаемую новость и кратко объясни контекст',
       'Сделай короткий дайджест главных тем за сегодня',
+    ],
+  },
+};
+
+const OPENROUTER_CODING_TEMPLATE = {
+  name: 'OpenRouter Coding Agent',
+  description: 'Агент для задач по разработке: принимает ТЗ и файлы, показывает ход работы, итог и preview.',
+  system_prompt: `Ты — OpenRouter Coding Agent для llmstore.pro.
+
+Роль:
+- принимаешь задачу на разработку в чате;
+- анализируешь текст сообщения и прикрепленные файлы;
+- предлагаешь инженерное решение;
+- показываешь ход работы и понятный итог на русском языке.
+
+Правила:
+1. Всегда отвечай на русском.
+2. Если пользователь приложил файлы, опирайся на них как на основной контекст.
+3. Обязательно возвращай сначала блок <dev-report>...</dev-report> с валидным JSON, а после него обычный markdown-ответ.
+4. Внутри dev-report заполняй summary и worklog, по возможности changed_files и how_to_run.
+5. Если можно показать standalone preview, добавляй preview с type="html" и полным HTML для iframe.
+6. После dev-report дай короткое человекочитаемое объяснение, что сделал и как использовать результат.
+
+Схема dev-report:
+{
+  "summary": "краткий итог",
+  "worklog": ["шаг 1", "шаг 2"],
+  "changed_files": [{ "path": "src/App.tsx", "summary": "что изменилось" }],
+  "how_to_run": ["что сделать дальше"],
+  "notes": ["важная оговорка"],
+  "preview": {
+    "type": "html" | "url",
+    "title": "название preview",
+    "html": "<!doctype html>...",
+    "url": "https://..."
+  }
+}`,
+  runtime_config: {
+    max_iterations: 6,
+    temperature: 0.2,
+    max_tokens: 8192,
+    model_external_id: 'google/gemini-2.5-flash',
+    chat_intro: 'Опишите задачу по разработке, прикрепите ТЗ или кодовые файлы, и агент вернет ход работы, список измененных файлов и preview, если его можно показать прямо в чате.',
+    starter_prompts: [
+      'Сделай одностраничный лендинг и покажи preview',
+      'Проанализируй приложенный файл и предложи улучшенную версию',
+      'Собери структуру небольшой React-фичи по ТЗ',
     ],
   },
 };
@@ -64,6 +111,11 @@ export function AgentBuilderPage() {
     if (templateId === 'dtf-news') {
       return { ...DTF_TEMPLATE, tool_ids: getDtfToolIds() };
     }
+
+    if (templateId === 'openrouter-coding') {
+      return { ...OPENROUTER_CODING_TEMPLATE, tool_ids: [] };
+    }
+
     return {
       name: '',
       description: '',
@@ -102,11 +154,11 @@ export function AgentBuilderPage() {
 
   return (
     <div className="container mx-auto max-w-3xl px-4 py-8">
-      <h1 className="text-2xl font-bold mb-6">Конструктор агента</h1>
+      <h1 className="mb-6 text-2xl font-bold">Конструктор агента</h1>
 
       {step === 'template' && (
         <>
-          <p className="text-muted-foreground mb-6">
+          <p className="mb-6 text-muted-foreground">
             Выберите шаблон для быстрого старта или создайте агента с нуля.
           </p>
           <TemplatePicker onSelect={handleTemplateSelect} />
@@ -117,7 +169,7 @@ export function AgentBuilderPage() {
         <>
           <button
             onClick={() => setStep('template')}
-            className="text-sm text-muted-foreground hover:text-foreground mb-4 inline-flex items-center gap-1"
+            className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
           >
             &larr; Назад к шаблонам
           </button>
@@ -146,7 +198,7 @@ export function AgentBuilderPage() {
         <>
           <button
             onClick={() => setStep('template')}
-            className="text-sm text-muted-foreground hover:text-foreground mb-4 inline-flex items-center gap-1"
+            className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
           >
             &larr; Назад к шаблонам
           </button>
@@ -171,4 +223,3 @@ export function AgentBuilderPage() {
     </div>
   );
 }
-

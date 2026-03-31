@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { ToolTrace } from '../lib/api/agents';
+import type { CodingReport, ToolTrace } from '../lib/api/agents';
 
 interface ChatMessage {
   role: 'user' | 'assistant' | 'tool';
@@ -8,6 +8,7 @@ interface ChatMessage {
   runId?: string;
   usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number; estimated_cost?: string; model?: string } | null;
   latencyMs?: number;
+  codingReport?: CodingReport | null;
 }
 
 interface PlaygroundState {
@@ -22,6 +23,7 @@ interface PlaygroundState {
     runId?: string;
     usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number; estimated_cost?: string; model?: string } | null;
     latencyMs?: number;
+    codingReport?: CodingReport | null;
   }) => void;
   setMessages: (msgs: ChatMessage[]) => void;
   setRunning: (running: boolean) => void;
@@ -52,6 +54,7 @@ export const usePlaygroundStore = create<PlaygroundState>((set) => ({
           runId: meta?.runId,
           usage: meta?.usage,
           latencyMs: meta?.latencyMs,
+          codingReport: meta?.codingReport,
         },
       ],
     })),

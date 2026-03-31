@@ -57,6 +57,27 @@ export interface ToolTrace {
   error?: string;
 }
 
+export interface CodingReportChangedFile {
+  path: string;
+  summary?: string;
+}
+
+export interface CodingReportPreview {
+  type: 'html' | 'url';
+  title?: string;
+  html?: string;
+  url?: string;
+}
+
+export interface CodingReport {
+  summary?: string;
+  worklog?: string[];
+  changed_files?: CodingReportChangedFile[];
+  how_to_run?: string[];
+  notes?: string[];
+  preview?: CodingReportPreview | null;
+}
+
 export interface RunResult {
   run_id: string;
   status: string;
@@ -64,6 +85,7 @@ export interface RunResult {
   tool_traces: ToolTrace[];
   usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number; estimated_cost: string; model: string } | null;
   latency_ms: number;
+  coding_report?: CodingReport | null;
 }
 
 export interface RunSummary {
@@ -116,6 +138,7 @@ export interface ChatHistoryMessage {
   usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number; estimated_cost: string; model: string } | null;
   latencyMs?: number;
   toolTraces?: ToolTrace[];
+  codingReport?: CodingReport | null;
 }
 
 export interface ChatHistoryResponse {

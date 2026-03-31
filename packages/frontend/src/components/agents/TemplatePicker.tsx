@@ -22,6 +22,12 @@ const templates: Template[] = [
     icon: '📰',
   },
   {
+    id: 'openrouter-coding',
+    name: 'OpenRouter Coding Agent',
+    description: 'Агент для задач по разработке: принимает ТЗ и кодовые файлы, показывает ход работы, список изменённых файлов и может вернуть preview прямо в чате.',
+    icon: '🛠',
+  },
+  {
     id: 'blank',
     name: 'Пустой агент',
     description: 'Создайте агента с нуля. Выберите инструменты и напишите системный промпт самостоятельно.',
@@ -43,7 +49,7 @@ export function TemplatePicker({ onSelect }: TemplatePickerProps) {
           onClick={() => onSelect(t.id)}
         >
           <CardHeader>
-            <div className="text-3xl mb-2">{t.icon}</div>
+            <div className="mb-2 text-3xl">{t.icon}</div>
             <CardTitle>{t.name}</CardTitle>
             <CardDescription>{t.description}</CardDescription>
           </CardHeader>

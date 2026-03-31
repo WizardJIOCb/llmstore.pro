@@ -30,7 +30,79 @@ const CHAT_ALLOWED_MIME_TYPES = new Set([
   'application/json',
   'application/xml',
   'text/xml',
+  'text/html',
+  'text/css',
+  'text/javascript',
+  'application/javascript',
+  'application/x-javascript',
+  'application/typescript',
+  'text/typescript',
+  'text/x-typescript',
+  'application/x-sh',
+  'text/x-shellscript',
+  'application/sql',
+  'text/x-python',
+  'text/x-java-source',
+  'text/x-c',
+  'text/x-c++',
+  'text/x-rustsrc',
 ]);
+
+const CHAT_ALLOWED_EXTENSIONS = new Set([
+  '.txt',
+  '.md',
+  '.csv',
+  '.json',
+  '.xml',
+  '.html',
+  '.htm',
+  '.css',
+  '.scss',
+  '.sass',
+  '.less',
+  '.js',
+  '.jsx',
+  '.mjs',
+  '.cjs',
+  '.ts',
+  '.tsx',
+  '.py',
+  '.java',
+  '.kt',
+  '.go',
+  '.rs',
+  '.php',
+  '.rb',
+  '.sh',
+  '.bash',
+  '.zsh',
+  '.sql',
+  '.yml',
+  '.yaml',
+  '.toml',
+  '.ini',
+  '.conf',
+  '.env',
+  '.gitignore',
+  '.dockerfile',
+  '.svg',
+]);
+
+const CHAT_ALLOWED_BASENAMES = new Set([
+  '.env',
+  '.gitignore',
+  'dockerfile',
+]);
+
+function isAllowedChatFile(file: Express.Multer.File): boolean {
+  if (CHAT_ALLOWED_MIME_TYPES.has(file.mimetype)) {
+    return true;
+  }
+
+  const ext = path.extname(file.originalname).toLowerCase();
+  const basename = path.basename(file.originalname).toLowerCase();
+  return CHAT_ALLOWED_EXTENSIONS.has(ext) || CHAT_ALLOWED_BASENAMES.has(basename);
+}
 
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, NEWS_DIR),
@@ -66,10 +138,10 @@ const chatStorage = multer.diskStorage({
 export const chatUpload = multer({
   storage: chatStorage,
   fileFilter: (_req, file, cb) => {
-    if (CHAT_ALLOWED_MIME_TYPES.has(file.mimetype)) {
+    if (isAllowedChatFile(file)) {
       cb(null, true);
     } else {
-      cb(new Error('Unsupported file type. Allowed: images, txt, md, csv, json, xml'));
+      cb(new Error('Unsupported file type. Allowed: images and common text/code files'));
     }
   },
   limits: {

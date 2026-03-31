@@ -63,7 +63,7 @@ export function ChatInput({
               type="file"
               className="hidden"
               multiple
-              accept=".txt,.md,.csv,.json,.xml,image/png,image/jpeg,image/webp,image/gif"
+              accept=".txt,.log,.md,.csv,.json,.xml,.html,.htm,.css,.scss,.sass,.less,.js,.jsx,.mjs,.cjs,.ts,.tsx,.py,.java,.kt,.go,.rs,.php,.rb,.sh,.bash,.zsh,.sql,.yml,.yaml,.toml,.ini,.conf,.env,.gitignore,.svg,image/png,image/jpeg,image/webp,image/gif"
               onChange={(e) => {
                 const next = Array.from(e.target.files ?? []);
                 if (next.length === 0) return;

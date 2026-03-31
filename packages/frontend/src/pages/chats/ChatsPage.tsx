@@ -19,7 +19,12 @@ import {
   useShareChatById,
   useUpdateChat,
 } from '../../hooks/useChats';
-import type { ChatListItem, ChatMessage as ChatMessageType } from '../../lib/api/chats';
+import type {
+  ChatListItem,
+  ChatMessage as ChatMessageType,
+  CodingReport,
+  ToolTrace,
+} from '../../lib/api/chats';
 import { cn } from '../../lib/utils';
 
 const GENERAL_MODELS = [
@@ -92,7 +97,29 @@ function extractAttachments(value: Record<string, unknown> | null) {
     });
 }
 
+function extractToolTraces(value: Record<string, unknown> | null): ToolTrace[] {
+  if (!value || !Array.isArray((value as { tool_traces?: unknown[] }).tool_traces)) return [];
+  return ((value as { tool_traces: unknown[] }).tool_traces ?? [])
+    .filter((item) => item && typeof item === 'object')
+    .map((item) => item as ToolTrace);
+}
+
+function extractCodingReport(value: Record<string, unknown> | null): CodingReport | null {
+  if (!value || !value.coding_report || typeof value.coding_report !== 'object') return null;
+  return value.coding_report as CodingReport;
+}
+
 type MenuItem = { kind: 'chat'; id: string } | null;
+
+interface LiveChatEvent {
+  id: string;
+  event: string;
+  label: string;
+  status?: string;
+  tool_name?: string;
+  ts?: string;
+  error?: string;
+}
 
 function getApiErrorCode(err: unknown): string | undefined {
   const maybe = err as { response?: { data?: { error?: { code?: string } } } };
@@ -122,10 +149,13 @@ export function ChatsPage() {
   const [newChatAgentId, setNewChatAgentId] = useState('');
   const [propertiesModel, setPropertiesModel] = useState('openai/gpt-4o-mini');
   const [propertiesSaving, setPropertiesSaving] = useState(false);
+  const [streamEvents, setStreamEvents] = useState<LiveChatEvent[]>([]);
+  const [streamConnected, setStreamConnected] = useState(false);
 
   const menuRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const shareToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
 
   const { data: activeChatData, isLoading: activeChatLoading } = useChat(activeChatId ?? undefined);
   const { data: activeChatStats, isLoading: chatStatsLoading } = useChatStats(
@@ -165,6 +195,86 @@ export function ChatsPage() {
   }, [activeChatId]);
 
   useEffect(() => {
+    setStreamEvents([]);
+    setStreamConnected(false);
+
+    if (!activeChatId) {
+      eventSourceRef.current?.close();
+      eventSourceRef.current = null;
+      return;
+    }
+
+    const source = new EventSource(`/api/chats/${activeChatId}/events`, { withCredentials: true });
+    eventSourceRef.current = source;
+
+    const pushEvent = (eventName: string, payload: {
+      label?: string;
+      status?: string;
+      tool_name?: string;
+      ts?: string;
+      error?: string;
+    }) => {
+      if (eventName === 'connected') {
+        setStreamConnected(true);
+        return;
+      }
+
+      setStreamEvents((prev) => [
+        ...prev.slice(-19),
+        {
+          id: `${eventName}-${payload.ts ?? Date.now()}-${prev.length}`,
+          event: eventName,
+          label: payload.label || eventName,
+          status: payload.status,
+          tool_name: payload.tool_name,
+          ts: payload.ts,
+          error: payload.error,
+        },
+      ]);
+    };
+
+    const bind = (eventName: string) => {
+      source.addEventListener(eventName, (raw) => {
+        const message = raw as MessageEvent<string>;
+        try {
+          pushEvent(eventName, JSON.parse(message.data) as {
+            label?: string;
+            status?: string;
+            tool_name?: string;
+            ts?: string;
+            error?: string;
+          });
+        } catch {
+          pushEvent(eventName, { label: eventName });
+        }
+      });
+    };
+
+    [
+      'connected',
+      'chat.message.accepted',
+      'chat.message.completed',
+      'chat.run.started',
+      'chat.run.status',
+      'chat.run.tool.started',
+      'chat.run.tool.finished',
+      'chat.run.completed',
+      'chat.run.failed',
+    ].forEach(bind);
+
+    source.onerror = () => {
+      setStreamConnected(false);
+    };
+
+    return () => {
+      source.close();
+      if (eventSourceRef.current === source) {
+        eventSourceRef.current = null;
+      }
+    };
+  }, [activeChatId]);
+
+  useEffect(() => {
     const handler = () => setActiveChatId(null);
     window.addEventListener('show-chat-list', handler);
     return () => window.removeEventListener('show-chat-list', handler);
@@ -182,7 +292,7 @@ export function ChatsPage() {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, sendMessageMutation.isPending]);
+  }, [messages, streamEvents, sendMessageMutation.isPending]);
 
   useEffect(() => {
     if (!isPropertiesOpen || !activeChat) return;
@@ -357,6 +467,7 @@ export function ChatsPage() {
   const sendMessage = async (content: string, files: File[] = []) => {
     if (!activeChat) return;
     setLocalError(null);
+    setStreamEvents([]);
     try {
       const attachments = files.length > 0 ? await uploadFilesMutation.mutateAsync(files) : [];
       await sendMessageMutation.mutateAsync({ chatId: activeChat.id, content, attachments });
@@ -500,9 +611,53 @@ export function ChatsPage() {
               </div>
             )}
             {!activeChatLoading && !activeChat && <div className="py-12 text-center text-muted-foreground">Выберите чат слева или создайте новый.</div>}
+            {streamEvents.length > 0 && (
+              <div className="mx-auto max-w-3xl rounded-xl border border-sky-200 bg-sky-50/80 p-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-sky-950">Живой процесс выполнения</p>
+                    <p className="text-xs text-sky-900/70">
+                      {streamConnected ? 'SSE подключен' : 'Ожидаю переподключение к SSE'}
+                    </p>
+                  </div>
+                  {(sendMessageMutation.isPending || uploadFilesMutation.isPending) && (
+                    <div className="flex items-center gap-2 text-xs text-sky-900/80">
+                      <Spinner size="sm" /> Агент работает
+                    </div>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  {streamEvents.map((event) => (
+                    <div key={event.id} className="rounded-lg border border-sky-200/80 bg-white/80 px-3 py-2">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm text-slate-900">{event.label}</p>
+                          {(event.tool_name || event.status || event.error) && (
+                            <p className="mt-1 text-xs text-slate-500">
+                              {[event.tool_name, event.status, event.error].filter(Boolean).join(' • ')}
+                            </p>
+                          )}
+                        </div>
+                        {event.ts && (
+                          <span className="shrink-0 text-[11px] text-slate-400">
+                            {formatDate(event.ts)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             {messages.map((msg: ChatMessageType) => (
               <div key={msg.id}>
-                <ChatMessage role={msg.role} content={msg.content} attachments={msg.attachments ?? extractAttachments(msg.usage)} />
+                <ChatMessage
+                  role={msg.role}
+                  content={msg.content}
+                  attachments={msg.attachments ?? extractAttachments(msg.usage)}
+                  toolTraces={msg.role === 'assistant' ? extractToolTraces(msg.usage) : undefined}
+                  codingReport={msg.role === 'assistant' ? extractCodingReport(msg.usage) : undefined}
+                />
                 {msg.role === 'assistant' && (
                   <div className="mt-1 ml-1">
                     <RunMetadata

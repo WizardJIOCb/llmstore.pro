@@ -2,6 +2,37 @@ import { apiClient } from '../api-client';
 
 export type ChatMode = 'general' | 'agent';
 
+export interface CodingReportChangedFile {
+  path: string;
+  summary?: string;
+}
+
+export interface CodingReportPreview {
+  type: 'html' | 'url';
+  title?: string;
+  html?: string;
+  url?: string;
+}
+
+export interface CodingReport {
+  summary?: string;
+  worklog?: string[];
+  changed_files?: CodingReportChangedFile[];
+  how_to_run?: string[];
+  notes?: string[];
+  preview?: CodingReportPreview | null;
+}
+
+export interface ToolTrace {
+  tool_call_id: string;
+  tool_name: string;
+  input: Record<string, unknown>;
+  output: Record<string, unknown> | null;
+  status: string;
+  duration_ms: number | null;
+  error?: string;
+}
+
 export interface ChatListItem {
   id: string;
   title: string;

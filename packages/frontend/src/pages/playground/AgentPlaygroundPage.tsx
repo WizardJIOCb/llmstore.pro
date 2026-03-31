@@ -48,6 +48,7 @@ export function AgentPlaygroundPage() {
         runId: m.runId,
         usage: m.usage,
         latencyMs: m.latencyMs,
+        codingReport: m.codingReport,
       }));
       setMessages(mapped);
     } else if (chatHistory && chatHistory.messages.length === 0 && !historyLoaded) {
@@ -95,6 +96,7 @@ export function AgentPlaygroundPage() {
         runId: result.run_id,
         usage: result.usage,
         latencyMs: result.latency_ms,
+        codingReport: result.coding_report,
       });
     } catch (err) {
       const code = getApiErrorCode(err);
@@ -213,7 +215,12 @@ export function AgentPlaygroundPage() {
 
           {messages.map((msg, i) => (
             <div key={i}>
-              <ChatMessage role={msg.role} content={msg.content} />
+              <ChatMessage
+                role={msg.role}
+                content={msg.content}
+                toolTraces={msg.toolTraces}
+                codingReport={msg.codingReport}
+              />
               {msg.role === 'assistant' && msg.usage && (
                 <div className="mt-1 ml-1">
                   <RunMetadata usage={msg.usage} latencyMs={msg.latencyMs} />
