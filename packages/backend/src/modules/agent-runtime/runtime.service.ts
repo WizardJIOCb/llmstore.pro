@@ -1838,6 +1838,45 @@ export async function getChatMessagePreviewHtml(
   return injectPreviewBridgeHtml(preview.html, previewId);
 }
 
+export async function getSharedChatMessagePreviewHtml(
+  token: string,
+  messageId: string,
+  previewId?: string,
+): Promise<string> {
+  const [chat] = await db
+    .select()
+    .from(chatConversations)
+    .where(eq(chatConversations.share_token, token))
+    .limit(1);
+
+  if (!chat) {
+    throw new NotFoundError('Preview not found');
+  }
+
+  const [message] = await db
+    .select()
+    .from(chatConversationMessages)
+    .where(and(
+      eq(chatConversationMessages.id, messageId),
+      eq(chatConversationMessages.conversation_id, chat.id),
+    ))
+    .limit(1);
+
+  if (!message || message.role !== 'assistant') {
+    throw new NotFoundError('Preview not found');
+  }
+
+  const rawUsage = (message.usage_json as Record<string, unknown> | null) ?? null;
+  const normalized = normalizeAssistantChatPayload(message.content_text, rawUsage);
+  const preview = normalized.codingReport?.preview;
+
+  if (!preview || preview.type !== 'html' || !preview.html) {
+    throw new NotFoundError('Preview not found');
+  }
+
+  return injectPreviewBridgeHtml(preview.html, previewId);
+}
+
 export async function streamChatEvents(chatId: string, userId: string, res: Response) {
   await openChatEventStream(chatId, userId, res);
 }
@@ -2303,6 +2342,12 @@ export async function getSharedChatById(token: string) {
       mode: chat.mode,
       agent_name: agentName,
     },
-    messages: messages.map((m) => ({ role: m.role, content: m.content, created_at: m.created_at })),
+    messages: messages.map((m) => ({
+      id: m.id,
+      role: m.role,
+      content: m.content,
+      usage: m.usage,
+      created_at: m.created_at,
+    })),
   };
 }

@@ -119,6 +119,21 @@ export async function getChatMessagePreview(req: Request<{ chatId: string; messa
   }
 }
 
+export async function getSharedChatMessagePreview(req: Request<{ token: string; messageId: string }>, res: Response, next: NextFunction) {
+  try {
+    const html = await runtimeService.getSharedChatMessagePreviewHtml(
+      req.params.token,
+      req.params.messageId,
+      typeof req.query.previewId === 'string' ? req.query.previewId : undefined,
+    );
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=60');
+    res.send(html);
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function streamChatEvents(req: Request<{ chatId: string }>, res: Response, next: NextFunction) {
   try {
     await runtimeService.streamChatEvents(req.params.chatId, req.session.userId!, res);

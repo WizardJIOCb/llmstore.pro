@@ -34,6 +34,7 @@ router.post('/chats/uploads', requireAuth, chatUpload.array('files', 8), control
 router.post('/chats/:chatId/messages', requireAuth, validateSendChatMessage, controller.sendChatMessage);
 
 // Shared conversation (public, no auth)
+router.get('/shared/chats/:token/messages/:messageId/preview', controller.getSharedChatMessagePreview);
 router.get('/shared/chats/:token', controller.getSharedChatById);
 
 // Runs
