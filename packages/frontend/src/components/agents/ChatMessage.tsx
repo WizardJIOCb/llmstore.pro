@@ -4,6 +4,7 @@ import Markdown from 'react-markdown';
 import type { CodingReport, ToolTrace } from '../../lib/api/agents';
 import { cn } from '../../lib/utils';
 import { ToolTracePanel } from './ToolTracePanel';
+import { Button } from '../ui/Button';
 
 interface Attachment {
   filename: string;
@@ -48,6 +49,7 @@ export function ChatMessage({
   const isUser = role === 'user';
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewAlt, setPreviewAlt] = useState('');
+  const [htmlPreview, setHtmlPreview] = useState<{ title: string; html: string } | null>(null);
   const renderedContent = !isUser ? stripDevReportEnvelope(content) : content;
 
   return (
@@ -158,9 +160,24 @@ export function ChatMessage({
 
               {codingReport.preview?.type === 'html' && codingReport.preview.html && (
                 <SectionCard title="Preview">
-                  {codingReport.preview.title && (
-                    <p className="mb-2 text-sm text-muted-foreground">{codingReport.preview.title}</p>
-                  )}
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <p className="text-sm text-muted-foreground">
+                      {codingReport.preview.title || 'Agent preview'}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setHtmlPreview({
+                          title: codingReport.preview?.title || 'Agent preview',
+                          html: codingReport.preview?.html || '',
+                        })}
+                      >
+                        На весь экран
+                      </Button>
+                    </div>
+                  </div>
                   <iframe
                     title={codingReport.preview.title || 'Agent preview'}
                     srcDoc={codingReport.preview.html}
@@ -229,6 +246,49 @@ export function ChatMessage({
               ×
             </button>
             <img src={previewUrl} alt={previewAlt} className="max-h-[95vh] max-w-[95vw] rounded object-contain" />
+          </div>
+        </div>
+      )}
+
+      {htmlPreview && (
+        <div
+          className="fixed inset-0 z-[130] flex items-center justify-center bg-black/85 p-3"
+          onClick={() => setHtmlPreview(null)}
+        >
+          <div
+            className="flex h-[94vh] w-[96vw] max-w-7xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-slate-900">{htmlPreview.title}</p>
+                <p className="text-xs text-slate-500">Standalone preview</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const blob = new Blob([htmlPreview.html], { type: 'text/html' });
+                    const url = URL.createObjectURL(blob);
+                    window.open(url, '_blank', 'noopener,noreferrer');
+                    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+                  }}
+                >
+                  Открыть в новой вкладке
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => setHtmlPreview(null)}>
+                  Закрыть
+                </Button>
+              </div>
+            </div>
+            <iframe
+              title={htmlPreview.title}
+              srcDoc={htmlPreview.html}
+              sandbox="allow-scripts"
+              className="min-h-0 flex-1 bg-white"
+            />
           </div>
         </div>
       )}

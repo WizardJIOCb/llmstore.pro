@@ -238,13 +238,20 @@ export function ChatsPage() {
   const shareToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
 
-  const { data: activeChatData, isLoading: activeChatLoading } = useChat(activeChatId ?? undefined);
+  const { data: activeChatData, isLoading: activeChatLoading, error: activeChatError } = useChat(activeChatId ?? undefined);
   const { data: activeChatStats, isLoading: chatStatsLoading } = useChatStats(
     activeChatId ?? undefined,
     isPropertiesOpen,
   );
   const activeChat = activeChatData?.chat ?? null;
+  const isActiveChatResolved = Boolean(activeChatId && activeChat?.id === activeChatId);
   const messages = activeChatData?.messages ?? [];
+
+  useEffect(() => {
+    if (!activeChatId || !activeChatError) return;
+    if (getApiErrorCode(activeChatError) !== 'NOT_FOUND') return;
+    setActiveChatId(isDesktop ? chats?.[0]?.id ?? null : null);
+  }, [activeChatError, activeChatId, chats, isDesktop]);
 
   useEffect(() => {
     const media = window.matchMedia('(min-width: 768px)');
@@ -285,13 +292,13 @@ export function ChatsPage() {
     setStreamEvents([]);
     setStreamConnected(false);
 
-    if (!activeChat || activeChat.mode !== 'agent') {
+    if (!activeChatId || !isActiveChatResolved || !activeChat || activeChat.mode !== 'agent') {
       eventSourceRef.current?.close();
       eventSourceRef.current = null;
       return;
     }
 
-    const source = new EventSource(`/api/chats/${activeChat.id}/events`, { withCredentials: true });
+    const source = new EventSource(`/api/chats/${activeChatId}/events`, { withCredentials: true });
     eventSourceRef.current = source;
 
     const pushEvent = (eventName: string, payload: {
@@ -351,6 +358,10 @@ export function ChatsPage() {
 
     source.onerror = () => {
       setStreamConnected(false);
+      source.close();
+      if (eventSourceRef.current === source) {
+        eventSourceRef.current = null;
+      }
     };
 
     return () => {
@@ -359,7 +370,7 @@ export function ChatsPage() {
         eventSourceRef.current = null;
       }
     };
-  }, [activeChat?.id, activeChat?.mode]);
+  }, [activeChat?.id, activeChat?.mode, activeChatId, isActiveChatResolved]);
 
   useEffect(() => {
     const handler = () => setActiveChatId(null);
