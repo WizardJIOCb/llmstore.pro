@@ -1,4 +1,4 @@
-﻿interface RunMetadataProps {
+interface RunMetadataProps {
   usage: {
     prompt_tokens: number;
     completion_tokens: number;
@@ -11,12 +11,22 @@
   toolNames?: string[];
 }
 
+const USD_TO_RUB_RATE = 90;
+
 function formatCost(cost: string): string {
   const n = parseFloat(cost);
   if (n === 0) return '$0';
   if (n < 0.0001) return '<$0.0001';
   if (n < 0.01) return `$${n.toFixed(4)}`;
   return `$${n.toFixed(3)}`;
+}
+
+function formatRubFromUsd(cost: string): string {
+  const n = parseFloat(cost);
+  if (n === 0) return '0 ₽';
+  const rub = n * USD_TO_RUB_RATE;
+  if (rub < 0.01) return '<0.01 ₽';
+  return `${rub.toFixed(2)} ₽`;
 }
 
 export function RunMetadata({ usage, latencyMs, agentName, toolNames }: RunMetadataProps) {
@@ -33,7 +43,11 @@ export function RunMetadata({ usage, latencyMs, agentName, toolNames }: RunMetad
           <span className="hidden sm:inline">
             (prompt: {usage.prompt_tokens}, completion: {usage.completion_tokens})
           </span>
-          {usage.estimated_cost && <span>Стоимость: {formatCost(usage.estimated_cost)}</span>}
+          {usage.estimated_cost && (
+            <span>
+              Стоимость: {formatCost(usage.estimated_cost)} ({formatRubFromUsd(usage.estimated_cost)})
+            </span>
+          )}
           {usage.model && <span className="hidden md:inline">Модель: {usage.model.split('/').pop()}</span>}
         </>
       )}
