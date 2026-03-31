@@ -23,6 +23,10 @@ interface ChatMessageProps {
   codingReport?: CodingReport | null;
 }
 
+function stripDevReportEnvelope(content: string): string {
+  return content.replace(/<dev-report>\s*[\s\S]*?\s*<\/dev-report>/gi, '').trim();
+}
+
 function SectionCard({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="rounded-lg border border-border/70 bg-background/70 p-3">
@@ -44,6 +48,7 @@ export function ChatMessage({
   const isUser = role === 'user';
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewAlt, setPreviewAlt] = useState('');
+  const renderedContent = !isUser && codingReport ? stripDevReportEnvelope(content) : content;
 
   return (
     <>
@@ -73,7 +78,7 @@ export function ChatMessage({
                 pre: ({ children }) => <pre className="bg-black/10 dark:bg-white/10 rounded p-3 my-2 overflow-x-auto text-xs">{children}</pre>,
               }}
             >
-              {content}
+              {renderedContent}
             </Markdown>
           )}
 

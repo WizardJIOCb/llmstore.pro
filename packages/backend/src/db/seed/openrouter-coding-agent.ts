@@ -93,10 +93,10 @@ const CODING_PRESETS: CodingPreset[] = [
   {
     slug: 'openrouter-coding-agent-fast',
     name: 'OpenRouter Coding Agent Fast',
-    description: 'Быстрый и более дешёвый coding-agent на GPT-5.4 Mini для small edits, чтения контекста и простых задач.',
-    model_external_id: 'openai/gpt-5.4-mini',
-    version_number: 1,
-    chat_intro: 'Быстрый coding-agent на GPT-5.4 Mini. Лучше подходит для маленьких правок, чтения проекта, summary и коротких задач.',
+    description: 'Быстрый и более дешёвый coding-agent на Claude Haiku 4.5 для small edits, чтения контекста и простых задач.',
+    model_external_id: 'anthropic/claude-haiku-4.5',
+    version_number: 2,
+    chat_intro: 'Быстрый coding-agent на Claude Haiku 4.5. Лучше подходит для маленьких правок, чтения проекта, summary и коротких задач.',
     starter_prompts: [
       'Коротко разберись в приложенном коде и предложи улучшения',
       'Сделай небольшой рефакторинг компонента',

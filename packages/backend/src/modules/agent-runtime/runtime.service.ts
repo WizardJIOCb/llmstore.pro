@@ -454,6 +454,26 @@ function extractCodingReport(content: string): { cleanText: string; report: Codi
   return { cleanText, report };
 }
 
+function normalizeAssistantChatPayload(
+  content: string,
+  usage: Record<string, unknown> | null,
+): { content: string; usage: Record<string, unknown> | null; codingReport: CodingReport | null } {
+  const parsed = extractCodingReport(content);
+  const usageCodingReport = sanitizeCodingReport(usage?.coding_report);
+  const codingReport = parsed.report ?? usageCodingReport;
+
+  return {
+    content: parsed.cleanText || codingReport?.summary || '',
+    usage: codingReport
+      ? {
+        ...(usage ?? {}),
+        coding_report: codingReport,
+      }
+      : usage,
+    codingReport,
+  };
+}
+
 export async function prepareUploadedChatFiles(files: Express.Multer.File[]): Promise<ChatAttachmentMeta[]> {
   const result: ChatAttachmentMeta[] = [];
   for (const file of files) {
@@ -1061,18 +1081,21 @@ export async function getChatHistory(agentId: string, userId: string) {
       .filter((row) => row.role === 'user' || row.role === 'assistant')
       .map((row) => {
         const rawUsage = (row.usage_json as Record<string, unknown> | null) ?? null;
-        const promptTokens = rawUsage ? toNumberOrNull(rawUsage.prompt_tokens) : null;
-        const completionTokens = rawUsage ? toNumberOrNull(rawUsage.completion_tokens) : null;
-        const totalTokens = rawUsage
-          ? (toNumberOrNull(rawUsage.total_tokens)
+        const normalized = row.role === 'assistant'
+          ? normalizeAssistantChatPayload(row.content_text, rawUsage)
+          : { content: row.content_text, usage: rawUsage, codingReport: null };
+        const normalizedUsage = normalized.usage;
+        const promptTokens = normalizedUsage ? toNumberOrNull(normalizedUsage.prompt_tokens) : null;
+        const completionTokens = normalizedUsage ? toNumberOrNull(normalizedUsage.completion_tokens) : null;
+        const totalTokens = normalizedUsage
+          ? (toNumberOrNull(normalizedUsage.total_tokens)
             ?? ((promptTokens ?? 0) + (completionTokens ?? 0)))
           : null;
-        const estimatedCostRaw = rawUsage
-          ? (rawUsage.estimated_cost as string | number | undefined)
+        const estimatedCostRaw = normalizedUsage
+          ? (normalizedUsage.estimated_cost as string | number | undefined)
           : undefined;
-        const modelRaw = rawUsage ? rawUsage.model : undefined;
-        const rawToolTraces = rawUsage?.tool_traces;
-        const rawCodingReport = rawUsage?.coding_report;
+        const modelRaw = normalizedUsage ? normalizedUsage.model : undefined;
+        const rawToolTraces = normalizedUsage?.tool_traces;
 
         const usage = (
           promptTokens !== null
@@ -1093,12 +1116,12 @@ export async function getChatHistory(agentId: string, userId: string) {
 
         return {
           role: row.role as 'user' | 'assistant',
-          content: row.content_text,
+          content: normalized.content,
           runId: row.run_id ?? undefined,
           usage,
           latencyMs: row.latency_ms ?? undefined,
           toolTraces: Array.isArray(rawToolTraces) ? rawToolTraces as ToolTrace[] : undefined,
-          codingReport: sanitizeCodingReport(rawCodingReport),
+          codingReport: normalized.codingReport,
         };
       });
 
@@ -1428,15 +1451,22 @@ async function getConversationMessages(chatId: string): Promise<ConversationMess
 
   return rows
     .filter((row) => row.role === 'user' || row.role === 'assistant')
-    .map((row) => ({
-      id: row.id,
-      role: row.role as 'user' | 'assistant',
-      content: row.content_text,
-      run_id: row.run_id ?? null,
-      usage: (row.usage_json as Record<string, unknown> | null) ?? null,
-      latency_ms: row.latency_ms ?? null,
-      created_at: toIso(row.created_at),
-    }));
+    .map((row) => {
+      const rawUsage = (row.usage_json as Record<string, unknown> | null) ?? null;
+      const normalized = row.role === 'assistant'
+        ? normalizeAssistantChatPayload(row.content_text, rawUsage)
+        : { content: row.content_text, usage: rawUsage, codingReport: null };
+
+      return {
+        id: row.id,
+        role: row.role as 'user' | 'assistant',
+        content: normalized.content,
+        run_id: row.run_id ?? null,
+        usage: normalized.usage,
+        latency_ms: row.latency_ms ?? null,
+        created_at: toIso(row.created_at),
+      };
+    });
 }
 
 async function getAgentChatMeta(agentId: string | null): Promise<{
@@ -1514,7 +1544,8 @@ export async function listChats(userId: string): Promise<ConversationListItem[]>
   const previewMap = new Map<string, string>();
   for (const m of lastMessages) {
     if (!previewMap.has(m.conversation_id)) {
-      previewMap.set(m.conversation_id, compactTitle(m.content_text));
+      const previewContent = normalizeAssistantChatPayload(m.content_text, null).content;
+      previewMap.set(m.conversation_id, compactTitle(previewContent || m.content_text));
     }
   }
 
@@ -2037,6 +2068,10 @@ export async function sendChatMessage(
       throw err;
     }
   }
+
+  const normalizedAssistant = normalizeAssistantChatPayload(assistantText, usagePayload);
+  assistantText = normalizedAssistant.content || assistantText;
+  usagePayload = normalizedAssistant.usage;
 
   const [assistantRow] = await db.insert(chatConversationMessages).values({
     conversation_id: chatId,
