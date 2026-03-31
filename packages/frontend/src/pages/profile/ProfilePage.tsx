@@ -161,6 +161,7 @@ export function ProfilePage() {
 
   const linkedProviders = new Set(profile.linked_accounts.map((a) => a.provider));
   const usdToRubRate = profile.usd_to_rub_rate;
+  const hasAvailableBalance = Number(profile.balance_usd) > 0;
 
   return (
     <div className="container mx-auto max-w-4xl px-4 py-8 space-y-6">
@@ -268,9 +269,11 @@ export function ProfilePage() {
           <p className="mt-2 text-xs text-muted-foreground">
             Курс: 1 USD = {usdToRubRate} руб.
           </p>
-          <div className="mt-3">
-            <TopUpHelp settings={appSettings} />
-          </div>
+          {!hasAvailableBalance && (
+            <div className="mt-3">
+              <TopUpHelp settings={appSettings} />
+            </div>
+          )}
         </CardContent>
       </Card>
 
