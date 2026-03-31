@@ -79,6 +79,7 @@ function extractUsage(value: Record<string, unknown> | null) {
     total_tokens,
     estimated_cost: typeof value.estimated_cost === 'string' ? value.estimated_cost : undefined,
     model: typeof value.model === 'string' ? value.model : undefined,
+    usd_to_rub_rate: typeof value.usd_to_rub_rate === 'number' ? value.usd_to_rub_rate : undefined,
   };
 }
 

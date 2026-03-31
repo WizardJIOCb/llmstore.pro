@@ -84,6 +84,7 @@ export interface BalanceHistoryItem {
 export interface UserProfile extends UserPublic {
   balance_usd: string;
   balance_rub: string;
+  usd_to_rub_rate: number;
   linked_accounts: LinkedAccount[];
   alice: AliceProfileDto | null;
   usage: UserUsageSummary;

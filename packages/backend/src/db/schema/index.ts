@@ -36,3 +36,6 @@ export * from './comments';
 
 // Alice integration
 export * from './alice';
+
+// App settings
+export * from './app-settings';

@@ -6,7 +6,7 @@ import {
   balanceTransactions,
 } from '../../db/schema/index.js';
 import { AppError, ConflictError, NotFoundError } from '../../middleware/error-handler.js';
-import { ROLE_LIMITS, USD_TO_RUB_RATE } from '@llmstore/shared';
+import { ROLE_LIMITS } from '@llmstore/shared';
 import type {
   UserProfile,
   LinkedAccount,
@@ -16,6 +16,7 @@ import type {
   BalanceHistoryItem,
 } from '@llmstore/shared';
 import type { UserRole } from '@llmstore/shared';
+import { getUsdToRubRate } from '../../lib/app-settings.js';
 
 function toFixedAmount(value: number, scale = 4): string {
   return value.toFixed(scale);
@@ -220,8 +221,9 @@ export async function getProfile(userId: string): Promise<UserProfile> {
     per_agent: perAgent,
   };
 
+  const usdToRubRate = await getUsdToRubRate();
   const balanceUsd = Number(user.balance_usd);
-  const balanceRub = (balanceUsd * USD_TO_RUB_RATE).toFixed(2);
+  const balanceRub = (balanceUsd * usdToRubRate).toFixed(2);
 
   const limits: UserLimits = ROLE_LIMITS[user.role as UserRole] ?? ROLE_LIMITS.user;
 
@@ -236,6 +238,7 @@ export async function getProfile(userId: string): Promise<UserProfile> {
     created_at: user.created_at.toISOString(),
     balance_usd: String(user.balance_usd),
     balance_rub: balanceRub,
+    usd_to_rub_rate: usdToRubRate,
     linked_accounts,
     alice: null,
     usage,

@@ -4,6 +4,7 @@ import {
   validateCreateItem, validateUpdateItem, validateAdminListQuery,
   validateTaxonomyCreate, validateTaxonomyUpdate,
   validateCreateTool, validateUpdateTool,
+  validateUpdateAdminSettings,
 } from './admin.validators.js';
 import { validateCreateNews, validateUpdateNews, validateAdminNewsListQuery } from '../news/news.validators.js';
 import { requireRole } from '../../middleware/auth-guard.js';
@@ -16,6 +17,10 @@ router.use(requireRole('admin', 'curator'));
 
 // Dashboard stats
 router.get('/dashboard/stats', controller.getDashboardStats);
+
+// Global settings (admin only)
+router.get('/settings', requireRole('admin'), controller.getAdminSettings);
+router.put('/settings', requireRole('admin'), validateUpdateAdminSettings, controller.updateAdminSettings);
 
 // Catalog items CRUD
 router.get('/items', validateAdminListQuery, controller.listItems);

@@ -24,6 +24,10 @@ export interface AdminAgentsParams {
   owner_id?: string;
 }
 
+export interface AdminSettings {
+  usd_to_rub_rate: number;
+}
+
 export interface AdminTool {
   id: string;
   name: string;
@@ -85,6 +89,13 @@ export const adminApi = {
   // Dashboard
   getDashboardStats: () =>
     apiClient.get<{ data: AdminDashboardStats }>('/admin/dashboard/stats').then((r) => r.data.data),
+
+  // Settings
+  getSettings: () =>
+    apiClient.get<{ data: AdminSettings }>('/admin/settings').then((r) => r.data.data),
+
+  updateSettings: (data: AdminSettings) =>
+    apiClient.put<{ data: AdminSettings }>('/admin/settings', data).then((r) => r.data.data),
 
   // Catalog items
   listItems: (params: AdminListParams) =>

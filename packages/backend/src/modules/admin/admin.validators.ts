@@ -63,3 +63,9 @@ const updateToolSchema = z.object({
 
 export const validateCreateTool = validate(createToolSchema, 'body');
 export const validateUpdateTool = validate(updateToolSchema, 'body');
+
+const updateAdminSettingsSchema = z.object({
+  usd_to_rub_rate: z.coerce.number().positive().max(1000),
+});
+
+export const validateUpdateAdminSettings = validate(updateAdminSettingsSchema, 'body');

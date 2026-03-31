@@ -6,7 +6,14 @@ interface ChatMessage {
   content: string;
   toolTraces?: ToolTrace[];
   runId?: string;
-  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number; estimated_cost?: string; model?: string } | null;
+  usage?: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+    estimated_cost?: string;
+    model?: string;
+    usd_to_rub_rate?: number;
+  } | null;
   latencyMs?: number;
   codingReport?: CodingReport | null;
 }
@@ -21,7 +28,14 @@ interface PlaygroundState {
   addAssistantMessage: (content: string, meta?: {
     toolTraces?: ToolTrace[];
     runId?: string;
-    usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number; estimated_cost?: string; model?: string } | null;
+    usage?: {
+      prompt_tokens: number;
+      completion_tokens: number;
+      total_tokens: number;
+      estimated_cost?: string;
+      model?: string;
+      usd_to_rub_rate?: number;
+    } | null;
     latencyMs?: number;
     codingReport?: CodingReport | null;
   }) => void;

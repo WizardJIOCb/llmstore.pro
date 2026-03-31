@@ -16,6 +16,7 @@ import { AdminNewsListPage } from './pages/admin/AdminNewsListPage';
 import { AdminNewsFormPage } from './pages/admin/AdminNewsFormPage';
 import { AdminDashboardPage } from './pages/admin/AdminDashboardPage';
 import { AdminToolsPage } from './pages/admin/AdminToolsPage';
+import { AdminSettingsPage } from './pages/admin/AdminSettingsPage';
 import { NewsListPage } from './pages/news/NewsListPage';
 import { NewsDetailPage } from './pages/news/NewsDetailPage';
 import { NotFoundPage } from './pages/NotFoundPage';
@@ -147,6 +148,14 @@ export function App() {
         <Route path="/dashboard/costs" element={<PlaceholderPage title="Затраты" />} />
 
         {/* Admin routes */}
+        <Route
+          path="/admin/settings"
+          element={
+            <ProtectedRoute requireAdmin>
+              <AdminSettingsPage />
+            </ProtectedRoute>
+          }
+        />
         <Route
           path="/admin/news"
           element={

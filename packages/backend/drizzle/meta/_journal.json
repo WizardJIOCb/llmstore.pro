@@ -15,6 +15,13 @@
       "when": 1774601479086,
       "tag": "0001_good_red_hulk",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1774990101069,
+      "tag": "0002_tan_justin_hammer",
+      "breakpoints": true
     }
   ]
 }

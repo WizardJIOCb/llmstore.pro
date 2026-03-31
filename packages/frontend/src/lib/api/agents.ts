@@ -78,12 +78,21 @@ export interface CodingReport {
   preview?: CodingReportPreview | null;
 }
 
+export interface UsageSummary {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  estimated_cost: string;
+  model: string;
+  usd_to_rub_rate?: number;
+}
+
 export interface RunResult {
   run_id: string;
   status: string;
   output: string;
   tool_traces: ToolTrace[];
-  usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number; estimated_cost: string; model: string } | null;
+  usage: UsageSummary | null;
   latency_ms: number;
   coding_report?: CodingReport | null;
 }
@@ -135,7 +144,7 @@ export interface ChatHistoryMessage {
   role: 'user' | 'assistant';
   content: string;
   runId?: string;
-  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number; estimated_cost: string; model: string } | null;
+  usage?: UsageSummary | null;
   latencyMs?: number;
   toolTraces?: ToolTrace[];
   codingReport?: CodingReport | null;

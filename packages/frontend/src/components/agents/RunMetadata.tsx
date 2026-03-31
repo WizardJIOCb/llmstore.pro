@@ -5,13 +5,12 @@ interface RunMetadataProps {
     total_tokens: number;
     estimated_cost?: string;
     model?: string;
+    usd_to_rub_rate?: number;
   } | null | undefined;
   latencyMs: number | undefined;
   agentName?: string;
   toolNames?: string[];
 }
-
-const USD_TO_RUB_RATE = 90;
 
 function formatCost(cost: string): string {
   const n = parseFloat(cost);
@@ -21,10 +20,13 @@ function formatCost(cost: string): string {
   return `$${n.toFixed(3)}`;
 }
 
-function formatRubFromUsd(cost: string): string {
+function formatRubFromUsd(cost: string, usdToRubRate?: number): string {
   const n = parseFloat(cost);
+  const rate = typeof usdToRubRate === 'number' && Number.isFinite(usdToRubRate) && usdToRubRate > 0
+    ? usdToRubRate
+    : 90;
   if (n === 0) return '0 ₽';
-  const rub = n * USD_TO_RUB_RATE;
+  const rub = n * rate;
   if (rub < 0.01) return '<0.01 ₽';
   return `${rub.toFixed(2)} ₽`;
 }
@@ -45,7 +47,7 @@ export function RunMetadata({ usage, latencyMs, agentName, toolNames }: RunMetad
           </span>
           {usage.estimated_cost && (
             <span>
-              Стоимость: {formatCost(usage.estimated_cost)} ({formatRubFromUsd(usage.estimated_cost)})
+              Стоимость: {formatCost(usage.estimated_cost)} ({formatRubFromUsd(usage.estimated_cost, usage.usd_to_rub_rate)})
             </span>
           )}
           {usage.model && <span className="hidden md:inline">Модель: {usage.model.split('/').pop()}</span>}

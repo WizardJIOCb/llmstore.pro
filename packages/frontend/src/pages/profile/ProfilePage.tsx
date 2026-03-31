@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useProfile, useUnlinkAccount, useUpdateProfile } from '../../hooks/useProfile';
 import { getOAuthLinkUrl } from '../../lib/api/profile';
-import { USD_TO_RUB_RATE } from '@llmstore/shared';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
@@ -158,6 +157,7 @@ export function ProfilePage() {
   }
 
   const linkedProviders = new Set(profile.linked_accounts.map((a) => a.provider));
+  const usdToRubRate = profile.usd_to_rub_rate;
 
   return (
     <div className="container mx-auto max-w-4xl px-4 py-8 space-y-6">
@@ -263,7 +263,7 @@ export function ProfilePage() {
             </span>
           </div>
           <p className="text-xs text-muted-foreground mt-2">
-            Курс: 1 USD = {USD_TO_RUB_RATE} руб. Для пополнения пока: Попросите у Родиона.
+            Курс: 1 USD = {usdToRubRate} руб. Для пополнения пока: Попросите у Родиона.
           </p>
         </CardContent>
       </Card>
@@ -307,7 +307,7 @@ export function ProfilePage() {
               {paginatedHistoryItems.map((item) => {
                 const amount = Number(item.amount_usd);
                 const sign = item.direction === 'credit' ? '+' : '-';
-                const amountRub = amount * USD_TO_RUB_RATE;
+                const amountRub = amount * usdToRubRate;
                 return (
                   <div key={item.id} className="rounded-lg border p-3">
                     <div className="flex items-start justify-between gap-3">

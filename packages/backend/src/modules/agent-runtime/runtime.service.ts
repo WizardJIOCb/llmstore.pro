@@ -22,6 +22,7 @@ import { logger } from '../../lib/logger.js';
 import type { ChatMessage, ToolDefinitionParam } from '../openrouter/types.js';
 import { UPLOADS_DIR } from '../../config/upload.js';
 import { openChatEventStream, publishChatEvent } from './chat-events.service.js';
+import { getUsdToRubRate } from '../../lib/app-settings.js';
 
 const DEFAULT_MODEL = 'google/gemini-2.0-flash-001';
 const DEFAULT_MAX_ITERATIONS = 4;
@@ -117,6 +118,15 @@ function recalculateUsageCost<T extends Record<string, unknown> | null>(usage: T
   } as T;
 }
 
+function attachUsdToRubRate<T extends Record<string, unknown> | null>(usage: T, usdToRubRate: number): T {
+  if (!usage) return usage;
+
+  return {
+    ...usage,
+    usd_to_rub_rate: usdToRubRate,
+  } as T;
+}
+
 async function ensureSufficientBalance(userId: string) {
   const [user] = await db
     .select({ balance_usd: users.balance_usd })
@@ -190,7 +200,14 @@ interface RunResult {
   status: string;
   output: string;
   tool_traces: ToolTrace[];
-  usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number; estimated_cost: string; model: string } | null;
+  usage: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+    estimated_cost: string;
+    model: string;
+    usd_to_rub_rate?: number;
+  } | null;
   latency_ms: number;
   coding_report?: CodingReport | null;
   error_message?: string;
@@ -1068,6 +1085,7 @@ export async function startRun(
 
   // 10. Persist usage
   const estCost = estimateCost(modelId, totalUsage.prompt_tokens, totalUsage.completion_tokens);
+  const usdToRubRate = await getUsdToRubRate();
   if (totalUsage.total_tokens > 0) {
     await db.insert(usageLedger).values({
       run_id: run.id,
@@ -1099,6 +1117,7 @@ export async function startRun(
         ...totalUsage,
         estimated_cost: estCost,
         model: modelId,
+        usd_to_rub_rate: usdToRubRate,
         tool_traces: toolTraces,
         coding_report: codingReport,
       }
@@ -1152,7 +1171,7 @@ export async function startRun(
     output: finalOutput,
     tool_traces: toolTraces,
     usage: totalUsage.total_tokens > 0
-      ? { ...totalUsage, estimated_cost: estCost, model: modelId }
+      ? { ...totalUsage, estimated_cost: estCost, model: modelId, usd_to_rub_rate: usdToRubRate }
       : null,
     latency_ms: latencyMs,
     coding_report: codingReport,
@@ -1207,13 +1226,21 @@ interface ChatHistoryMessage {
   role: 'user' | 'assistant';
   content: string;
   runId?: string;
-  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number; estimated_cost: string; model: string } | null;
+  usage?: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+    estimated_cost: string;
+    model: string;
+    usd_to_rub_rate?: number;
+  } | null;
   latencyMs?: number;
   toolTraces?: ToolTrace[];
   codingReport?: CodingReport | null;
 }
 
 export async function getChatHistory(agentId: string, userId: string) {
+  const usdToRubRate = await getUsdToRubRate();
   const [conversation] = await db
     .select({
       id: chatConversations.id,
@@ -1277,6 +1304,7 @@ export async function getChatHistory(agentId: string, userId: string) {
                 ? estimatedCostRaw
                 : String(estimatedCostRaw ?? '0'),
             model: typeof modelRaw === 'string' ? modelRaw : 'unknown',
+            usd_to_rub_rate: usdToRubRate,
           }
           : null;
 
@@ -1381,6 +1409,7 @@ export async function getChatHistory(agentId: string, userId: string) {
           u.completion_tokens,
         ),
         model: u.model_external_id,
+        usd_to_rub_rate: usdToRubRate,
       } : null;
 
       messages.push({
@@ -1577,8 +1606,6 @@ function toIso(value: Date): string {
   return value.toISOString();
 }
 
-const USD_TO_RUB_RATE = 90;
-
 function toNumberOrNull(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value === 'string') {
@@ -1613,6 +1640,7 @@ async function getConversationForUser(chatId: string, userId: string): Promise<C
 }
 
 async function getConversationMessages(chatId: string): Promise<ConversationMessage[]> {
+  const usdToRubRate = await getUsdToRubRate();
   const rows = await db
     .select()
     .from(chatConversationMessages)
@@ -1633,7 +1661,7 @@ async function getConversationMessages(chatId: string): Promise<ConversationMess
         role: row.role as 'user' | 'assistant',
         content: normalized.content,
         run_id: row.run_id ?? null,
-        usage: normalizedUsage,
+        usage: attachUsdToRubRate(normalizedUsage, usdToRubRate),
         latency_ms: row.latency_ms ?? null,
         created_at: toIso(row.created_at),
       };
@@ -1923,6 +1951,7 @@ export async function streamChatEvents(chatId: string, userId: string, res: Resp
 
 export async function getChatStats(chatId: string, userId: string): Promise<ChatStatsResponse> {
   const chat = await getConversationForUser(chatId, userId);
+  const usdToRubRate = await getUsdToRubRate();
   const messages = await db
     .select()
     .from(chatConversationMessages)
@@ -1984,7 +2013,7 @@ export async function getChatStats(chatId: string, userId: string): Promise<Chat
   const byModelArr = Array.from(byModel.values())
     .map((row) => ({
       ...row,
-      rub_cost: row.usd_cost * USD_TO_RUB_RATE,
+      rub_cost: row.usd_cost * usdToRubRate,
     }))
     .sort((a, b) => b.usd_cost - a.usd_cost);
 
@@ -2018,12 +2047,12 @@ export async function getChatStats(chatId: string, userId: string): Promise<Chat
       completion_tokens: completionTokens,
       total_tokens: totalTokens,
       usd_cost: usdCost,
-      rub_cost: usdCost * USD_TO_RUB_RATE,
+      rub_cost: usdCost * usdToRubRate,
       messages_with_usage: messagesWithUsage,
       total_latency_ms: totalLatencyMs,
     },
     by_model: byModelArr,
-    usd_to_rub_rate: USD_TO_RUB_RATE,
+    usd_to_rub_rate: usdToRubRate,
   };
 }
 
@@ -2109,6 +2138,7 @@ export async function sendChatMessage(
 ) {
   const chat = await getConversationForUser(chatId, userId);
   await ensureSufficientBalance(userId);
+  const usdToRubRate = await getUsdToRubRate();
   const emitChatEvent = (event: string, payload: Record<string, unknown>) => {
     publishChatEvent(chatId, userId, event, payload);
   };
@@ -2292,7 +2322,10 @@ export async function sendChatMessage(
       const rawAssistant = response.choices?.[0]?.message?.content;
       assistantText = typeof rawAssistant === 'string' ? rawAssistant : '(пустой ответ)';
       if (response.usage) {
-        usagePayload = estimateGeneralChatCost(model, response.usage) as unknown as Record<string, unknown>;
+        usagePayload = attachUsdToRubRate(
+          estimateGeneralChatCost(model, response.usage) as unknown as Record<string, unknown>,
+          usdToRubRate,
+        );
       }
       emitChatEvent('chat.run.completed', {
         mode: 'general',
@@ -2313,7 +2346,7 @@ export async function sendChatMessage(
 
   const normalizedAssistant = normalizeAssistantChatPayload(assistantText, usagePayload);
   assistantText = normalizedAssistant.content || assistantText;
-  usagePayload = normalizedAssistant.usage;
+  usagePayload = attachUsdToRubRate(normalizedAssistant.usage, usdToRubRate);
 
   const [assistantRow] = await db.insert(chatConversationMessages).values({
     conversation_id: chatId,

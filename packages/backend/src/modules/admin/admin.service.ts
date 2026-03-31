@@ -13,6 +13,10 @@ import {
 import { NotFoundError, ConflictError, AppError } from '../../middleware/error-handler.js';
 import type { CreateCatalogItemInput, UpdateCatalogItemInput } from '@llmstore/shared/schemas';
 import type { UserRole, UserStatus } from '@llmstore/shared';
+import {
+  getAdminSettings as getGlobalAdminSettings,
+  setUsdToRubRate,
+} from '../../lib/app-settings.js';
 
 // ─── Admin catalog list (offset pagination) ─────────────────
 
@@ -23,6 +27,20 @@ interface AdminListQuery {
   status?: string;
   search?: string;
   sort?: string;
+}
+
+export async function getAdminSettings() {
+  return getGlobalAdminSettings();
+}
+
+export async function updateAdminSettings(
+  input: { usd_to_rub_rate: number },
+  adminUserId: string,
+) {
+  const usdToRubRate = await setUsdToRubRate(input.usd_to_rub_rate, adminUserId);
+  return {
+    usd_to_rub_rate: usdToRubRate,
+  };
 }
 
 export async function listItems(query: AdminListQuery) {

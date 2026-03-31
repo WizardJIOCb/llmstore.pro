@@ -17,6 +17,24 @@ export async function getDashboardStats(_req: Request, res: Response, next: Next
   }
 }
 
+export async function getAdminSettings(_req: Request, res: Response, next: NextFunction) {
+  try {
+    const settings = await adminService.getAdminSettings();
+    res.json({ data: settings });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function updateAdminSettings(req: Request, res: Response, next: NextFunction) {
+  try {
+    const settings = await adminService.updateAdminSettings(req.body, req.session.userId!);
+    res.json({ data: settings });
+  } catch (err) {
+    next(err);
+  }
+}
+
 // ─── Catalog Items ──────────────────────────────────────────
 
 export async function listItems(req: Request, res: Response, next: NextFunction) {
