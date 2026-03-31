@@ -108,11 +108,10 @@ export async function getChatMessagePreview(req: Request<{ chatId: string; messa
     const html = await runtimeService.getChatMessagePreviewHtml(
       req.params.chatId,
       req.params.messageId,
-      req.session.userId!,
       typeof req.query.previewId === 'string' ? req.query.previewId : undefined,
     );
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+    res.setHeader('Cache-Control', 'public, max-age=60');
     res.send(html);
   } catch (err) {
     next(err);

@@ -1887,11 +1887,8 @@ export async function getChatById(chatId: string, userId: string): Promise<Conve
 export async function getChatMessagePreviewHtml(
   chatId: string,
   messageId: string,
-  userId: string,
   previewId?: string,
 ): Promise<string> {
-  await getConversationForUser(chatId, userId);
-
   const [message] = await db
     .select()
     .from(chatConversationMessages)
