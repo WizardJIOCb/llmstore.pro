@@ -48,7 +48,7 @@ export function ChatMessage({
   const isUser = role === 'user';
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewAlt, setPreviewAlt] = useState('');
-  const renderedContent = !isUser && codingReport ? stripDevReportEnvelope(content) : content;
+  const renderedContent = !isUser ? stripDevReportEnvelope(content) : content;
 
   return (
     <>

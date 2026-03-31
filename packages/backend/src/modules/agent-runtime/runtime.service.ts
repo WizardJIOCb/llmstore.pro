@@ -437,6 +437,53 @@ function sanitizeCodingReport(value: unknown): CodingReport | null {
   return normalized;
 }
 
+function extractFirstJsonObject(value: string): string | null {
+  const start = value.indexOf('{');
+  if (start === -1) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = start; index < value.length; index += 1) {
+    const char = value[index];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (char === '\\') {
+        escaped = true;
+        continue;
+      }
+      if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+
+    if (char === '{') {
+      depth += 1;
+      continue;
+    }
+
+    if (char === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return value.slice(start, index + 1);
+      }
+    }
+  }
+
+  return null;
+}
+
 function extractCodingReport(content: string): { cleanText: string; report: CodingReport | null } {
   const match = content.match(/<dev-report>\s*([\s\S]*?)\s*<\/dev-report>/i);
   if (!match) {
@@ -447,7 +494,16 @@ function extractCodingReport(content: string): { cleanText: string; report: Codi
   try {
     report = sanitizeCodingReport(JSON.parse(match[1]));
   } catch {
-    report = null;
+    const rawJson = extractFirstJsonObject(match[1]);
+    if (rawJson) {
+      try {
+        report = sanitizeCodingReport(JSON.parse(rawJson));
+      } catch {
+        report = null;
+      }
+    } else {
+      report = null;
+    }
   }
 
   const cleanText = content.replace(match[0], '').trim();
