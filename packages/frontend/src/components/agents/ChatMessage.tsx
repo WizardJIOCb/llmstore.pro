@@ -806,7 +806,9 @@ export function ChatMessage({
           className={cn(
             'rounded-lg px-4 py-3 text-sm',
             isUser ? 'max-w-[80%]' : 'w-full',
-            isUser ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground',
+            isUser
+              ? 'border border-sky-200/80 bg-sky-50 text-slate-900 shadow-sm'
+              : 'bg-muted text-foreground',
             isUser ? 'whitespace-pre-wrap' : '',
           )}
         >
@@ -814,7 +816,12 @@ export function ChatMessage({
             <div className="mb-2 flex justify-end">
               <button
                 type="button"
-                className="text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+                className={cn(
+                  'text-[11px] transition-colors',
+                  isUser
+                    ? 'text-sky-700/80 hover:text-sky-900'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
                 onClick={() => void deleteMessage()}
                 disabled={deletingMessage}
               >
@@ -823,7 +830,7 @@ export function ChatMessage({
             </div>
           )}
           {messageActionError && (
-            <p className="mb-2 text-xs text-destructive">{messageActionError}</p>
+            <p className={cn('mb-2 text-xs', isUser ? 'text-rose-700' : 'text-destructive')}>{messageActionError}</p>
           )}
           {isUser ? (
             content
