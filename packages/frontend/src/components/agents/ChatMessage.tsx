@@ -53,24 +53,30 @@ function SectionCard({ title, children }: { title: string; children: ReactNode }
 function injectPreviewBridge(html: string, previewId: string): string {
   const bridge = `
 <style id="llmstore-preview-emoji-bridge">
-@import url('https://fonts.googleapis.com/css2?family=Noto+Color+Emoji');
 .llmstore-emoji-fallback {
-  font-family: "Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Emoji", sans-serif !important;
-  font-style: normal !important;
-  font-weight: 400 !important;
-  font-variant-emoji: emoji;
+  display: inline-block !important;
+  width: 1em !important;
+  height: 1em !important;
+  vertical-align: -0.12em !important;
+  object-fit: contain !important;
 }
 </style>
 <script>
 (() => {
   const previewId = ${JSON.stringify(previewId)};
   const emojiRegex = /\\p{Extended_Pictographic}(?:\\uFE0F|\\uFE0E)?/gu;
+  const emojiAssetBase = 'https://cdn.jsdelivr.net/gh/jdecked/twemoji@latest/assets/svg/';
 
   const shouldSkipEmojiWrap = (node) => {
     const parent = node.parentElement;
     if (!parent) return true;
     return !!parent.closest('script, style, textarea, input, option');
   };
+
+  const toEmojiCodePoint = (value) => Array.from(value)
+    .map((symbol) => symbol.codePointAt(0)?.toString(16))
+    .filter((code) => code && code !== 'fe0f')
+    .join('-');
 
   const wrapEmojiTextNode = (node) => {
     if (!node.nodeValue || !emojiRegex.test(node.nodeValue)) return;
@@ -87,11 +93,20 @@ function injectPreviewBridge(html: string, previewId: string): string {
         fragment.appendChild(document.createTextNode(node.nodeValue.slice(lastIndex, index)));
       }
 
-      const span = document.createElement('span');
-      span.className = 'llmstore-emoji-fallback';
-      span.textContent = value;
-      span.setAttribute('aria-hidden', 'true');
-      fragment.appendChild(span);
+      const img = document.createElement('img');
+      img.className = 'llmstore-emoji-fallback';
+      img.alt = value;
+      img.src = emojiAssetBase + toEmojiCodePoint(value) + '.svg';
+      img.decoding = 'async';
+      img.loading = 'lazy';
+      img.draggable = false;
+      img.referrerPolicy = 'no-referrer';
+      img.onerror = () => {
+        const span = document.createElement('span');
+        span.textContent = value;
+        img.replaceWith(span);
+      };
+      fragment.appendChild(img);
 
       lastIndex = index + value.length;
     }

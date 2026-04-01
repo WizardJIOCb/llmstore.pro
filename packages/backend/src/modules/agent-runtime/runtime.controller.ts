@@ -1,6 +1,20 @@
 import type { Request, Response, NextFunction } from 'express';
 import * as runtimeService from './runtime.service.js';
 
+const PREVIEW_CSP = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "font-src 'self' https: data:",
+  "form-action 'self'",
+  "frame-ancestors 'self'",
+  "img-src 'self' https: data:",
+  "object-src 'none'",
+  "script-src 'self' 'unsafe-inline'",
+  "script-src-attr 'unsafe-inline'",
+  "style-src 'self' https: 'unsafe-inline'",
+  'upgrade-insecure-requests',
+].join(';');
+
 export async function startRun(req: Request<{ agentId: string }>, res: Response, next: NextFunction) {
   try {
     const result = await runtimeService.startRun(req.params.agentId, req.session.userId!, req.body, {
@@ -112,6 +126,7 @@ export async function getChatMessagePreview(req: Request<{ chatId: string; messa
     );
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'public, max-age=60');
+    res.setHeader('Content-Security-Policy', PREVIEW_CSP);
     res.send(html);
   } catch (err) {
     next(err);
@@ -127,6 +142,7 @@ export async function getSharedChatMessagePreview(req: Request<{ token: string; 
     );
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'public, max-age=60');
+    res.setHeader('Content-Security-Policy', PREVIEW_CSP);
     res.send(html);
   } catch (err) {
     next(err);
