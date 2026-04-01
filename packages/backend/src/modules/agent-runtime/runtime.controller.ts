@@ -129,7 +129,7 @@ export async function getChatMessagePreview(req: Request<{ chatId: string; messa
       typeof req.query.previewId === 'string' ? req.query.previewId : undefined,
     );
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.setHeader('Cache-Control', 'public, max-age=60');
+    res.setHeader('Cache-Control', 'no-store, max-age=0');
     res.setHeader('Content-Security-Policy', PREVIEW_CSP);
     res.send(html);
   } catch (err) {
@@ -145,7 +145,7 @@ export async function getSharedChatMessagePreview(req: Request<{ token: string; 
       typeof req.query.previewId === 'string' ? req.query.previewId : undefined,
     );
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.setHeader('Cache-Control', 'public, max-age=60');
+    res.setHeader('Cache-Control', 'no-store, max-age=0');
     res.setHeader('Content-Security-Policy', PREVIEW_CSP);
     res.send(html);
   } catch (err) {

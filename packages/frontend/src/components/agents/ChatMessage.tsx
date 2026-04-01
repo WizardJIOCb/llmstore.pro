@@ -51,6 +51,7 @@ function SectionCard({ title, children }: { title: string; children: ReactNode }
 }
 
 function injectPreviewBridge(html: string, previewId: string): string {
+  const emojiAssetVersion = '20260401b';
   const bridge = `
 <style id="llmstore-preview-emoji-bridge">
 .llmstore-emoji-fallback {
@@ -98,7 +99,7 @@ function injectPreviewBridge(html: string, previewId: string): string {
       const img = document.createElement('img');
       img.className = 'llmstore-emoji-fallback';
       img.alt = value;
-      img.src = emojiAssetBase + toEmojiCodePoint(value) + '.svg';
+      img.src = emojiAssetBase + toEmojiCodePoint(value) + '.svg?v=${emojiAssetVersion}';
       img.decoding = 'async';
       img.loading = 'lazy';
       img.draggable = false;
