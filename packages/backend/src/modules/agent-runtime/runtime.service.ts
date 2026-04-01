@@ -3085,33 +3085,85 @@ export async function getSharedChatById(token: string, viewerUserId?: string | n
 
 export async function listGalleryPreviews(limit = 24): Promise<GalleryPreviewItem[]> {
   const usdToRubRate = await getUsdToRubRate();
-  const rows = await db
-    .select({
-      message_id: chatConversationMessages.id,
-      chat_id: chatConversations.id,
-      chat_title: chatConversations.title,
-      share_token: chatConversations.share_token,
-      chat_model_external_id: chatConversations.model_external_id,
-      author_email: users.email,
-      author_username: users.username,
-      author_name_raw: users.name,
-      content_text: chatConversationMessages.content_text,
-      usage_json: chatConversationMessages.usage_json,
-      preview_view_count: chatConversationMessages.preview_view_count,
-      created_at: chatConversationMessages.created_at,
-    })
-    .from(chatConversationMessages)
-    .innerJoin(chatConversations, eq(chatConversations.id, chatConversationMessages.conversation_id))
-    .innerJoin(users, eq(users.id, chatConversations.user_id))
-    .where(and(
-      eq(chatConversationMessages.role, 'assistant'),
-      eq(chatConversations.access, 'public'),
-    ))
-    .orderBy(desc(chatConversationMessages.created_at))
-    .limit(Math.max(1, Math.min(limit, 120)));
+  const galleryLimit = Math.max(1, Math.min(limit, 120));
+  const chunkSize = Math.max(60, Math.min(galleryLimit * 5, 300));
+  const selectedRows: Array<{
+    message_id: string;
+    chat_id: string;
+    chat_title: string;
+    share_token: string | null;
+    chat_model_external_id: string | null;
+    author_email: string;
+    author_username: string | null;
+    author_name_raw: string | null;
+    content_text: string;
+    usage_json: Record<string, unknown> | null;
+    preview_view_count: number;
+    created_at: Date;
+  }> = [];
+  const selectedChatIds = new Set<string>();
+  let offset = 0;
 
-  const chatIds = [...new Set(rows.map((row) => row.chat_id))];
-  const chatModelFallback = new Map(rows.map((row) => [row.chat_id, row.chat_model_external_id ?? null]));
+  while (selectedRows.length < galleryLimit) {
+    const rows = await db
+      .select({
+        message_id: chatConversationMessages.id,
+        chat_id: chatConversations.id,
+        chat_title: chatConversations.title,
+        share_token: chatConversations.share_token,
+        chat_model_external_id: chatConversations.model_external_id,
+        author_email: users.email,
+        author_username: users.username,
+        author_name_raw: users.name,
+        content_text: chatConversationMessages.content_text,
+        usage_json: chatConversationMessages.usage_json,
+        preview_view_count: chatConversationMessages.preview_view_count,
+        created_at: chatConversationMessages.created_at,
+      })
+      .from(chatConversationMessages)
+      .innerJoin(chatConversations, eq(chatConversations.id, chatConversationMessages.conversation_id))
+      .innerJoin(users, eq(users.id, chatConversations.user_id))
+      .where(and(
+        eq(chatConversationMessages.role, 'assistant'),
+        eq(chatConversations.access, 'public'),
+      ))
+      .orderBy(desc(chatConversationMessages.created_at))
+      .limit(chunkSize)
+      .offset(offset);
+
+    if (rows.length === 0) {
+      break;
+    }
+
+    for (const row of rows) {
+      if (selectedChatIds.has(row.chat_id)) {
+        continue;
+      }
+
+      const rawUsage = (row.usage_json as Record<string, unknown> | null) ?? null;
+      const normalized = normalizeAssistantChatPayload(row.content_text, rawUsage);
+      const preview = normalized.codingReport?.preview;
+
+      if (!preview || (preview.type !== 'html' && preview.type !== 'url')) {
+        continue;
+      }
+
+      selectedRows.push({
+        ...row,
+        usage_json: rawUsage,
+      });
+      selectedChatIds.add(row.chat_id);
+
+      if (selectedRows.length >= galleryLimit) {
+        break;
+      }
+    }
+
+    offset += rows.length;
+  }
+
+  const chatIds = [...new Set(selectedRows.map((row) => row.chat_id))];
+  const chatModelFallback = new Map(selectedRows.map((row) => [row.chat_id, row.chat_model_external_id ?? null]));
   const chatTotals = new Map<string, {
     usd_cost: number;
     model_costs: Map<string, number>;
@@ -3153,7 +3205,7 @@ export async function listGalleryPreviews(limit = 24): Promise<GalleryPreviewIte
 
   const items: GalleryPreviewItem[] = [];
 
-  for (const row of rows) {
+  for (const row of selectedRows) {
     const shareToken = await ensureChatShareToken(row.chat_id, row.share_token);
     const rawUsage = (row.usage_json as Record<string, unknown> | null) ?? null;
     const normalized = normalizeAssistantChatPayload(row.content_text, rawUsage);
