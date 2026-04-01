@@ -21,9 +21,11 @@ import { UPLOADS_DIR } from './config/upload.js';
 
 export function createApp() {
   const app = express();
+  const isProduction = env.NODE_ENV === 'production';
+  const sessionSameSite = isProduction ? 'none' : 'lax';
 
   // Trust reverse proxy (nginx)
-  if (env.NODE_ENV === 'production') {
+  if (isProduction) {
     app.set('trust proxy', 1);
   }
 
@@ -49,10 +51,10 @@ export function createApp() {
       saveUninitialized: false,
       name: 'llmstore_session',
       cookie: {
-        secure: env.NODE_ENV === 'production',
+        secure: isProduction,
         httpOnly: true,
         maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-        sameSite: 'lax',
+        sameSite: sessionSameSite,
       },
     }),
   );

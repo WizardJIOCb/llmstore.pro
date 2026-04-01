@@ -1,6 +1,10 @@
 import type { Request, Response, NextFunction } from 'express';
 import * as authService from './auth.service.js';
 
+function getSessionSameSite() {
+  return process.env.NODE_ENV === 'production' ? 'none' : 'lax';
+}
+
 export async function register(req: Request, res: Response, next: NextFunction) {
   try {
     const user = await authService.register(req.body);
@@ -30,7 +34,7 @@ export async function logout(req: Request, res: Response, next: NextFunction) {
       res.clearCookie('llmstore_session', {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
+        sameSite: getSessionSameSite(),
       });
       res.json({ data: { success: true } });
     });
