@@ -1797,6 +1797,9 @@ interface GalleryPreviewItem {
   author_name: string;
   view_count: number;
   created_at: string;
+  total_usd_cost: number;
+  total_rub_cost: number;
+  model: string | null;
 }
 
 interface ChatStatsModelBreakdown {
@@ -2868,12 +2871,14 @@ export async function getSharedChatById(token: string, viewerUserId?: string | n
 }
 
 export async function listGalleryPreviews(limit = 24): Promise<GalleryPreviewItem[]> {
+  const usdToRubRate = await getUsdToRubRate();
   const rows = await db
     .select({
       message_id: chatConversationMessages.id,
       chat_id: chatConversations.id,
       chat_title: chatConversations.title,
       share_token: chatConversations.share_token,
+      chat_model_external_id: chatConversations.model_external_id,
       author_email: users.email,
       author_username: users.username,
       author_name_raw: users.name,
@@ -2892,6 +2897,47 @@ export async function listGalleryPreviews(limit = 24): Promise<GalleryPreviewIte
     .orderBy(desc(chatConversationMessages.created_at))
     .limit(Math.max(1, Math.min(limit, 120)));
 
+  const chatIds = [...new Set(rows.map((row) => row.chat_id))];
+  const chatModelFallback = new Map(rows.map((row) => [row.chat_id, row.chat_model_external_id ?? null]));
+  const chatTotals = new Map<string, {
+    usd_cost: number;
+    model_costs: Map<string, number>;
+  }>();
+
+  if (chatIds.length > 0) {
+    const usageRows = await db
+      .select({
+        conversation_id: chatConversationMessages.conversation_id,
+        usage_json: chatConversationMessages.usage_json,
+      })
+      .from(chatConversationMessages)
+      .where(and(
+        inArray(chatConversationMessages.conversation_id, chatIds),
+        eq(chatConversationMessages.role, 'assistant'),
+      ));
+
+    for (const row of usageRows) {
+      const rawUsage = (row.usage_json as Record<string, unknown> | null) ?? null;
+      const usage = recalculateUsageCost(rawUsage);
+      if (!usage) continue;
+
+      const promptTokens = toNumberOrNull(usage.prompt_tokens) ?? 0;
+      const completionTokens = toNumberOrNull(usage.completion_tokens) ?? 0;
+      const model = (typeof usage.model === 'string' && usage.model.trim().length > 0)
+        ? usage.model.trim()
+        : (chatModelFallback.get(row.conversation_id) || DEFAULT_GENERAL_MODEL);
+      const usdCost = Number(estimateCost(model, promptTokens, completionTokens));
+
+      const existing = chatTotals.get(row.conversation_id) ?? {
+        usd_cost: 0,
+        model_costs: new Map<string, number>(),
+      };
+      existing.usd_cost += usdCost;
+      existing.model_costs.set(model, (existing.model_costs.get(model) ?? 0) + usdCost);
+      chatTotals.set(row.conversation_id, existing);
+    }
+  }
+
   const items: GalleryPreviewItem[] = [];
 
   for (const row of rows) {
@@ -2899,6 +2945,10 @@ export async function listGalleryPreviews(limit = 24): Promise<GalleryPreviewIte
     const rawUsage = (row.usage_json as Record<string, unknown> | null) ?? null;
     const normalized = normalizeAssistantChatPayload(row.content_text, rawUsage);
     const preview = normalized.codingReport?.preview;
+    const totals = chatTotals.get(row.chat_id);
+    const dominantModel = totals
+      ? [...totals.model_costs.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
+      : (row.chat_model_external_id ?? null);
 
     if (!preview || ((preview.type !== 'html' && preview.type !== 'url'))) {
       continue;
@@ -2922,6 +2972,9 @@ export async function listGalleryPreviews(limit = 24): Promise<GalleryPreviewIte
       }),
       view_count: row.preview_view_count ?? 0,
       created_at: toIso(row.created_at),
+      total_usd_cost: totals?.usd_cost ?? 0,
+      total_rub_cost: (totals?.usd_cost ?? 0) * usdToRubRate,
+      model: dominantModel,
     });
   }
 

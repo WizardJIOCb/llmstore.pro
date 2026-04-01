@@ -92,6 +92,9 @@ export interface GalleryPreviewItem {
   author_name: string;
   view_count: number;
   created_at: string;
+  total_usd_cost: number;
+  total_rub_cost: number;
+  model: string | null;
 }
 
 export interface SendMessageResult {

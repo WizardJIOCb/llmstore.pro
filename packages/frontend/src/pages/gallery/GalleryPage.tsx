@@ -38,6 +38,27 @@ function formatViews(value: number): string {
   return new Intl.NumberFormat('ru-RU').format(value);
 }
 
+function formatUsdCost(value: number): string {
+  if (value === 0) return '$0';
+  if (value < 0.0001) return '<$0.0001';
+  if (value < 0.01) return `$${value.toFixed(4)}`;
+  return `$${value.toFixed(3)}`;
+}
+
+function formatRubCost(value: number): string {
+  if (value === 0) return '0 ₽';
+  if (value < 0.01) return '<0.01 ₽';
+  return `${value.toFixed(2)} ₽`;
+}
+
+function formatModelName(model: string | null): string | null {
+  if (!model) return null;
+  const trimmed = model.trim();
+  if (!trimmed) return null;
+  const lastPart = trimmed.split('/').pop()?.trim();
+  return lastPart && lastPart.length > 0 ? lastPart : trimmed;
+}
+
 function sanitizeGalleryPreviewHtml(html: string): string {
   const absoluteOriginLiteral = JSON.stringify(window.location.origin);
   return html
@@ -293,6 +314,14 @@ export function GalleryPage() {
                     <span className="rounded-full border bg-muted/20 px-2.5 py-1">
                       {formatDate(item.created_at)}
                     </span>
+                    <span className="rounded-full border bg-muted/20 px-2.5 py-1">
+                      Стоимость: {formatUsdCost(item.total_usd_cost)} ({formatRubCost(item.total_rub_cost)})
+                    </span>
+                    {formatModelName(item.model) && (
+                      <span className="rounded-full border bg-muted/20 px-2.5 py-1">
+                        Модель: {formatModelName(item.model)}
+                      </span>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-2">
