@@ -104,7 +104,7 @@ CHAT_FILE_COUNT="$(find "$TMP_DIR/uploads/chat" -type f 2>/dev/null | wc -l | tr
 DB_SIZE_BYTES="$(stat -c %s "$TMP_DIR/db/llmstore.dump")"
 GIT_SHA="$(git -C "$PROJECT_DIR" rev-parse HEAD 2>/dev/null || echo unknown)"
 
-python3 - <<'PY' "$TMP_MANIFEST_FILE" "$NOW_UTC" "$TODAY" "$GIT_SHA" "$DB_SIZE_BYTES" "$CHAT_FILE_COUNT" "$UPLOADS_PATH"
+python3 - <<'PY' "$TMP_MANIFEST_FILE" "$NOW_UTC" "$TODAY" "$GIT_SHA" "$DB_SIZE_BYTES" "$CHAT_FILE_COUNT" "$CHAT_UPLOADS_PATH"
 import json, pathlib, sys
 
 manifest_path = pathlib.Path(sys.argv[1])
