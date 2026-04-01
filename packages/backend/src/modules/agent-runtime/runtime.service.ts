@@ -1967,6 +1967,51 @@ async function getConversationMessages(chatId: string): Promise<ConversationMess
     .map((row) => toConversationMessage(row, usdToRubRate));
 }
 
+async function getLatestHtmlPreviewContext(chatId: string): Promise<string> {
+  const rows = await db
+    .select({
+      content_text: chatConversationMessages.content_text,
+      usage_json: chatConversationMessages.usage_json,
+      created_at: chatConversationMessages.created_at,
+    })
+    .from(chatConversationMessages)
+    .where(and(
+      eq(chatConversationMessages.conversation_id, chatId),
+      eq(chatConversationMessages.role, 'assistant'),
+    ))
+    .orderBy(desc(chatConversationMessages.created_at))
+    .limit(12);
+
+  for (const row of rows) {
+    const rawUsage = (row.usage_json as Record<string, unknown> | null) ?? null;
+    const normalized = normalizeAssistantChatPayload(row.content_text, rawUsage);
+    const preview = normalized.codingReport?.preview;
+    if (!preview || preview.type !== 'html' || !preview.html) {
+      continue;
+    }
+
+    const title = preview.title?.trim();
+    const html = clampText(preview.html, 40_000);
+    if (!html) {
+      continue;
+    }
+
+    return [
+      'Текущая версия последнего preview для возможной доработки:',
+      title ? `Название: ${title}` : undefined,
+      'Используй этот HTML как базу только если пользователь просит поправить, доработать или изменить уже созданный preview/лендинг/страницу.',
+      'Если пользователь просит новую отдельную задачу, не считай этот HTML обязательной базой.',
+      '```html',
+      html,
+      '```',
+    ]
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  return '';
+}
+
 function toConversationMessage(
   row: typeof chatConversationMessages.$inferSelect,
   usdToRubRate: number,
@@ -2695,7 +2740,11 @@ export async function sendChatMessage(
   const attachmentContext = attachmentContextChunks.length > 0
     ? `\n\nВложения пользователя:\n${attachmentContextChunks.join('\n\n')}`
     : '';
-  const userModelText = `${trimmedContent}${attachmentContext}`.trim();
+  const latestPreviewContext = await getLatestHtmlPreviewContext(chatId);
+  const previewContext = latestPreviewContext
+    ? `\n\nКонтекст текущего preview:\n${latestPreviewContext}`
+    : '';
+  const userModelText = `${trimmedContent}${attachmentContext}${previewContext}`.trim();
 
   const previousMessages = await getConversationMessages(chatId);
   const userMessage: ConversationMessage = {
