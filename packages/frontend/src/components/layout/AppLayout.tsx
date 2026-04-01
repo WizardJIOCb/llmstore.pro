@@ -88,7 +88,7 @@ export function AppLayout() {
   const activeMenuClass = 'bg-[hsl(222.2deg_53.33%_74.69%_/_10%)]';
   const profileBaseLabel = user?.name || user?.email || 'Профиль';
   const profileBalanceLabel = profile
-    ? `($${Number(profile.balance_usd).toFixed(2)} / ${Math.round(Number(profile.balance_rub)).toLocaleString('ru-RU')} ₽)`
+    ? `(₽${Math.round(Number(profile.balance_rub)).toLocaleString('ru-RU')} / $${Number(profile.balance_usd).toFixed(2)})`
     : null;
   const profileLabel = [profileBaseLabel, profileBalanceLabel].filter(Boolean).join(' ');
 
