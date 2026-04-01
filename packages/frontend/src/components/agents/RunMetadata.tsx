@@ -8,6 +8,7 @@ interface RunMetadataProps {
     usd_to_rub_rate?: number;
   } | null | undefined;
   latencyMs: number | undefined;
+  createdAt?: string;
   agentName?: string;
   toolNames?: string[];
 }
@@ -31,11 +32,22 @@ function formatRubFromUsd(cost: string, usdToRubRate?: number): string {
   return `${rub.toFixed(2)} ₽`;
 }
 
-export function RunMetadata({ usage, latencyMs, agentName, toolNames }: RunMetadataProps) {
-  if (!usage && !latencyMs && !agentName && (!toolNames || toolNames.length === 0)) return null;
+function formatTimestamp(value: string): string {
+  return new Intl.DateTimeFormat('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(value));
+}
+
+export function RunMetadata({ usage, latencyMs, createdAt, agentName, toolNames }: RunMetadataProps) {
+  if (!usage && !latencyMs && !createdAt && !agentName && (!toolNames || toolNames.length === 0)) return null;
 
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+      {createdAt && <span>Дата: {formatTimestamp(createdAt)}</span>}
       {latencyMs != null && <span>Время: {(latencyMs / 1000).toFixed(1)}s</span>}
       {agentName && <span>Агент: {agentName}</span>}
       {toolNames && toolNames.length > 0 && <span>Инструменты: {toolNames.join(', ')}</span>}

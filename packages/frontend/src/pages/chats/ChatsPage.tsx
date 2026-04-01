@@ -889,6 +889,7 @@ export function ChatsPage() {
                     <RunMetadata
                       usage={extractUsage(msg.usage)}
                       latencyMs={msg.latency_ms ?? undefined}
+                      createdAt={msg.created_at}
                       agentName={activeChat?.mode === 'agent' ? (activeAgentName ?? undefined) : undefined}
                     />
                   </div>
