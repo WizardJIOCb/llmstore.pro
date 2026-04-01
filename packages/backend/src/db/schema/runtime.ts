@@ -90,6 +90,8 @@ export const chatConversations = pgTable('chat_conversations', {
   access_identifiers: jsonb('access_identifiers').$type<string[]>().notNull().default([]),
   share_token: varchar('share_token', { length: 64 }),
   settings_json: jsonb('settings_json').$type<Record<string, unknown>>(),
+  total_view_count: integer('total_view_count').notNull().default(0),
+  unique_view_count: integer('unique_view_count').notNull().default(0),
   last_message_at: timestamp('last_message_at', { withTimezone: true }).notNull().defaultNow(),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -111,4 +113,16 @@ export const chatConversationMessages = pgTable('chat_conversation_messages', {
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   index('chat_conversation_messages_conversation_created_idx').on(table.conversation_id, table.created_at),
+]);
+
+export const chatConversationViewers = pgTable('chat_conversation_viewers', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  conversation_id: uuid('conversation_id').notNull().references(() => chatConversations.id, { onDelete: 'cascade' }),
+  viewer_key: varchar('viewer_key', { length: 255 }).notNull(),
+  view_count: integer('view_count').notNull().default(1),
+  first_viewed_at: timestamp('first_viewed_at', { withTimezone: true }).notNull().defaultNow(),
+  last_viewed_at: timestamp('last_viewed_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex('chat_conversation_viewers_conversation_viewer_idx').on(table.conversation_id, table.viewer_key),
+  index('chat_conversation_viewers_conversation_idx').on(table.conversation_id),
 ]);

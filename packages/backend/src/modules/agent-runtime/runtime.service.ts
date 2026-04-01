@@ -10,6 +10,7 @@ import {
   chatSessions,
   chatConversations,
   chatConversationMessages,
+  chatConversationViewers,
 } from '../../db/schema/runtime.js';
 import { usageLedger } from '../../db/schema/analytics.js';
 import { users } from '../../db/schema/auth.js';
@@ -1864,6 +1865,8 @@ interface GalleryPreviewItem {
   preview_html: string | null;
   author_name: string;
   view_count: number;
+  unique_view_count: number;
+  total_view_count: number;
   created_at: string;
   total_usd_cost: number;
   total_rub_cost: number;
@@ -2103,6 +2106,54 @@ async function incrementPreviewViewCount(messageId: string) {
   await db.update(chatConversationMessages)
     .set({ preview_view_count: sql`${chatConversationMessages.preview_view_count} + 1` })
     .where(eq(chatConversationMessages.id, messageId));
+}
+
+async function registerConversationView(
+  chat: Pick<ChatConversationRow, 'id' | 'user_id'>,
+  viewerUserId?: string | null,
+  viewerKey?: string | null,
+) {
+  if (!viewerKey) return;
+  if (chat.user_id === viewerUserId) return;
+
+  const now = new Date();
+
+  await db.transaction(async (tx) => {
+    await tx.update(chatConversations)
+      .set({ total_view_count: sql`${chatConversations.total_view_count} + 1` })
+      .where(eq(chatConversations.id, chat.id));
+
+    const inserted = await tx.insert(chatConversationViewers)
+      .values({
+        conversation_id: chat.id,
+        viewer_key: viewerKey,
+        view_count: 1,
+        first_viewed_at: now,
+        last_viewed_at: now,
+      })
+      .onConflictDoNothing({
+        target: [chatConversationViewers.conversation_id, chatConversationViewers.viewer_key],
+      })
+      .returning({ id: chatConversationViewers.id });
+
+    if (inserted.length > 0) {
+      await tx.update(chatConversations)
+        .set({ unique_view_count: sql`${chatConversations.unique_view_count} + 1` })
+        .where(eq(chatConversations.id, chat.id));
+
+      return;
+    }
+
+    await tx.update(chatConversationViewers)
+      .set({
+        view_count: sql`${chatConversationViewers.view_count} + 1`,
+        last_viewed_at: now,
+      })
+      .where(and(
+        eq(chatConversationViewers.conversation_id, chat.id),
+        eq(chatConversationViewers.viewer_key, viewerKey),
+      ));
+  });
 }
 
 async function getAgentChatMeta(agentId: string | null): Promise<{
@@ -2346,6 +2397,7 @@ export async function getChatMessagePreviewHtml(
   chatId: string,
   messageId: string,
   viewerUserId?: string | null,
+  viewerKey?: string | null,
   options?: { previewId?: string; galleryMode?: boolean },
 ): Promise<string> {
   const chat = await getConversationById(chatId);
@@ -2373,6 +2425,7 @@ export async function getChatMessagePreviewHtml(
   }
 
   if (chat.user_id !== viewerUserId) {
+    await registerConversationView(chat, viewerUserId, viewerKey);
     await incrementPreviewViewCount(message.id);
   }
 
@@ -2383,6 +2436,7 @@ export async function getSharedChatMessagePreviewHtml(
   token: string,
   messageId: string,
   viewerUserId?: string | null,
+  viewerKey?: string | null,
   options?: { previewId?: string; galleryMode?: boolean },
 ): Promise<string> {
   const chat = await getConversationForSharedViewer(token, viewerUserId);
@@ -2409,6 +2463,7 @@ export async function getSharedChatMessagePreviewHtml(
   }
 
   if (chat.user_id !== viewerUserId) {
+    await registerConversationView(chat, viewerUserId, viewerKey);
     await incrementPreviewViewCount(message.id);
   }
 
@@ -3051,8 +3106,9 @@ export async function sendChatMessage(
   };
 }
 
-export async function getSharedChatById(token: string, viewerUserId?: string | null) {
+export async function getSharedChatById(token: string, viewerUserId?: string | null, viewerKey?: string | null) {
   const chat = await getConversationForSharedViewer(token, viewerUserId);
+  await registerConversationView(chat, viewerUserId, viewerKey);
 
   const messages = await getConversationMessages(chat.id);
   let agentName: string | null = null;
@@ -3089,6 +3145,8 @@ export async function listGalleryPreviews(limit = 24): Promise<GalleryPreviewIte
     chat_title: string;
     share_token: string | null;
     chat_model_external_id: string | null;
+    total_view_count: number;
+    unique_view_count: number;
     author_email: string;
     author_username: string | null;
     author_name_raw: string | null;
@@ -3108,6 +3166,8 @@ export async function listGalleryPreviews(limit = 24): Promise<GalleryPreviewIte
         chat_title: chatConversations.title,
         share_token: chatConversations.share_token,
         chat_model_external_id: chatConversations.model_external_id,
+        total_view_count: chatConversations.total_view_count,
+        unique_view_count: chatConversations.unique_view_count,
         author_email: users.email,
         author_username: users.username,
         author_name_raw: users.name,
@@ -3231,7 +3291,9 @@ export async function listGalleryPreviews(limit = 24): Promise<GalleryPreviewIte
         username: row.author_username,
         name: row.author_name_raw,
       }),
-      view_count: row.preview_view_count ?? 0,
+      view_count: Math.max(row.unique_view_count ?? 0, row.preview_view_count ?? 0),
+      unique_view_count: Math.max(row.unique_view_count ?? 0, row.preview_view_count ?? 0),
+      total_view_count: Math.max(row.total_view_count ?? 0, row.preview_view_count ?? 0),
       created_at: toIso(row.created_at),
       total_usd_cost: totals?.usd_cost ?? 0,
       total_rub_cost: (totals?.usd_cost ?? 0) * usdToRubRate,

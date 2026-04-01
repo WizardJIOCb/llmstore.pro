@@ -1,4 +1,5 @@
 import type { Request, Response, NextFunction } from 'express';
+import { randomUUID } from 'crypto';
 import * as runtimeService from './runtime.service.js';
 
 const PREVIEW_CSP = [
@@ -18,6 +19,45 @@ const PREVIEW_CSP = [
 const EMOJI_PROXY_BASE_URL = 'https://cdn.jsdelivr.net/gh/jdecked/twemoji@latest/assets/svg/';
 const EMOJI_CACHE_TTL_MS = 1000 * 60 * 60 * 24;
 const emojiSvgCache = new Map<string, { body: Buffer; fetchedAt: number }>();
+const VIEWER_COOKIE_NAME = 'llmstore_viewer_id';
+
+function parseCookieHeader(cookieHeader?: string): Record<string, string> {
+  const parsed: Record<string, string> = {};
+  if (!cookieHeader) return parsed;
+
+  for (const part of cookieHeader.split(';')) {
+    const [rawKey, ...rawValueParts] = part.split('=');
+    const key = rawKey?.trim();
+    if (!key) continue;
+    const rawValue = rawValueParts.join('=').trim();
+    parsed[key] = decodeURIComponent(rawValue);
+  }
+
+  return parsed;
+}
+
+function resolveViewerContext(req: Request, res: Response): { viewerUserId?: string | null; viewerKey?: string | null } {
+  const viewerUserId = req.session?.userId ?? null;
+  if (viewerUserId) {
+    return { viewerUserId, viewerKey: `user:${viewerUserId}` };
+  }
+
+  const cookies = parseCookieHeader(req.headers.cookie);
+  let viewerId = cookies[VIEWER_COOKIE_NAME]?.trim() ?? '';
+
+  if (!/^[a-z0-9-]{16,128}$/i.test(viewerId)) {
+    viewerId = randomUUID().replace(/-/g, '');
+    res.cookie(VIEWER_COOKIE_NAME, viewerId, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: req.secure || req.headers['x-forwarded-proto'] === 'https',
+      maxAge: 1000 * 60 * 60 * 24 * 365,
+      path: '/',
+    });
+  }
+
+  return { viewerUserId: null, viewerKey: `anon:${viewerId}` };
+}
 
 export async function startRun(req: Request<{ agentId: string }>, res: Response, next: NextFunction) {
   try {
@@ -133,10 +173,12 @@ export async function getChatById(req: Request<{ chatId: string }>, res: Respons
 
 export async function getChatMessagePreview(req: Request<{ chatId: string; messageId: string }>, res: Response, next: NextFunction) {
   try {
+    const viewer = resolveViewerContext(req, res);
     const html = await runtimeService.getChatMessagePreviewHtml(
       req.params.chatId,
       req.params.messageId,
-      req.session?.userId,
+      viewer.viewerUserId,
+      viewer.viewerKey,
       {
         previewId: typeof req.query.previewId === 'string' ? req.query.previewId : undefined,
         galleryMode: req.query.gallery === '1',
@@ -153,10 +195,12 @@ export async function getChatMessagePreview(req: Request<{ chatId: string; messa
 
 export async function getSharedChatMessagePreview(req: Request<{ token: string; messageId: string }>, res: Response, next: NextFunction) {
   try {
+    const viewer = resolveViewerContext(req, res);
     const html = await runtimeService.getSharedChatMessagePreviewHtml(
       req.params.token,
       req.params.messageId,
-      req.session?.userId,
+      viewer.viewerUserId,
+      viewer.viewerKey,
       {
         previewId: typeof req.query.previewId === 'string' ? req.query.previewId : undefined,
         galleryMode: req.query.gallery === '1',
@@ -313,7 +357,8 @@ export async function uploadChatFiles(req: Request, res: Response, next: NextFun
 
 export async function getSharedChatById(req: Request<{ token: string }>, res: Response, next: NextFunction) {
   try {
-    const result = await runtimeService.getSharedChatById(req.params.token, req.session?.userId);
+    const viewer = resolveViewerContext(req, res);
+    const result = await runtimeService.getSharedChatById(req.params.token, viewer.viewerUserId, viewer.viewerKey);
     res.json({ data: result });
   } catch (err) {
     next(err);

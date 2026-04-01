@@ -212,7 +212,10 @@ export function GalleryPage() {
                       Автор: {item.author_name}
                     </span>
                     <span className="rounded-full border bg-muted/20 px-2.5 py-1">
-                      Просмотров: {formatViews(item.view_count)}
+                      Всего: {formatViews(item.total_view_count)}
+                    </span>
+                    <span className="rounded-full border bg-muted/20 px-2.5 py-1">
+                      Уникальных: {formatViews(item.unique_view_count ?? item.view_count)}
                     </span>
                     <span className="rounded-full border bg-muted/20 px-2.5 py-1">
                       {formatDate(item.created_at)}
@@ -279,8 +282,7 @@ export function GalleryPage() {
                   >
                     {value}
                   </Button>
-                ),
-              )}
+                ))}
             </div>
           </div>
         )}
