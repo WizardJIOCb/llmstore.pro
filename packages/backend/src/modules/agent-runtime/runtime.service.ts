@@ -285,9 +285,16 @@ interface StartRunInput {
   model_external_id?: string | null;
 }
 
+interface StrictPreviewEditOptions {
+  user_request: string;
+  original_html: string;
+  preview_title?: string | null;
+}
+
 interface StartRunOptions {
   sync_to_chats?: boolean;
   on_event?: (event: string, payload: Record<string, unknown>) => void;
+  strict_preview_edit?: StrictPreviewEditOptions | null;
 }
 
 interface RunResult {
@@ -999,10 +1006,14 @@ export async function startRun(
     model_external_id?: string;
     chat_intro?: string;
   };
+  const strictPreviewEdit = options.strict_preview_edit ?? null;
   const modelId = normalizeOpenRouterModelId(
     input.model_external_id ?? runtimeConfig.model_external_id ?? DEFAULT_MODEL,
   );
   const maxIterations = runtimeConfig.max_iterations ?? DEFAULT_MAX_ITERATIONS;
+  const effectiveTemperature = strictPreviewEdit
+    ? Math.min(runtimeConfig.temperature ?? 0.3, 0.05)
+    : (runtimeConfig.temperature ?? 0.3);
   let syncedConversationId: string | null = null;
 
   if (syncToChats) {
@@ -1087,6 +1098,9 @@ export async function startRun(
   if (typeof agent.description === 'string' && agent.description.trim().length > 0) {
     systemParts.push(`РљСЂР°С‚РєРѕРµ РѕРїРёСЃР°РЅРёРµ Р°РіРµРЅС‚Р°:\n${agent.description.trim()}`);
   }
+  if (strictPreviewEdit) {
+    systemParts.push(buildStrictPreviewEditInstruction(strictPreviewEdit));
+  }
   if (systemParts.length > 0) {
     messages.push({ role: 'system', content: systemParts.join('\n\n') });
   }
@@ -1144,7 +1158,7 @@ export async function startRun(
         messages,
         tools: toolParams.length > 0 ? toolParams : undefined,
         tool_choice: toolParams.length > 0 ? 'auto' : undefined,
-        temperature: runtimeConfig.temperature ?? 0.3,
+        temperature: effectiveTemperature,
         max_tokens: runtimeConfig.max_tokens ?? 4096,
       });
 
@@ -1331,6 +1345,66 @@ export async function startRun(
       ? 'РњРѕРґРµР»СЊ РЅРµ РІРµСЂРЅСѓР»Р° С‚РµРєСЃС‚РѕРІС‹Р№ РѕС‚РІРµС‚.'
       : `РђРіРµРЅС‚ РЅРµ РІРµСЂРЅСѓР» РёС‚РѕРіРѕРІС‹Р№ РѕС‚РІРµС‚: РґРѕСЃС‚РёРіРЅСѓС‚ Р»РёРјРёС‚ РёС‚РµСЂР°С†РёР№ (${maxIterations}).`;
     logger.warn({ runId: run.id, modelId, maxIterations }, 'Agent run completed without final text output');
+  }
+
+  if (
+    runStatus === 'completed'
+    && strictPreviewEdit
+    && codingReport?.preview?.type === 'html'
+    && codingReport.preview.html
+    && shouldRetryStrictPreviewEdit(strictPreviewEdit.user_request, strictPreviewEdit.original_html, codingReport.preview.html)
+  ) {
+    emitEvent('chat.run.status', {
+      run_id: run.id,
+      status: 'repairing',
+      label: 'Модель изменила слишком много, делаю более точную повторную правку',
+    });
+
+    const repairMessages: ChatMessage[] = [
+      ...messages.filter((message) => message.role === 'system' || message.role === 'user' || message.role === 'assistant'),
+      {
+        role: 'system',
+        content: buildStrictPreviewEditInstruction(strictPreviewEdit, true),
+      },
+      {
+        role: 'user',
+        content: [
+          'Начни заново от исходного HTML и внеси только минимально необходимую правку.',
+          `Запрос пользователя: ${strictPreviewEdit.user_request}`,
+          strictPreviewEdit.preview_title ? `Название preview: ${strictPreviewEdit.preview_title}` : undefined,
+          'Исходный HTML:',
+          '```html',
+          strictPreviewEdit.original_html,
+          '```',
+        ]
+          .filter(Boolean)
+          .join('\n'),
+      },
+    ];
+
+    const repairResponse = await openRouterClient.chatCompletion({
+      model: modelId,
+      messages: repairMessages,
+      temperature: 0,
+      max_tokens: runtimeConfig.max_tokens ?? 4096,
+    });
+
+    if (repairResponse.usage) {
+      totalUsage.prompt_tokens += repairResponse.usage.prompt_tokens;
+      totalUsage.completion_tokens += repairResponse.usage.completion_tokens;
+      totalUsage.total_tokens += repairResponse.usage.total_tokens;
+    }
+
+    const repairChoice = repairResponse.choices[0];
+    const repairMessage = repairChoice?.message;
+    const repairText = repairMessage ? extractAssistantTextFromMessage(repairMessage) : '';
+    if (repairText) {
+      const parsed = extractCodingReport(repairText);
+      if (parsed.report?.preview?.type === 'html' && parsed.report.preview.html) {
+        finalOutput = parsed.cleanText || parsed.report.summary || finalOutput;
+        codingReport = parsed.report;
+      }
+    }
   }
 
   const latencyMs = Date.now() - startTime;
@@ -1967,7 +2041,33 @@ async function getConversationMessages(chatId: string): Promise<ConversationMess
     .map((row) => toConversationMessage(row, usdToRubRate));
 }
 
-async function getLatestHtmlPreviewContext(chatId: string): Promise<string> {
+function buildLatestHtmlPreviewContext(
+  preview: { title?: string | null; html: string } | null,
+): string {
+  if (!preview) {
+    return '';
+  }
+
+  const title = preview.title?.trim();
+  const html = clampText(preview.html, 40_000);
+  if (!html) {
+    return '';
+  }
+
+  return [
+    'Текущая версия последнего preview для возможной доработки:',
+    title ? `Название: ${title}` : undefined,
+    'Используй этот HTML как базу только если пользователь просит поправить, доработать или изменить уже созданный preview/лендинг/страницу.',
+    'Если пользователь просит новую отдельную задачу, не считай этот HTML обязательной базой.',
+    '```html',
+    html,
+    '```',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+async function getLatestHtmlPreviewSnapshot(chatId: string): Promise<{ title?: string | null; html: string } | null> {
   const rows = await db
     .select({
       content_text: chatConversationMessages.content_text,
@@ -1990,26 +2090,102 @@ async function getLatestHtmlPreviewContext(chatId: string): Promise<string> {
       continue;
     }
 
-    const title = preview.title?.trim();
-    const html = clampText(preview.html, 40_000);
-    if (!html) {
-      continue;
-    }
-
-    return [
-      'Текущая версия последнего preview для возможной доработки:',
-      title ? `Название: ${title}` : undefined,
-      'Используй этот HTML как базу только если пользователь просит поправить, доработать или изменить уже созданный preview/лендинг/страницу.',
-      'Если пользователь просит новую отдельную задачу, не считай этот HTML обязательной базой.',
-      '```html',
-      html,
-      '```',
-    ]
-      .filter(Boolean)
-      .join('\n');
+    return {
+      title: preview.title?.trim() || null,
+      html: preview.html,
+    };
   }
 
-  return '';
+  return null;
+}
+
+function detectPreviewEditIntent(request: string): boolean {
+  const text = request.trim().toLowerCase();
+  if (!text) return false;
+
+  if (/(исправ|поправ|подвин|сдвин|выровн|центр|по центру|замен|измени|измени только|не трогай|доработ|отредакт|перенес|увелич|уменьш|сделай .* по центру)/i.test(text)) {
+    return true;
+  }
+
+  return /(preview|превью|лендинг|страниц|шапк|hero|html|блок|кнопк|заголов|надпись)/i.test(text)
+    && /(исправ|поправ|подвин|сдвин|выровн|центр|замен|измени|доработ|отредакт)/i.test(text);
+}
+
+function isSmallScopedPreviewEdit(request: string): boolean {
+  const text = request.trim().toLowerCase();
+  if (!text) return false;
+  if (/(с нуля|полностью|целиком|полностью передел|редизайн|новый лендинг|новую страницу|полностью перепиши|полностью измени)/i.test(text)) {
+    return false;
+  }
+
+  return /(только|слегка|немного|точечно|по центру|центр|замени текст|поменяй текст|исправь текст|выровняй|сдвинь|подвинь|измени надпись|исправь надпись|измени заголовок|исправь заголовок)/i.test(text);
+}
+
+function normalizeHtmlForSimilarity(html: string): string {
+  return html
+    .replace(/\r\n/g, '\n')
+    .replace(/\s+/g, ' ')
+    .replace(/>\s+</g, '><')
+    .trim()
+    .toLowerCase();
+}
+
+function getDiceCoefficient(a: string, b: string): number {
+  if (!a && !b) return 1;
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  if (a.length < 2 || b.length < 2) return 0;
+
+  const pairs = new Map<string, number>();
+  for (let index = 0; index < a.length - 1; index += 1) {
+    const pair = a.slice(index, index + 2);
+    pairs.set(pair, (pairs.get(pair) ?? 0) + 1);
+  }
+
+  let intersection = 0;
+  for (let index = 0; index < b.length - 1; index += 1) {
+    const pair = b.slice(index, index + 2);
+    const count = pairs.get(pair) ?? 0;
+    if (count > 0) {
+      pairs.set(pair, count - 1);
+      intersection += 1;
+    }
+  }
+
+  return (2 * intersection) / ((a.length - 1) + (b.length - 1));
+}
+
+function shouldRetryStrictPreviewEdit(request: string, originalHtml: string, nextHtml: string): boolean {
+  if (!isSmallScopedPreviewEdit(request)) {
+    return false;
+  }
+
+  const original = normalizeHtmlForSimilarity(originalHtml);
+  const next = normalizeHtmlForSimilarity(nextHtml);
+  const similarity = getDiceCoefficient(original, next);
+  const lengthDelta = Math.abs(original.length - next.length) / Math.max(original.length, 1);
+
+  return similarity < 0.9 || lengthDelta > 0.12;
+}
+
+function buildStrictPreviewEditInstruction(options: StrictPreviewEditOptions, retry = false): string {
+  return [
+    'Режим точечной правки preview.',
+    'Пользователь просит ИЗМЕНИТЬ уже существующий preview, а не сгенерировать новый дизайн с нуля.',
+    'Используй последний HTML preview как базовую версию.',
+    'Сохраняй без изменений все секции, структуру, классы, id, тексты, стили, анимации и layout, которые не относятся к запросу.',
+    'Меняй только то, что явно попросил пользователь.',
+    'Если задачу можно решить 1-2 правками CSS или маленькой заменой текста, делай только это.',
+    'Не переписывай весь HTML, не делай редизайн и не улучшай посторонние части страницы.',
+    'Если меняешь текст, меняй только нужный текст. Если меняешь позиционирование, старайся ограничиться точечными стилями.',
+    retry
+      ? 'Предыдущая попытка изменила слишком много. Начни заново от ИСХОДНОГО HTML и сделай минимально возможную правку.'
+      : 'Нужна минимальная и точечная правка.',
+    options.preview_title ? `Название текущего preview: ${options.preview_title}` : undefined,
+    `Запрос пользователя: ${options.user_request}`,
+  ]
+    .filter(Boolean)
+    .join('\n');
 }
 
 function toConversationMessage(
@@ -2740,7 +2916,11 @@ export async function sendChatMessage(
   const attachmentContext = attachmentContextChunks.length > 0
     ? `\n\nВложения пользователя:\n${attachmentContextChunks.join('\n\n')}`
     : '';
-  const latestPreviewContext = await getLatestHtmlPreviewContext(chatId);
+  const latestPreviewSnapshot = await getLatestHtmlPreviewSnapshot(chatId);
+  const strictPreviewEdit = Boolean(latestPreviewSnapshot && detectPreviewEditIntent(trimmedContent));
+  const latestPreviewContext = strictPreviewEdit
+    ? buildLatestHtmlPreviewContext(latestPreviewSnapshot)
+    : '';
   const previewContext = latestPreviewContext
     ? `\n\nКонтекст текущего preview:\n${latestPreviewContext}`
     : '';
@@ -2796,6 +2976,13 @@ export async function sendChatMessage(
     }, {
       sync_to_chats: false,
       on_event: emitChatEvent,
+      strict_preview_edit: strictPreviewEdit && latestPreviewSnapshot
+        ? {
+          user_request: trimmedContent,
+          original_html: latestPreviewSnapshot.html,
+          preview_title: latestPreviewSnapshot.title ?? null,
+        }
+        : null,
     });
 
     if (result.status !== 'completed') {
