@@ -5,7 +5,6 @@ import type { CodingReport, ToolTrace } from '../../lib/api/agents';
 import { cn } from '../../lib/utils';
 import { ToolTracePanel } from './ToolTracePanel';
 import { Button } from '../ui/Button';
-import { Textarea } from '../ui/Textarea';
 
 interface Attachment {
   filename: string;
@@ -831,11 +830,15 @@ export function ChatMessage({
                       </div>
                       <p className="text-xs text-muted-foreground">HTML редактор</p>
                     </div>
-                    <Textarea
+                    <textarea
                       value={previewEditor.html}
                       onChange={(e) => setPreviewEditor((prev) => (prev ? { ...prev, html: e.target.value } : prev))}
-                      className="min-h-0 flex-1 resize-none font-mono text-xs leading-5"
-                      rows={24}
+                      className={cn(
+                        'min-h-0 flex-1 w-full resize-none rounded-md border border-input bg-background px-3 py-2',
+                        'font-mono text-xs leading-5',
+                        'outline-none ring-0 focus:border-input focus:outline-none focus:ring-0',
+                      )}
+                      spellCheck={false}
                     />
                   </div>
                 </div>
