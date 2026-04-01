@@ -3,7 +3,28 @@ set -euo pipefail
 
 PROJECT_DIR="/var/www/llmstore.pro"
 PM2_APP="llmstore-backend"
+BACKEND_DIR="$PROJECT_DIR/packages/backend"
 PORT=3002
+
+ensure_single_backend_manager() {
+  if systemctl list-unit-files | grep -q '^llmstore\.service'; then
+    echo "Disabling legacy systemd backend service..."
+    systemctl disable --now llmstore.service >/dev/null 2>&1 || true
+    systemctl reset-failed llmstore.service >/dev/null 2>&1 || true
+  fi
+}
+
+kill_port_listeners() {
+  local listeners
+  listeners="$(ss -ltnp 2>/dev/null | awk -v port=\":$PORT\" '$4 ~ port {print $NF}' | grep -o 'pid=[0-9]*' | cut -d= -f2 | sort -u || true)"
+  if [ -n "$listeners" ]; then
+    echo "Stopping existing listeners on port $PORT: $listeners"
+    for pid in $listeners; do
+      kill "$pid" >/dev/null 2>&1 || true
+    done
+    sleep 2
+  fi
+}
 
 echo "=== LLMStore.pro Deploy ==="
 echo
@@ -34,11 +55,13 @@ echo "[6/8] Building frontend..."
 npm run build -w @llmstore/frontend
 
 echo "[7/8] Restarting backend..."
+ensure_single_backend_manager
 if pm2 describe "$PM2_APP" >/dev/null 2>&1; then
-  pm2 restart "$PM2_APP" --update-env
-else
-  pm2 start "$PM2_APP"
+  pm2 delete "$PM2_APP" >/dev/null 2>&1 || true
 fi
+kill_port_listeners
+pm2 start dist/server.js --name "$PM2_APP" --cwd "$BACKEND_DIR"
+pm2 save >/dev/null 2>&1 || true
 sleep 5
 
 echo "[8/8] Health check..."
