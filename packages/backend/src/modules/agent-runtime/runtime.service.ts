@@ -1964,7 +1964,6 @@ async function getConversationForSharedViewer(token: string, viewerUserId?: stri
     .limit(1);
 
   if (!chat) throw new NotFoundError('Ресурс не найден');
-  await ensureChatViewerAccess(chat as ChatConversationRow, viewerUserId);
   return chat as ChatConversationRow;
 }
 
@@ -2281,9 +2280,7 @@ export async function createChat(userId: string, input: {
     throw new AppError(400, 'VALIDATION_ERROR', 'Для ограниченного доступа укажите email или логины');
   }
 
-  const shareToken = access === 'public'
-    ? uuidv4().replace(/-/g, '').slice(0, 16)
-    : null;
+  const shareToken = uuidv4().replace(/-/g, '').slice(0, 16);
 
   const [chat] = await db.insert(chatConversations).values({
     user_id: userId,
@@ -2317,6 +2314,7 @@ export async function createChat(userId: string, input: {
 
 export async function getChatById(chatId: string, userId: string): Promise<ConversationDetails> {
   const chat = await getConversationForUser(chatId, userId);
+  const shareToken = await ensureChatShareToken(chat.id, chat.share_token);
   const [messages, agentMeta] = await Promise.all([
     getConversationMessages(chatId),
     getAgentChatMeta(chat.agent_id ?? null),
@@ -2331,7 +2329,7 @@ export async function getChatById(chatId: string, userId: string): Promise<Conve
       model_external_id: chat.model_external_id ?? null,
       access: normalizeChatAccess(chat.access),
       access_identifiers: normalizeAccessIdentifiers(chat.access_identifiers),
-      share_token: chat.share_token ?? null,
+      share_token: shareToken,
       message_count: messages.length,
       agent_name: agentMeta.agent_name,
       agent_chat_description: agentMeta.agent_chat_description,
@@ -2669,9 +2667,7 @@ export async function updateChat(chatId: string, userId: string, input: {
     throw new AppError(400, 'VALIDATION_ERROR', 'Для ограниченного доступа укажите email или логины');
   }
 
-  const ensuredShareToken = nextAccess === 'public'
-    ? await ensureChatShareToken(existing.id, existing.share_token)
-    : existing.share_token;
+  const ensuredShareToken = await ensureChatShareToken(existing.id, existing.share_token);
 
   const [chat] = await db.update(chatConversations)
     .set({

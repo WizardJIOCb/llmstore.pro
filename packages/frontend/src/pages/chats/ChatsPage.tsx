@@ -870,7 +870,11 @@ export function ChatsPage() {
                   attachments={msg.attachments ?? extractAttachments(msg.usage)}
                   toolTraces={msg.role === 'assistant' ? extractToolTraces(msg.usage) : undefined}
                   codingReport={msg.role === 'assistant' ? extractCodingReport(msg.usage, msg.content) : undefined}
-                  previewPageUrl={msg.role === 'assistant' && activeChat ? `/api/chats/${activeChat.id}/messages/${msg.id}/preview` : undefined}
+                  previewPageUrl={msg.role === 'assistant' && activeChat
+                    ? (activeChat.share_token
+                      ? `/api/shared/chats/${activeChat.share_token}/messages/${msg.id}/preview`
+                      : `/api/chats/${activeChat.id}/messages/${msg.id}/preview`)
+                    : undefined}
                   canEditPreview={msg.role === 'assistant' && Boolean(activeChat)}
                   onSavePreview={msg.role === 'assistant' && activeChat
                     ? async (payload) => {
