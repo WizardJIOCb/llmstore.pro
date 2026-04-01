@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChatMessage } from '../../components/agents/ChatMessage';
 import { Spinner } from '../../components/ui/Spinner';
 import { apiClient } from '../../lib/api-client';
-import { chatsApi, type CodingReport } from '../../lib/api/chats';
+import { chatsApi, type ChatAttachment, type CodingReport } from '../../lib/api/chats';
 import { useProfile } from '../../hooks/useProfile';
 
 interface LegacySharedChat {
@@ -32,6 +32,7 @@ interface SharedMessageItem {
   role: 'user' | 'assistant';
   content: string;
   usage?: Record<string, unknown> | null;
+  attachments?: ChatAttachment[];
 }
 
 interface SharedPageData {
@@ -119,6 +120,13 @@ function extractCodingReport(value?: Record<string, unknown> | null, content?: s
   return null;
 }
 
+function extractAttachments(value?: Record<string, unknown> | null): ChatAttachment[] {
+  if (!value || !Array.isArray((value as { attachments?: unknown[] }).attachments)) return [];
+  return ((value as { attachments: unknown[] }).attachments ?? [])
+    .filter((item) => item && typeof item === 'object')
+    .map((item) => item as ChatAttachment);
+}
+
 export function SharedChatPage() {
   const { token } = useParams<{ token: string }>();
   const queryClient = useQueryClient();
@@ -147,6 +155,7 @@ export function SharedChatPage() {
             role: m.role,
             content: m.content,
             usage: m.usage ?? null,
+            attachments: extractAttachments(m.usage ?? null),
           })),
         };
       } catch {
@@ -193,6 +202,7 @@ export function SharedChatPage() {
             key={msg.id ?? i}
             role={msg.role}
             content={msg.content}
+            attachments={msg.attachments ?? extractAttachments(msg.usage)}
             codingReport={msg.role === 'assistant' ? extractCodingReport(msg.usage, msg.content) : undefined}
             previewPageUrl={msg.role === 'assistant' && token && msg.id ? `/api/shared/chats/${token}/messages/${msg.id}/preview` : undefined}
             canEditPreview={Boolean(profile) && msg.role === 'assistant' && Boolean(msg.id)}
