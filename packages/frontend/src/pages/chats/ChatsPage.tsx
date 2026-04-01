@@ -268,11 +268,13 @@ export function ChatsPage() {
   const [streamEvents, setStreamEvents] = useState<LiveChatEvent[]>([]);
   const [streamConnected, setStreamConnected] = useState(false);
   const [isAwaitingLateReply, setIsAwaitingLateReply] = useState(false);
+  const [isQuickPromptsOpen, setIsQuickPromptsOpen] = useState(false);
 
   const menuRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const shareToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const previousMessageCountRef = useRef(0);
   const knownChatIds = useMemo(() => new Set((chats ?? []).map((chat) => chat.id)), [chats]);
   const safeActiveChatId = activeChatId && (chats == null || chats.length === 0 || knownChatIds.has(activeChatId))
     ? activeChatId
@@ -440,6 +442,18 @@ export function ChatsPage() {
   }, [isPropertiesOpen, activeChat]);
 
   useEffect(() => {
+    setIsQuickPromptsOpen(messages.length === 0);
+    previousMessageCountRef.current = messages.length;
+  }, [activeChat?.id]);
+
+  useEffect(() => {
+    if (previousMessageCountRef.current === 0 && messages.length > 0) {
+      setIsQuickPromptsOpen(false);
+    }
+    previousMessageCountRef.current = messages.length;
+  }, [messages.length]);
+
+  useEffect(() => {
     return () => {
       if (shareToastTimerRef.current) clearTimeout(shareToastTimerRef.current);
     };
@@ -491,6 +505,7 @@ export function ChatsPage() {
     activeChatData?.chat.agent_starter_prompts
     ?? activeAgentListMeta?.starter_prompts
     ?? [];
+  const canShowQuickPrompts = activeChat?.mode === 'agent' && activeStarterPrompts.length > 0;
   const hasAvailableBalance = profile ? Number(profile.balance_usd) > 0 : true;
   const isSubmittingMessage = sendMessageMutation.isPending || uploadFilesMutation.isPending || isAwaitingLateReply;
 
@@ -887,7 +902,20 @@ export function ChatsPage() {
           {localError && <div className="border-t px-4 py-2 text-sm text-destructive bg-destructive/10">{localError}</div>}
 
           <div className="border-t px-4 py-3 space-y-3">
-            {activeChat?.mode === 'agent' && activeStarterPrompts.length > 0 && (
+            {canShowQuickPrompts && messages.length > 0 && (
+              <div className="flex justify-end">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-[11px] font-normal text-muted-foreground hover:text-foreground"
+                  onClick={() => setIsQuickPromptsOpen((prev) => !prev)}
+                >
+                  {isQuickPromptsOpen ? 'Скрыть подсказки' : 'Подсказки'}
+                </Button>
+              </div>
+            )}
+            {canShowQuickPrompts && messages.length > 0 && isQuickPromptsOpen && (
               <div className="flex flex-wrap gap-2">
                 {activeStarterPrompts.map((prompt, idx) => (
                   <Button key={`quick-${prompt}-${idx}`} type="button" variant="outline" size="sm" disabled={isSubmittingMessage || !hasAvailableBalance} onClick={() => sendMessage(prompt)}>
