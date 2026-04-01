@@ -1,8 +1,20 @@
-import { useState, useEffect } from 'react';
-import { useNavigate, Link, useSearchParams } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
-import { Button, Input } from '../../components/ui';
 import { OAuthButtons } from '../../components/auth/OAuthButtons';
+import { Button, Input } from '../../components/ui';
+
+function resolveSafeNextUrl(next: string | null): string | null {
+  if (!next) return null;
+
+  try {
+    const nextUrl = new URL(next, window.location.origin);
+    if (nextUrl.origin !== window.location.origin) return null;
+    return nextUrl.toString();
+  } catch {
+    return null;
+  }
+}
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -13,23 +25,33 @@ export function LoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Handle OAuth callback redirect
+  const redirectToNext = () => {
+    const nextUrl = resolveSafeNextUrl(searchParams.get('next'));
+    if (nextUrl) {
+      window.location.assign(nextUrl);
+      return;
+    }
+
+    navigate('/', { replace: true });
+  };
+
   useEffect(() => {
     const oauthResult = searchParams.get('oauth');
     if (oauthResult === 'success') {
-      fetchMe().then(() => navigate('/', { replace: true }));
+      fetchMe().then(() => redirectToNext());
     } else if (oauthResult === 'error') {
       setError(searchParams.get('message') || 'Ошибка OAuth авторизации');
     }
-  }, [searchParams, fetchMe, navigate]);
+  }, [searchParams, fetchMe]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
+
     try {
       await login(email, password);
-      navigate('/');
+      redirectToNext();
     } catch (err: any) {
       setError(err.response?.data?.error?.message || 'Ошибка входа');
     } finally {
