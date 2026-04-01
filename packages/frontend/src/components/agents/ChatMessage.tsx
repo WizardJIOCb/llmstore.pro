@@ -781,7 +781,8 @@ export function ChatMessage({
       <div className={cn('flex', isUser ? 'justify-end' : 'justify-start')}>
         <div
           className={cn(
-            'max-w-[80%] rounded-lg px-4 py-3 text-sm',
+            'rounded-lg px-4 py-3 text-sm',
+            isUser ? 'max-w-[80%]' : 'w-full',
             isUser ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground',
             isUser ? 'whitespace-pre-wrap' : '',
           )}
