@@ -2,6 +2,7 @@
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useChatsList } from '../../hooks/useChats';
+import { useProfile } from '../../hooks/useProfile';
 import { Button } from '../../components/ui';
 
 const navItems = [
@@ -14,6 +15,7 @@ const navItems = [
 
 export function AppLayout() {
   const { user, isAuthenticated, isAdmin, logout } = useAuth();
+  const { data: profile } = useProfile();
   const location = useLocation();
   const navigate = useNavigate();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -84,6 +86,11 @@ export function AppLayout() {
   const isProfileActive = location.pathname === '/profile' || location.pathname.startsWith('/profile/');
   const isAdminActive = location.pathname === '/admin' || location.pathname.startsWith('/admin/');
   const activeMenuClass = 'bg-[hsl(222.2deg_53.33%_74.69%_/_10%)]';
+  const profileBaseLabel = user?.name || user?.email || 'Профиль';
+  const profileBalanceLabel = profile
+    ? `($${Number(profile.balance_usd).toFixed(2)} / ${Math.round(Number(profile.balance_rub)).toLocaleString('ru-RU')} ₽)`
+    : null;
+  const profileLabel = [profileBaseLabel, profileBalanceLabel].filter(Boolean).join(' ');
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -166,7 +173,7 @@ export function AppLayout() {
                         : 'rounded-md px-3 py-1.5 hover:text-foreground hover:underline transition-colors'
                     }
                   >
-                    {user?.name || user?.email}
+                    {profileLabel}
                   </Link>
                 </span>
                 <Button variant="ghost" size="sm" onClick={handleLogout}>Выйти</Button>
@@ -265,7 +272,7 @@ export function AppLayout() {
                     }
                     onClick={() => setIsMobileMenuOpen(false)}
                   >
-                    {user?.name || user?.email}
+                    {profileLabel}
                   </Link>
                   <Button className="w-full" variant="outline" size="sm" onClick={handleLogout}>Выйти</Button>
                 </>
