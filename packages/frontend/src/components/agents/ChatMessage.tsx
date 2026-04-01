@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent, ReactNode } from 'react';
 import Markdown from 'react-markdown';
 import type { CodingReport, ToolTrace } from '../../lib/api/agents';
@@ -155,6 +155,68 @@ function beautifyHtml(html: string): string {
   }
 }
 
+function getStringHash(value: string): string {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = ((hash << 5) - hash + value.charCodeAt(index)) | 0;
+  }
+  return Math.abs(hash).toString(36);
+}
+
+function highlightHtmlAttributes(attrs: string): string {
+  return attrs.replace(
+    /(\s+)([^\s=/>]+)(\s*=\s*(?:&quot;.*?&quot;|&#39;.*?&#39;|[^\s"'=<>`]+))?/g,
+    (_match, spacing: string, name: string, valueChunk?: string) => {
+      if (!valueChunk) {
+        return `${spacing}<span class="text-amber-600">${name}</span>`;
+      }
+
+      const eqMatch = valueChunk.match(/^(\s*=\s*)([\s\S]+)$/);
+      if (!eqMatch) {
+        return `${spacing}<span class="text-amber-600">${name}</span>${valueChunk}`;
+      }
+
+      return `${spacing}<span class="text-amber-600">${name}</span><span class="text-slate-500">${eqMatch[1]}</span><span class="text-emerald-700">${eqMatch[2]}</span>`;
+    },
+  );
+}
+
+function highlightHtmlCode(value: string): string {
+  const placeholders: string[] = [];
+  const stash = (html: string) => `___LLMSTORE_HTML_TOKEN_${placeholders.push(html) - 1}___`;
+  const escapeHtml = (source: string) => source
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  let escaped = escapeHtml(value);
+
+  escaped = escaped.replace(
+    /&lt;!--[\s\S]*?--&gt;/g,
+    (match) => stash(`<span class="text-slate-400">${match}</span>`),
+  );
+
+  escaped = escaped.replace(
+    /&lt;!DOCTYPE[\s\S]*?&gt;/gi,
+    (match) => stash(`<span class="text-fuchsia-600">${match}</span>`),
+  );
+
+  escaped = escaped.replace(
+    /(&lt;\/?)([A-Za-z][\w:-]*)([\s\S]*?)(\/?&gt;)/g,
+    (_match, open: string, tagName: string, attrs: string, close: string) => (
+      `<span class="text-slate-500">${open}</span>`
+      + `<span class="text-sky-700">${tagName}</span>`
+      + highlightHtmlAttributes(attrs)
+      + `<span class="text-slate-500">${close}</span>`
+    ),
+  );
+
+  return escaped.replace(
+    /___LLMSTORE_HTML_TOKEN_(\d+)___/g,
+    (_match, index: string) => placeholders[Number(index)] ?? '',
+  );
+}
+
 function injectPreviewBridge(html: string, previewId: string): string {
   const emojiAssetVersion = '20260401b';
   const bridge = `
@@ -307,11 +369,13 @@ function HtmlPreviewBrowser({
   html,
   title,
   previewPageUrl,
+  revisionKey,
   className,
 }: {
   html: string;
   title: string;
   previewPageUrl?: string | null;
+  revisionKey?: string;
   className?: string;
 }) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
@@ -319,7 +383,7 @@ function HtmlPreviewBrowser({
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
   const resolvedPreviewPageUrl = resolveBrowserUrl(previewPageUrl);
   const embeddedPreviewUrl = resolvedPreviewPageUrl
-    ? `${resolvedPreviewPageUrl}${resolvedPreviewPageUrl.includes('?') ? '&' : '?'}previewId=${encodeURIComponent(previewId)}`
+    ? `${resolvedPreviewPageUrl}${resolvedPreviewPageUrl.includes('?') ? '&' : '?'}previewId=${encodeURIComponent(previewId)}${revisionKey ? `&rev=${encodeURIComponent(revisionKey)}` : ''}`
     : null;
   const [currentHref, setCurrentHref] = useState(resolvedPreviewPageUrl || 'about:blank');
   const [historyEntries, setHistoryEntries] = useState<string[]>([]);
@@ -473,12 +537,26 @@ export function ChatMessage({
   const [editorError, setEditorError] = useState<string | null>(null);
   const [editorStatus, setEditorStatus] = useState<string | null>(null);
   const editorTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const editorHighlightRef = useRef<HTMLPreElement | null>(null);
   const editorHistoryRef = useRef<string[]>([]);
   const editorHistoryIndexRef = useRef(-1);
   const editorStatusTimeoutRef = useRef<number | null>(null);
   const isEditorOpen = Boolean(previewEditor);
   const absolutePreviewPageUrl = resolveBrowserUrl(previewPageUrl);
   const renderedContent = !isUser ? stripDevReportEnvelope(content) : content;
+  const propHtmlPreview = codingReport?.preview?.type === 'html' && codingReport.preview.html
+    ? {
+      title: codingReport.preview.title || 'Agent preview',
+      html: codingReport.preview.html,
+    }
+    : null;
+  const [previewOverride, setPreviewOverride] = useState<{ title: string; html: string } | null>(propHtmlPreview);
+  const resolvedHtmlPreview = previewOverride ?? propHtmlPreview;
+  const highlightedEditorHtml = useMemo(
+    () => (previewEditor ? highlightHtmlCode(previewEditor.html) : ''),
+    [previewEditor],
+  );
+  const resolvedPreviewRevision = resolvedHtmlPreview ? getStringHash(resolvedHtmlPreview.html) : undefined;
 
   useEffect(() => {
     if (!isEditorOpen || !previewEditor) return;
@@ -493,6 +571,10 @@ export function ChatMessage({
       window.clearTimeout(editorStatusTimeoutRef.current);
     }
   }, []);
+
+  useEffect(() => {
+    setPreviewOverride(propHtmlPreview);
+  }, [propHtmlPreview?.title, propHtmlPreview?.html]);
 
   const setEditorTransientStatus = (message: string | null) => {
     if (editorStatusTimeoutRef.current) {
@@ -569,15 +651,24 @@ export function ChatMessage({
     });
   };
 
+  const syncEditorScroll = () => {
+    if (!editorTextareaRef.current || !editorHighlightRef.current) return;
+    editorHighlightRef.current.scrollTop = editorTextareaRef.current.scrollTop;
+    editorHighlightRef.current.scrollLeft = editorTextareaRef.current.scrollLeft;
+  };
+
   const savePreviewEditor = async () => {
     if (!onSavePreview || !previewEditor) return;
+    const nextPreview = {
+      title: previewEditor.title || 'Agent preview',
+      html: previewEditor.html,
+    };
     setEditorSaving(true);
     setEditorError(null);
     try {
-      await onSavePreview({
-        title: previewEditor.title || 'Agent preview',
-        html: previewEditor.html,
-      });
+      await onSavePreview(nextPreview);
+      setPreviewOverride(nextPreview);
+      setHtmlPreview((prev) => (prev ? nextPreview : prev));
       setEditorTransientStatus('Preview сохранён');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Не удалось сохранить preview';
@@ -788,11 +879,11 @@ export function ChatMessage({
                 </SectionCard>
               )}
 
-              {codingReport.preview?.type === 'html' && codingReport.preview.html && (
+              {resolvedHtmlPreview && (
                 <SectionCard title="Preview">
                   <div className="mb-2 flex items-center justify-between gap-3">
                     <p className="text-sm text-muted-foreground">
-                      {codingReport.preview.title || 'Agent preview'}
+                      {resolvedHtmlPreview.title}
                     </p>
                     <div className="flex items-center gap-2">
                       <Button
@@ -812,7 +903,7 @@ export function ChatMessage({
                             return;
                           }
 
-                          const blob = new Blob([codingReport.preview?.html || ''], { type: 'text/html' });
+                          const blob = new Blob([resolvedHtmlPreview.html || ''], { type: 'text/html' });
                           const url = URL.createObjectURL(blob);
                           window.open(url, '_blank', 'noopener,noreferrer');
                           setTimeout(() => URL.revokeObjectURL(url), 60_000);
@@ -828,8 +919,8 @@ export function ChatMessage({
                           onClick={() => {
                             setEditorError(null);
                             setPreviewEditor({
-                              title: codingReport.preview?.title || 'Agent preview',
-                              html: codingReport.preview?.html || '',
+                              title: resolvedHtmlPreview.title,
+                              html: resolvedHtmlPreview.html,
                             });
                           }}
                         >
@@ -841,8 +932,8 @@ export function ChatMessage({
                         variant="outline"
                         size="sm"
                         onClick={() => setHtmlPreview({
-                          title: codingReport.preview?.title || 'Agent preview',
-                          html: codingReport.preview?.html || '',
+                          title: resolvedHtmlPreview.title,
+                          html: resolvedHtmlPreview.html,
                         })}
                       >
                         На весь экран
@@ -850,9 +941,10 @@ export function ChatMessage({
                     </div>
                   </div>
                   <HtmlPreviewBrowser
-                    title={codingReport.preview.title || 'Agent preview'}
-                    html={codingReport.preview.html}
+                    title={resolvedHtmlPreview.title}
+                    html={resolvedHtmlPreview.html}
                     previewPageUrl={absolutePreviewPageUrl}
+                    revisionKey={resolvedPreviewRevision}
                     className="h-80 w-full"
                   />
                 </SectionCard>
@@ -945,6 +1037,7 @@ export function ChatMessage({
               title={htmlPreview.title}
               html={htmlPreview.html}
               previewPageUrl={absolutePreviewPageUrl}
+              revisionKey={getStringHash(htmlPreview.html)}
               className="min-h-0 flex-1"
             />
           </div>
@@ -1023,18 +1116,31 @@ export function ChatMessage({
                       </div>
                       <p className="text-xs text-muted-foreground">HTML редактор</p>
                     </div>
-                    <textarea
-                      ref={editorTextareaRef}
-                      value={previewEditor.html}
-                      onChange={(e) => updatePreviewEditorHtml(e.target.value)}
-                      onKeyDown={handleEditorKeyDown}
-                      className={cn(
-                        'min-h-0 flex-1 w-full resize-none rounded-md border border-input bg-background px-3 py-2',
-                        'font-mono text-xs leading-5',
-                        'outline-none ring-0 focus:border-input focus:outline-none focus:ring-0',
-                      )}
-                      spellCheck={false}
-                    />
+                    <div className="relative min-h-0 flex-1 overflow-hidden rounded-md border border-input bg-background">
+                      <pre
+                        ref={editorHighlightRef}
+                        aria-hidden="true"
+                        className="pointer-events-none absolute inset-0 overflow-auto px-3 py-2 font-mono text-xs leading-5 text-slate-900"
+                      >
+                        <code
+                          className="block min-h-full whitespace-pre-wrap break-words"
+                          dangerouslySetInnerHTML={{ __html: `${highlightedEditorHtml || '<br />'}\n` }}
+                        />
+                      </pre>
+                      <textarea
+                        ref={editorTextareaRef}
+                        value={previewEditor.html}
+                        onChange={(e) => updatePreviewEditorHtml(e.target.value)}
+                        onKeyDown={handleEditorKeyDown}
+                        onScroll={syncEditorScroll}
+                        className={cn(
+                          'absolute inset-0 min-h-0 h-full w-full resize-none bg-transparent px-3 py-2',
+                          'font-mono text-xs leading-5 text-transparent caret-slate-900',
+                          'selection:bg-primary/20 outline-none ring-0 focus:outline-none focus:ring-0',
+                        )}
+                        spellCheck={false}
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1050,6 +1156,7 @@ export function ChatMessage({
                     <HtmlPreviewBrowser
                       title={previewEditor.title || 'Agent preview'}
                       html={previewEditor.html}
+                      revisionKey={getStringHash(previewEditor.html)}
                       className="h-full w-full"
                     />
                   </div>
