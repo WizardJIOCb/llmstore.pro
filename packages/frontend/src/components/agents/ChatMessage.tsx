@@ -233,7 +233,10 @@ function injectPreviewBridge(html: string, previewId: string): string {
 (() => {
   const previewId = ${JSON.stringify(previewId)};
   const emojiRegex = /\\p{Extended_Pictographic}(?:\\uFE0F|\\uFE0E)?/gu;
-  const emojiAssetBase = new URL('/api/emoji/', window.location.origin).toString();
+  const previewOrigin = typeof window.__LLMSTORE_PREVIEW_ORIGIN__ === 'string' && window.__LLMSTORE_PREVIEW_ORIGIN__
+    ? window.__LLMSTORE_PREVIEW_ORIGIN__
+    : window.location.origin;
+  const emojiAssetBase = new URL('/api/emoji/', previewOrigin).toString();
 
   const shouldSkipEmojiWrap = (node) => {
     const parent = node.parentElement;

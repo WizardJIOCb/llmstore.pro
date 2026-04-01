@@ -63,6 +63,7 @@ function buildGallerySrcDoc(html: string): string {
   const headInjection = [
     '<meta charset="utf-8">',
     `<meta http-equiv="Content-Security-Policy" content="${csp}">`,
+    `<script>window.__LLMSTORE_PREVIEW_ORIGIN__=${JSON.stringify(window.location.origin)};</script>`,
     `<base href="${window.location.origin}/">`,
     '<style>',
     'html,body{overflow:hidden !important;}',
