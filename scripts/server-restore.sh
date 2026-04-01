@@ -40,10 +40,24 @@ load_env() {
     exit 1
   fi
 
-  set -a
-  # shellcheck disable=SC1090
-  . "$ENV_FILE"
-  set +a
+  while IFS= read -r line; do
+    export "$line"
+  done < <(
+    python3 - "$ENV_FILE" <<'PY'
+import sys
+from pathlib import Path
+
+for raw_line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
+    stripped = raw_line.strip()
+    if not stripped or stripped.startswith("#") or "=" not in raw_line:
+        continue
+    key, value = raw_line.split("=", 1)
+    key = key.strip()
+    if not key:
+        continue
+    print(f"{key}={value}")
+PY
+  )
 }
 
 DATE_ARG="${1:-}"
