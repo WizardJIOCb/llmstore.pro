@@ -1,4 +1,5 @@
 ﻿import { useEffect, useMemo, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { ChatInput } from '../../components/agents/ChatInput';
 import { ChatMessage } from '../../components/agents/ChatMessage';
@@ -21,7 +22,9 @@ import {
 } from '../../hooks/useChats';
 import { useAppSettings } from '../../hooks/useAppSettings';
 import { useProfile } from '../../hooks/useProfile';
+import { chatsApi } from '../../lib/api/chats';
 import type {
+  ChatDetails,
   ChatListItem,
   ChatMessage as ChatMessageType,
   CodingReport,
@@ -216,7 +219,17 @@ function getApiErrorMessage(err: unknown): string | undefined {
   return maybe?.response?.data?.error?.message;
 }
 
+function getApiErrorStatus(err: unknown): number | undefined {
+  const maybe = err as { response?: { status?: number } };
+  return maybe?.response?.status;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
 export function ChatsPage() {
+  const queryClient = useQueryClient();
   const { data: chats, isLoading: chatsLoading } = useChatsList();
   const { data: agents, isLoading: agentsLoading } = useChatAgents();
   const { data: appSettings } = useAppSettings();
@@ -243,6 +256,7 @@ export function ChatsPage() {
   const [propertiesSaving, setPropertiesSaving] = useState(false);
   const [streamEvents, setStreamEvents] = useState<LiveChatEvent[]>([]);
   const [streamConnected, setStreamConnected] = useState(false);
+  const [isAwaitingLateReply, setIsAwaitingLateReply] = useState(false);
 
   const menuRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -405,7 +419,7 @@ export function ChatsPage() {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, streamEvents, sendMessageMutation.isPending]);
+  }, [messages, streamEvents, sendMessageMutation.isPending, isAwaitingLateReply]);
 
   useEffect(() => {
     if (!isPropertiesOpen || !activeChat) return;
@@ -465,6 +479,7 @@ export function ChatsPage() {
     ?? activeAgentListMeta?.starter_prompts
     ?? [];
   const hasAvailableBalance = profile ? Number(profile.balance_usd) > 0 : true;
+  const isSubmittingMessage = sendMessageMutation.isPending || uploadFilesMutation.isPending || isAwaitingLateReply;
 
   const sidebarLoading = chatsLoading || agentsLoading;
 
@@ -578,6 +593,39 @@ export function ChatsPage() {
     }
   };
 
+  const recoverLateAssistantReply = async (chatId: string, startedAt: string) => {
+    setIsAwaitingLateReply(true);
+
+    const startedAtMs = Date.parse(startedAt);
+    const deadline = Date.now() + 180_000;
+
+    while (Date.now() < deadline) {
+      await sleep(4_000);
+
+      try {
+        const latest = await chatsApi.get(chatId);
+        queryClient.setQueryData<ChatDetails>(['chats', chatId], latest);
+        queryClient.invalidateQueries({ queryKey: ['chats'] });
+        queryClient.invalidateQueries({ queryKey: ['profile'] });
+
+        const hasAssistantReply = latest.messages.some((message) => (
+          message.role === 'assistant' && Date.parse(message.created_at) >= startedAtMs
+        ));
+
+        if (hasAssistantReply) {
+          setLocalError(null);
+          setIsAwaitingLateReply(false);
+          return true;
+        }
+      } catch {
+        // The run may still be finishing in the background.
+      }
+    }
+
+    setIsAwaitingLateReply(false);
+    return false;
+  };
+
   const sendMessage = async (content: string, files: File[] = []) => {
     if (!activeChat) return;
     if (!hasAvailableBalance) {
@@ -587,14 +635,24 @@ export function ChatsPage() {
     }
     setLocalError(null);
     setStreamEvents([]);
+    const startedAt = new Date().toISOString();
     try {
       const attachments = files.length > 0 ? await uploadFilesMutation.mutateAsync(files) : [];
       await sendMessageMutation.mutateAsync({ chatId: activeChat.id, content, attachments });
     } catch (err) {
       const code = getApiErrorCode(err);
+      const status = getApiErrorStatus(err);
       if (code === 'INSUFFICIENT_BALANCE') {
         setIsTopUpOpen(true);
         setLocalError(getApiErrorMessage(err) || 'У вас не осталось баланса. Скоро вы сможете пополнить его на сайте.');
+        return;
+      }
+      if (status === 504) {
+        setLocalError('Ответ от модели занял слишком много времени. Проверяю, не завершился ли он в фоне...');
+        const recovered = await recoverLateAssistantReply(activeChat.id, startedAt);
+        if (!recovered) {
+          setLocalError('Провайдер слишком долго отвечал, и запрос оборвался по таймауту. Попробуйте ещё раз или выберите более быстрый агент.');
+        }
         return;
       }
       setLocalError(err instanceof Error ? err.message : 'Не удалось отправить сообщение');
@@ -716,7 +774,7 @@ export function ChatsPage() {
                         <p className="text-xs uppercase tracking-wide text-muted-foreground">Примеры сообщений</p>
                         <div className="flex flex-wrap gap-2">
                           {activeStarterPrompts.map((prompt, idx) => (
-                            <Button key={`${prompt}-${idx}`} type="button" variant="outline" size="sm" disabled={sendMessageMutation.isPending || !hasAvailableBalance} onClick={() => sendMessage(prompt)}>
+                            <Button key={`${prompt}-${idx}`} type="button" variant="outline" size="sm" disabled={isSubmittingMessage || !hasAvailableBalance} onClick={() => sendMessage(prompt)}>
                               {prompt}
                             </Button>
                           ))}
@@ -739,7 +797,7 @@ export function ChatsPage() {
                       {streamConnected ? 'SSE подключен' : 'Ожидаю переподключение к SSE'}
                     </p>
                   </div>
-                  {(sendMessageMutation.isPending || uploadFilesMutation.isPending) && (
+                  {isSubmittingMessage && (
                     <div className="flex items-center gap-2 text-xs text-sky-900/80">
                       <Spinner size="sm" /> Агент работает
                     </div>
@@ -789,7 +847,7 @@ export function ChatsPage() {
                 )}
               </div>
             ))}
-            {sendMessageMutation.isPending && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Spinner /> Думаю...</div>}
+            {isSubmittingMessage && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Spinner /> {isAwaitingLateReply ? 'Проверяю, не завершился ли ответ в фоне...' : 'Думаю...'}</div>}
             <div ref={messagesEndRef} />
           </div>
 
@@ -799,7 +857,7 @@ export function ChatsPage() {
             {activeChat?.mode === 'agent' && activeStarterPrompts.length > 0 && (
               <div className="flex flex-wrap gap-2">
                 {activeStarterPrompts.map((prompt, idx) => (
-                  <Button key={`quick-${prompt}-${idx}`} type="button" variant="outline" size="sm" disabled={sendMessageMutation.isPending || !hasAvailableBalance} onClick={() => sendMessage(prompt)}>
+                  <Button key={`quick-${prompt}-${idx}`} type="button" variant="outline" size="sm" disabled={isSubmittingMessage || !hasAvailableBalance} onClick={() => sendMessage(prompt)}>
                     {prompt}
                   </Button>
                 ))}
@@ -818,7 +876,7 @@ export function ChatsPage() {
             <ChatInput
               onSend={sendMessage}
               allowAttachments
-              disabled={!activeChat || sendMessageMutation.isPending || uploadFilesMutation.isPending || !hasAvailableBalance}
+              disabled={!activeChat || isSubmittingMessage || !hasAvailableBalance}
               placeholder={
                 !activeChat
                   ? 'Сначала выберите чат'
