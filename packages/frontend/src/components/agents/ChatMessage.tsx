@@ -52,9 +52,70 @@ function SectionCard({ title, children }: { title: string; children: ReactNode }
 
 function injectPreviewBridge(html: string, previewId: string): string {
   const bridge = `
+<style id="llmstore-preview-emoji-bridge">
+@import url('https://fonts.googleapis.com/css2?family=Noto+Color+Emoji');
+.llmstore-emoji-fallback {
+  font-family: "Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Emoji", sans-serif !important;
+  font-style: normal !important;
+  font-weight: 400 !important;
+  font-variant-emoji: emoji;
+}
+</style>
 <script>
 (() => {
   const previewId = ${JSON.stringify(previewId)};
+  const emojiRegex = /\\p{Extended_Pictographic}(?:\\uFE0F|\\uFE0E)?/gu;
+
+  const shouldSkipEmojiWrap = (node) => {
+    const parent = node.parentElement;
+    if (!parent) return true;
+    return !!parent.closest('script, style, textarea, input, option');
+  };
+
+  const wrapEmojiTextNode = (node) => {
+    if (!node.nodeValue || !emojiRegex.test(node.nodeValue)) return;
+    emojiRegex.lastIndex = 0;
+
+    const fragment = document.createDocumentFragment();
+    let lastIndex = 0;
+    const matches = node.nodeValue.matchAll(emojiRegex);
+
+    for (const match of matches) {
+      const value = match[0];
+      const index = match.index ?? 0;
+      if (index > lastIndex) {
+        fragment.appendChild(document.createTextNode(node.nodeValue.slice(lastIndex, index)));
+      }
+
+      const span = document.createElement('span');
+      span.className = 'llmstore-emoji-fallback';
+      span.textContent = value;
+      span.setAttribute('aria-hidden', 'true');
+      fragment.appendChild(span);
+
+      lastIndex = index + value.length;
+    }
+
+    if (lastIndex < node.nodeValue.length) {
+      fragment.appendChild(document.createTextNode(node.nodeValue.slice(lastIndex)));
+    }
+
+    node.parentNode?.replaceChild(fragment, node);
+  };
+
+  const applyEmojiFallback = (root = document.body) => {
+    if (!root) return;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const textNodes = [];
+    let current;
+    while ((current = walker.nextNode())) {
+      if (!shouldSkipEmojiWrap(current)) textNodes.push(current);
+    }
+    for (const textNode of textNodes) {
+      wrapEmojiTextNode(textNode);
+    }
+  };
+
   const sendState = () => {
     try {
       window.parent.postMessage({
@@ -78,9 +139,24 @@ function injectPreviewBridge(html: string, previewId: string): string {
 
   wrapHistory('pushState');
   wrapHistory('replaceState');
-  window.addEventListener('load', sendState);
+  window.addEventListener('load', () => {
+    applyEmojiFallback();
+    sendState();
+  });
+  window.addEventListener('DOMContentLoaded', () => applyEmojiFallback());
   window.addEventListener('hashchange', sendState);
   window.addEventListener('popstate', sendState);
+  const observer = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      for (const node of mutation.addedNodes) {
+        if (node instanceof HTMLElement) applyEmojiFallback(node);
+        if (node instanceof Text && !shouldSkipEmojiWrap(node)) wrapEmojiTextNode(node);
+      }
+    }
+  });
+  if (document.body) {
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
   window.addEventListener('message', (event) => {
     const data = event.data;
     if (!data || data.type !== 'llmstore-preview-command' || data.previewId !== previewId) return;
@@ -88,6 +164,7 @@ function injectPreviewBridge(html: string, previewId: string): string {
     if (data.command === 'back') history.back();
     if (data.command === 'forward') history.forward();
   });
+  applyEmojiFallback();
   sendState();
 })();
 </script>`;
