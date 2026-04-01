@@ -1347,66 +1347,6 @@ export async function startRun(
     logger.warn({ runId: run.id, modelId, maxIterations }, 'Agent run completed without final text output');
   }
 
-  if (
-    runStatus === 'completed'
-    && strictPreviewEdit
-    && codingReport?.preview?.type === 'html'
-    && codingReport.preview.html
-    && shouldRetryStrictPreviewEdit(strictPreviewEdit.user_request, strictPreviewEdit.original_html, codingReport.preview.html)
-  ) {
-    emitEvent('chat.run.status', {
-      run_id: run.id,
-      status: 'repairing',
-      label: 'Модель изменила слишком много, делаю более точную повторную правку',
-    });
-
-    const repairMessages: ChatMessage[] = [
-      ...messages.filter((message) => message.role === 'system' || message.role === 'user' || message.role === 'assistant'),
-      {
-        role: 'system',
-        content: buildStrictPreviewEditInstruction(strictPreviewEdit, true),
-      },
-      {
-        role: 'user',
-        content: [
-          'Начни заново от исходного HTML и внеси только минимально необходимую правку.',
-          `Запрос пользователя: ${strictPreviewEdit.user_request}`,
-          strictPreviewEdit.preview_title ? `Название preview: ${strictPreviewEdit.preview_title}` : undefined,
-          'Исходный HTML:',
-          '```html',
-          strictPreviewEdit.original_html,
-          '```',
-        ]
-          .filter(Boolean)
-          .join('\n'),
-      },
-    ];
-
-    const repairResponse = await openRouterClient.chatCompletion({
-      model: modelId,
-      messages: repairMessages,
-      temperature: 0,
-      max_tokens: runtimeConfig.max_tokens ?? 4096,
-    });
-
-    if (repairResponse.usage) {
-      totalUsage.prompt_tokens += repairResponse.usage.prompt_tokens;
-      totalUsage.completion_tokens += repairResponse.usage.completion_tokens;
-      totalUsage.total_tokens += repairResponse.usage.total_tokens;
-    }
-
-    const repairChoice = repairResponse.choices[0];
-    const repairMessage = repairChoice?.message;
-    const repairText = repairMessage ? extractAssistantTextFromMessage(repairMessage) : '';
-    if (repairText) {
-      const parsed = extractCodingReport(repairText);
-      if (parsed.report?.preview?.type === 'html' && parsed.report.preview.html) {
-        finalOutput = parsed.cleanText || parsed.report.summary || finalOutput;
-        codingReport = parsed.report;
-      }
-    }
-  }
-
   const latencyMs = Date.now() - startTime;
 
   // 9. Persist messages
@@ -2111,64 +2051,7 @@ function detectPreviewEditIntent(request: string): boolean {
     && /(исправ|поправ|подвин|сдвин|выровн|центр|замен|измени|доработ|отредакт)/i.test(text);
 }
 
-function isSmallScopedPreviewEdit(request: string): boolean {
-  const text = request.trim().toLowerCase();
-  if (!text) return false;
-  if (/(с нуля|полностью|целиком|полностью передел|редизайн|новый лендинг|новую страницу|полностью перепиши|полностью измени)/i.test(text)) {
-    return false;
-  }
-
-  return /(только|слегка|немного|точечно|по центру|центр|замени текст|поменяй текст|исправь текст|выровняй|сдвинь|подвинь|измени надпись|исправь надпись|измени заголовок|исправь заголовок)/i.test(text);
-}
-
-function normalizeHtmlForSimilarity(html: string): string {
-  return html
-    .replace(/\r\n/g, '\n')
-    .replace(/\s+/g, ' ')
-    .replace(/>\s+</g, '><')
-    .trim()
-    .toLowerCase();
-}
-
-function getDiceCoefficient(a: string, b: string): number {
-  if (!a && !b) return 1;
-  if (!a || !b) return 0;
-  if (a === b) return 1;
-  if (a.length < 2 || b.length < 2) return 0;
-
-  const pairs = new Map<string, number>();
-  for (let index = 0; index < a.length - 1; index += 1) {
-    const pair = a.slice(index, index + 2);
-    pairs.set(pair, (pairs.get(pair) ?? 0) + 1);
-  }
-
-  let intersection = 0;
-  for (let index = 0; index < b.length - 1; index += 1) {
-    const pair = b.slice(index, index + 2);
-    const count = pairs.get(pair) ?? 0;
-    if (count > 0) {
-      pairs.set(pair, count - 1);
-      intersection += 1;
-    }
-  }
-
-  return (2 * intersection) / ((a.length - 1) + (b.length - 1));
-}
-
-function shouldRetryStrictPreviewEdit(request: string, originalHtml: string, nextHtml: string): boolean {
-  if (!isSmallScopedPreviewEdit(request)) {
-    return false;
-  }
-
-  const original = normalizeHtmlForSimilarity(originalHtml);
-  const next = normalizeHtmlForSimilarity(nextHtml);
-  const similarity = getDiceCoefficient(original, next);
-  const lengthDelta = Math.abs(original.length - next.length) / Math.max(original.length, 1);
-
-  return similarity < 0.9 || lengthDelta > 0.12;
-}
-
-function buildStrictPreviewEditInstruction(options: StrictPreviewEditOptions, retry = false): string {
+function buildStrictPreviewEditInstruction(options: StrictPreviewEditOptions): string {
   return [
     'Режим точечной правки preview.',
     'Пользователь просит ИЗМЕНИТЬ уже существующий preview, а не сгенерировать новый дизайн с нуля.',
@@ -2178,9 +2061,7 @@ function buildStrictPreviewEditInstruction(options: StrictPreviewEditOptions, re
     'Если задачу можно решить 1-2 правками CSS или маленькой заменой текста, делай только это.',
     'Не переписывай весь HTML, не делай редизайн и не улучшай посторонние части страницы.',
     'Если меняешь текст, меняй только нужный текст. Если меняешь позиционирование, старайся ограничиться точечными стилями.',
-    retry
-      ? 'Предыдущая попытка изменила слишком много. Начни заново от ИСХОДНОГО HTML и сделай минимально возможную правку.'
-      : 'Нужна минимальная и точечная правка.',
+    'Нужна минимальная и точечная правка.',
     options.preview_title ? `Название текущего preview: ${options.preview_title}` : undefined,
     `Запрос пользователя: ${options.user_request}`,
   ]
@@ -2829,6 +2710,48 @@ export async function updateChat(chatId: string, userId: string, input: {
     created_at: toIso(chat.created_at),
     updated_at: toIso(chat.updated_at),
   };
+}
+
+export async function deleteChatMessage(chatId: string, messageId: string, userId: string): Promise<{ ok: true }> {
+  const chat = await getConversationForUser(chatId, userId);
+
+  const [message] = await db
+    .select({
+      id: chatConversationMessages.id,
+      created_at: chatConversationMessages.created_at,
+    })
+    .from(chatConversationMessages)
+    .where(and(
+      eq(chatConversationMessages.id, messageId),
+      eq(chatConversationMessages.conversation_id, chat.id),
+    ))
+    .limit(1);
+
+  if (!message) {
+    throw new NotFoundError('Сообщение не найдено');
+  }
+
+  await db.delete(chatConversationMessages)
+    .where(and(
+      eq(chatConversationMessages.id, messageId),
+      eq(chatConversationMessages.conversation_id, chat.id),
+    ));
+
+  const [latestMessage] = await db
+    .select({ created_at: chatConversationMessages.created_at })
+    .from(chatConversationMessages)
+    .where(eq(chatConversationMessages.conversation_id, chat.id))
+    .orderBy(desc(chatConversationMessages.created_at))
+    .limit(1);
+
+  await db.update(chatConversations)
+    .set({
+      last_message_at: latestMessage?.created_at ?? chat.created_at,
+      updated_at: new Date(),
+    })
+    .where(eq(chatConversations.id, chat.id));
+
+  return { ok: true };
 }
 
 export async function deleteChat(chatId: string, userId: string) {

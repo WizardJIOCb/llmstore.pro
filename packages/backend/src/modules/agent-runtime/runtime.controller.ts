@@ -268,6 +268,15 @@ export async function deleteChat(req: Request<{ chatId: string }>, res: Response
   }
 }
 
+export async function deleteChatMessage(req: Request<{ chatId: string; messageId: string }>, res: Response, next: NextFunction) {
+  try {
+    const result = await runtimeService.deleteChatMessage(req.params.chatId, req.params.messageId, req.session.userId!);
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function shareChatById(req: Request<{ chatId: string }>, res: Response, next: NextFunction) {
   try {
     const result = await runtimeService.shareChatById(req.params.chatId, req.session.userId!);

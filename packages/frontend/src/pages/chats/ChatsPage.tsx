@@ -15,6 +15,7 @@ import {
   useChatsList,
   useCreateChat,
   useDeleteChat,
+  useDeleteChatMessage,
   useSendChatMessage,
   useUpdateChatMessagePreview,
   useUploadChatFiles,
@@ -245,6 +246,7 @@ export function ChatsPage() {
   const createChatMutation = useCreateChat();
   const updateChatMutation = useUpdateChat();
   const deleteChatMutation = useDeleteChat();
+  const deleteChatMessageMutation = useDeleteChatMessage();
   const shareChatMutation = useShareChatById();
   const sendMessageMutation = useSendChatMessage();
   const updatePreviewMutation = useUpdateChatMessagePreview();
@@ -880,6 +882,19 @@ export function ChatsPage() {
                         });
                       } catch (error) {
                         throw new Error(getApiErrorMessage(error) ?? 'Не удалось сохранить preview');
+                      }
+                    }
+                    : undefined}
+                  canDeleteMessage={Boolean(activeChat)}
+                  onDeleteMessage={activeChat
+                    ? async () => {
+                      try {
+                        await deleteChatMessageMutation.mutateAsync({
+                          chatId: activeChat.id,
+                          messageId: msg.id,
+                        });
+                      } catch (error) {
+                        throw new Error(getApiErrorMessage(error) ?? 'Не удалось удалить сообщение');
                       }
                     }
                     : undefined}

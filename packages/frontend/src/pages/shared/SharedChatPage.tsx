@@ -34,6 +34,13 @@ interface SharedMessageItem {
   usage?: Record<string, unknown> | null;
 }
 
+interface SharedPageData {
+  chatId?: string;
+  title: string;
+  subtitle: string;
+  messages: SharedMessageItem[];
+}
+
 function extractFirstJsonObject(value: string): string | null {
   const start = value.indexOf('{');
   if (start === -1) return null;
@@ -132,6 +139,7 @@ export function SharedChatPage() {
       try {
         const v2 = await apiClient.get<{ data: V2SharedChat }>(`/shared/chats/${token}`);
         return {
+          chatId: v2.data.data.chat.id,
           title: v2.data.data.chat.title,
           subtitle: 'Общий чат - только для чтения',
           messages: v2.data.data.messages.map((m): SharedMessageItem => ({
@@ -188,9 +196,9 @@ export function SharedChatPage() {
             codingReport={msg.role === 'assistant' ? extractCodingReport(msg.usage, msg.content) : undefined}
             previewPageUrl={msg.role === 'assistant' && token && msg.id ? `/api/shared/chats/${token}/messages/${msg.id}/preview` : undefined}
             canEditPreview={Boolean(profile) && msg.role === 'assistant' && Boolean(msg.id)}
-            onSavePreview={profile && msg.role === 'assistant' && msg.id
-              ? async (payload) => {
-                const messageId = msg.id!;
+	            onSavePreview={profile && msg.role === 'assistant' && msg.id
+	              ? async (payload) => {
+	                const messageId = msg.id!;
                 try {
                   await updateSharedPreviewMutation.mutateAsync({
                     messageId,
@@ -199,10 +207,22 @@ export function SharedChatPage() {
                 } catch (error) {
                   const maybe = error as { response?: { data?: { error?: { message?: string } } } };
                   throw new Error(maybe?.response?.data?.error?.message ?? 'Не удалось сохранить preview');
-                }
-              }
-              : undefined}
-          />
+	                }
+	              }
+	              : undefined}
+	            canDeleteMessage={Boolean(profile) && Boolean(data.chatId) && Boolean(msg.id)}
+		            onDeleteMessage={profile && data.chatId && msg.id
+		              ? async () => {
+		                try {
+		                  await chatsApi.deleteMessage(data.chatId!, msg.id!);
+		                  queryClient.invalidateQueries({ queryKey: ['shared-chat-any', token] });
+		                } catch (error) {
+	                  const maybe = error as { response?: { data?: { error?: { message?: string } } } };
+	                  throw new Error(maybe?.response?.data?.error?.message ?? 'Не удалось удалить сообщение');
+	                }
+	              }
+	              : undefined}
+	          />
         ))}
       </div>
 

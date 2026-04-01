@@ -25,6 +25,8 @@ interface ChatMessageProps {
   previewPageUrl?: string | null;
   canEditPreview?: boolean;
   onSavePreview?: (payload: { title?: string | null; html: string }) => Promise<void>;
+  canDeleteMessage?: boolean;
+  onDeleteMessage?: () => Promise<void>;
 }
 
 function stripDevReportEnvelope(content: string): string {
@@ -531,6 +533,8 @@ export function ChatMessage({
   previewPageUrl = null,
   canEditPreview = false,
   onSavePreview,
+  canDeleteMessage = false,
+  onDeleteMessage,
 }: ChatMessageProps) {
   const isUser = role === 'user';
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -540,6 +544,8 @@ export function ChatMessage({
   const [editorSaving, setEditorSaving] = useState(false);
   const [editorError, setEditorError] = useState<string | null>(null);
   const [editorStatus, setEditorStatus] = useState<string | null>(null);
+  const [messageActionError, setMessageActionError] = useState<string | null>(null);
+  const [deletingMessage, setDeletingMessage] = useState(false);
   const editorTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const editorHighlightRef = useRef<HTMLPreElement | null>(null);
   const editorHistoryRef = useRef<string[]>([]);
@@ -777,6 +783,22 @@ export function ChatMessage({
     }
   };
 
+  const deleteMessage = async () => {
+    if (!onDeleteMessage || deletingMessage) return;
+    const confirmed = window.confirm('Удалить это сообщение из чата?');
+    if (!confirmed) return;
+
+    setDeletingMessage(true);
+    setMessageActionError(null);
+    try {
+      await onDeleteMessage();
+    } catch (error) {
+      setMessageActionError(error instanceof Error ? error.message : 'Не удалось удалить сообщение');
+    } finally {
+      setDeletingMessage(false);
+    }
+  };
+
   return (
     <>
       <div className={cn('flex', isUser ? 'justify-end' : 'justify-start')}>
@@ -788,6 +810,21 @@ export function ChatMessage({
             isUser ? 'whitespace-pre-wrap' : '',
           )}
         >
+          {canDeleteMessage && onDeleteMessage && (
+            <div className="mb-2 flex justify-end">
+              <button
+                type="button"
+                className="text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+                onClick={() => void deleteMessage()}
+                disabled={deletingMessage}
+              >
+                {deletingMessage ? 'Удаляю...' : 'Удалить'}
+              </button>
+            </div>
+          )}
+          {messageActionError && (
+            <p className="mb-2 text-xs text-destructive">{messageActionError}</p>
+          )}
           {isUser ? (
             content
           ) : (

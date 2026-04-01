@@ -204,6 +204,9 @@ export const chatsApi = {
 
   remove: (chatId: string) => apiClient.delete(`/chats/${chatId}`),
 
+  deleteMessage: (chatId: string, messageId: string) =>
+    apiClient.delete<{ data: { ok: true } }>(`/chats/${chatId}/messages/${messageId}`).then((r) => r.data.data),
+
   share: (chatId: string) =>
     apiClient.post<{ data: { share_token: string } }>(`/chats/${chatId}/share`).then((r) => r.data.data),
 

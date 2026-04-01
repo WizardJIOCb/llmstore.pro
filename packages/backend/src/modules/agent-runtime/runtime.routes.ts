@@ -33,6 +33,7 @@ router.get('/chats/:chatId/events', requireAuth, controller.streamChatEvents);
 router.get('/chats/:chatId/stats', requireAuth, controller.getChatStats);
 router.patch('/chats/:chatId', requireAuth, validateUpdateChat, controller.updateChat);
 router.delete('/chats/:chatId', requireAuth, controller.deleteChat);
+router.delete('/chats/:chatId/messages/:messageId', requireAuth, controller.deleteChatMessage);
 router.post('/chats/:chatId/share', requireAuth, controller.shareChatById);
 router.post('/chats/uploads', requireAuth, chatUpload.array('files', 8), controller.uploadChatFiles);
 router.post('/chats/:chatId/messages', requireAuth, validateSendChatMessage, controller.sendChatMessage);
