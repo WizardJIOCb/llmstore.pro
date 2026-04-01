@@ -165,6 +165,7 @@ export async function getEmojiSvg(req: Request<{ code: string }>, res: Response,
     if (cached && (Date.now() - cached.fetchedAt) < EMOJI_CACHE_TTL_MS) {
       res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
       res.setHeader('Cache-Control', 'public, max-age=86400');
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
       res.send(cached.body);
       return;
     }
@@ -179,6 +180,7 @@ export async function getEmojiSvg(req: Request<{ code: string }>, res: Response,
     emojiSvgCache.set(code, { body, fetchedAt: Date.now() });
     res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
     res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     res.send(body);
   } catch (err) {
     next(err);
