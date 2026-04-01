@@ -8,22 +8,6 @@ import { Select } from '../../components/ui/Select';
 
 const PAGE_SIZE_OPTIONS = [2, 4, 6, 8, 10];
 
-const GALLERY_IMAGE_PLACEHOLDER = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(
-  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 400">
-    <defs>
-      <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-        <stop offset="0%" stop-color="#e2e8f0" />
-        <stop offset="100%" stop-color="#cbd5e1" />
-      </linearGradient>
-    </defs>
-    <rect width="640" height="400" fill="url(#g)" />
-    <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle"
-      font-family="Segoe UI, Arial, sans-serif" font-size="28" fill="#334155">
-      Preview
-    </text>
-  </svg>`,
-)}`;
-
 function formatDate(iso: string): string {
   return new Intl.DateTimeFormat('ru-RU', {
     day: '2-digit',
@@ -59,51 +43,6 @@ function formatModelName(model: string | null): string | null {
   return lastPart && lastPart.length > 0 ? lastPart : trimmed;
 }
 
-function sanitizeGalleryPreviewHtml(html: string): string {
-  const absoluteOriginLiteral = JSON.stringify(window.location.origin);
-  return html
-    .replace(/https?:\/\/via\.placeholder\.com\/[^"')\s]+/gi, GALLERY_IMAGE_PLACEHOLDER)
-    .replace(/https?:\/\/placehold\.co\/[^"')\s]+/gi, GALLERY_IMAGE_PLACEHOLDER)
-    .replace(/window\.location\.origin/g, absoluteOriginLiteral)
-    .replace(/\blocation\.origin\b/g, absoluteOriginLiteral);
-}
-
-function buildGallerySrcDoc(html: string): string {
-  const safeHtml = sanitizeGalleryPreviewHtml(html);
-  const csp = [
-    "default-src 'none'",
-    "img-src 'self' data: blob: https:",
-    "media-src 'self' data: blob: https:",
-    "style-src 'self' 'unsafe-inline' https:",
-    "style-src-elem 'self' 'unsafe-inline' https:",
-    "font-src 'self' data: https:",
-    "script-src 'unsafe-inline'",
-    "connect-src 'none'",
-    "frame-src 'none'",
-    "child-src 'none'",
-    "object-src 'none'",
-    `base-uri ${window.location.origin}`,
-    "form-action 'none'",
-  ].join('; ');
-  const headInjection = [
-    '<meta charset="utf-8">',
-    `<meta http-equiv="Content-Security-Policy" content="${csp}">`,
-    `<script>window.__LLMSTORE_PREVIEW_ORIGIN__=${JSON.stringify(window.location.origin)};</script>`,
-    `<base href="${window.location.origin}/">`,
-    '<style>',
-    'html,body{overflow:hidden !important;}',
-    'body{pointer-events:none !important;}',
-    'a,button,input,textarea,select{pointer-events:none !important;}',
-    '</style>',
-  ].join('');
-
-  if (/<head[^>]*>/i.test(safeHtml)) {
-    return safeHtml.replace(/<head([^>]*)>/i, `<head$1>${headInjection}`);
-  }
-
-  return `<!DOCTYPE html><html><head>${headInjection}</head><body>${safeHtml}</body></html>`;
-}
-
 function buildPageButtons(totalPages: number, currentPage: number): Array<number | 'ellipsis'> {
   if (totalPages <= 7) {
     return Array.from({ length: totalPages }, (_, index) => index + 1);
@@ -136,54 +75,26 @@ function buildPageButtons(totalPages: number, currentPage: number): Array<number
   return result;
 }
 
+function buildGalleryPreviewUrl(item: GalleryPreviewItem): string | null {
+  if (!item.preview_url) return null;
+  try {
+    const url = new URL(item.preview_url, window.location.origin);
+    url.searchParams.set('gallery', '1');
+    url.searchParams.set('previewId', `gallery-${item.message_id}`);
+    return url.toString();
+  } catch {
+    return item.preview_url;
+  }
+}
+
 function GalleryPreviewFrame({ item }: { item: GalleryPreviewItem }) {
-  const [html, setHtml] = useState<string | null>(item.preview_html ?? null);
-  const [loading, setLoading] = useState(item.preview_type === 'html' && !item.preview_html && !!item.preview_url);
+  const previewUrl = useMemo(() => buildGalleryPreviewUrl(item), [item]);
 
-  useEffect(() => {
-    setHtml(item.preview_html ?? null);
-    setLoading(item.preview_type === 'html' && !item.preview_html && !!item.preview_url);
-  }, [item.message_id, item.preview_html, item.preview_type, item.preview_url]);
-
-  useEffect(() => {
-    if (item.preview_type !== 'html' || item.preview_html || !item.preview_url) {
-      return undefined;
-    }
-
-    const controller = new AbortController();
-
-    fetch(item.preview_url, {
-      method: 'GET',
-      credentials: 'same-origin',
-      signal: controller.signal,
-      headers: {
-        Accept: 'text/html',
-      },
-    })
-      .then(async (response) => {
-        if (!response.ok) {
-          throw new Error(`Preview request failed: ${response.status}`);
-        }
-        return response.text();
-      })
-      .then((text) => {
-        setHtml(text);
-      })
-      .catch(() => {
-        setHtml(null);
-      })
-      .finally(() => {
-        setLoading(false);
-      });
-
-    return () => controller.abort();
-  }, [item.preview_html, item.preview_type, item.preview_url]);
-
-  if (item.preview_type === 'html' && html) {
+  if (item.preview_type === 'html' && previewUrl) {
     return (
       <iframe
         title={item.preview_title || item.chat_title}
-        srcDoc={buildGallerySrcDoc(html)}
+        src={previewUrl}
         className="h-full w-full bg-white"
         sandbox="allow-scripts"
         loading="lazy"
@@ -192,18 +103,10 @@ function GalleryPreviewFrame({ item }: { item: GalleryPreviewItem }) {
     );
   }
 
-  if (loading) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <Spinner />
-      </div>
-    );
-  }
-
-  if (item.preview_url) {
+  if (previewUrl) {
     return (
       <a
-        href={item.preview_url}
+        href={previewUrl}
         target="_blank"
         rel="noopener noreferrer"
         className="flex h-full items-center justify-center p-6 text-sm text-primary underline"

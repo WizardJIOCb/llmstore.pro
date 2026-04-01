@@ -865,6 +865,60 @@ function injectPreviewBridgeHtml(html: string, previewId?: string): string {
   return `${bridge}${html}`;
 }
 
+function sanitizeGalleryPreviewHtml(html: string): string {
+  const placeholderSvg = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 400">
+      <defs>
+        <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="#e2e8f0" />
+          <stop offset="100%" stop-color="#cbd5e1" />
+        </linearGradient>
+      </defs>
+      <rect width="640" height="400" fill="url(#g)" />
+      <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle"
+        font-family="Segoe UI, Arial, sans-serif" font-size="28" fill="#334155">
+        Preview
+      </text>
+    </svg>`,
+  )}`;
+
+  return html
+    .replace(/https?:\/\/via\.placeholder\.com\/[^"')\s]+/gi, placeholderSvg)
+    .replace(/https?:\/\/placehold\.co\/[^"')\s]+/gi, placeholderSvg);
+}
+
+function injectGalleryPreviewStyles(html: string): string {
+  const galleryStyles = `
+<style id="llmstore-gallery-preview-mode">
+html, body {
+  overflow: hidden !important;
+}
+body {
+  pointer-events: none !important;
+}
+a, button, input, textarea, select {
+  pointer-events: none !important;
+}
+</style>`;
+
+  if (/<\/head>/i.test(html)) {
+    return html.replace(/<\/head>/i, `${galleryStyles}</head>`);
+  }
+
+  if (/<body[^>]*>/i.test(html)) {
+    return html.replace(/<body([^>]*)>/i, `<head>${galleryStyles}</head><body$1>`);
+  }
+
+  return `${galleryStyles}${html}`;
+}
+
+function preparePreviewHtml(html: string, options?: { previewId?: string; galleryMode?: boolean }): string {
+  const nextHtml = options?.galleryMode
+    ? injectGalleryPreviewStyles(sanitizeGalleryPreviewHtml(html))
+    : html;
+  return injectPreviewBridgeHtml(nextHtml, options?.previewId);
+}
+
 export async function prepareUploadedChatFiles(files: Express.Multer.File[]): Promise<ChatAttachmentMeta[]> {
   const result: ChatAttachmentMeta[] = [];
   for (const file of files) {
@@ -2192,7 +2246,7 @@ export async function getChatMessagePreviewHtml(
   chatId: string,
   messageId: string,
   viewerUserId?: string | null,
-  previewId?: string,
+  options?: { previewId?: string; galleryMode?: boolean },
 ): Promise<string> {
   const chat = await getConversationById(chatId);
   await ensureChatViewerAccess(chat, viewerUserId);
@@ -2222,14 +2276,14 @@ export async function getChatMessagePreviewHtml(
     await incrementPreviewViewCount(message.id);
   }
 
-  return injectPreviewBridgeHtml(preview.html, previewId);
+  return preparePreviewHtml(preview.html, options);
 }
 
 export async function getSharedChatMessagePreviewHtml(
   token: string,
   messageId: string,
   viewerUserId?: string | null,
-  previewId?: string,
+  options?: { previewId?: string; galleryMode?: boolean },
 ): Promise<string> {
   const chat = await getConversationForSharedViewer(token, viewerUserId);
 
@@ -2258,7 +2312,7 @@ export async function getSharedChatMessagePreviewHtml(
     await incrementPreviewViewCount(message.id);
   }
 
-  return injectPreviewBridgeHtml(preview.html, previewId);
+  return preparePreviewHtml(preview.html, options);
 }
 
 async function updatePreviewForMessageRow(
