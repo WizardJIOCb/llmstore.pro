@@ -3243,5 +3243,16 @@ export async function listGalleryPreviews(limit = 24): Promise<GalleryPreviewIte
     });
   }
 
-  return items;
+  const dedupedItems: GalleryPreviewItem[] = [];
+  const seenChatIds = new Set<string>();
+
+  for (const item of items.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))) {
+    if (seenChatIds.has(item.chat_id)) {
+      continue;
+    }
+    seenChatIds.add(item.chat_id);
+    dedupedItems.push(item);
+  }
+
+  return dedupedItems.slice(0, galleryLimit);
 }
