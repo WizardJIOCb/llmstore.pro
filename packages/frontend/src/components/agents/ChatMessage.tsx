@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
+import type { KeyboardEvent, ReactNode } from 'react';
 import Markdown from 'react-markdown';
 import type { CodingReport, ToolTrace } from '../../lib/api/agents';
 import { cn } from '../../lib/utils';
@@ -471,8 +471,74 @@ export function ChatMessage({
   const [previewEditor, setPreviewEditor] = useState<{ title: string; html: string } | null>(null);
   const [editorSaving, setEditorSaving] = useState(false);
   const [editorError, setEditorError] = useState<string | null>(null);
+  const editorTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const absolutePreviewPageUrl = resolveBrowserUrl(previewPageUrl);
   const renderedContent = !isUser ? stripDevReportEnvelope(content) : content;
+
+  useEffect(() => {
+    if (!previewEditor) return;
+    editorTextareaRef.current?.focus();
+  }, [previewEditor]);
+
+  const savePreviewEditor = async () => {
+    if (!onSavePreview || !previewEditor) return;
+    setEditorSaving(true);
+    setEditorError(null);
+    try {
+      await onSavePreview({
+        title: previewEditor.title || 'Agent preview',
+        html: previewEditor.html,
+      });
+      setPreviewEditor(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Не удалось сохранить preview';
+      setEditorError(message);
+    } finally {
+      setEditorSaving(false);
+    }
+  };
+
+  const handleEditorKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    const textarea = event.currentTarget;
+
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
+      event.preventDefault();
+      void savePreviewEditor();
+      return;
+    }
+
+    if (!previewEditor) return;
+
+    if (event.key === 'Tab') {
+      event.preventDefault();
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const nextValue = `${previewEditor.html.slice(0, start)}  ${previewEditor.html.slice(end)}`;
+      setPreviewEditor({ ...previewEditor, html: nextValue });
+      requestAnimationFrame(() => {
+        textarea.selectionStart = start + 2;
+        textarea.selectionEnd = start + 2;
+      });
+      return;
+    }
+
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const currentLineStart = previewEditor.html.lastIndexOf('\n', start - 1) + 1;
+      const currentLine = previewEditor.html.slice(currentLineStart, start);
+      const indent = currentLine.match(/^\s*/)?.[0] ?? '';
+      const insertion = `\n${indent}`;
+      const nextValue = `${previewEditor.html.slice(0, start)}${insertion}${previewEditor.html.slice(end)}`;
+      setPreviewEditor({ ...previewEditor, html: nextValue });
+      requestAnimationFrame(() => {
+        const nextCaret = start + insertion.length;
+        textarea.selectionStart = nextCaret;
+        textarea.selectionEnd = nextCaret;
+      });
+    }
+  };
 
   return (
     <>
@@ -780,23 +846,7 @@ export function ChatMessage({
                   type="button"
                   size="sm"
                   disabled={editorSaving || !onSavePreview}
-                  onClick={async () => {
-                    if (!onSavePreview) return;
-                    setEditorSaving(true);
-                    setEditorError(null);
-                    try {
-                      await onSavePreview({
-                        title: previewEditor.title || 'Agent preview',
-                        html: previewEditor.html,
-                      });
-                      setPreviewEditor(null);
-                    } catch (error) {
-                      const message = error instanceof Error ? error.message : 'Не удалось сохранить preview';
-                      setEditorError(message);
-                    } finally {
-                      setEditorSaving(false);
-                    }
-                  }}
+                  onClick={() => { void savePreviewEditor(); }}
                 >
                   {editorSaving ? 'Сохраняю...' : 'Сохранить'}
                 </Button>
@@ -831,8 +881,10 @@ export function ChatMessage({
                       <p className="text-xs text-muted-foreground">HTML редактор</p>
                     </div>
                     <textarea
+                      ref={editorTextareaRef}
                       value={previewEditor.html}
                       onChange={(e) => setPreviewEditor((prev) => (prev ? { ...prev, html: e.target.value } : prev))}
+                      onKeyDown={handleEditorKeyDown}
                       className={cn(
                         'min-h-0 flex-1 w-full resize-none rounded-md border border-input bg-background px-3 py-2',
                         'font-mono text-xs leading-5',
