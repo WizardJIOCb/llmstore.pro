@@ -471,14 +471,103 @@ export function ChatMessage({
   const [previewEditor, setPreviewEditor] = useState<{ title: string; html: string } | null>(null);
   const [editorSaving, setEditorSaving] = useState(false);
   const [editorError, setEditorError] = useState<string | null>(null);
+  const [editorStatus, setEditorStatus] = useState<string | null>(null);
   const editorTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const editorHistoryRef = useRef<string[]>([]);
+  const editorHistoryIndexRef = useRef(-1);
+  const editorStatusTimeoutRef = useRef<number | null>(null);
+  const isEditorOpen = Boolean(previewEditor);
   const absolutePreviewPageUrl = resolveBrowserUrl(previewPageUrl);
   const renderedContent = !isUser ? stripDevReportEnvelope(content) : content;
 
   useEffect(() => {
-    if (!previewEditor) return;
+    if (!isEditorOpen || !previewEditor) return;
+    editorHistoryRef.current = [previewEditor.html];
+    editorHistoryIndexRef.current = 0;
+    setEditorStatus(null);
     editorTextareaRef.current?.focus();
-  }, [previewEditor]);
+  }, [isEditorOpen]);
+
+  useEffect(() => () => {
+    if (editorStatusTimeoutRef.current) {
+      window.clearTimeout(editorStatusTimeoutRef.current);
+    }
+  }, []);
+
+  const setEditorTransientStatus = (message: string | null) => {
+    if (editorStatusTimeoutRef.current) {
+      window.clearTimeout(editorStatusTimeoutRef.current);
+      editorStatusTimeoutRef.current = null;
+    }
+
+    setEditorStatus(message);
+
+    if (message) {
+      editorStatusTimeoutRef.current = window.setTimeout(() => {
+        setEditorStatus(null);
+        editorStatusTimeoutRef.current = null;
+      }, 2200);
+    }
+  };
+
+  const pushEditorHistory = (nextHtml: string) => {
+    const currentHistory = editorHistoryRef.current;
+    const currentIndex = editorHistoryIndexRef.current;
+
+    if (currentHistory[currentIndex] === nextHtml) return;
+
+    const nextHistory = [...currentHistory.slice(0, currentIndex + 1), nextHtml].slice(-200);
+    editorHistoryRef.current = nextHistory;
+    editorHistoryIndexRef.current = nextHistory.length - 1;
+  };
+
+  const updatePreviewEditorHtml = (
+    nextHtml: string,
+    options?: {
+      selectionStart?: number;
+      selectionEnd?: number;
+      pushHistory?: boolean;
+    },
+  ) => {
+    setPreviewEditor((prev) => (prev ? { ...prev, html: nextHtml } : prev));
+    setEditorError(null);
+    setEditorStatus(null);
+
+    if (options?.pushHistory !== false) {
+      pushEditorHistory(nextHtml);
+    }
+
+    if (typeof options?.selectionStart === 'number' && typeof options.selectionEnd === 'number') {
+      requestAnimationFrame(() => {
+        if (!editorTextareaRef.current) return;
+        editorTextareaRef.current.selectionStart = options.selectionStart!;
+        editorTextareaRef.current.selectionEnd = options.selectionEnd!;
+      });
+    }
+  };
+
+  const stepEditorHistory = (direction: 'undo' | 'redo') => {
+    if (!previewEditor) return;
+
+    const history = editorHistoryRef.current;
+    const delta = direction === 'undo' ? -1 : 1;
+    const nextIndex = Math.min(Math.max(editorHistoryIndexRef.current + delta, 0), history.length - 1);
+
+    if (nextIndex === editorHistoryIndexRef.current) return;
+
+    editorHistoryIndexRef.current = nextIndex;
+    const nextHtml = history[nextIndex] ?? previewEditor.html;
+    setPreviewEditor((prev) => (prev ? { ...prev, html: nextHtml } : prev));
+    setEditorError(null);
+    setEditorTransientStatus(direction === 'undo' ? 'Последнее изменение отменено' : 'Изменение возвращено');
+
+    requestAnimationFrame(() => {
+      if (!editorTextareaRef.current) return;
+      const caret = nextHtml.length;
+      editorTextareaRef.current.selectionStart = caret;
+      editorTextareaRef.current.selectionEnd = caret;
+    });
+  };
 
   const savePreviewEditor = async () => {
     if (!onSavePreview || !previewEditor) return;
@@ -489,7 +578,7 @@ export function ChatMessage({
         title: previewEditor.title || 'Agent preview',
         html: previewEditor.html,
       });
-      setPreviewEditor(null);
+      setEditorTransientStatus('Preview сохранён');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Не удалось сохранить preview';
       setEditorError(message);
@@ -500,10 +589,17 @@ export function ChatMessage({
 
   const handleEditorKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     const textarea = event.currentTarget;
+    const key = event.key.toLowerCase();
 
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
+    if ((event.ctrlKey || event.metaKey) && key === 's') {
       event.preventDefault();
       void savePreviewEditor();
+      return;
+    }
+
+    if ((event.ctrlKey || event.metaKey) && key === 'z') {
+      event.preventDefault();
+      stepEditorHistory(event.shiftKey ? 'redo' : 'undo');
       return;
     }
 
@@ -513,11 +609,58 @@ export function ChatMessage({
       event.preventDefault();
       const start = textarea.selectionStart;
       const end = textarea.selectionEnd;
-      const nextValue = `${previewEditor.html.slice(0, start)}  ${previewEditor.html.slice(end)}`;
-      setPreviewEditor({ ...previewEditor, html: nextValue });
-      requestAnimationFrame(() => {
-        textarea.selectionStart = start + 2;
-        textarea.selectionEnd = start + 2;
+      const value = previewEditor.html;
+
+      if (!event.shiftKey && start === end) {
+        const nextValue = `${value.slice(0, start)}  ${value.slice(end)}`;
+        updatePreviewEditorHtml(nextValue, {
+          selectionStart: start + 2,
+          selectionEnd: start + 2,
+        });
+        return;
+      }
+
+      const blockStart = value.lastIndexOf('\n', Math.max(start - 1, 0)) + 1;
+      const nextLineBreak = value.indexOf('\n', end);
+      const blockEnd = nextLineBreak === -1 ? value.length : nextLineBreak;
+      const block = value.slice(blockStart, blockEnd);
+      const lines = block.split('\n');
+
+      if (event.shiftKey) {
+        let firstLineRemoved = 0;
+        let totalRemoved = 0;
+
+        const nextBlock = lines.map((line, index) => {
+          let removed = 0;
+          if (line.startsWith('  ')) {
+            removed = 2;
+          } else if (line.startsWith('\t')) {
+            removed = 1;
+          } else if (line.startsWith(' ')) {
+            removed = 1;
+          }
+
+          if (index === 0) {
+            firstLineRemoved = removed;
+          }
+          totalRemoved += removed;
+
+          return removed > 0 ? line.slice(removed) : line;
+        }).join('\n');
+
+        const nextValue = `${value.slice(0, blockStart)}${nextBlock}${value.slice(blockEnd)}`;
+        updatePreviewEditorHtml(nextValue, {
+          selectionStart: Math.max(blockStart, start - firstLineRemoved),
+          selectionEnd: Math.max(blockStart, end - totalRemoved),
+        });
+        return;
+      }
+
+      const nextBlock = lines.map((line) => `  ${line}`).join('\n');
+      const nextValue = `${value.slice(0, blockStart)}${nextBlock}${value.slice(blockEnd)}`;
+      updatePreviewEditorHtml(nextValue, {
+        selectionStart: start + 2,
+        selectionEnd: end + (2 * lines.length),
       });
       return;
     }
@@ -531,11 +674,10 @@ export function ChatMessage({
       const indent = currentLine.match(/^\s*/)?.[0] ?? '';
       const insertion = `\n${indent}`;
       const nextValue = `${previewEditor.html.slice(0, start)}${insertion}${previewEditor.html.slice(end)}`;
-      setPreviewEditor({ ...previewEditor, html: nextValue });
-      requestAnimationFrame(() => {
-        const nextCaret = start + insertion.length;
-        textarea.selectionStart = nextCaret;
-        textarea.selectionEnd = nextCaret;
+      const nextCaret = start + insertion.length;
+      updatePreviewEditorHtml(nextValue, {
+        selectionStart: nextCaret,
+        selectionEnd: nextCaret,
       });
     }
   };
@@ -833,11 +975,9 @@ export function ChatMessage({
                   size="sm"
                   disabled={editorSaving}
                   onClick={() => {
-                    setPreviewEditor((prev) => (
-                      prev
-                        ? { ...prev, html: beautifyHtml(prev.html) }
-                        : prev
-                    ));
+                    if (!previewEditor) return;
+                    updatePreviewEditorHtml(beautifyHtml(previewEditor.html));
+                    setEditorTransientStatus('HTML аккуратно отформатирован');
                   }}
                 >
                   Beautify
@@ -868,7 +1008,10 @@ export function ChatMessage({
                     </label>
                     <input
                       value={previewEditor.title}
-                      onChange={(e) => setPreviewEditor((prev) => (prev ? { ...prev, title: e.target.value } : prev))}
+                      onChange={(e) => {
+                        setPreviewEditor((prev) => (prev ? { ...prev, title: e.target.value } : prev));
+                        setEditorStatus(null);
+                      }}
                       className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                       placeholder="Название preview"
                     />
@@ -883,7 +1026,7 @@ export function ChatMessage({
                     <textarea
                       ref={editorTextareaRef}
                       value={previewEditor.html}
-                      onChange={(e) => setPreviewEditor((prev) => (prev ? { ...prev, html: e.target.value } : prev))}
+                      onChange={(e) => updatePreviewEditorHtml(e.target.value)}
                       onKeyDown={handleEditorKeyDown}
                       className={cn(
                         'min-h-0 flex-1 w-full resize-none rounded-md border border-input bg-background px-3 py-2',
@@ -912,6 +1055,19 @@ export function ChatMessage({
                   </div>
                 </div>
               </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t bg-slate-50 px-4 py-2 text-xs text-muted-foreground">
+              <div className="flex flex-wrap items-center gap-3">
+                <span><span className="font-medium text-foreground">Tab</span> отступ</span>
+                <span><span className="font-medium text-foreground">Shift+Tab</span> убрать отступ</span>
+                <span><span className="font-medium text-foreground">Ctrl+Z</span> отмена</span>
+                <span><span className="font-medium text-foreground">Ctrl+S</span> сохранить</span>
+                <span><span className="font-medium text-foreground">Beautify</span> форматировать код</span>
+              </div>
+              <span className={cn('min-h-[1rem]', editorStatus ? 'text-foreground' : 'text-transparent')}>
+                {editorStatus || 'status'}
+              </span>
             </div>
           </div>
         </div>
