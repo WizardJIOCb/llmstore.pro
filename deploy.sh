@@ -68,7 +68,14 @@ pm2 save >/dev/null 2>&1 || true
 sleep 5
 
 echo "[8/8] Health check..."
-STATUS="$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:$PORT/api/health")"
+STATUS=""
+for _ in $(seq 1 15); do
+  STATUS="$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:$PORT/api/health" || true)"
+  if [ "$STATUS" = "200" ]; then
+    break
+  fi
+  sleep 2
+done
 if [ "$STATUS" = "200" ]; then
   echo
   echo "=== Deploy successful ==="
