@@ -2,6 +2,7 @@ import { apiClient } from '../api-client';
 
 export type ChatMode = 'general' | 'agent';
 export type ChatAccess = 'public' | 'private' | 'restricted';
+export type ChatReactionType = 'heart' | 'thumbs_up' | 'thumbs_down' | 'laugh' | 'meh';
 
 export interface CodingReportChangedFile {
   path: string;
@@ -93,10 +94,17 @@ export interface GalleryPreviewItem {
   view_count: number;
   unique_view_count: number;
   total_view_count: number;
+  reaction_counts: Record<ChatReactionType, number>;
+  my_reaction: ChatReactionType | null;
   created_at: string;
   total_usd_cost: number;
   total_rub_cost: number;
   model: string | null;
+}
+
+export interface GalleryReactionState {
+  reaction_counts: Record<ChatReactionType, number>;
+  my_reaction: ChatReactionType | null;
 }
 
 export interface SendMessageResult {
@@ -203,6 +211,16 @@ export const chatsApi = {
 
   gallery: (limit = 24) =>
     apiClient.get<{ data: GalleryPreviewItem[] }>(`/gallery/previews?limit=${encodeURIComponent(String(limit))}`).then((r) => r.data.data),
+
+  setGalleryReaction: (chatId: string, reactionType: ChatReactionType) =>
+    apiClient
+      .post<{ data: GalleryReactionState }>(`/gallery/previews/${chatId}/reaction`, { reaction_type: reactionType })
+      .then((r) => r.data.data),
+
+  deleteGalleryReaction: (chatId: string) =>
+    apiClient
+      .delete<{ data: GalleryReactionState }>(`/gallery/previews/${chatId}/reaction`)
+      .then((r) => r.data.data),
 
   remove: (chatId: string) => apiClient.delete(`/chats/${chatId}`),
 

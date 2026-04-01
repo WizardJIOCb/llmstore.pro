@@ -11,6 +11,7 @@ import {
   chatConversations,
   chatConversationMessages,
   chatConversationViewers,
+  chatConversationReactions,
 } from '../../db/schema/runtime.js';
 import { usageLedger } from '../../db/schema/analytics.js';
 import { users } from '../../db/schema/auth.js';
@@ -54,6 +55,8 @@ interface ChatAttachmentMeta {
 }
 
 type ChatAccess = 'public' | 'private' | 'restricted';
+export type ChatReactionType = 'heart' | 'thumbs_up' | 'thumbs_down' | 'laugh' | 'meh';
+const CHAT_REACTION_TYPES: ChatReactionType[] = ['heart', 'thumbs_up', 'thumbs_down', 'laugh', 'meh'];
 
 interface CodingReportChangedFile {
   path: string;
@@ -1867,6 +1870,8 @@ interface GalleryPreviewItem {
   view_count: number;
   unique_view_count: number;
   total_view_count: number;
+  reaction_counts: Record<ChatReactionType, number>;
+  my_reaction: ChatReactionType | null;
   created_at: string;
   total_usd_cost: number;
   total_rub_cost: number;
@@ -2154,6 +2159,47 @@ async function registerConversationView(
         eq(chatConversationViewers.viewer_key, viewerKey),
       ));
   });
+}
+
+function emptyReactionCounts(): Record<ChatReactionType, number> {
+  return {
+    heart: 0,
+    thumbs_up: 0,
+    thumbs_down: 0,
+    laugh: 0,
+    meh: 0,
+  };
+}
+
+async function getGalleryReactionState(chatId: string, viewerUserId?: string | null): Promise<{
+  reaction_counts: Record<ChatReactionType, number>;
+  my_reaction: ChatReactionType | null;
+}> {
+  const rows = await db
+    .select({
+      reaction_type: chatConversationReactions.reaction_type,
+      user_id: chatConversationReactions.user_id,
+    })
+    .from(chatConversationReactions)
+    .where(eq(chatConversationReactions.conversation_id, chatId));
+
+  const reactionCounts = emptyReactionCounts();
+  let myReaction: ChatReactionType | null = null;
+
+  for (const row of rows) {
+    const reactionType = row.reaction_type as ChatReactionType;
+    if (CHAT_REACTION_TYPES.includes(reactionType)) {
+      reactionCounts[reactionType] += 1;
+      if (viewerUserId && row.user_id === viewerUserId) {
+        myReaction = reactionType;
+      }
+    }
+  }
+
+  return {
+    reaction_counts: reactionCounts,
+    my_reaction: myReaction,
+  };
 }
 
 async function getAgentChatMeta(agentId: string | null): Promise<{
@@ -3135,7 +3181,7 @@ export async function getSharedChatById(token: string, viewerUserId?: string | n
   };
 }
 
-export async function listGalleryPreviews(limit = 24): Promise<GalleryPreviewItem[]> {
+export async function listGalleryPreviews(limit = 24, viewerUserId?: string | null): Promise<GalleryPreviewItem[]> {
   const usdToRubRate = await getUsdToRubRate();
   const galleryLimit = Math.max(1, Math.min(limit, 120));
   const chunkSize = Math.max(60, Math.min(galleryLimit * 5, 300));
@@ -3224,6 +3270,10 @@ export async function listGalleryPreviews(limit = 24): Promise<GalleryPreviewIte
     usd_cost: number;
     model_costs: Map<string, number>;
   }>();
+  const chatReactions = new Map<string, {
+    reaction_counts: Record<ChatReactionType, number>;
+    my_reaction: ChatReactionType | null;
+  }>();
 
   if (chatIds.length > 0) {
     const usageRows = await db
@@ -3257,6 +3307,30 @@ export async function listGalleryPreviews(limit = 24): Promise<GalleryPreviewIte
       existing.model_costs.set(model, (existing.model_costs.get(model) ?? 0) + usdCost);
       chatTotals.set(row.conversation_id, existing);
     }
+
+    const reactionRows = await db
+      .select({
+        conversation_id: chatConversationReactions.conversation_id,
+        reaction_type: chatConversationReactions.reaction_type,
+        user_id: chatConversationReactions.user_id,
+      })
+      .from(chatConversationReactions)
+      .where(inArray(chatConversationReactions.conversation_id, chatIds));
+
+    for (const row of reactionRows) {
+      const existing = chatReactions.get(row.conversation_id) ?? {
+        reaction_counts: emptyReactionCounts(),
+        my_reaction: null,
+      };
+      const reactionType = row.reaction_type as ChatReactionType;
+      if (CHAT_REACTION_TYPES.includes(reactionType)) {
+        existing.reaction_counts[reactionType] += 1;
+        if (viewerUserId && row.user_id === viewerUserId) {
+          existing.my_reaction = reactionType;
+        }
+      }
+      chatReactions.set(row.conversation_id, existing);
+    }
   }
 
   const items: GalleryPreviewItem[] = [];
@@ -3270,6 +3344,10 @@ export async function listGalleryPreviews(limit = 24): Promise<GalleryPreviewIte
     const dominantModel = totals
       ? [...totals.model_costs.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
       : (row.chat_model_external_id ?? null);
+    const reactions = chatReactions.get(row.chat_id) ?? {
+      reaction_counts: emptyReactionCounts(),
+      my_reaction: null,
+    };
 
     if (!preview || ((preview.type !== 'html' && preview.type !== 'url'))) {
       continue;
@@ -3302,6 +3380,8 @@ export async function listGalleryPreviews(limit = 24): Promise<GalleryPreviewIte
       view_count: uniqueViewCount,
       unique_view_count: uniqueViewCount,
       total_view_count: totalViewCount,
+      reaction_counts: reactions.reaction_counts,
+      my_reaction: reactions.my_reaction,
       created_at: toIso(row.created_at),
       total_usd_cost: totals?.usd_cost ?? 0,
       total_rub_cost: (totals?.usd_cost ?? 0) * usdToRubRate,
@@ -3321,4 +3401,45 @@ export async function listGalleryPreviews(limit = 24): Promise<GalleryPreviewIte
   }
 
   return dedupedItems.slice(0, galleryLimit);
+}
+
+export async function setGalleryPreviewReaction(chatId: string, userId: string, reactionType: ChatReactionType) {
+  const chat = await getConversationById(chatId);
+  if (chat.access !== 'public') {
+    throw new AppError(403, 'FORBIDDEN', 'Реакции доступны только для общих чатов');
+  }
+
+  const now = new Date();
+  await db.insert(chatConversationReactions)
+    .values({
+      conversation_id: chat.id,
+      user_id: userId,
+      reaction_type: reactionType,
+      created_at: now,
+      updated_at: now,
+    })
+    .onConflictDoUpdate({
+      target: [chatConversationReactions.conversation_id, chatConversationReactions.user_id],
+      set: {
+        reaction_type: reactionType,
+        updated_at: now,
+      },
+    });
+
+  return getGalleryReactionState(chat.id, userId);
+}
+
+export async function deleteGalleryPreviewReaction(chatId: string, userId: string) {
+  const chat = await getConversationById(chatId);
+  if (chat.access !== 'public') {
+    throw new AppError(403, 'FORBIDDEN', 'Реакции доступны только для общих чатов');
+  }
+
+  await db.delete(chatConversationReactions)
+    .where(and(
+      eq(chatConversationReactions.conversation_id, chat.id),
+      eq(chatConversationReactions.user_id, userId),
+    ));
+
+  return getGalleryReactionState(chat.id, userId);
 }

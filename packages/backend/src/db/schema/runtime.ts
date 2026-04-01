@@ -5,7 +5,7 @@ import { jsonb } from 'drizzle-orm/pg-core';
 import { users } from './auth';
 import { agents, agentVersions, toolDefinitions } from './agents';
 import { aiModels } from './models';
-import { agentRunStatusEnum, agentRunModeEnum, toolCallStatusEnum, chatConversationModeEnum, chatAccessEnum } from './enums';
+import { agentRunStatusEnum, agentRunModeEnum, toolCallStatusEnum, chatConversationModeEnum, chatAccessEnum, chatReactionTypeEnum } from './enums';
 
 export const chatSessions = pgTable('chat_sessions', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -125,4 +125,17 @@ export const chatConversationViewers = pgTable('chat_conversation_viewers', {
 }, (table) => [
   uniqueIndex('chat_conversation_viewers_conversation_viewer_idx').on(table.conversation_id, table.viewer_key),
   index('chat_conversation_viewers_conversation_idx').on(table.conversation_id),
+]);
+
+export const chatConversationReactions = pgTable('chat_conversation_reactions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  conversation_id: uuid('conversation_id').notNull().references(() => chatConversations.id, { onDelete: 'cascade' }),
+  user_id: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  reaction_type: chatReactionTypeEnum('reaction_type').notNull(),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex('chat_conversation_reactions_conversation_user_idx').on(table.conversation_id, table.user_id),
+  index('chat_conversation_reactions_conversation_idx').on(table.conversation_id),
+  index('chat_conversation_reactions_user_idx').on(table.user_id),
 ]);

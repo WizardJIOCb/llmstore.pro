@@ -137,8 +137,36 @@ export async function listChats(req: Request, res: Response, next: NextFunction)
 export async function listGalleryPreviews(req: Request, res: Response, next: NextFunction) {
   try {
     const limit = typeof req.query.limit === 'string' ? Number(req.query.limit) : undefined;
-    const items = await runtimeService.listGalleryPreviews(Number.isFinite(limit) ? Number(limit) : undefined);
+    const items = await runtimeService.listGalleryPreviews(
+      Number.isFinite(limit) ? Number(limit) : undefined,
+      req.session?.userId,
+    );
     res.json({ data: items });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function setGalleryPreviewReaction(req: Request<{ chatId: string }>, res: Response, next: NextFunction) {
+  try {
+    const result = await runtimeService.setGalleryPreviewReaction(
+      req.params.chatId,
+      req.session.userId!,
+      req.body.reaction_type,
+    );
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function deleteGalleryPreviewReaction(req: Request<{ chatId: string }>, res: Response, next: NextFunction) {
+  try {
+    const result = await runtimeService.deleteGalleryPreviewReaction(
+      req.params.chatId,
+      req.session.userId!,
+    );
+    res.json({ data: result });
   } catch (err) {
     next(err);
   }

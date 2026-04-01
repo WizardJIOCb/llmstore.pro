@@ -40,6 +40,7 @@ export const agentRunModeEnum = pgEnum('agent_run_mode', ['chat', 'scenario', 'c
 export const toolCallStatusEnum = pgEnum('tool_call_status', ['pending', 'running', 'success', 'error', 'timeout']);
 export const chatConversationModeEnum = pgEnum('chat_conversation_mode', ['general', 'agent']);
 export const chatAccessEnum = pgEnum('chat_access', ['public', 'private', 'restricted']);
+export const chatReactionTypeEnum = pgEnum('chat_reaction_type', ['heart', 'thumbs_up', 'thumbs_down', 'laugh', 'meh']);
 export const aliceDefaultTargetTypeEnum = pgEnum('alice_default_target_type', ['general_chat', 'agent_chat', 'specific_chat']);
 export const aliceTtsModeEnum = pgEnum('alice_tts_mode', ['brief', 'standard']);
 

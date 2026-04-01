@@ -1,12 +1,21 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useGalleryPreviews } from '../../hooks/useChats';
-import type { GalleryPreviewItem } from '../../lib/api/chats';
+import { useQuery } from '@tanstack/react-query';
+import { useDeleteGalleryReaction, useGalleryPreviews, useSetGalleryReaction } from '../../hooks/useChats';
+import type { ChatReactionType, GalleryPreviewItem } from '../../lib/api/chats';
 import { Spinner } from '../../components/ui/Spinner';
 import { Button } from '../../components/ui/Button';
 import { Select } from '../../components/ui/Select';
+import { authApi } from '../../lib/api/auth';
 
 const PAGE_SIZE_OPTIONS = [2, 4, 6, 8, 10];
+const REACTION_OPTIONS: Array<{ type: ChatReactionType; emoji: string; label: string }> = [
+  { type: 'heart', emoji: '❤️', label: 'Сердечко' },
+  { type: 'thumbs_up', emoji: '👍', label: 'Палец вверх' },
+  { type: 'thumbs_down', emoji: '👎', label: 'Палец вниз' },
+  { type: 'laugh', emoji: '🤣', label: 'Громкий смех' },
+  { type: 'meh', emoji: '😐', label: 'Без эмоций' },
+];
 
 function formatDate(iso: string): string {
   return new Intl.DateTimeFormat('ru-RU', {
@@ -126,7 +135,20 @@ function GalleryPreviewFrame({ item }: { item: GalleryPreviewItem }) {
 export function GalleryPage() {
   const [pageSize, setPageSize] = useState(4);
   const [currentPage, setCurrentPage] = useState(1);
+  const { data: currentUser } = useQuery({
+    queryKey: ['gallery-auth-me'],
+    queryFn: async () => {
+      try {
+        return await authApi.me();
+      } catch {
+        return null;
+      }
+    },
+    staleTime: 30_000,
+  });
   const { data, isLoading, error } = useGalleryPreviews(120);
+  const setReactionMutation = useSetGalleryReaction();
+  const deleteReactionMutation = useDeleteGalleryReaction();
 
   const items = data ?? [];
   const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
@@ -228,6 +250,41 @@ export function GalleryPage() {
                         Модель: {formatModelName(item.model)}
                       </span>
                     )}
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {REACTION_OPTIONS.map((reaction) => {
+                      const count = item.reaction_counts?.[reaction.type] ?? 0;
+                      const isActive = item.my_reaction === reaction.type;
+                      const isBusy = setReactionMutation.isPending || deleteReactionMutation.isPending;
+
+                      return (
+                        <button
+                          key={reaction.type}
+                          type="button"
+                          title={currentUser ? reaction.label : 'Нужна авторизация'}
+                          disabled={!currentUser || isBusy}
+                          onClick={() => {
+                            if (!currentUser || isBusy) return;
+                            if (isActive) {
+                              deleteReactionMutation.mutate(item.chat_id);
+                              return;
+                            }
+                            setReactionMutation.mutate({ chatId: item.chat_id, reactionType: reaction.type });
+                          }}
+                          className={[
+                            'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors',
+                            isActive
+                              ? 'border-primary/40 bg-primary/10 text-primary'
+                              : 'border-border bg-muted/20 text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+                            !currentUser ? 'cursor-default opacity-70' : '',
+                          ].join(' ')}
+                        >
+                          <span aria-hidden="true">{reaction.emoji}</span>
+                          <span>{count}</span>
+                        </button>
+                      );
+                    })}
                   </div>
 
                   <div className="flex items-center gap-2">

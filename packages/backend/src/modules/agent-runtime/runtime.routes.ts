@@ -8,6 +8,7 @@ import {
   validateUpdateChat,
   validateSendChatMessage,
   validateUpdateMessagePreview,
+  validateSetGalleryReaction,
 } from './runtime.validators.js';
 
 const router = Router();
@@ -23,6 +24,8 @@ router.get('/shared/chat/:token', controller.getSharedChat);
 // Conversations V2 (authenticated)
 router.get('/emoji/:code.svg', controller.getEmojiSvg);
 router.get('/gallery/previews', controller.listGalleryPreviews);
+router.post('/gallery/previews/:chatId/reaction', requireAuth, validateSetGalleryReaction, controller.setGalleryPreviewReaction);
+router.delete('/gallery/previews/:chatId/reaction', requireAuth, controller.deleteGalleryPreviewReaction);
 router.get('/chats', requireAuth, controller.listChats);
 router.get('/chats/agents', requireAuth, controller.listChatAgents);
 router.post('/chats', requireAuth, validateCreateChat, controller.createChat);

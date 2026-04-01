@@ -16,6 +16,27 @@ export function useGalleryPreviews(limit = 24) {
   });
 }
 
+export function useSetGalleryReaction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ chatId, reactionType }: { chatId: string; reactionType: 'heart' | 'thumbs_up' | 'thumbs_down' | 'laugh' | 'meh' }) =>
+      chatsApi.setGalleryReaction(chatId, reactionType),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['gallery-previews'] });
+    },
+  });
+}
+
+export function useDeleteGalleryReaction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (chatId: string) => chatsApi.deleteGalleryReaction(chatId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['gallery-previews'] });
+    },
+  });
+}
+
 export function useChatAgents() {
   return useQuery({
     queryKey: ['chat-agents'],

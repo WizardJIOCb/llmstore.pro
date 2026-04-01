@@ -50,7 +50,12 @@ const updateMessagePreviewSchema = z.object({
   html: z.string().min(1).max(50_000),
 });
 
+const setGalleryReactionSchema = z.object({
+  reaction_type: z.enum(['heart', 'thumbs_up', 'thumbs_down', 'laugh', 'meh']),
+});
+
 export const validateCreateChat = validate(createChatSchema, 'body');
 export const validateUpdateChat = validate(updateChatSchema, 'body');
 export const validateSendChatMessage = validate(sendMessageSchema, 'body');
 export const validateUpdateMessagePreview = validate(updateMessagePreviewSchema, 'body');
+export const validateSetGalleryReaction = validate(setGalleryReactionSchema, 'body');
