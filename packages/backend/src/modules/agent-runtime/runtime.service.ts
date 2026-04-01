@@ -642,7 +642,9 @@ function injectPreviewBridgeHtml(html: string, previewId?: string): string {
     .join('-');
 
   const wrapEmojiTextNode = (node) => {
-    if (!node.nodeValue || !emojiRegex.test(node.nodeValue)) return;
+    if (!node.nodeValue) return;
+    emojiRegex.lastIndex = 0;
+    if (!emojiRegex.test(node.nodeValue)) return;
     emojiRegex.lastIndex = 0;
 
     const fragment = document.createDocumentFragment();
