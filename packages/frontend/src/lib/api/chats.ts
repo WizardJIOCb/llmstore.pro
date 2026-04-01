@@ -88,6 +88,7 @@ export interface GalleryPreviewItem {
   preview_title: string | null;
   preview_type: 'html' | 'url';
   preview_url: string | null;
+  preview_html: string | null;
   author_name: string;
   view_count: number;
   created_at: string;

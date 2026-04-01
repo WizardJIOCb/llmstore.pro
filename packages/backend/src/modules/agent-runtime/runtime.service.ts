@@ -1790,6 +1790,7 @@ interface GalleryPreviewItem {
   preview_title: string | null;
   preview_type: 'html' | 'url';
   preview_url: string | null;
+  preview_html: string | null;
   author_name: string;
   view_count: number;
   created_at: string;
@@ -2910,6 +2911,7 @@ export async function listGalleryPreviews(limit = 24): Promise<GalleryPreviewIte
       preview_url: preview.type === 'html'
         ? `/api/shared/chats/${shareToken}/messages/${row.message_id}/preview`
         : (preview.url ?? null),
+      preview_html: preview.type === 'html' ? (preview.html ?? null) : null,
       author_name: formatAuthorName({
         email: row.author_email,
         username: row.author_username,
