@@ -4,6 +4,7 @@ set -euo pipefail
 PROJECT_DIR="/var/www/llmstore.pro"
 PM2_APP="llmstore-backend"
 BACKEND_DIR="$PROJECT_DIR/packages/backend"
+TSX_BIN="$PROJECT_DIR/node_modules/.bin/tsx"
 PORT=3002
 
 ensure_single_backend_manager() {
@@ -63,7 +64,7 @@ if pm2 describe "$PM2_APP" >/dev/null 2>&1; then
   pm2 delete "$PM2_APP" >/dev/null 2>&1 || true
 fi
 kill_port_listeners
-pm2 start dist/server.js --name "$PM2_APP" --cwd "$BACKEND_DIR"
+pm2 start "$TSX_BIN" --name "$PM2_APP" --cwd "$BACKEND_DIR" -- src/server.ts
 pm2 save >/dev/null 2>&1 || true
 sleep 5
 
