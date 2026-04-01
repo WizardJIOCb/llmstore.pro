@@ -724,7 +724,30 @@ function applyCodingReportToContent(content: string, report: CodingReport): stri
     : `<dev-report>\n${encoded}\n</dev-report>`;
 }
 
+function forceStandardPreviewFavicon(html: string): string {
+  const faviconMarkup = `
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<link rel="icon" type="image/png" href="/icon.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">`;
+
+  const cleaned = html
+    .replace(/<link\b[^>]*\brel\s*=\s*["'][^"']*\b(?:shortcut\s+icon|icon|apple-touch-icon|apple-touch-icon-precomposed|mask-icon)\b[^"']*["'][^>]*>\s*/gi, '')
+    .replace(/<link\b[^>]*\brel\s*=\s*["']manifest["'][^>]*>\s*/gi, '');
+
+  if (/<\/head>/i.test(cleaned)) {
+    return cleaned.replace(/<\/head>/i, `${faviconMarkup}\n</head>`);
+  }
+
+  if (/<html[^>]*>/i.test(cleaned)) {
+    return cleaned.replace(/<html([^>]*)>/i, `<html$1><head>${faviconMarkup}</head>`);
+  }
+
+  return `<head>${faviconMarkup}</head>${cleaned}`;
+}
+
 function injectPreviewBridgeHtml(html: string, previewId?: string): string {
+  const htmlWithFavicon = forceStandardPreviewFavicon(html);
   const resolvedPreviewId = previewId ?? 'standalone-preview';
   const emojiAssetVersion = '20260401b';
   const bridge = `
@@ -865,15 +888,15 @@ function injectPreviewBridgeHtml(html: string, previewId?: string): string {
 })();
 </script>`;
 
-  if (/<\/body>/i.test(html)) {
-    return html.replace(/<\/body>/i, `${bridge}</body>`);
+  if (/<\/body>/i.test(htmlWithFavicon)) {
+    return htmlWithFavicon.replace(/<\/body>/i, `${bridge}</body>`);
   }
 
-  if (/<head[^>]*>/i.test(html)) {
-    return html.replace(/<head[^>]*>/i, (match) => `${match}${bridge}`);
+  if (/<head[^>]*>/i.test(htmlWithFavicon)) {
+    return htmlWithFavicon.replace(/<head[^>]*>/i, (match) => `${match}${bridge}`);
   }
 
-  return `${bridge}${html}`;
+  return `${bridge}${htmlWithFavicon}`;
 }
 
 function sanitizeGalleryPreviewHtml(html: string): string {
