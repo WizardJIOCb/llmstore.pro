@@ -13,6 +13,8 @@ const oauthLimiter = rateLimit({
 
 router.use(express.urlencoded({ extended: false }));
 
+router.get('/oauth/login', controller.oauthLoginPage);
+router.post('/oauth/login', controller.oauthLoginSubmit);
 router.get('/oauth/authorize', controller.oauthAuthorize);
 router.post('/oauth/authorize/decision', controller.oauthAuthorizeDecision);
 router.post('/oauth/token', oauthLimiter, controller.oauthToken);

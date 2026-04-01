@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import { env } from '../../config/env.js';
 import { logger } from '../../lib/logger.js';
+import * as authService from '../auth/auth.service.js';
 import * as oauthService from './alice.oauth.service.js';
 import type { AliceAuthorizeRequest } from './alice.types.js';
 import { AliceOAuthError } from './alice.types.js';
@@ -74,6 +75,19 @@ function parseBasicClientCredentials(req: Request): { clientId?: string; clientS
   }
 }
 
+function resolveSafeNextUrl(next: string | undefined): string | null {
+  if (!next) return null;
+
+  try {
+    const parsed = new URL(next);
+    const allowedOrigins = new Set([env.BACKEND_URL, env.FRONTEND_URL].map((value) => new URL(value).origin));
+    if (!allowedOrigins.has(parsed.origin)) return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
 function renderConsentPage(request: AliceAuthorizeRequest): string {
   const stateInput = request.state ? `<input type="hidden" name="state" value="${escapeHtml(request.state)}" />` : '';
   const scopeInput = request.scope ? `<input type="hidden" name="scope" value="${escapeHtml(request.scope)}" />` : '';
@@ -141,6 +155,57 @@ function renderLoginRequiredPage(loginUrl: string): string {
 </html>`;
 }
 
+function renderAliceLoginPage(nextUrl: string, error?: string): string {
+  const safeNextUrl = escapeHtml(nextUrl);
+  const errorBlock = error
+    ? `<div class="error">${escapeHtml(error)}</div>`
+    : '';
+
+  return `<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Вход в LLM Store</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; background: #f4f6f8; color: #111827; }
+    .wrap { max-width: 560px; margin: 64px auto; background: #fff; border-radius: 16px; padding: 28px; box-shadow: 0 12px 30px rgba(0,0,0,.08); }
+    h1 { margin: 0 0 12px; font-size: 22px; }
+    p { margin: 0 0 18px; line-height: 1.5; color: #374151; }
+    label { display: block; margin-bottom: 6px; font-size: 14px; font-weight: 600; }
+    input { width: 100%; border: 1px solid #d1d5db; border-radius: 10px; padding: 12px 14px; font-size: 15px; box-sizing: border-box; }
+    .field { margin-bottom: 14px; }
+    .actions { display: flex; gap: 10px; margin-top: 18px; }
+    button { border: 0; border-radius: 10px; padding: 10px 16px; font-size: 15px; cursor: pointer; background: #111827; color: #fff; }
+    .hint { margin-top: 14px; font-size: 13px; color: #6b7280; }
+    .error { margin-bottom: 14px; border-radius: 10px; background: #fef2f2; color: #b91c1c; padding: 12px 14px; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Войдите в LLM Store</h1>
+    <p>Чтобы завершить привязку аккаунта Алисы, войдите в ваш аккаунт LLM Store.</p>
+    ${errorBlock}
+    <form method="post" action="/api/integrations/alice/oauth/login">
+      <input type="hidden" name="next" value="${safeNextUrl}" />
+      <div class="field">
+        <label for="email">Email</label>
+        <input id="email" type="email" name="email" autocomplete="username" required />
+      </div>
+      <div class="field">
+        <label for="password">Пароль</label>
+        <input id="password" type="password" name="password" autocomplete="current-password" required />
+      </div>
+      <div class="actions">
+        <button type="submit">Войти</button>
+      </div>
+      <p class="hint">После входа вы вернётесь к подтверждению доступа для навыка Алисы.</p>
+    </form>
+  </div>
+</body>
+</html>`;
+}
+
 export async function oauthAuthorize(req: Request, res: Response, next: NextFunction) {
   try {
     applyAliceOAuthEmbedHeaders(res);
@@ -164,7 +229,7 @@ export async function oauthAuthorize(req: Request, res: Response, next: NextFunc
         ...(request.scope ? { scope: request.scope } : {}),
       }).toString()}`;
       const nextUrl = `${env.BACKEND_URL}${nextPath}`;
-      const loginUrl = `${env.FRONTEND_URL}/login?next=${encodeURIComponent(nextUrl)}`;
+      const loginUrl = `${env.BACKEND_URL}/api/integrations/alice/oauth/login?next=${encodeURIComponent(nextUrl)}`;
       logger.info({ redirectTo: loginUrl }, 'alice oauth authorize: login required page');
       res.redirect(loginUrl);
       return;
@@ -182,6 +247,48 @@ export async function oauthAuthorize(req: Request, res: Response, next: NextFunc
         return;
       }
       oauthJsonError(res, err);
+      return;
+    }
+    next(err);
+  }
+}
+
+export async function oauthLoginPage(req: Request, res: Response, next: NextFunction) {
+  try {
+    applyAliceOAuthEmbedHeaders(res);
+
+    const nextUrl = resolveSafeNextUrl(toStringOrUndefined(req.query.next)) ?? `${env.BACKEND_URL}/api/integrations/alice/oauth/authorize`;
+    if (req.session.userId) {
+      res.redirect(nextUrl);
+      return;
+    }
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.status(200).send(renderAliceLoginPage(nextUrl));
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function oauthLoginSubmit(req: Request, res: Response, next: NextFunction) {
+  try {
+    applyAliceOAuthEmbedHeaders(res);
+
+    const nextUrl = resolveSafeNextUrl(toStringOrUndefined(req.body.next)) ?? `${env.BACKEND_URL}/api/integrations/alice/oauth/authorize`;
+
+    const user = await authService.login({
+      email: toStringOrUndefined(req.body.email) ?? '',
+      password: toStringOrUndefined(req.body.password) ?? '',
+    });
+
+    req.session.userId = user.id;
+    req.session.userRole = user.role;
+    res.redirect(nextUrl);
+  } catch (err) {
+    if (err instanceof Error) {
+      const nextUrl = resolveSafeNextUrl(toStringOrUndefined(req.body.next)) ?? `${env.BACKEND_URL}/api/integrations/alice/oauth/authorize`;
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.status(401).send(renderAliceLoginPage(nextUrl, err.message || 'Ошибка входа'));
       return;
     }
     next(err);
