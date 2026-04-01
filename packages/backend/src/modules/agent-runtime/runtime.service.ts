@@ -52,6 +52,8 @@ interface ChatAttachmentMeta {
   text_preview?: string;
 }
 
+type ChatAccess = 'public' | 'private' | 'restricted';
+
 interface CodingReportChangedFile {
   path: string;
   summary?: string;
@@ -153,6 +155,94 @@ async function ensureSufficientBalance(userId: string) {
 
 function isPrivilegedRole(role?: string | null): boolean {
   return role === 'admin' || role === 'curator';
+}
+
+function normalizeChatAccess(value: unknown): ChatAccess {
+  if (value === 'private' || value === 'restricted') return value;
+  return 'public';
+}
+
+function normalizeAccessIdentifier(value: string): string | null {
+  const trimmed = value.trim().toLowerCase();
+  if (!trimmed) return null;
+
+  if (trimmed.includes('@') && !trimmed.startsWith('@')) {
+    return trimmed;
+  }
+
+  const username = trimmed.replace(/^@+/, '');
+  return username ? `@${username}` : null;
+}
+
+function normalizeAccessIdentifiers(values: unknown): string[] {
+  if (!Array.isArray(values)) return [];
+
+  const unique = new Set<string>();
+  for (const value of values) {
+    if (typeof value !== 'string') continue;
+    const normalized = normalizeAccessIdentifier(value);
+    if (normalized) unique.add(normalized);
+  }
+  return Array.from(unique).slice(0, 200);
+}
+
+async function ensureChatShareToken(chatId: string, shareToken?: string | null): Promise<string> {
+  if (shareToken) return shareToken;
+
+  const token = uuidv4().replace(/-/g, '').slice(0, 16);
+  await db.update(chatConversations)
+    .set({ share_token: token, updated_at: new Date() })
+    .where(eq(chatConversations.id, chatId));
+  return token;
+}
+
+async function resolveUserIdentity(userId: string) {
+  const [user] = await db
+    .select({
+      id: users.id,
+      email: users.email,
+      username: users.username,
+      name: users.name,
+    })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+
+  if (!user) throw new NotFoundError('Ресурс не найден');
+  return user;
+}
+
+async function ensureChatViewerAccess(
+  chat: Pick<ChatConversationRow, 'id' | 'user_id' | 'access' | 'access_identifiers'>,
+  viewerUserId?: string | null,
+) {
+  if (chat.access === 'public') return;
+
+  if (!viewerUserId) {
+    throw new AppError(401, 'UNAUTHORIZED', 'Для этого чата требуется авторизация');
+  }
+
+  if (chat.user_id === viewerUserId) return;
+
+  if (chat.access === 'private') {
+    throw new AppError(403, 'FORBIDDEN', 'Этот чат приватный');
+  }
+
+  const viewer = await resolveUserIdentity(viewerUserId);
+  const candidates = new Set<string>();
+  if (viewer.email) candidates.add(viewer.email.trim().toLowerCase());
+  if (viewer.username) {
+    const normalizedUsername = viewer.username.trim().toLowerCase().replace(/^@+/, '');
+    if (normalizedUsername) {
+      candidates.add(normalizedUsername);
+      candidates.add(`@${normalizedUsername}`);
+    }
+  }
+
+  const allowed = normalizeAccessIdentifiers(chat.access_identifiers);
+  if (allowed.some((item) => candidates.has(item))) return;
+
+  throw new AppError(403, 'FORBIDDEN', 'У вас нет доступа к этому чату');
 }
 
 async function ensureAgentIsVisibleForUser(agentId: string, userId: string, userRole?: string | null) {
@@ -1637,6 +1727,8 @@ interface ChatConversationRow {
   title: string;
   model_external_id: string | null;
   system_prompt: string | null;
+  access: ChatAccess;
+  access_identifiers: string[];
   share_token: string | null;
   settings_json: Record<string, unknown> | null;
   last_message_at: Date;
@@ -1650,6 +1742,8 @@ interface ConversationListItem {
   mode: ChatMode;
   agent_id: string | null;
   model_external_id: string | null;
+  access: ChatAccess;
+  access_identifiers: string[];
   share_token: string | null;
   message_count: number;
   last_message_preview: string | null;
@@ -1686,6 +1780,19 @@ interface ConversationDetails {
     agent_starter_prompts: string[];
   };
   messages: ConversationMessage[];
+}
+
+interface GalleryPreviewItem {
+  message_id: string;
+  chat_id: string;
+  chat_title: string;
+  chat_url: string;
+  preview_title: string | null;
+  preview_type: 'html' | 'url';
+  preview_url: string | null;
+  author_name: string;
+  view_count: number;
+  created_at: string;
 }
 
 interface ChatStatsModelBreakdown {
@@ -1763,6 +1870,29 @@ async function getConversationForUser(chatId: string, userId: string): Promise<C
   return chat as ChatConversationRow;
 }
 
+async function getConversationById(chatId: string): Promise<ChatConversationRow> {
+  const [chat] = await db
+    .select()
+    .from(chatConversations)
+    .where(eq(chatConversations.id, chatId))
+    .limit(1);
+
+  if (!chat) throw new NotFoundError('Ресурс не найден');
+  return chat as ChatConversationRow;
+}
+
+async function getConversationForSharedViewer(token: string, viewerUserId?: string | null): Promise<ChatConversationRow> {
+  const [chat] = await db
+    .select()
+    .from(chatConversations)
+    .where(eq(chatConversations.share_token, token))
+    .limit(1);
+
+  if (!chat) throw new NotFoundError('Ресурс не найден');
+  await ensureChatViewerAccess(chat as ChatConversationRow, viewerUserId);
+  return chat as ChatConversationRow;
+}
+
 async function getConversationMessages(chatId: string): Promise<ConversationMessage[]> {
   const usdToRubRate = await getUsdToRubRate();
   const rows = await db
@@ -1795,6 +1925,22 @@ function toConversationMessage(
     latency_ms: row.latency_ms ?? null,
     created_at: toIso(row.created_at),
   };
+}
+
+function formatAuthorName(user: { name: string | null; username: string | null; email: string }): string {
+  const displayName = user.name?.trim();
+  if (displayName) return displayName;
+
+  const username = user.username?.trim();
+  if (username) return username.startsWith('@') ? username : `@${username}`;
+
+  return user.email;
+}
+
+async function incrementPreviewViewCount(messageId: string) {
+  await db.update(chatConversationMessages)
+    .set({ preview_view_count: sql`${chatConversationMessages.preview_view_count} + 1` })
+    .where(eq(chatConversationMessages.id, messageId));
 }
 
 async function getAgentChatMeta(agentId: string | null): Promise<{
@@ -1890,6 +2036,8 @@ export async function listChats(userId: string): Promise<ConversationListItem[]>
     mode: chat.mode as ChatMode,
     agent_id: chat.agent_id ?? null,
     model_external_id: chat.model_external_id ?? null,
+    access: normalizeChatAccess(chat.access),
+    access_identifiers: normalizeAccessIdentifiers(chat.access_identifiers),
     share_token: chat.share_token ?? null,
     message_count: countMap.get(chat.id) ?? 0,
     last_message_preview: previewMap.get(chat.id) ?? null,
@@ -1952,8 +2100,12 @@ export async function createChat(userId: string, input: {
   agent_id?: string | null;
   model_external_id?: string | null;
   system_prompt?: string | null;
+  access?: ChatAccess;
+  access_identifiers?: string[];
 }, userRole?: string) {
   const mode = input.mode ?? 'general';
+  const access = normalizeChatAccess(input.access);
+  const accessIdentifiers = normalizeAccessIdentifiers(input.access_identifiers);
   if (mode === 'agent' && !input.agent_id) {
     throw new AppError(400, 'VALIDATION_ERROR', 'Р”Р»СЏ СЂРµР¶РёРјР° С‡Р°С‚Р° СЃ Р°РіРµРЅС‚РѕРј С‚СЂРµР±СѓРµС‚СЃСЏ agent_id');
   }
@@ -1962,6 +2114,14 @@ export async function createChat(userId: string, input: {
     await ensureAgentIsVisibleForUser(input.agent_id, userId, userRole);
   }
 
+  if (access === 'restricted' && accessIdentifiers.length === 0) {
+    throw new AppError(400, 'VALIDATION_ERROR', 'Для ограниченного доступа укажите email или логины');
+  }
+
+  const shareToken = access === 'public'
+    ? uuidv4().replace(/-/g, '').slice(0, 16)
+    : null;
+
   const [chat] = await db.insert(chatConversations).values({
     user_id: userId,
     mode,
@@ -1969,6 +2129,9 @@ export async function createChat(userId: string, input: {
     title: (input.title?.trim() || 'РќРѕРІС‹Р№ С‡Р°С‚').slice(0, 500),
     model_external_id: input.model_external_id ?? null,
     system_prompt: input.system_prompt ?? null,
+    access,
+    access_identifiers: accessIdentifiers,
+    share_token: shareToken,
     last_message_at: new Date(),
   }).returning();
 
@@ -1978,6 +2141,8 @@ export async function createChat(userId: string, input: {
     mode: chat.mode,
     agent_id: chat.agent_id,
     model_external_id: chat.model_external_id,
+    access: normalizeChatAccess(chat.access),
+    access_identifiers: normalizeAccessIdentifiers(chat.access_identifiers),
     share_token: chat.share_token ?? null,
     message_count: 0,
     last_message_preview: null,
@@ -2001,6 +2166,8 @@ export async function getChatById(chatId: string, userId: string): Promise<Conve
       mode: chat.mode,
       agent_id: chat.agent_id ?? null,
       model_external_id: chat.model_external_id ?? null,
+      access: normalizeChatAccess(chat.access),
+      access_identifiers: normalizeAccessIdentifiers(chat.access_identifiers),
       share_token: chat.share_token ?? null,
       message_count: messages.length,
       agent_name: agentMeta.agent_name,
@@ -2017,8 +2184,12 @@ export async function getChatById(chatId: string, userId: string): Promise<Conve
 export async function getChatMessagePreviewHtml(
   chatId: string,
   messageId: string,
+  viewerUserId?: string | null,
   previewId?: string,
 ): Promise<string> {
+  const chat = await getConversationById(chatId);
+  await ensureChatViewerAccess(chat, viewerUserId);
+
   const [message] = await db
     .select()
     .from(chatConversationMessages)
@@ -2040,23 +2211,20 @@ export async function getChatMessagePreviewHtml(
     throw new NotFoundError('Preview not found');
   }
 
+  if (chat.user_id !== viewerUserId) {
+    await incrementPreviewViewCount(message.id);
+  }
+
   return injectPreviewBridgeHtml(preview.html, previewId);
 }
 
 export async function getSharedChatMessagePreviewHtml(
   token: string,
   messageId: string,
+  viewerUserId?: string | null,
   previewId?: string,
 ): Promise<string> {
-  const [chat] = await db
-    .select()
-    .from(chatConversations)
-    .where(eq(chatConversations.share_token, token))
-    .limit(1);
-
-  if (!chat) {
-    throw new NotFoundError('Preview not found');
-  }
+  const chat = await getConversationForSharedViewer(token, viewerUserId);
 
   const [message] = await db
     .select()
@@ -2077,6 +2245,10 @@ export async function getSharedChatMessagePreviewHtml(
 
   if (!preview || preview.type !== 'html' || !preview.html) {
     throw new NotFoundError('Preview not found');
+  }
+
+  if (chat.user_id !== viewerUserId) {
+    await incrementPreviewViewCount(message.id);
   }
 
   return injectPreviewBridgeHtml(preview.html, previewId);
@@ -2310,10 +2482,16 @@ export async function updateChat(chatId: string, userId: string, input: {
   agent_id?: string | null;
   model_external_id?: string | null;
   system_prompt?: string | null;
+  access?: ChatAccess;
+  access_identifiers?: string[];
 }, userRole?: string) {
   const existing = await getConversationForUser(chatId, userId);
   const nextMode = input.mode ?? existing.mode;
   const nextAgentId = input.agent_id === undefined ? existing.agent_id : input.agent_id;
+  const nextAccess = input.access === undefined ? existing.access : normalizeChatAccess(input.access);
+  const nextAccessIdentifiers = input.access_identifiers === undefined
+    ? normalizeAccessIdentifiers(existing.access_identifiers)
+    : normalizeAccessIdentifiers(input.access_identifiers);
 
   if (nextMode === 'agent' && !nextAgentId) {
     throw new AppError(400, 'VALIDATION_ERROR', 'Р”Р»СЏ СЂРµР¶РёРјР° С‡Р°С‚Р° СЃ Р°РіРµРЅС‚РѕРј С‚СЂРµР±СѓРµС‚СЃСЏ agent_id');
@@ -2324,6 +2502,14 @@ export async function updateChat(chatId: string, userId: string, input: {
     await ensureAgentIsVisibleForUser(nextAgentId, userId, userRole);
   }
 
+  if (nextAccess === 'restricted' && nextAccessIdentifiers.length === 0) {
+    throw new AppError(400, 'VALIDATION_ERROR', 'Для ограниченного доступа укажите email или логины');
+  }
+
+  const ensuredShareToken = nextAccess === 'public'
+    ? await ensureChatShareToken(existing.id, existing.share_token)
+    : existing.share_token;
+
   const [chat] = await db.update(chatConversations)
     .set({
       title: input.title ? input.title.trim().slice(0, 500) : existing.title,
@@ -2333,6 +2519,9 @@ export async function updateChat(chatId: string, userId: string, input: {
         ? existing.model_external_id
         : (input.model_external_id ?? null),
       system_prompt: input.system_prompt === undefined ? existing.system_prompt : (input.system_prompt ?? null),
+      access: nextAccess,
+      access_identifiers: nextAccessIdentifiers,
+      share_token: ensuredShareToken,
       updated_at: new Date(),
     })
     .where(eq(chatConversations.id, chatId))
@@ -2349,6 +2538,8 @@ export async function updateChat(chatId: string, userId: string, input: {
     mode: chat.mode,
     agent_id: chat.agent_id ?? null,
     model_external_id: chat.model_external_id ?? null,
+    access: normalizeChatAccess(chat.access),
+    access_identifiers: normalizeAccessIdentifiers(chat.access_identifiers),
     share_token: chat.share_token ?? null,
     message_count: countRow?.count ?? 0,
     last_message_preview: null,
@@ -2365,16 +2556,7 @@ export async function deleteChat(chatId: string, userId: string) {
 
 export async function shareChatById(chatId: string, userId: string) {
   const chat = await getConversationForUser(chatId, userId);
-  if (chat.share_token) {
-    return { share_token: chat.share_token };
-  }
-
-  const token = uuidv4().replace(/-/g, '').slice(0, 16);
-  await db.update(chatConversations)
-    .set({ share_token: token, updated_at: new Date() })
-    .where(eq(chatConversations.id, chatId));
-
-  return { share_token: token };
+  return { share_token: await ensureChatShareToken(chat.id, chat.share_token) };
 }
 
 export async function sendChatMessage(
@@ -2653,14 +2835,8 @@ export async function sendChatMessage(
   };
 }
 
-export async function getSharedChatById(token: string) {
-  const [chat] = await db
-    .select()
-    .from(chatConversations)
-    .where(eq(chatConversations.share_token, token))
-    .limit(1);
-
-  if (!chat) throw new NotFoundError('Р РµСЃСѓСЂСЃ РЅРµ РЅР°Р№РґРµРЅ');
+export async function getSharedChatById(token: string, viewerUserId?: string | null) {
+  const chat = await getConversationForSharedViewer(token, viewerUserId);
 
   const messages = await getConversationMessages(chat.id);
   let agentName: string | null = null;
@@ -2685,4 +2861,64 @@ export async function getSharedChatById(token: string) {
       created_at: m.created_at,
     })),
   };
+}
+
+export async function listGalleryPreviews(limit = 24): Promise<GalleryPreviewItem[]> {
+  const rows = await db
+    .select({
+      message_id: chatConversationMessages.id,
+      chat_id: chatConversations.id,
+      chat_title: chatConversations.title,
+      share_token: chatConversations.share_token,
+      author_email: users.email,
+      author_username: users.username,
+      author_name_raw: users.name,
+      content_text: chatConversationMessages.content_text,
+      usage_json: chatConversationMessages.usage_json,
+      preview_view_count: chatConversationMessages.preview_view_count,
+      created_at: chatConversationMessages.created_at,
+    })
+    .from(chatConversationMessages)
+    .innerJoin(chatConversations, eq(chatConversations.id, chatConversationMessages.conversation_id))
+    .innerJoin(users, eq(users.id, chatConversations.user_id))
+    .where(and(
+      eq(chatConversationMessages.role, 'assistant'),
+      eq(chatConversations.access, 'public'),
+    ))
+    .orderBy(desc(chatConversationMessages.created_at))
+    .limit(Math.max(1, Math.min(limit, 120)));
+
+  const items: GalleryPreviewItem[] = [];
+
+  for (const row of rows) {
+    const shareToken = await ensureChatShareToken(row.chat_id, row.share_token);
+    const rawUsage = (row.usage_json as Record<string, unknown> | null) ?? null;
+    const normalized = normalizeAssistantChatPayload(row.content_text, rawUsage);
+    const preview = normalized.codingReport?.preview;
+
+    if (!preview || ((preview.type !== 'html' && preview.type !== 'url'))) {
+      continue;
+    }
+
+    items.push({
+      message_id: row.message_id,
+      chat_id: row.chat_id,
+      chat_title: row.chat_title,
+      chat_url: `/shared/chats/${shareToken}`,
+      preview_title: preview.title?.trim() || null,
+      preview_type: preview.type,
+      preview_url: preview.type === 'html'
+        ? `/api/shared/chats/${shareToken}/messages/${row.message_id}/preview`
+        : (preview.url ?? null),
+      author_name: formatAuthorName({
+        email: row.author_email,
+        username: row.author_username,
+        name: row.author_name_raw,
+      }),
+      view_count: row.preview_view_count ?? 0,
+      created_at: toIso(row.created_at),
+    });
+  }
+
+  return items;
 }

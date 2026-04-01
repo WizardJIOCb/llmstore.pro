@@ -1,6 +1,7 @@
 import { apiClient } from '../api-client';
 
 export type ChatMode = 'general' | 'agent';
+export type ChatAccess = 'public' | 'private' | 'restricted';
 
 export interface CodingReportChangedFile {
   path: string;
@@ -39,6 +40,8 @@ export interface ChatListItem {
   mode: ChatMode;
   agent_id: string | null;
   model_external_id: string | null;
+  access: ChatAccess;
+  access_identifiers: string[];
   share_token: string | null;
   message_count: number;
   last_message_preview: string | null;
@@ -77,6 +80,19 @@ export interface ChatDetails {
   messages: ChatMessage[];
 }
 
+export interface GalleryPreviewItem {
+  message_id: string;
+  chat_id: string;
+  chat_title: string;
+  chat_url: string;
+  preview_title: string | null;
+  preview_type: 'html' | 'url';
+  preview_url: string | null;
+  author_name: string;
+  view_count: number;
+  created_at: string;
+}
+
 export interface SendMessageResult {
   user_message: ChatMessage;
   assistant_message: ChatMessage;
@@ -86,6 +102,8 @@ export interface SendMessageResult {
     mode: ChatMode;
     agent_id: string | null;
     model_external_id: string | null;
+    access: ChatAccess;
+    access_identifiers: string[];
     share_token: string | null;
   };
 }
@@ -156,11 +174,13 @@ export const chatsApi = {
 
   create: (payload?: {
     title?: string;
-    mode?: ChatMode;
-    agent_id?: string | null;
-    model_external_id?: string | null;
-    system_prompt?: string | null;
-  }) => apiClient.post<{ data: ChatListItem }>('/chats', payload ?? {}).then((r) => r.data.data),
+      mode?: ChatMode;
+      agent_id?: string | null;
+      model_external_id?: string | null;
+      system_prompt?: string | null;
+      access?: ChatAccess;
+      access_identifiers?: string[];
+    }) => apiClient.post<{ data: ChatListItem }>('/chats', payload ?? {}).then((r) => r.data.data),
 
   update: (
     chatId: string,
@@ -170,8 +190,13 @@ export const chatsApi = {
       agent_id?: string | null;
       model_external_id?: string | null;
       system_prompt?: string | null;
+      access?: ChatAccess;
+      access_identifiers?: string[];
     },
   ) => apiClient.patch<{ data: ChatListItem }>(`/chats/${chatId}`, payload).then((r) => r.data.data),
+
+  gallery: (limit = 24) =>
+    apiClient.get<{ data: GalleryPreviewItem[] }>(`/gallery/previews?limit=${encodeURIComponent(String(limit))}`).then((r) => r.data.data),
 
   remove: (chatId: string) => apiClient.delete(`/chats/${chatId}`),
 

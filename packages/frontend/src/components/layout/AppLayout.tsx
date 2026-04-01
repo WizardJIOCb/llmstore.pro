@@ -6,6 +6,7 @@ import { Button } from '../../components/ui';
 
 const navItems = [
   { label: 'Новости', href: '/news' },
+  { label: 'Галерея', href: '/gallery' },
   { label: 'Чаты', href: '/chats' },
   { label: 'Агенты', href: '/my/agents' },
   { label: 'Статьи', href: '/articles' },
@@ -60,6 +61,7 @@ export function AppLayout() {
 
   const isNavItemActive = (href: string) => {
     if (href === '/news') return location.pathname === '/news' || location.pathname.startsWith('/news/');
+    if (href === '/gallery') return location.pathname === '/gallery' || location.pathname.startsWith('/gallery/');
     if (href === '/chats') return location.pathname.startsWith('/chats');
     if (href === '/articles') {
       return (

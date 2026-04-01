@@ -32,6 +32,7 @@ import { AgentsHubPage } from './pages/agents/AgentsHubPage';
 import { SharedChatPage } from './pages/shared/SharedChatPage';
 import { ProfilePage } from './pages/profile/ProfilePage';
 import { ChatsPage } from './pages/chats/ChatsPage';
+import { GalleryPage } from './pages/gallery/GalleryPage';
 
 declare global {
   interface Window {
@@ -73,6 +74,7 @@ export function App() {
         {/* News routes */}
         <Route path="/news" element={<NewsListPage />} />
         <Route path="/news/:slug" element={<NewsDetailPage />} />
+        <Route path="/gallery" element={<GalleryPage />} />
 
         {/* Builder routes */}
         <Route path="/builder/stack" element={<StackBuilderPage />} />

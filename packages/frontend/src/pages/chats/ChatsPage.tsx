@@ -25,6 +25,7 @@ import { useAppSettings } from '../../hooks/useAppSettings';
 import { useProfile } from '../../hooks/useProfile';
 import { chatsApi } from '../../lib/api/chats';
 import type {
+  ChatAccess,
   ChatDetails,
   ChatListItem,
   ChatMessage as ChatMessageType,
@@ -39,6 +40,12 @@ const GENERAL_MODELS = [
   { value: 'openai/gpt-4o', label: 'OpenAI GPT-4o' },
   { value: 'google/gemini-2.0-flash-001', label: 'Gemini 2.0 Flash' },
   { value: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+];
+
+const CHAT_ACCESS_OPTIONS = [
+  { value: 'public', label: 'Общий' },
+  { value: 'private', label: 'Приватный' },
+  { value: 'restricted', label: 'Ограниченный' },
 ];
 
 function formatDate(iso: string): string {
@@ -255,6 +262,8 @@ export function ChatsPage() {
   const [newChatMode, setNewChatMode] = useState<'general' | 'agent'>('general');
   const [newChatAgentId, setNewChatAgentId] = useState('');
   const [propertiesModel, setPropertiesModel] = useState('openai/gpt-4o-mini');
+  const [propertiesAccess, setPropertiesAccess] = useState<ChatAccess>('public');
+  const [propertiesAllowedText, setPropertiesAllowedText] = useState('');
   const [propertiesSaving, setPropertiesSaving] = useState(false);
   const [streamEvents, setStreamEvents] = useState<LiveChatEvent[]>([]);
   const [streamConnected, setStreamConnected] = useState(false);
@@ -426,6 +435,8 @@ export function ChatsPage() {
   useEffect(() => {
     if (!isPropertiesOpen || !activeChat) return;
     setPropertiesModel(activeChat.model_external_id ?? 'openai/gpt-4o-mini');
+    setPropertiesAccess(activeChat.access ?? 'public');
+    setPropertiesAllowedText((activeChat.access_identifiers ?? []).join('\n'));
   }, [isPropertiesOpen, activeChat]);
 
   useEffect(() => {
@@ -562,14 +573,20 @@ export function ChatsPage() {
     if (!activeChat) return;
     setLocalError(null);
     setPropertiesSaving(true);
+    const accessIdentifiers = propertiesAllowedText
+      .split(/\r?\n|,/)
+      .map((item) => item.trim())
+      .filter(Boolean);
     try {
       await updateChatMutation.mutateAsync({
         chatId: activeChat.id,
         model_external_id: propertiesModel,
+        access: propertiesAccess,
+        access_identifiers: accessIdentifiers,
       });
       setIsPropertiesOpen(false);
-    } catch {
-      setLocalError('Не удалось сохранить свойства чата');
+    } catch (error) {
+      setLocalError(getApiErrorMessage(error) ?? 'Не удалось сохранить свойства чата');
     } finally {
       setPropertiesSaving(false);
     }
@@ -1005,6 +1022,33 @@ export function ChatsPage() {
                 <div className="space-y-1"><p className="text-xs uppercase tracking-wide text-muted-foreground">Обновлен</p><p className="text-sm font-medium">{formatDate(activeChat.updated_at)}</p></div>
               </div>
               <div className="space-y-2"><p className="text-sm font-medium">Модель OpenRouter</p><Select options={GENERAL_MODELS} value={propertiesModel} onChange={(e) => setPropertiesModel(e.target.value)} className="w-full max-w-md" /></div>
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,260px)_minmax(0,1fr)]">
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">Доступ к чату</p>
+                  <Select
+                    options={CHAT_ACCESS_OPTIONS}
+                    value={propertiesAccess}
+                    onChange={(e) => setPropertiesAccess(e.target.value as ChatAccess)}
+                    className="w-full"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    В галерею и по публичной ссылке попадают только общие чаты.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">Разрешённые email и логины</p>
+                  <textarea
+                    value={propertiesAllowedText}
+                    onChange={(e) => setPropertiesAllowedText(e.target.value)}
+                    disabled={propertiesAccess !== 'restricted'}
+                    className="min-h-32 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:border-input"
+                    placeholder={"Один email или @логин на строку\nuser@example.com\n@rodion"}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Используется только для режима “Ограниченный”.
+                  </p>
+                </div>
+              </div>
               {chatStatsLoading ? <div className="flex justify-center py-6"><Spinner /></div> : null}
               {!chatStatsLoading && activeChatStats && (
                 <div className="space-y-5">

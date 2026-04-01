@@ -1,11 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { chatsApi, type ChatAttachment, type ChatListItem, type ChatMode } from '../lib/api/chats';
+import { chatsApi, type ChatAccess, type ChatAttachment, type ChatListItem, type ChatMode } from '../lib/api/chats';
 
 export function useChatsList(enabled = true) {
   return useQuery({
     queryKey: ['chats'],
     queryFn: chatsApi.list,
     enabled,
+  });
+}
+
+export function useGalleryPreviews(limit = 24) {
+  return useQuery({
+    queryKey: ['gallery-previews', limit],
+    queryFn: () => chatsApi.gallery(limit),
   });
 }
 
@@ -34,6 +41,8 @@ export function useCreateChat() {
       agent_id?: string | null;
       model_external_id?: string | null;
       system_prompt?: string | null;
+      access?: ChatAccess;
+      access_identifiers?: string[];
     }) => chatsApi.create(payload),
     onSuccess: (chat) => {
       qc.setQueryData<ChatListItem[] | undefined>(['chats'], (prev) => {
@@ -56,6 +65,8 @@ export function useUpdateChat() {
       agent_id?: string | null;
       model_external_id?: string | null;
       system_prompt?: string | null;
+      access?: ChatAccess;
+      access_identifiers?: string[];
     }) => chatsApi.update(chatId, payload),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['chats'] });

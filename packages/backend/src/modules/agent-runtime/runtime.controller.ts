@@ -94,6 +94,16 @@ export async function listChats(req: Request, res: Response, next: NextFunction)
   }
 }
 
+export async function listGalleryPreviews(req: Request, res: Response, next: NextFunction) {
+  try {
+    const limit = typeof req.query.limit === 'string' ? Number(req.query.limit) : undefined;
+    const items = await runtimeService.listGalleryPreviews(Number.isFinite(limit) ? Number(limit) : undefined);
+    res.json({ data: items });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function listChatAgents(req: Request, res: Response, next: NextFunction) {
   try {
     const agents = await runtimeService.listChatAgents(req.session.userId!, req.session.userRole);
@@ -126,6 +136,7 @@ export async function getChatMessagePreview(req: Request<{ chatId: string; messa
     const html = await runtimeService.getChatMessagePreviewHtml(
       req.params.chatId,
       req.params.messageId,
+      req.session?.userId,
       typeof req.query.previewId === 'string' ? req.query.previewId : undefined,
     );
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -142,6 +153,7 @@ export async function getSharedChatMessagePreview(req: Request<{ token: string; 
     const html = await runtimeService.getSharedChatMessagePreviewHtml(
       req.params.token,
       req.params.messageId,
+      req.session?.userId,
       typeof req.query.previewId === 'string' ? req.query.previewId : undefined,
     );
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -286,7 +298,7 @@ export async function uploadChatFiles(req: Request, res: Response, next: NextFun
 
 export async function getSharedChatById(req: Request<{ token: string }>, res: Response, next: NextFunction) {
   try {
-    const result = await runtimeService.getSharedChatById(req.params.token);
+    const result = await runtimeService.getSharedChatById(req.params.token, req.session?.userId);
     res.json({ data: result });
   } catch (err) {
     next(err);

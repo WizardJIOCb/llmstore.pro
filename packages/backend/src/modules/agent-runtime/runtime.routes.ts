@@ -22,6 +22,7 @@ router.get('/shared/chat/:token', controller.getSharedChat);
 
 // Conversations V2 (authenticated)
 router.get('/emoji/:code.svg', controller.getEmojiSvg);
+router.get('/gallery/previews', controller.listGalleryPreviews);
 router.get('/chats', requireAuth, controller.listChats);
 router.get('/chats/agents', requireAuth, controller.listChatAgents);
 router.post('/chats', requireAuth, validateCreateChat, controller.createChat);

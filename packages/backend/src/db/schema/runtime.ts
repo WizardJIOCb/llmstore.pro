@@ -5,7 +5,7 @@ import { jsonb } from 'drizzle-orm/pg-core';
 import { users } from './auth';
 import { agents, agentVersions, toolDefinitions } from './agents';
 import { aiModels } from './models';
-import { agentRunStatusEnum, agentRunModeEnum, toolCallStatusEnum, chatConversationModeEnum } from './enums';
+import { agentRunStatusEnum, agentRunModeEnum, toolCallStatusEnum, chatConversationModeEnum, chatAccessEnum } from './enums';
 
 export const chatSessions = pgTable('chat_sessions', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -86,6 +86,8 @@ export const chatConversations = pgTable('chat_conversations', {
   title: varchar('title', { length: 500 }).notNull().default('Новый чат'),
   model_external_id: varchar('model_external_id', { length: 255 }),
   system_prompt: text('system_prompt'),
+  access: chatAccessEnum('access').notNull().default('public'),
+  access_identifiers: jsonb('access_identifiers').$type<string[]>().notNull().default([]),
   share_token: varchar('share_token', { length: 64 }),
   settings_json: jsonb('settings_json').$type<Record<string, unknown>>(),
   last_message_at: timestamp('last_message_at', { withTimezone: true }).notNull().defaultNow(),
@@ -104,6 +106,7 @@ export const chatConversationMessages = pgTable('chat_conversation_messages', {
   content_text: text('content_text').notNull(),
   run_id: uuid('run_id').references(() => agentRuns.id, { onDelete: 'set null' }),
   usage_json: jsonb('usage_json').$type<Record<string, unknown>>(),
+  preview_view_count: integer('preview_view_count').notNull().default(0),
   latency_ms: integer('latency_ms'),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
