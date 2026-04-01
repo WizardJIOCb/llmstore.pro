@@ -9,8 +9,11 @@ PORT=3002
 ensure_single_backend_manager() {
   if systemctl list-unit-files | grep -q '^llmstore\.service'; then
     echo "Disabling legacy systemd backend service..."
-    systemctl disable --now llmstore.service >/dev/null 2>&1 || true
+    systemctl stop llmstore.service >/dev/null 2>&1 || true
+    systemctl disable llmstore.service >/dev/null 2>&1 || true
+    systemctl mask llmstore.service >/dev/null 2>&1 || true
     systemctl reset-failed llmstore.service >/dev/null 2>&1 || true
+    systemctl daemon-reload >/dev/null 2>&1 || true
   fi
 }
 
