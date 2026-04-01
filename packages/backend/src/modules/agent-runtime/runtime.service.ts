@@ -747,6 +747,10 @@ function injectPreviewBridgeHtml(html: string, previewId?: string): string {
 })();
 </script>`;
 
+  if (/<\/body>/i.test(html)) {
+    return html.replace(/<\/body>/i, `${bridge}</body>`);
+  }
+
   if (/<head[^>]*>/i.test(html)) {
     return html.replace(/<head[^>]*>/i, (match) => `${match}${bridge}`);
   }
