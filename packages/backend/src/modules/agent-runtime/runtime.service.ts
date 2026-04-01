@@ -3275,6 +3275,14 @@ export async function listGalleryPreviews(limit = 24): Promise<GalleryPreviewIte
       continue;
     }
 
+    const hasTrackedConversationViews = (row.total_view_count ?? 0) > 0 || (row.unique_view_count ?? 0) > 0;
+    const uniqueViewCount = hasTrackedConversationViews
+      ? (row.unique_view_count ?? 0)
+      : (row.preview_view_count ?? 0);
+    const totalViewCount = (row.total_view_count ?? 0) > 0
+      ? (row.total_view_count ?? 0)
+      : (row.preview_view_count ?? 0);
+
     items.push({
       message_id: row.message_id,
       chat_id: row.chat_id,
@@ -3291,9 +3299,9 @@ export async function listGalleryPreviews(limit = 24): Promise<GalleryPreviewIte
         username: row.author_username,
         name: row.author_name_raw,
       }),
-      view_count: Math.max(row.unique_view_count ?? 0, row.preview_view_count ?? 0),
-      unique_view_count: Math.max(row.unique_view_count ?? 0, row.preview_view_count ?? 0),
-      total_view_count: Math.max(row.total_view_count ?? 0, row.preview_view_count ?? 0),
+      view_count: uniqueViewCount,
+      unique_view_count: uniqueViewCount,
+      total_view_count: totalViewCount,
       created_at: toIso(row.created_at),
       total_usd_cost: totals?.usd_cost ?? 0,
       total_rub_cost: (totals?.usd_cost ?? 0) * usdToRubRate,
