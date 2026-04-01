@@ -44,7 +44,7 @@ npx tsx src/scripts/set-role.ts user@example.com user
 npx tsx src/scripts/set-role.ts user@example.com power_user
 ```
 
-### Назначить роль через SQL (на сервере)
+### Назначить роль через SQL
 
 ```bash
 # Подключиться к PostgreSQL
@@ -60,7 +60,9 @@ SELECT email, role, status FROM users WHERE email = 'rodion89@list.ru';
 SELECT email, role, created_at FROM users WHERE role = 'admin';
 ```
 
-### Управление балансом через CLI (curl)
+## Управление балансом
+
+### Через API
 
 ```bash
 # Узнать ID пользователя
@@ -80,7 +82,7 @@ curl -X POST http://localhost:3001/api/admin/users/<USER_ID>/balance \
   -d '{"amount": -10.00, "description": "Корректировка"}'
 ```
 
-### Управление балансом через SQL
+### Через SQL
 
 ```bash
 # Пополнить баланс напрямую
@@ -93,8 +95,8 @@ docker exec -it llmstore-postgres psql -U llmstore -d llmstore \
 Доступна по адресу `/admin` для пользователей с ролью `admin` или `curator`.
 
 Разделы:
-- `/admin` — управление каталогом (CRUD элементов, категорий, тегов)
-- `/admin/users` — управление пользователями (роли, статусы, баланс)
+- `/admin` — управление каталогом
+- `/admin/users` — управление пользователями, ролями, статусами и балансом
 - `/admin/agents` — просмотр всех агентов в системе
 
 ## Деплой на сервер
@@ -108,7 +110,7 @@ git pull origin main
 cd packages/shared
 npm run build
 
-# 3. Применить миграции
+# 3. Применить схему БД
 cd ../backend
 npm run db:push
 
@@ -123,7 +125,67 @@ npm run build
 pm2 restart llmstore-backend
 
 # 7. Проверить
-curl http://localhost:3001/api/health
+curl http://localhost:3002/api/health
+```
+
+Основной продовый деплой-скрипт:
+
+```bash
+cd /var/www/llmstore.pro
+bash deploy.sh
+```
+
+## Бэкапы на сервере
+
+Ежедневные backup-копии хранятся в:
+
+`/var/backups/llmstore/YYYY-MM-DD`
+
+Внутри каждой папки по дате лежат:
+- `db/llmstore.dump` — дамп PostgreSQL в формате `pg_dump --format=custom`
+- `uploads/chat/` — файлы чатов для корректного восстановления вложений
+- `manifest.json` — метаданные backup-копии
+
+По умолчанию хранятся последние `3` дня.
+
+### Установка cron-задачи
+
+```bash
+cd /var/www/llmstore.pro
+bash scripts/install-server-backup-cron.sh
+```
+
+Это создаёт задачу в `/etc/cron.d/llmstore-backup`, которая запускается ежедневно в `04:10`.
+Лог пишется в `/var/log/llmstore-backup.log`.
+
+### Создать backup вручную
+
+```bash
+cd /var/www/llmstore.pro
+bash scripts/server-backup.sh
+```
+
+### Восстановиться на дату
+
+```bash
+cd /var/www/llmstore.pro
+bash scripts/server-restore.sh 2026-04-01 --yes
+```
+
+Что делает restore:
+- останавливает backend
+- восстанавливает БД из `db/llmstore.dump`
+- восстанавливает `uploads/chat`
+- запускает backend обратно
+- проверяет `http://localhost:3002/api/health`
+
+Файлы backup-логики в репозитории:
+
+```bash
+scripts/server-backup.sh
+scripts/server-restore.sh
+scripts/install-server-backup-cron.sh
+scripts/BACKUPS.md
 ```
 
 ## npm-скрипты
