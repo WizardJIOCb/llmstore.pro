@@ -63,6 +63,99 @@ function SectionCard({ title, children }: { title: string; children: ReactNode }
   );
 }
 
+const VOID_TAGS = new Set([
+  'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
+  'link', 'meta', 'param', 'source', 'track', 'wbr',
+]);
+
+function normalizeBlockText(value: string, indent: string): string {
+  const lines = value
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length === 0) return '';
+  return lines.map((line) => `${indent}${line}`).join('\n');
+}
+
+function beautifyHtml(html: string): string {
+  if (typeof DOMParser === 'undefined') {
+    return html;
+  }
+
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    const root = doc.documentElement;
+    const indentUnit = '  ';
+
+    const formatNode = (node: Node, depth: number): string => {
+      const indent = indentUnit.repeat(depth);
+      const childIndent = indentUnit.repeat(depth + 1);
+
+      if (node.nodeType === Node.TEXT_NODE) {
+        const text = node.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+        return text ? `${indent}${text}` : '';
+      }
+
+      if (node.nodeType === Node.COMMENT_NODE) {
+        const text = node.textContent?.trim() ?? '';
+        return `${indent}<!--${text}-->`;
+      }
+
+      if (node.nodeType !== Node.ELEMENT_NODE) {
+        return '';
+      }
+
+      const element = node as Element;
+      const tag = element.tagName.toLowerCase();
+      const attrs = Array.from(element.attributes)
+        .map((attr) => ` ${attr.name}="${attr.value}"`)
+        .join('');
+      const openTag = `${indent}<${tag}${attrs}>`;
+
+      if (VOID_TAGS.has(tag)) {
+        return openTag;
+      }
+
+      if (tag === 'script' || tag === 'style') {
+        const raw = normalizeBlockText(element.textContent ?? '', childIndent);
+        return raw
+          ? `${openTag}\n${raw}\n${indent}</${tag}>`
+          : `${openTag}</${tag}>`;
+      }
+
+      if (tag === 'pre' || tag === 'textarea') {
+        const raw = (element.textContent ?? '').replace(/\r\n/g, '\n');
+        return `${openTag}${raw}</${tag}>`;
+      }
+
+      const childLines = Array.from(element.childNodes)
+        .map((child) => formatNode(child, depth + 1))
+        .filter(Boolean);
+
+      if (childLines.length === 0) {
+        return `${openTag}</${tag}>`;
+      }
+
+      if (
+        childLines.length === 1
+        && element.childNodes.length === 1
+        && element.firstChild?.nodeType === Node.TEXT_NODE
+      ) {
+        return `${openTag}${element.textContent?.replace(/\s+/g, ' ').trim() ?? ''}</${tag}>`;
+      }
+
+      return `${openTag}\n${childLines.join('\n')}\n${indent}</${tag}>`;
+    };
+
+    return `<!DOCTYPE html>\n${formatNode(root, 0)}`.trim();
+  } catch {
+    return html;
+  }
+}
+
 function injectPreviewBridge(html: string, previewId: string): string {
   const emojiAssetVersion = '20260401b';
   const bridge = `
@@ -668,6 +761,21 @@ export function ChatMessage({
               <div className="flex items-center gap-2">
                 <Button type="button" variant="outline" size="sm" onClick={() => setPreviewEditor(null)} disabled={editorSaving}>
                   Закрыть
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={editorSaving}
+                  onClick={() => {
+                    setPreviewEditor((prev) => (
+                      prev
+                        ? { ...prev, html: beautifyHtml(prev.html) }
+                        : prev
+                    ));
+                  }}
+                >
+                  Beautify
                 </Button>
                 <Button
                   type="button"
