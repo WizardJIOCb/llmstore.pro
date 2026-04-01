@@ -892,6 +892,600 @@ export async function adjustUserBalance(
   };
 }
 
+interface AdminDashboardChartsQuery {
+  date_from?: string;
+  date_to?: string;
+}
+
+interface AdminDashboardChartsDailyDbRow extends Record<string, unknown> {
+  day: string | Date;
+  registrations: string | number;
+  cumulative_users: string | number;
+  active_users: string | number;
+  dau: string | number;
+  wau: string | number;
+  mau: string | number;
+  payers_count: string | number;
+  chats_created: string | number;
+  chat_messages: string | number;
+  assistant_messages: string | number;
+  user_messages: string | number;
+  agent_runs: string | number;
+  successful_runs: string | number;
+  prompt_tokens: string | number;
+  completion_tokens: string | number;
+  total_tokens: string | number;
+  usage_cost_usd: string | number;
+  topups_usd: string | number;
+  paid_topups_usd: string | number;
+  bonus_credits_usd: string | number;
+  balance_spend_usd: string | number;
+  manual_debits_usd: string | number;
+}
+
+interface AdminDashboardChartsModelDbRow extends Record<string, unknown> {
+  model: string;
+  model_rank: string | number;
+  total_usage_cost_usd: string | number;
+  total_tokens: string | number;
+  day: string | Date;
+  usage_cost_usd: string | number;
+  total_tokens_day: string | number;
+}
+
+function parseUtcDateOnly(value: string): Date {
+  return new Date(`${value}T00:00:00.000Z`);
+}
+
+function startOfUtcDay(value: Date): Date {
+  return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
+}
+
+function addUtcDays(value: Date, days: number): Date {
+  const next = new Date(value.getTime());
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
+}
+
+function formatUtcDateOnly(value: string | Date): string {
+  if (typeof value === 'string') {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+    return new Date(value).toISOString().slice(0, 10);
+  }
+  return value.toISOString().slice(0, 10);
+}
+
+function toSafeNumber(value: string | number | null | undefined): number {
+  if (value === null || value === undefined) return 0;
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function roundMetric(value: number, digits = 6): number {
+  return Number(value.toFixed(digits));
+}
+
+function normalizeDashboardChartsRange(query: AdminDashboardChartsQuery) {
+  const today = startOfUtcDay(new Date());
+  const endDate = query.date_to ? parseUtcDateOnly(query.date_to) : today;
+  const startDate = query.date_from ? parseUtcDateOnly(query.date_from) : addUtcDays(endDate, -29);
+
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+    throw new AppError(400, 'BAD_REQUEST', 'Некорректный диапазон дат');
+  }
+
+  if (startDate.getTime() > endDate.getTime()) {
+    throw new AppError(400, 'BAD_REQUEST', 'Дата начала не может быть позже даты окончания');
+  }
+
+  const diffDays = Math.floor((endDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+  if (diffDays > 366) {
+    throw new AppError(400, 'BAD_REQUEST', 'Максимальный диапазон графиков - 366 дней');
+  }
+
+  return {
+    startDate,
+    endDate,
+    startDateIso: formatUtcDateOnly(startDate),
+    endDateIso: formatUtcDateOnly(endDate),
+    days: diffDays,
+  };
+}
+
+export async function getDashboardCharts(query: AdminDashboardChartsQuery) {
+  const range = normalizeDashboardChartsRange(query);
+
+  const dailyRows = await db.execute<AdminDashboardChartsDailyDbRow>(sql`
+    WITH params AS (
+      SELECT
+        ${range.startDateIso}::date AS start_day,
+        ${range.endDateIso}::date AS end_day,
+        (${range.startDateIso}::date - interval '29 day')::date AS activity_start_day
+    ),
+    series AS (
+      SELECT gs::date AS day
+      FROM params, generate_series(params.start_day, params.end_day, interval '1 day') AS gs
+    ),
+    usage_events AS (
+      SELECT
+        timezone('UTC', ccm.created_at)::date AS day,
+        cc.user_id,
+        COALESCE(ccm.usage_json->>'model', ul.model_external_id, cc.model_external_id, 'unknown') AS model,
+        COALESCE(NULLIF(ccm.usage_json->>'prompt_tokens', '')::numeric, ul.prompt_tokens, 0) AS prompt_tokens,
+        COALESCE(NULLIF(ccm.usage_json->>'completion_tokens', '')::numeric, ul.completion_tokens, 0) AS completion_tokens,
+        COALESCE(
+          NULLIF(ccm.usage_json->>'total_tokens', '')::numeric,
+          COALESCE(ul.total_tokens, ul.prompt_tokens + ul.completion_tokens, 0),
+          0
+        ) AS total_tokens,
+        COALESCE(NULLIF(ccm.usage_json->>'estimated_cost', '')::numeric, ul.estimated_cost, 0) AS usage_cost_usd
+      FROM chat_conversation_messages ccm
+      INNER JOIN chat_conversations cc ON cc.id = ccm.conversation_id
+      LEFT JOIN usage_ledger ul ON ul.run_id = ccm.run_id
+      INNER JOIN params ON true
+      WHERE ccm.role = 'assistant'
+        AND (ccm.usage_json IS NOT NULL OR ccm.run_id IS NOT NULL)
+        AND timezone('UTC', ccm.created_at)::date BETWEEN params.start_day AND params.end_day
+
+      UNION ALL
+
+      SELECT
+        timezone('UTC', ul.created_at)::date AS day,
+        ar.user_id,
+        COALESCE(ul.model_external_id, 'unknown') AS model,
+        COALESCE(ul.prompt_tokens, 0)::numeric AS prompt_tokens,
+        COALESCE(ul.completion_tokens, 0)::numeric AS completion_tokens,
+        COALESCE(ul.total_tokens, ul.prompt_tokens + ul.completion_tokens, 0)::numeric AS total_tokens,
+        COALESCE(ul.estimated_cost, 0)::numeric AS usage_cost_usd
+      FROM usage_ledger ul
+      INNER JOIN agent_runs ar ON ar.id = ul.run_id
+      INNER JOIN params ON true
+      WHERE timezone('UTC', ul.created_at)::date BETWEEN params.start_day AND params.end_day
+        AND NOT EXISTS (
+          SELECT 1
+          FROM chat_conversation_messages ccm
+          WHERE ccm.run_id = ar.id
+        )
+    ),
+    daily_usage AS (
+      SELECT
+        ue.day,
+        COALESCE(SUM(ue.prompt_tokens), 0) AS prompt_tokens,
+        COALESCE(SUM(ue.completion_tokens), 0) AS completion_tokens,
+        COALESCE(SUM(ue.total_tokens), 0) AS total_tokens,
+        COALESCE(SUM(ue.usage_cost_usd), 0) AS usage_cost_usd
+      FROM usage_events ue
+      GROUP BY ue.day
+    ),
+    tx_daily AS (
+      SELECT
+        timezone('UTC', bt.created_at)::date AS day,
+        COALESCE(SUM(CASE WHEN bt.amount::numeric > 0 THEN bt.amount::numeric ELSE 0 END), 0) AS topups_usd,
+        COALESCE(SUM(CASE WHEN bt.type = 'topup' AND bt.amount::numeric > 0 THEN bt.amount::numeric ELSE 0 END), 0) AS paid_topups_usd,
+        COALESCE(SUM(CASE WHEN bt.amount::numeric > 0 AND bt.type <> 'topup' THEN bt.amount::numeric ELSE 0 END), 0) AS bonus_credits_usd,
+        COALESCE(SUM(CASE WHEN bt.type IN ('chat_usage', 'agent_run_usage') AND bt.amount::numeric < 0 THEN ABS(bt.amount::numeric) ELSE 0 END), 0) AS balance_spend_usd,
+        COALESCE(SUM(CASE WHEN bt.amount::numeric < 0 AND bt.type NOT IN ('chat_usage', 'agent_run_usage') THEN ABS(bt.amount::numeric) ELSE 0 END), 0) AS manual_debits_usd,
+        COUNT(DISTINCT CASE WHEN bt.amount::numeric > 0 THEN bt.user_id END)::int AS payers_count
+      FROM balance_transactions bt
+      INNER JOIN params ON true
+      WHERE timezone('UTC', bt.created_at)::date BETWEEN params.start_day AND params.end_day
+      GROUP BY timezone('UTC', bt.created_at)::date
+    ),
+    registrations AS (
+      SELECT
+        timezone('UTC', u.created_at)::date AS day,
+        COUNT(*)::int AS registrations
+      FROM users u
+      INNER JOIN params ON true
+      WHERE timezone('UTC', u.created_at)::date BETWEEN params.start_day AND params.end_day
+      GROUP BY timezone('UTC', u.created_at)::date
+    ),
+    base_users AS (
+      SELECT COUNT(*)::int AS total_users_before_range
+      FROM users u
+      INNER JOIN params ON true
+      WHERE timezone('UTC', u.created_at)::date < params.start_day
+    ),
+    chat_daily AS (
+      SELECT
+        timezone('UTC', cc.created_at)::date AS day,
+        COUNT(*)::int AS chats_created
+      FROM chat_conversations cc
+      INNER JOIN params ON true
+      WHERE timezone('UTC', cc.created_at)::date BETWEEN params.start_day AND params.end_day
+      GROUP BY timezone('UTC', cc.created_at)::date
+    ),
+    message_daily AS (
+      SELECT
+        timezone('UTC', ccm.created_at)::date AS day,
+        COUNT(*)::int AS chat_messages,
+        COUNT(*) FILTER (WHERE ccm.role = 'assistant')::int AS assistant_messages,
+        COUNT(*) FILTER (WHERE ccm.role = 'user')::int AS user_messages
+      FROM chat_conversation_messages ccm
+      INNER JOIN params ON true
+      WHERE timezone('UTC', ccm.created_at)::date BETWEEN params.start_day AND params.end_day
+      GROUP BY timezone('UTC', ccm.created_at)::date
+    ),
+    runs_daily AS (
+      SELECT
+        timezone('UTC', ar.started_at)::date AS day,
+        COUNT(*)::int AS agent_runs,
+        COUNT(*) FILTER (WHERE ar.status = 'completed')::int AS successful_runs
+      FROM agent_runs ar
+      INNER JOIN params ON true
+      WHERE timezone('UTC', ar.started_at)::date BETWEEN params.start_day AND params.end_day
+      GROUP BY timezone('UTC', ar.started_at)::date
+    ),
+    activity_events AS (
+      SELECT DISTINCT timezone('UTC', cc.created_at)::date AS day, cc.user_id
+      FROM chat_conversations cc
+      INNER JOIN params ON true
+      WHERE timezone('UTC', cc.created_at)::date BETWEEN params.activity_start_day AND params.end_day
+
+      UNION
+
+      SELECT DISTINCT timezone('UTC', ccm.created_at)::date AS day, cc.user_id
+      FROM chat_conversation_messages ccm
+      INNER JOIN chat_conversations cc ON cc.id = ccm.conversation_id
+      INNER JOIN params ON true
+      WHERE timezone('UTC', ccm.created_at)::date BETWEEN params.activity_start_day AND params.end_day
+
+      UNION
+
+      SELECT DISTINCT timezone('UTC', ar.started_at)::date AS day, ar.user_id
+      FROM agent_runs ar
+      INNER JOIN params ON true
+      WHERE timezone('UTC', ar.started_at)::date BETWEEN params.activity_start_day AND params.end_day
+
+      UNION
+
+      SELECT DISTINCT timezone('UTC', bt.created_at)::date AS day, bt.user_id
+      FROM balance_transactions bt
+      INNER JOIN params ON true
+      WHERE timezone('UTC', bt.created_at)::date BETWEEN params.activity_start_day AND params.end_day
+    ),
+    daily_activity AS (
+      SELECT ae.day, COUNT(DISTINCT ae.user_id)::int AS active_users
+      FROM activity_events ae
+      GROUP BY ae.day
+    )
+    SELECT
+      s.day,
+      COALESCE(r.registrations, 0)::int AS registrations,
+      (
+        COALESCE((SELECT total_users_before_range FROM base_users), 0)
+        + SUM(COALESCE(r.registrations, 0)) OVER (ORDER BY s.day ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+      )::int AS cumulative_users,
+      COALESCE(da.active_users, 0)::int AS active_users,
+      COALESCE(da.active_users, 0)::int AS dau,
+      COALESCE((
+        SELECT COUNT(DISTINCT ae.user_id)::int
+        FROM activity_events ae
+        WHERE ae.day BETWEEN (s.day - interval '6 day')::date AND s.day
+      ), 0)::int AS wau,
+      COALESCE((
+        SELECT COUNT(DISTINCT ae.user_id)::int
+        FROM activity_events ae
+        WHERE ae.day BETWEEN (s.day - interval '29 day')::date AND s.day
+      ), 0)::int AS mau,
+      COALESCE(tx.payers_count, 0)::int AS payers_count,
+      COALESCE(cd.chats_created, 0)::int AS chats_created,
+      COALESCE(md.chat_messages, 0)::int AS chat_messages,
+      COALESCE(md.assistant_messages, 0)::int AS assistant_messages,
+      COALESCE(md.user_messages, 0)::int AS user_messages,
+      COALESCE(rd.agent_runs, 0)::int AS agent_runs,
+      COALESCE(rd.successful_runs, 0)::int AS successful_runs,
+      COALESCE(du.prompt_tokens, 0) AS prompt_tokens,
+      COALESCE(du.completion_tokens, 0) AS completion_tokens,
+      COALESCE(du.total_tokens, 0) AS total_tokens,
+      COALESCE(du.usage_cost_usd, 0) AS usage_cost_usd,
+      COALESCE(tx.topups_usd, 0) AS topups_usd,
+      COALESCE(tx.paid_topups_usd, 0) AS paid_topups_usd,
+      COALESCE(tx.bonus_credits_usd, 0) AS bonus_credits_usd,
+      COALESCE(tx.balance_spend_usd, 0) AS balance_spend_usd,
+      COALESCE(tx.manual_debits_usd, 0) AS manual_debits_usd
+    FROM series s
+    LEFT JOIN registrations r ON r.day = s.day
+    LEFT JOIN chat_daily cd ON cd.day = s.day
+    LEFT JOIN message_daily md ON md.day = s.day
+    LEFT JOIN runs_daily rd ON rd.day = s.day
+    LEFT JOIN daily_usage du ON du.day = s.day
+    LEFT JOIN tx_daily tx ON tx.day = s.day
+    LEFT JOIN daily_activity da ON da.day = s.day
+    ORDER BY s.day
+  `);
+
+  const modelRows = await db.execute<AdminDashboardChartsModelDbRow>(sql`
+    WITH params AS (
+      SELECT
+        ${range.startDateIso}::date AS start_day,
+        ${range.endDateIso}::date AS end_day
+    ),
+    series AS (
+      SELECT gs::date AS day
+      FROM params, generate_series(params.start_day, params.end_day, interval '1 day') AS gs
+    ),
+    usage_events AS (
+      SELECT
+        timezone('UTC', ccm.created_at)::date AS day,
+        COALESCE(ccm.usage_json->>'model', ul.model_external_id, cc.model_external_id, 'unknown') AS model,
+        COALESCE(
+          NULLIF(ccm.usage_json->>'total_tokens', '')::numeric,
+          COALESCE(ul.total_tokens, ul.prompt_tokens + ul.completion_tokens, 0),
+          0
+        ) AS total_tokens,
+        COALESCE(NULLIF(ccm.usage_json->>'estimated_cost', '')::numeric, ul.estimated_cost, 0) AS usage_cost_usd
+      FROM chat_conversation_messages ccm
+      INNER JOIN chat_conversations cc ON cc.id = ccm.conversation_id
+      LEFT JOIN usage_ledger ul ON ul.run_id = ccm.run_id
+      INNER JOIN params ON true
+      WHERE ccm.role = 'assistant'
+        AND (ccm.usage_json IS NOT NULL OR ccm.run_id IS NOT NULL)
+        AND timezone('UTC', ccm.created_at)::date BETWEEN params.start_day AND params.end_day
+
+      UNION ALL
+
+      SELECT
+        timezone('UTC', ul.created_at)::date AS day,
+        COALESCE(ul.model_external_id, 'unknown') AS model,
+        COALESCE(ul.total_tokens, ul.prompt_tokens + ul.completion_tokens, 0)::numeric AS total_tokens,
+        COALESCE(ul.estimated_cost, 0)::numeric AS usage_cost_usd
+      FROM usage_ledger ul
+      INNER JOIN agent_runs ar ON ar.id = ul.run_id
+      INNER JOIN params ON true
+      WHERE timezone('UTC', ul.created_at)::date BETWEEN params.start_day AND params.end_day
+        AND NOT EXISTS (
+          SELECT 1
+          FROM chat_conversation_messages ccm
+          WHERE ccm.run_id = ar.id
+        )
+    ),
+    model_totals AS (
+      SELECT
+        ue.model,
+        COALESCE(SUM(ue.usage_cost_usd), 0) AS total_usage_cost_usd,
+        COALESCE(SUM(ue.total_tokens), 0) AS total_tokens
+      FROM usage_events ue
+      GROUP BY ue.model
+    ),
+    top_models AS (
+      SELECT
+        mt.model,
+        mt.total_usage_cost_usd,
+        mt.total_tokens,
+        ROW_NUMBER() OVER (
+          ORDER BY mt.total_usage_cost_usd DESC, mt.total_tokens DESC, mt.model ASC
+        )::int AS model_rank
+      FROM model_totals mt
+      WHERE mt.total_usage_cost_usd > 0 OR mt.total_tokens > 0
+      ORDER BY mt.total_usage_cost_usd DESC, mt.total_tokens DESC, mt.model ASC
+      LIMIT 8
+    )
+    SELECT
+      tm.model,
+      tm.model_rank,
+      tm.total_usage_cost_usd,
+      tm.total_tokens,
+      s.day,
+      COALESCE(SUM(ue.usage_cost_usd), 0) AS usage_cost_usd,
+      COALESCE(SUM(ue.total_tokens), 0) AS total_tokens_day
+    FROM top_models tm
+    CROSS JOIN series s
+    LEFT JOIN usage_events ue ON ue.model = tm.model AND ue.day = s.day
+    GROUP BY tm.model, tm.model_rank, tm.total_usage_cost_usd, tm.total_tokens, s.day
+    ORDER BY tm.model_rank ASC, s.day ASC
+  `);
+
+  const daily = dailyRows.map((row) => {
+    const registrations = toSafeNumber(row.registrations);
+    const cumulativeUsers = toSafeNumber(row.cumulative_users);
+    const activeUsers = toSafeNumber(row.active_users);
+    const dau = toSafeNumber(row.dau);
+    const wau = toSafeNumber(row.wau);
+    const mau = toSafeNumber(row.mau);
+    const payersCount = toSafeNumber(row.payers_count);
+    const chatsCreated = toSafeNumber(row.chats_created);
+    const chatMessages = toSafeNumber(row.chat_messages);
+    const assistantMessages = toSafeNumber(row.assistant_messages);
+    const userMessages = toSafeNumber(row.user_messages);
+    const agentRuns = toSafeNumber(row.agent_runs);
+    const successfulRuns = toSafeNumber(row.successful_runs);
+    const promptTokens = toSafeNumber(row.prompt_tokens);
+    const completionTokens = toSafeNumber(row.completion_tokens);
+    const totalTokens = toSafeNumber(row.total_tokens);
+    const usageCostUsd = toSafeNumber(row.usage_cost_usd);
+    const topupsUsd = toSafeNumber(row.topups_usd);
+    const paidTopupsUsd = toSafeNumber(row.paid_topups_usd);
+    const bonusCreditsUsd = toSafeNumber(row.bonus_credits_usd);
+    const balanceSpendUsd = toSafeNumber(row.balance_spend_usd);
+    const manualDebitsUsd = toSafeNumber(row.manual_debits_usd);
+    const marginUsd = roundMetric(balanceSpendUsd - usageCostUsd, 6);
+    const cashflowUsd = roundMetric(topupsUsd - balanceSpendUsd, 6);
+    const roiPercent = usageCostUsd > 0
+      ? roundMetric((balanceSpendUsd / usageCostUsd) * 100, 2)
+      : null;
+    const arpuUsd = activeUsers > 0
+      ? roundMetric(balanceSpendUsd / activeUsers, 6)
+      : 0;
+    const arppuUsd = payersCount > 0
+      ? roundMetric(topupsUsd / payersCount, 6)
+      : 0;
+    const payerSharePercent = activeUsers > 0
+      ? roundMetric((payersCount / activeUsers) * 100, 2)
+      : 0;
+    const successRatePercent = agentRuns > 0
+      ? roundMetric((successfulRuns / agentRuns) * 100, 2)
+      : null;
+
+    return {
+      date: formatUtcDateOnly(row.day),
+      registrations,
+      cumulative_users: cumulativeUsers,
+      active_users: activeUsers,
+      dau,
+      wau,
+      mau,
+      payers_count: payersCount,
+      chats_created: chatsCreated,
+      chat_messages: chatMessages,
+      assistant_messages: assistantMessages,
+      user_messages: userMessages,
+      agent_runs: agentRuns,
+      successful_runs: successfulRuns,
+      success_rate_percent: successRatePercent,
+      prompt_tokens: promptTokens,
+      completion_tokens: completionTokens,
+      total_tokens: totalTokens,
+      usage_cost_usd: roundMetric(usageCostUsd, 6),
+      topups_usd: roundMetric(topupsUsd, 6),
+      paid_topups_usd: roundMetric(paidTopupsUsd, 6),
+      bonus_credits_usd: roundMetric(bonusCreditsUsd, 6),
+      balance_spend_usd: roundMetric(balanceSpendUsd, 6),
+      manual_debits_usd: roundMetric(manualDebitsUsd, 6),
+      margin_usd: marginUsd,
+      cashflow_usd: cashflowUsd,
+      roi_percent: roiPercent,
+      arpu_usd: arpuUsd,
+      arppu_usd: arppuUsd,
+      payer_share_percent: payerSharePercent,
+    };
+  });
+
+  const modelSeriesMap = new Map<string, {
+    model: string;
+    rank: number;
+    total_usage_cost_usd: number;
+    total_tokens: number;
+    daily: Array<{ date: string; usage_cost_usd: number; total_tokens: number }>;
+  }>();
+
+  for (const row of modelRows) {
+    const key = row.model;
+    const existing = modelSeriesMap.get(key) ?? {
+      model: row.model,
+      rank: toSafeNumber(row.model_rank),
+      total_usage_cost_usd: roundMetric(toSafeNumber(row.total_usage_cost_usd), 6),
+      total_tokens: toSafeNumber(row.total_tokens),
+      daily: [],
+    };
+
+    existing.daily.push({
+      date: formatUtcDateOnly(row.day),
+      usage_cost_usd: roundMetric(toSafeNumber(row.usage_cost_usd), 6),
+      total_tokens: toSafeNumber(row.total_tokens_day),
+    });
+
+    modelSeriesMap.set(key, existing);
+  }
+
+  const totals = daily.reduce((acc, point) => {
+    acc.registrations += point.registrations;
+    acc.topups_usd += point.topups_usd;
+    acc.paid_topups_usd += point.paid_topups_usd;
+    acc.bonus_credits_usd += point.bonus_credits_usd;
+    acc.balance_spend_usd += point.balance_spend_usd;
+    acc.manual_debits_usd += point.manual_debits_usd;
+    acc.usage_cost_usd += point.usage_cost_usd;
+    acc.margin_usd += point.margin_usd;
+    acc.cashflow_usd += point.cashflow_usd;
+    acc.total_tokens += point.total_tokens;
+    acc.prompt_tokens += point.prompt_tokens;
+    acc.completion_tokens += point.completion_tokens;
+    acc.chats_created += point.chats_created;
+    acc.chat_messages += point.chat_messages;
+    acc.assistant_messages += point.assistant_messages;
+    acc.user_messages += point.user_messages;
+    acc.agent_runs += point.agent_runs;
+    acc.successful_runs += point.successful_runs;
+    acc.payers_count += point.payers_count;
+    acc.avg_dau += point.dau;
+    acc.avg_wau += point.wau;
+    acc.avg_mau += point.mau;
+    acc.peak_dau = Math.max(acc.peak_dau, point.dau);
+    acc.peak_wau = Math.max(acc.peak_wau, point.wau);
+    acc.peak_mau = Math.max(acc.peak_mau, point.mau);
+    return acc;
+  }, {
+    registrations: 0,
+    topups_usd: 0,
+    paid_topups_usd: 0,
+    bonus_credits_usd: 0,
+    balance_spend_usd: 0,
+    manual_debits_usd: 0,
+    usage_cost_usd: 0,
+    margin_usd: 0,
+    cashflow_usd: 0,
+    total_tokens: 0,
+    prompt_tokens: 0,
+    completion_tokens: 0,
+    chats_created: 0,
+    chat_messages: 0,
+    assistant_messages: 0,
+    user_messages: 0,
+    agent_runs: 0,
+    successful_runs: 0,
+    payers_count: 0,
+    avg_dau: 0,
+    avg_wau: 0,
+    avg_mau: 0,
+    peak_dau: 0,
+    peak_wau: 0,
+    peak_mau: 0,
+  });
+
+  const pointsCount = daily.length || 1;
+  const totalUsersEnd = daily.length > 0 ? daily[daily.length - 1].cumulative_users : 0;
+
+  return {
+    range: {
+      date_from: range.startDateIso,
+      date_to: range.endDateIso,
+      days: range.days,
+    },
+    totals: {
+      registrations: totals.registrations,
+      total_users_end: totalUsersEnd,
+      total_tokens: totals.total_tokens,
+      prompt_tokens: totals.prompt_tokens,
+      completion_tokens: totals.completion_tokens,
+      topups_usd: roundMetric(totals.topups_usd, 6),
+      paid_topups_usd: roundMetric(totals.paid_topups_usd, 6),
+      bonus_credits_usd: roundMetric(totals.bonus_credits_usd, 6),
+      balance_spend_usd: roundMetric(totals.balance_spend_usd, 6),
+      manual_debits_usd: roundMetric(totals.manual_debits_usd, 6),
+      usage_cost_usd: roundMetric(totals.usage_cost_usd, 6),
+      margin_usd: roundMetric(totals.margin_usd, 6),
+      cashflow_usd: roundMetric(totals.cashflow_usd, 6),
+      roi_percent: totals.usage_cost_usd > 0
+        ? roundMetric((totals.balance_spend_usd / totals.usage_cost_usd) * 100, 2)
+        : null,
+      chats_created: totals.chats_created,
+      chat_messages: totals.chat_messages,
+      assistant_messages: totals.assistant_messages,
+      user_messages: totals.user_messages,
+      agent_runs: totals.agent_runs,
+      successful_runs: totals.successful_runs,
+      success_rate_percent: totals.agent_runs > 0
+        ? roundMetric((totals.successful_runs / totals.agent_runs) * 100, 2)
+        : null,
+      payers_count: totals.payers_count,
+      avg_dau: roundMetric(totals.avg_dau / pointsCount, 2),
+      avg_wau: roundMetric(totals.avg_wau / pointsCount, 2),
+      avg_mau: roundMetric(totals.avg_mau / pointsCount, 2),
+      peak_dau: totals.peak_dau,
+      peak_wau: totals.peak_wau,
+      peak_mau: totals.peak_mau,
+      arpu_usd: totalUsersEnd > 0
+        ? roundMetric(totals.balance_spend_usd / totalUsersEnd, 6)
+        : 0,
+      range_days_with_activity: daily.filter((point) => point.dau > 0).length,
+      active_days_share_percent: roundMetric((daily.filter((point) => point.dau > 0).length / pointsCount) * 100, 2),
+    },
+    daily,
+    model_series: Array.from(modelSeriesMap.values()).sort((a, b) => a.rank - b.rank),
+  };
+}
+
 function resolveOpenRouterErrorMessage(error: unknown): string {
   if (error instanceof AppError) return error.message;
   if (error instanceof Error) return error.message;

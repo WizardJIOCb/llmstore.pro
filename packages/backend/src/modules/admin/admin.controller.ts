@@ -17,6 +17,15 @@ export async function getDashboardStats(_req: Request, res: Response, next: Next
   }
 }
 
+export async function getDashboardCharts(req: Request, res: Response, next: NextFunction) {
+  try {
+    const charts = await adminService.getDashboardCharts(req.query as any);
+    res.json({ data: charts });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function getAdminSettings(_req: Request, res: Response, next: NextFunction) {
   try {
     const settings = await adminService.getAdminSettings();

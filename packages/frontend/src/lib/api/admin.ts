@@ -24,6 +24,11 @@ export interface AdminAgentsParams {
   owner_id?: string;
 }
 
+export interface AdminDashboardChartsParams {
+  date_from?: string;
+  date_to?: string;
+}
+
 export interface AdminSettings {
   usd_to_rub_rate: number;
   topup_message: string;
@@ -125,10 +130,97 @@ export interface AdminDashboardStats {
   };
 }
 
+export interface AdminDashboardCharts {
+  range: {
+    date_from: string;
+    date_to: string;
+    days: number;
+  };
+  totals: {
+    registrations: number;
+    total_users_end: number;
+    total_tokens: number;
+    prompt_tokens: number;
+    completion_tokens: number;
+    topups_usd: number;
+    paid_topups_usd: number;
+    bonus_credits_usd: number;
+    balance_spend_usd: number;
+    manual_debits_usd: number;
+    usage_cost_usd: number;
+    margin_usd: number;
+    cashflow_usd: number;
+    roi_percent: number | null;
+    chats_created: number;
+    chat_messages: number;
+    assistant_messages: number;
+    user_messages: number;
+    agent_runs: number;
+    successful_runs: number;
+    success_rate_percent: number | null;
+    payers_count: number;
+    avg_dau: number;
+    avg_wau: number;
+    avg_mau: number;
+    peak_dau: number;
+    peak_wau: number;
+    peak_mau: number;
+    arpu_usd: number;
+    range_days_with_activity: number;
+    active_days_share_percent: number;
+  };
+  daily: Array<{
+    date: string;
+    registrations: number;
+    cumulative_users: number;
+    active_users: number;
+    dau: number;
+    wau: number;
+    mau: number;
+    payers_count: number;
+    chats_created: number;
+    chat_messages: number;
+    assistant_messages: number;
+    user_messages: number;
+    agent_runs: number;
+    successful_runs: number;
+    success_rate_percent: number | null;
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+    usage_cost_usd: number;
+    topups_usd: number;
+    paid_topups_usd: number;
+    bonus_credits_usd: number;
+    balance_spend_usd: number;
+    manual_debits_usd: number;
+    margin_usd: number;
+    cashflow_usd: number;
+    roi_percent: number | null;
+    arpu_usd: number;
+    arppu_usd: number;
+    payer_share_percent: number;
+  }>;
+  model_series: Array<{
+    model: string;
+    rank: number;
+    total_usage_cost_usd: number;
+    total_tokens: number;
+    daily: Array<{
+      date: string;
+      usage_cost_usd: number;
+      total_tokens: number;
+    }>;
+  }>;
+}
+
 export const adminApi = {
   // Dashboard
   getDashboardStats: () =>
     apiClient.get<{ data: AdminDashboardStats }>('/admin/dashboard/stats').then((r) => r.data.data),
+
+  getDashboardCharts: (params: AdminDashboardChartsParams) =>
+    apiClient.get<{ data: AdminDashboardCharts }>('/admin/dashboard/charts', { params }).then((r) => r.data.data),
 
   // Settings
   getSettings: () =>

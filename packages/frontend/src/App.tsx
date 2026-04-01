@@ -15,6 +15,7 @@ import { AdminAgentsPage } from './pages/admin/AdminAgentsPage';
 import { AdminNewsListPage } from './pages/admin/AdminNewsListPage';
 import { AdminNewsFormPage } from './pages/admin/AdminNewsFormPage';
 import { AdminDashboardPage } from './pages/admin/AdminDashboardPage';
+import { AdminChartsPage } from './pages/admin/AdminChartsPage';
 import { AdminToolsPage } from './pages/admin/AdminToolsPage';
 import { AdminSettingsPage } from './pages/admin/AdminSettingsPage';
 import { NewsListPage } from './pages/news/NewsListPage';
@@ -187,6 +188,14 @@ export function App() {
           element={
             <ProtectedRoute requireAdmin>
               <AdminDashboardPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/charts"
+          element={
+            <ProtectedRoute requireAdmin>
+              <AdminChartsPage />
             </ProtectedRoute>
           }
         />

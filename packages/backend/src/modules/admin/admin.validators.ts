@@ -16,6 +16,15 @@ const adminListQuerySchema = z.object({
 
 export const validateAdminListQuery = validate(adminListQuerySchema, 'query');
 
+const isoDateOnlySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+const adminChartsQuerySchema = z.object({
+  date_from: isoDateOnlySchema.optional(),
+  date_to: isoDateOnlySchema.optional(),
+});
+
+export const validateAdminChartsQuery = validate(adminChartsQuerySchema, 'query');
+
 const taxonomyCreateSchema = z.object({
   name: z.string().min(1).max(255),
   slug: z.string().min(1).max(255).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
