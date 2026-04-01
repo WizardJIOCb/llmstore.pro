@@ -64,6 +64,46 @@ export interface ChatCompletionResponse {
   created: number;
 }
 
+export interface OpenRouterRateLimitInfo {
+  requests?: number;
+  interval?: string;
+  note?: string;
+}
+
+export interface OpenRouterCurrentKeyInfo {
+  label: string;
+  limit: number | null;
+  limit_reset: string | null;
+  limit_remaining: number | null;
+  include_byok_in_limit: boolean;
+  usage: number;
+  usage_daily: number;
+  usage_weekly: number;
+  usage_monthly: number;
+  byok_usage: number;
+  byok_usage_daily: number;
+  byok_usage_weekly: number;
+  byok_usage_monthly: number;
+  is_free_tier: boolean;
+  is_management_key?: boolean;
+  is_provisioning_key?: boolean;
+  expires_at?: string | null;
+  rate_limit?: OpenRouterRateLimitInfo | null;
+}
+
+export interface OpenRouterCurrentKeyResponse {
+  data: OpenRouterCurrentKeyInfo;
+}
+
+export interface OpenRouterCreditsInfo {
+  total_credits: number;
+  total_usage: number;
+}
+
+export interface OpenRouterCreditsResponse {
+  data: OpenRouterCreditsInfo;
+}
+
 export interface OpenRouterError {
   error: {
     message: string;

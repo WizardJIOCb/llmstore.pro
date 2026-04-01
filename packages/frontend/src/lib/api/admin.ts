@@ -92,6 +92,37 @@ export interface AdminDashboardStats {
     message_count: number;
     usd_cost: number;
   }>;
+  openrouter: {
+    fetched_at: string;
+    available: boolean;
+    error: string | null;
+    key: {
+      label: string;
+      limit: number | null;
+      limit_remaining: number | null;
+      limit_reset: string | null;
+      usage: number;
+      usage_daily: number;
+      usage_weekly: number;
+      usage_monthly: number;
+      byok_usage: number;
+      byok_usage_daily: number;
+      byok_usage_weekly: number;
+      byok_usage_monthly: number;
+      include_byok_in_limit: boolean;
+      is_free_tier: boolean;
+      is_management_key: boolean;
+      is_provisioning_key: boolean;
+      expires_at: string | null;
+    } | null;
+    credits: {
+      is_available: boolean;
+      error: string | null;
+      total_credits: number | null;
+      total_usage: number | null;
+      remaining_credits: number | null;
+    };
+  };
 }
 
 export const adminApi = {

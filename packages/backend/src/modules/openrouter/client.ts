@@ -4,6 +4,8 @@ import { logger } from '../../lib/logger.js';
 import type {
   ChatCompletionParams,
   ChatCompletionResponse,
+  OpenRouterCreditsResponse,
+  OpenRouterCurrentKeyResponse,
   OpenRouterError,
 } from './types.js';
 
@@ -58,6 +60,45 @@ export class OpenRouterClient {
         }
 
         throw new AppError(502, 'LLM_PROVIDER_ERROR', `OpenRouter error: ${message}`);
+      }
+      throw err;
+    }
+  }
+
+  async getCurrentKey(): Promise<OpenRouterCurrentKeyResponse> {
+    try {
+      const { data } = await this.http.get<OpenRouterCurrentKeyResponse>('/key');
+      return data;
+    } catch (err) {
+      if (err instanceof AxiosError) {
+        const orError = err.response?.data as OpenRouterError | undefined;
+        const message = orError?.error?.message || err.message;
+        const status = err.response?.status || 500;
+
+        logger.error({ status, message }, 'OpenRouter current key request failed');
+        throw new AppError(502, 'OPENROUTER_KEY_ERROR', `OpenRouter key info unavailable: ${message}`);
+      }
+      throw err;
+    }
+  }
+
+  async getCreditsIfAvailable(): Promise<OpenRouterCreditsResponse | null> {
+    try {
+      const { data } = await this.http.get<OpenRouterCreditsResponse>('/credits');
+      return data;
+    } catch (err) {
+      if (err instanceof AxiosError) {
+        const orError = err.response?.data as OpenRouterError | undefined;
+        const message = orError?.error?.message || err.message;
+        const status = err.response?.status || 500;
+
+        if (status === 403) {
+          logger.warn({ status, message }, 'OpenRouter credits request requires elevated key access');
+          return null;
+        }
+
+        logger.error({ status, message }, 'OpenRouter credits request failed');
+        throw new AppError(502, 'OPENROUTER_CREDITS_ERROR', `OpenRouter credits unavailable: ${message}`);
       }
       throw err;
     }

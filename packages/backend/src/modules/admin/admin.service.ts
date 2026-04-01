@@ -19,6 +19,8 @@ import {
   updateTopUpSettings,
   updateStarterPromptSettings,
 } from '../../lib/app-settings.js';
+import { openRouterClient } from '../openrouter/index.js';
+import { logger } from '../../lib/logger.js';
 
 // ─── Admin catalog list (offset pagination) ─────────────────
 
@@ -890,6 +892,77 @@ export async function adjustUserBalance(
   };
 }
 
+function resolveOpenRouterErrorMessage(error: unknown): string {
+  if (error instanceof AppError) return error.message;
+  if (error instanceof Error) return error.message;
+  return 'Не удалось получить данные OpenRouter';
+}
+
+async function getOpenRouterDashboardStatus() {
+  const fetchedAt = new Date().toISOString();
+
+  try {
+    const [keyResponse, creditsResponse] = await Promise.all([
+      openRouterClient.getCurrentKey(),
+      openRouterClient.getCreditsIfAvailable(),
+    ]);
+
+    const key = keyResponse.data;
+    const credits = creditsResponse?.data ?? null;
+
+    return {
+      fetched_at: fetchedAt,
+      available: true,
+      error: null,
+      key: {
+        label: key.label,
+        limit: key.limit,
+        limit_remaining: key.limit_remaining,
+        limit_reset: key.limit_reset,
+        usage: key.usage,
+        usage_daily: key.usage_daily,
+        usage_weekly: key.usage_weekly,
+        usage_monthly: key.usage_monthly,
+        byok_usage: key.byok_usage,
+        byok_usage_daily: key.byok_usage_daily,
+        byok_usage_weekly: key.byok_usage_weekly,
+        byok_usage_monthly: key.byok_usage_monthly,
+        include_byok_in_limit: key.include_byok_in_limit,
+        is_free_tier: key.is_free_tier,
+        is_management_key: key.is_management_key ?? false,
+        is_provisioning_key: key.is_provisioning_key ?? false,
+        expires_at: key.expires_at ?? null,
+      },
+      credits: {
+        is_available: Boolean(credits),
+        error: credits ? null : 'Эндпоинт credits недоступен для текущего OpenRouter ключа',
+        total_credits: credits ? Number(credits.total_credits ?? 0) : null,
+        total_usage: credits ? Number(credits.total_usage ?? 0) : null,
+        remaining_credits: credits
+          ? Number((Number(credits.total_credits ?? 0) - Number(credits.total_usage ?? 0)).toFixed(4))
+          : null,
+      },
+    };
+  } catch (error) {
+    const message = resolveOpenRouterErrorMessage(error);
+    logger.warn({ err: error }, 'OpenRouter dashboard status unavailable');
+
+    return {
+      fetched_at: fetchedAt,
+      available: false,
+      error: message,
+      key: null,
+      credits: {
+        is_available: false,
+        error: message,
+        total_credits: null,
+        total_usage: null,
+        remaining_credits: null,
+      },
+    };
+  }
+}
+
 export async function getDashboardStats() {
   const now = new Date();
   const days30 = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
@@ -906,6 +979,7 @@ export async function getDashboardStats() {
     chatMessagesCountRes,
     usageRows,
     topExpensiveChats,
+    openrouter,
   ] = await Promise.all([
     db.select({ count: count() }).from(users),
     db.select({ count: count() }).from(users).where(eq(users.status, 'active')),
@@ -1020,6 +1094,7 @@ export async function getDashboardStats() {
         )
       ), 0) desc`)
       .limit(5),
+    getOpenRouterDashboardStatus(),
   ]);
 
   const usage30Rows = await db
@@ -1110,5 +1185,6 @@ export async function getDashboardStats() {
       message_count: row.message_count ?? 0,
       usd_cost: Number(row.usd_cost ?? 0),
     })),
+    openrouter,
   };
 }
