@@ -469,13 +469,13 @@ function HtmlPreviewBrowser({
   return (
     <div className={cn('flex flex-col gap-2', className)}>
       <div className="flex flex-wrap items-center gap-2 rounded-md border border-border/70 bg-background/80 p-2">
-        <Button type="button" variant="outline" size="sm" onClick={() => sendCommand('back')} disabled={!canGoBack}>
+        <Button type="button" variant="outline" size="sm" className="whitespace-nowrap" onClick={() => sendCommand('back')} disabled={!canGoBack}>
           Back
         </Button>
-        <Button type="button" variant="outline" size="sm" onClick={() => sendCommand('forward')} disabled={!canGoForward}>
+        <Button type="button" variant="outline" size="sm" className="whitespace-nowrap" onClick={() => sendCommand('forward')} disabled={!canGoForward}>
           Forward
         </Button>
-        <Button type="button" variant="outline" size="sm" onClick={() => sendCommand('reload')} disabled={!(embeddedPreviewUrl || objectUrl)}>
+        <Button type="button" variant="outline" size="sm" className="whitespace-nowrap" onClick={() => sendCommand('reload')} disabled={!(embeddedPreviewUrl || objectUrl)}>
           Reload
         </Button>
         <div className="min-w-0 flex-1 rounded-md border border-border/70 bg-muted/50 px-3 py-1.5">
@@ -487,6 +487,7 @@ function HtmlPreviewBrowser({
           type="button"
           variant="outline"
           size="sm"
+          className="whitespace-nowrap"
           onClick={async () => {
             await navigator.clipboard.writeText(shareableHref || 'about:blank');
           }}
@@ -894,6 +895,7 @@ export function ChatMessage({
                         type="button"
                         variant="outline"
                         size="sm"
+                        className="whitespace-nowrap"
                         onClick={() => {
                           if (absolutePreviewPageUrl) {
                             window.open(
@@ -920,6 +922,7 @@ export function ChatMessage({
                           type="button"
                           variant="outline"
                           size="sm"
+                          className="whitespace-nowrap"
                           onClick={() => {
                             setEditorError(null);
                             setPreviewEditor({
@@ -935,6 +938,7 @@ export function ChatMessage({
                         type="button"
                         variant="outline"
                         size="sm"
+                        className="whitespace-nowrap"
                         onClick={() => setHtmlPreview({
                           title: resolvedHtmlPreview.title,
                           html: resolvedHtmlPreview.html,
