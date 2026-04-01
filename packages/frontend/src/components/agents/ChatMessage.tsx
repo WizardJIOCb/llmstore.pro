@@ -39,6 +39,16 @@ function resolveBrowserUrl(url?: string | null): string | null {
   }
 }
 
+function withPreviewId(url: string, previewId: string): string {
+  try {
+    const nextUrl = new URL(url, window.location.origin);
+    nextUrl.searchParams.set('previewId', previewId);
+    return nextUrl.toString();
+  } catch {
+    return url;
+  }
+}
+
 function SectionCard({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="rounded-lg border border-border/70 bg-background/70 p-3">
@@ -483,7 +493,14 @@ export function ChatMessage({
                         size="sm"
                         onClick={() => {
                           if (absolutePreviewPageUrl) {
-                            window.open(absolutePreviewPageUrl, '_blank', 'noopener,noreferrer');
+                            window.open(
+                              withPreviewId(
+                                absolutePreviewPageUrl,
+                                `open-window-${Math.random().toString(36).slice(2, 10)}`,
+                              ),
+                              '_blank',
+                              'noopener,noreferrer',
+                            );
                             return;
                           }
 

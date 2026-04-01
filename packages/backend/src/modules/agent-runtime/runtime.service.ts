@@ -612,8 +612,7 @@ function normalizeAssistantChatPayload(
 }
 
 function injectPreviewBridgeHtml(html: string, previewId?: string): string {
-  if (!previewId) return html;
-
+  const resolvedPreviewId = previewId ?? 'standalone-preview';
   const emojiAssetVersion = '20260401b';
   const bridge = `
 <style id="llmstore-preview-emoji-bridge">
@@ -627,7 +626,7 @@ function injectPreviewBridgeHtml(html: string, previewId?: string): string {
 </style>
 <script>
 (() => {
-  const previewId = ${JSON.stringify(previewId)};
+  const previewId = ${JSON.stringify(resolvedPreviewId)};
   const emojiRegex = /\\p{Extended_Pictographic}(?:\\uFE0F|\\uFE0E)?/gu;
   const emojiAssetBase = new URL('/api/emoji/', window.location.origin).toString();
 
