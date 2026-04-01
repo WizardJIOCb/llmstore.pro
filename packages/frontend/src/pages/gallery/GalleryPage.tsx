@@ -39,25 +39,29 @@ function formatViews(value: number): string {
 }
 
 function sanitizeGalleryPreviewHtml(html: string): string {
+  const absoluteOriginLiteral = JSON.stringify(window.location.origin);
   return html
     .replace(/https?:\/\/via\.placeholder\.com\/[^"')\s]+/gi, GALLERY_IMAGE_PLACEHOLDER)
-    .replace(/https?:\/\/placehold\.co\/[^"')\s]+/gi, GALLERY_IMAGE_PLACEHOLDER);
+    .replace(/https?:\/\/placehold\.co\/[^"')\s]+/gi, GALLERY_IMAGE_PLACEHOLDER)
+    .replace(/window\.location\.origin/g, absoluteOriginLiteral)
+    .replace(/\blocation\.origin\b/g, absoluteOriginLiteral);
 }
 
 function buildGallerySrcDoc(html: string): string {
   const safeHtml = sanitizeGalleryPreviewHtml(html);
   const csp = [
     "default-src 'none'",
-    "img-src 'self' data: blob: https://llmstore.pro https://www.llmstore.pro",
-    "media-src 'self' data: blob: https://llmstore.pro https://www.llmstore.pro",
-    "style-src 'self' 'unsafe-inline' https://llmstore.pro https://www.llmstore.pro",
-    "font-src 'self' data: https://llmstore.pro https://www.llmstore.pro",
+    "img-src 'self' data: blob: https:",
+    "media-src 'self' data: blob: https:",
+    "style-src 'self' 'unsafe-inline' https:",
+    "style-src-elem 'self' 'unsafe-inline' https:",
+    "font-src 'self' data: https:",
     "script-src 'unsafe-inline'",
     "connect-src 'none'",
     "frame-src 'none'",
     "child-src 'none'",
     "object-src 'none'",
-    "base-uri 'self'",
+    `base-uri ${window.location.origin}`,
     "form-action 'none'",
   ].join('; ');
   const headInjection = [
