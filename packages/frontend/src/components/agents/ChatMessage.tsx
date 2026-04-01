@@ -65,7 +65,7 @@ function injectPreviewBridge(html: string, previewId: string): string {
 (() => {
   const previewId = ${JSON.stringify(previewId)};
   const emojiRegex = /\\p{Extended_Pictographic}(?:\\uFE0F|\\uFE0E)?/gu;
-  const emojiAssetBase = 'https://cdn.jsdelivr.net/gh/jdecked/twemoji@latest/assets/svg/';
+  const emojiAssetBase = new URL('/api/emoji/', window.location.origin).toString();
 
   const shouldSkipEmojiWrap = (node) => {
     const parent = node.parentElement;

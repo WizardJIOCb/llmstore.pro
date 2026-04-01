@@ -15,6 +15,10 @@ const PREVIEW_CSP = [
   'upgrade-insecure-requests',
 ].join(';');
 
+const EMOJI_PROXY_BASE_URL = 'https://cdn.jsdelivr.net/gh/jdecked/twemoji@latest/assets/svg/';
+const EMOJI_CACHE_TTL_MS = 1000 * 60 * 60 * 24;
+const emojiSvgCache = new Map<string, { body: Buffer; fetchedAt: number }>();
+
 export async function startRun(req: Request<{ agentId: string }>, res: Response, next: NextFunction) {
   try {
     const result = await runtimeService.startRun(req.params.agentId, req.session.userId!, req.body, {
@@ -144,6 +148,38 @@ export async function getSharedChatMessagePreview(req: Request<{ token: string; 
     res.setHeader('Cache-Control', 'public, max-age=60');
     res.setHeader('Content-Security-Policy', PREVIEW_CSP);
     res.send(html);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getEmojiSvg(req: Request<{ code: string }>, res: Response, next: NextFunction) {
+  try {
+    const code = req.params.code.trim().toLowerCase();
+    if (!/^[0-9a-f-]+$/i.test(code)) {
+      res.status(404).end();
+      return;
+    }
+
+    const cached = emojiSvgCache.get(code);
+    if (cached && (Date.now() - cached.fetchedAt) < EMOJI_CACHE_TTL_MS) {
+      res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      res.send(cached.body);
+      return;
+    }
+
+    const response = await fetch(`${EMOJI_PROXY_BASE_URL}${code}.svg`);
+    if (!response.ok) {
+      res.status(response.status === 404 ? 404 : 502).end();
+      return;
+    }
+
+    const body = Buffer.from(await response.arrayBuffer());
+    emojiSvgCache.set(code, { body, fetchedAt: Date.now() });
+    res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.send(body);
   } catch (err) {
     next(err);
   }
