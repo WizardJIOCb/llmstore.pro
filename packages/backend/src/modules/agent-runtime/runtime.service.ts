@@ -611,6 +611,18 @@ function normalizeAssistantChatPayload(
   };
 }
 
+function encodeCodingReport(report: CodingReport): string {
+  return JSON.stringify(report, null, 2);
+}
+
+function applyCodingReportToContent(content: string, report: CodingReport): string {
+  const encoded = encodeCodingReport(report);
+  const cleanText = extractCodingReport(content).cleanText;
+  return cleanText
+    ? `<dev-report>\n${encoded}\n</dev-report>\n\n${cleanText}`
+    : `<dev-report>\n${encoded}\n</dev-report>`;
+}
+
 function injectPreviewBridgeHtml(html: string, previewId?: string): string {
   const resolvedPreviewId = previewId ?? 'standalone-preview';
   const emojiAssetVersion = '20260401b';
@@ -1761,23 +1773,28 @@ async function getConversationMessages(chatId: string): Promise<ConversationMess
 
   return rows
     .filter((row) => row.role === 'user' || row.role === 'assistant')
-    .map((row) => {
-      const rawUsage = (row.usage_json as Record<string, unknown> | null) ?? null;
-      const normalized = row.role === 'assistant'
-        ? normalizeAssistantChatPayload(row.content_text, rawUsage)
-        : { content: row.content_text, usage: rawUsage, codingReport: null };
-      const normalizedUsage = recalculateUsageCost(normalized.usage);
+    .map((row) => toConversationMessage(row, usdToRubRate));
+}
 
-      return {
-        id: row.id,
-        role: row.role as 'user' | 'assistant',
-        content: normalized.content,
-        run_id: row.run_id ?? null,
-        usage: attachUsdToRubRate(normalizedUsage, usdToRubRate),
-        latency_ms: row.latency_ms ?? null,
-        created_at: toIso(row.created_at),
-      };
-    });
+function toConversationMessage(
+  row: typeof chatConversationMessages.$inferSelect,
+  usdToRubRate: number,
+): ConversationMessage {
+  const rawUsage = (row.usage_json as Record<string, unknown> | null) ?? null;
+  const normalized = row.role === 'assistant'
+    ? normalizeAssistantChatPayload(row.content_text, rawUsage)
+    : { content: row.content_text, usage: rawUsage, codingReport: null };
+  const normalizedUsage = recalculateUsageCost(normalized.usage);
+
+  return {
+    id: row.id,
+    role: row.role as 'user' | 'assistant',
+    content: normalized.content,
+    run_id: row.run_id ?? null,
+    usage: attachUsdToRubRate(normalizedUsage, usdToRubRate),
+    latency_ms: row.latency_ms ?? null,
+    created_at: toIso(row.created_at),
+  };
 }
 
 async function getAgentChatMeta(agentId: string | null): Promise<{
@@ -2063,6 +2080,117 @@ export async function getSharedChatMessagePreviewHtml(
   }
 
   return injectPreviewBridgeHtml(preview.html, previewId);
+}
+
+async function updatePreviewForMessageRow(
+  message: typeof chatConversationMessages.$inferSelect,
+  input: { title?: string | null; html: string },
+): Promise<typeof chatConversationMessages.$inferSelect> {
+  if (message.role !== 'assistant') {
+    throw new NotFoundError('Preview not found');
+  }
+
+  const rawUsage = (message.usage_json as Record<string, unknown> | null) ?? null;
+  const normalized = normalizeAssistantChatPayload(message.content_text, rawUsage);
+  const currentReport = normalized.codingReport;
+  const currentPreview = currentReport?.preview;
+
+  if (!currentReport || !currentPreview || currentPreview.type !== 'html' || !currentPreview.html) {
+    throw new NotFoundError('Preview not found');
+  }
+
+  const nextReport = sanitizeCodingReport({
+    ...currentReport,
+    preview: {
+      ...currentPreview,
+      title: input.title ?? currentPreview.title,
+      html: input.html,
+      type: 'html',
+    },
+  });
+
+  if (!nextReport || !nextReport.preview || nextReport.preview.type !== 'html' || !nextReport.preview.html) {
+    throw new AppError(400, 'VALIDATION_ERROR', 'Некорректный preview HTML');
+  }
+
+  const nextUsage = {
+    ...(rawUsage ?? {}),
+    coding_report: nextReport,
+  };
+  const nextContent = applyCodingReportToContent(message.content_text, nextReport);
+
+  const [updated] = await db.update(chatConversationMessages)
+    .set({
+      content_text: nextContent,
+      usage_json: nextUsage,
+    })
+    .where(eq(chatConversationMessages.id, message.id))
+    .returning();
+
+  return updated;
+}
+
+export async function updateChatMessagePreview(
+  chatId: string,
+  messageId: string,
+  userId: string,
+  input: { title?: string | null; html: string },
+): Promise<ConversationMessage> {
+  await getConversationForUser(chatId, userId);
+
+  const [message] = await db
+    .select()
+    .from(chatConversationMessages)
+    .where(and(
+      eq(chatConversationMessages.id, messageId),
+      eq(chatConversationMessages.conversation_id, chatId),
+    ))
+    .limit(1);
+
+  if (!message) {
+    throw new NotFoundError('Preview not found');
+  }
+
+  const updated = await updatePreviewForMessageRow(message, input);
+  const usdToRubRate = await getUsdToRubRate();
+  return toConversationMessage(updated, usdToRubRate);
+}
+
+export async function updateSharedChatMessagePreview(
+  token: string,
+  messageId: string,
+  userId: string,
+  input: { title?: string | null; html: string },
+): Promise<ConversationMessage> {
+  const [chat] = await db
+    .select()
+    .from(chatConversations)
+    .where(and(
+      eq(chatConversations.share_token, token),
+      eq(chatConversations.user_id, userId),
+    ))
+    .limit(1);
+
+  if (!chat) {
+    throw new NotFoundError('Preview not found');
+  }
+
+  const [message] = await db
+    .select()
+    .from(chatConversationMessages)
+    .where(and(
+      eq(chatConversationMessages.id, messageId),
+      eq(chatConversationMessages.conversation_id, chat.id),
+    ))
+    .limit(1);
+
+  if (!message) {
+    throw new NotFoundError('Preview not found');
+  }
+
+  const updated = await updatePreviewForMessageRow(message, input);
+  const usdToRubRate = await getUsdToRubRate();
+  return toConversationMessage(updated, usdToRubRate);
 }
 
 export async function streamChatEvents(chatId: string, userId: string, res: Response) {

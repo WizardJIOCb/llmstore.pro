@@ -7,6 +7,7 @@ import {
   validateCreateChat,
   validateUpdateChat,
   validateSendChatMessage,
+  validateUpdateMessagePreview,
 } from './runtime.validators.js';
 
 const router = Router();
@@ -25,6 +26,7 @@ router.get('/chats', requireAuth, controller.listChats);
 router.get('/chats/agents', requireAuth, controller.listChatAgents);
 router.post('/chats', requireAuth, validateCreateChat, controller.createChat);
 router.get('/chats/:chatId/messages/:messageId/preview', controller.getChatMessagePreview);
+router.patch('/chats/:chatId/messages/:messageId/preview', requireAuth, validateUpdateMessagePreview, controller.updateChatMessagePreview);
 router.get('/chats/:chatId', requireAuth, controller.getChatById);
 router.get('/chats/:chatId/events', requireAuth, controller.streamChatEvents);
 router.get('/chats/:chatId/stats', requireAuth, controller.getChatStats);
@@ -36,6 +38,7 @@ router.post('/chats/:chatId/messages', requireAuth, validateSendChatMessage, con
 
 // Shared conversation (public, no auth)
 router.get('/shared/chats/:token/messages/:messageId/preview', controller.getSharedChatMessagePreview);
+router.patch('/shared/chats/:token/messages/:messageId/preview', requireAuth, validateUpdateMessagePreview, controller.updateSharedChatMessagePreview);
 router.get('/shared/chats/:token', controller.getSharedChatById);
 
 // Runs

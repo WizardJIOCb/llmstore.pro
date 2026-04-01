@@ -5,6 +5,7 @@ import type { CodingReport, ToolTrace } from '../../lib/api/agents';
 import { cn } from '../../lib/utils';
 import { ToolTracePanel } from './ToolTracePanel';
 import { Button } from '../ui/Button';
+import { Textarea } from '../ui/Textarea';
 
 interface Attachment {
   filename: string;
@@ -23,6 +24,8 @@ interface ChatMessageProps {
   toolTraces?: ToolTrace[];
   codingReport?: CodingReport | null;
   previewPageUrl?: string | null;
+  canEditPreview?: boolean;
+  onSavePreview?: (payload: { title?: string | null; html: string }) => Promise<void>;
 }
 
 function stripDevReportEnvelope(content: string): string {
@@ -366,11 +369,16 @@ export function ChatMessage({
   toolTraces = [],
   codingReport = null,
   previewPageUrl = null,
+  canEditPreview = false,
+  onSavePreview,
 }: ChatMessageProps) {
   const isUser = role === 'user';
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewAlt, setPreviewAlt] = useState('');
   const [htmlPreview, setHtmlPreview] = useState<{ title: string; html: string } | null>(null);
+  const [previewEditor, setPreviewEditor] = useState<{ title: string; html: string } | null>(null);
+  const [editorSaving, setEditorSaving] = useState(false);
+  const [editorError, setEditorError] = useState<string | null>(null);
   const absolutePreviewPageUrl = resolveBrowserUrl(previewPageUrl);
   const renderedContent = !isUser ? stripDevReportEnvelope(content) : content;
 
@@ -512,6 +520,22 @@ export function ChatMessage({
                       >
                         В новом окне
                       </Button>
+                      {canEditPreview && onSavePreview && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setEditorError(null);
+                            setPreviewEditor({
+                              title: codingReport.preview?.title || 'Agent preview',
+                              html: codingReport.preview?.html || '',
+                            });
+                          }}
+                        >
+                          Редактор
+                        </Button>
+                      )}
                       <Button
                         type="button"
                         variant="outline"
@@ -623,6 +647,109 @@ export function ChatMessage({
               previewPageUrl={absolutePreviewPageUrl}
               className="min-h-0 flex-1"
             />
+          </div>
+        </div>
+      )}
+
+      {previewEditor && (
+        <div
+          className="fixed inset-0 z-[135] flex items-center justify-center bg-black/85 p-3"
+          onClick={() => !editorSaving && setPreviewEditor(null)}
+        >
+          <div
+            className="flex h-[94vh] w-[98vw] max-w-[1600px] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-slate-900">Редактор preview</p>
+                <p className="text-xs text-slate-500">Файл: index.html</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => setPreviewEditor(null)} disabled={editorSaving}>
+                  Закрыть
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={editorSaving || !onSavePreview}
+                  onClick={async () => {
+                    if (!onSavePreview) return;
+                    setEditorSaving(true);
+                    setEditorError(null);
+                    try {
+                      await onSavePreview({
+                        title: previewEditor.title || 'Agent preview',
+                        html: previewEditor.html,
+                      });
+                      setPreviewEditor(null);
+                    } catch (error) {
+                      const message = error instanceof Error ? error.message : 'Не удалось сохранить preview';
+                      setEditorError(message);
+                    } finally {
+                      setEditorSaving(false);
+                    }
+                  }}
+                >
+                  {editorSaving ? 'Сохраняю...' : 'Сохранить'}
+                </Button>
+              </div>
+            </div>
+
+            {editorError && (
+              <div className="border-b bg-destructive/10 px-4 py-2 text-sm text-destructive">
+                {editorError}
+              </div>
+            )}
+
+            <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+              <div className="min-h-0 border-b lg:border-b-0 lg:border-r">
+                <div className="flex h-full min-h-0 flex-col">
+                  <div className="border-b px-4 py-3">
+                    <label className="block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Заголовок preview
+                    </label>
+                    <input
+                      value={previewEditor.title}
+                      onChange={(e) => setPreviewEditor((prev) => (prev ? { ...prev, title: e.target.value } : prev))}
+                      className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                      placeholder="Название preview"
+                    />
+                  </div>
+                  <div className="flex min-h-0 flex-1 flex-col px-4 py-3">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <div className="rounded-md border border-border/70 bg-muted/30 px-3 py-1 text-xs font-medium">
+                        index.html
+                      </div>
+                      <p className="text-xs text-muted-foreground">HTML редактор</p>
+                    </div>
+                    <Textarea
+                      value={previewEditor.html}
+                      onChange={(e) => setPreviewEditor((prev) => (prev ? { ...prev, html: e.target.value } : prev))}
+                      className="min-h-0 flex-1 resize-none font-mono text-xs leading-5"
+                      rows={24}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="min-h-0 bg-slate-50">
+                <div className="flex h-full min-h-0 flex-col">
+                  <div className="border-b bg-white px-4 py-3">
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Предпросмотр
+                    </p>
+                  </div>
+                  <div className="min-h-0 flex-1 p-4">
+                    <HtmlPreviewBrowser
+                      title={previewEditor.title || 'Agent preview'}
+                      html={previewEditor.html}
+                      className="h-full w-full"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}

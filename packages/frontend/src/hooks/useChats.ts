@@ -107,3 +107,19 @@ export function useChatStats(chatId: string | undefined, enabled = true) {
     enabled: !!chatId && enabled,
   });
 }
+
+export function useUpdateChatMessagePreview() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ chatId, messageId, ...payload }: {
+      chatId: string;
+      messageId: string;
+      title?: string | null;
+      html: string;
+    }) => chatsApi.updatePreview(chatId, messageId, payload),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['chats', vars.chatId] });
+      qc.invalidateQueries({ queryKey: ['chats'] });
+    },
+  });
+}

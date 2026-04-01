@@ -90,6 +90,16 @@ export interface SendMessageResult {
   };
 }
 
+export interface UpdateMessagePreviewResult {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  run_id: string | null;
+  usage: Record<string, unknown> | null;
+  latency_ms: number | null;
+  created_at: string;
+}
+
 export interface ChatStats {
   chat: {
     id: string;
@@ -185,4 +195,14 @@ export const chatsApi = {
 
   stats: (chatId: string) =>
     apiClient.get<{ data: ChatStats }>(`/chats/${chatId}/stats`).then((r) => r.data.data),
+
+  updatePreview: (chatId: string, messageId: string, payload: { title?: string | null; html: string }) =>
+    apiClient
+      .patch<{ data: UpdateMessagePreviewResult }>(`/chats/${chatId}/messages/${messageId}/preview`, payload)
+      .then((r) => r.data.data),
+
+  updateSharedPreview: (token: string, messageId: string, payload: { title?: string | null; html: string }) =>
+    apiClient
+      .patch<{ data: UpdateMessagePreviewResult }>(`/shared/chats/${token}/messages/${messageId}/preview`, payload)
+      .then((r) => r.data.data),
 };

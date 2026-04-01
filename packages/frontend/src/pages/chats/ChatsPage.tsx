@@ -16,6 +16,7 @@ import {
   useCreateChat,
   useDeleteChat,
   useSendChatMessage,
+  useUpdateChatMessagePreview,
   useUploadChatFiles,
   useShareChatById,
   useUpdateChat,
@@ -239,6 +240,7 @@ export function ChatsPage() {
   const deleteChatMutation = useDeleteChat();
   const shareChatMutation = useShareChatById();
   const sendMessageMutation = useSendChatMessage();
+  const updatePreviewMutation = useUpdateChatMessagePreview();
   const uploadFilesMutation = useUploadChatFiles();
 
   const [search, setSearch] = useState('');
@@ -835,6 +837,20 @@ export function ChatsPage() {
                   toolTraces={msg.role === 'assistant' ? extractToolTraces(msg.usage) : undefined}
                   codingReport={msg.role === 'assistant' ? extractCodingReport(msg.usage, msg.content) : undefined}
                   previewPageUrl={msg.role === 'assistant' && activeChat ? `/api/chats/${activeChat.id}/messages/${msg.id}/preview` : undefined}
+                  canEditPreview={msg.role === 'assistant' && Boolean(activeChat)}
+                  onSavePreview={msg.role === 'assistant' && activeChat
+                    ? async (payload) => {
+                      try {
+                        await updatePreviewMutation.mutateAsync({
+                          chatId: activeChat.id,
+                          messageId: msg.id,
+                          ...payload,
+                        });
+                      } catch (error) {
+                        throw new Error(getApiErrorMessage(error) ?? 'Не удалось сохранить preview');
+                      }
+                    }
+                    : undefined}
                 />
                 {msg.role === 'assistant' && (
                   <div className="mt-1 ml-1">

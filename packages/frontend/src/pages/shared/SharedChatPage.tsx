@@ -1,9 +1,10 @@
 import { useParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChatMessage } from '../../components/agents/ChatMessage';
 import { Spinner } from '../../components/ui/Spinner';
 import { apiClient } from '../../lib/api-client';
-import type { CodingReport } from '../../lib/api/chats';
+import { chatsApi, type CodingReport } from '../../lib/api/chats';
+import { useProfile } from '../../hooks/useProfile';
 
 interface LegacySharedChat {
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
@@ -113,6 +114,15 @@ function extractCodingReport(value?: Record<string, unknown> | null, content?: s
 
 export function SharedChatPage() {
   const { token } = useParams<{ token: string }>();
+  const queryClient = useQueryClient();
+  const { data: profile } = useProfile();
+  const updateSharedPreviewMutation = useMutation({
+    mutationFn: ({ messageId, ...payload }: { messageId: string; title?: string | null; html: string }) =>
+      chatsApi.updateSharedPreview(token!, messageId, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['shared-chat-any', token] });
+    },
+  });
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['shared-chat-any', token],
@@ -177,6 +187,21 @@ export function SharedChatPage() {
             content={msg.content}
             codingReport={msg.role === 'assistant' ? extractCodingReport(msg.usage, msg.content) : undefined}
             previewPageUrl={msg.role === 'assistant' && token && msg.id ? `/api/shared/chats/${token}/messages/${msg.id}/preview` : undefined}
+            canEditPreview={Boolean(profile) && msg.role === 'assistant' && Boolean(msg.id)}
+            onSavePreview={profile && msg.role === 'assistant' && msg.id
+              ? async (payload) => {
+                const messageId = msg.id!;
+                try {
+                  await updateSharedPreviewMutation.mutateAsync({
+                    messageId,
+                    ...payload,
+                  });
+                } catch (error) {
+                  const maybe = error as { response?: { data?: { error?: { message?: string } } } };
+                  throw new Error(maybe?.response?.data?.error?.message ?? 'Не удалось сохранить preview');
+                }
+              }
+              : undefined}
           />
         ))}
       </div>

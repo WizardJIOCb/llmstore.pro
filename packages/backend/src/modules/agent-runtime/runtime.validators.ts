@@ -41,6 +41,12 @@ const sendMessageSchema = z.object({
   ).max(8).optional().default([]),
 });
 
+const updateMessagePreviewSchema = z.object({
+  title: z.string().max(200).optional().nullable(),
+  html: z.string().min(1).max(50_000),
+});
+
 export const validateCreateChat = validate(createChatSchema, 'body');
 export const validateUpdateChat = validate(updateChatSchema, 'body');
 export const validateSendChatMessage = validate(sendMessageSchema, 'body');
+export const validateUpdateMessagePreview = validate(updateMessagePreviewSchema, 'body');

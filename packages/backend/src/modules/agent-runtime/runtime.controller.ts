@@ -153,6 +153,34 @@ export async function getSharedChatMessagePreview(req: Request<{ token: string; 
   }
 }
 
+export async function updateChatMessagePreview(req: Request<{ chatId: string; messageId: string }>, res: Response, next: NextFunction) {
+  try {
+    const result = await runtimeService.updateChatMessagePreview(
+      req.params.chatId,
+      req.params.messageId,
+      req.session.userId!,
+      req.body,
+    );
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function updateSharedChatMessagePreview(req: Request<{ token: string; messageId: string }>, res: Response, next: NextFunction) {
+  try {
+    const result = await runtimeService.updateSharedChatMessagePreview(
+      req.params.token,
+      req.params.messageId,
+      req.session.userId!,
+      req.body,
+    );
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function getEmojiSvg(req: Request<{ code: string }>, res: Response, next: NextFunction) {
   try {
     const code = req.params.code.trim().toLowerCase();
