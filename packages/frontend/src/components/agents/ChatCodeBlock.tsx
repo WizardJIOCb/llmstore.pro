@@ -3,6 +3,9 @@ import { Check, Copy } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 type SupportedCodeLanguage =
+  | 'c'
+  | 'cpp'
+  | 'csharp'
   | 'javascript'
   | 'typescript'
   | 'json'
@@ -10,6 +13,13 @@ type SupportedCodeLanguage =
   | 'css'
   | 'bash'
   | 'python'
+  | 'php'
+  | 'go'
+  | 'rust'
+  | 'java'
+  | 'kotlin'
+  | 'swift'
+  | 'ruby'
   | 'sql'
   | 'markdown'
   | 'text';
@@ -25,6 +35,16 @@ const CODE_FONT_FAMILY = [
 ].join(', ');
 
 const LANGUAGE_ALIASES: Record<string, SupportedCodeLanguage> = {
+  c: 'c',
+  h: 'c',
+  cpp: 'cpp',
+  cxx: 'cpp',
+  cc: 'cpp',
+  'c++': 'cpp',
+  hpp: 'cpp',
+  hxx: 'cpp',
+  cs: 'csharp',
+  csharp: 'csharp',
   js: 'javascript',
   jsx: 'javascript',
   mjs: 'javascript',
@@ -51,6 +71,18 @@ const LANGUAGE_ALIASES: Record<string, SupportedCodeLanguage> = {
   console: 'bash',
   py: 'python',
   python: 'python',
+  php: 'php',
+  go: 'go',
+  golang: 'go',
+  rs: 'rust',
+  rust: 'rust',
+  java: 'java',
+  kt: 'kotlin',
+  kts: 'kotlin',
+  kotlin: 'kotlin',
+  swift: 'swift',
+  rb: 'ruby',
+  ruby: 'ruby',
   sql: 'sql',
   md: 'markdown',
   markdown: 'markdown',
@@ -60,6 +92,9 @@ const LANGUAGE_ALIASES: Record<string, SupportedCodeLanguage> = {
 };
 
 const LANGUAGE_LABELS: Record<SupportedCodeLanguage, string> = {
+  c: 'C',
+  cpp: 'C++',
+  csharp: 'C#',
   javascript: 'JavaScript',
   typescript: 'TypeScript',
   json: 'JSON',
@@ -67,12 +102,40 @@ const LANGUAGE_LABELS: Record<SupportedCodeLanguage, string> = {
   css: 'CSS',
   bash: 'Bash',
   python: 'Python',
+  php: 'PHP',
+  go: 'Go',
+  rust: 'Rust',
+  java: 'Java',
+  kotlin: 'Kotlin',
+  swift: 'Swift',
+  ruby: 'Ruby',
   sql: 'SQL',
   markdown: 'Markdown',
   text: 'Text',
 };
 
 const KEYWORDS_BY_LANGUAGE: Partial<Record<SupportedCodeLanguage, string[]>> = {
+  c: [
+    'auto', 'break', 'case', 'char', 'const', 'continue', 'default', 'do', 'double', 'else', 'enum', 'extern',
+    'float', 'for', 'goto', 'if', 'inline', 'int', 'long', 'register', 'restrict', 'return', 'short', 'signed',
+    'sizeof', 'static', 'struct', 'switch', 'typedef', 'union', 'unsigned', 'void', 'volatile', 'while',
+  ],
+  cpp: [
+    'alignas', 'alignof', 'auto', 'bool', 'break', 'case', 'catch', 'char', 'class', 'const', 'constexpr', 'continue',
+    'default', 'delete', 'do', 'double', 'else', 'enum', 'explicit', 'export', 'extern', 'false', 'float', 'for',
+    'friend', 'if', 'inline', 'int', 'long', 'mutable', 'namespace', 'new', 'noexcept', 'nullptr', 'operator',
+    'private', 'protected', 'public', 'return', 'short', 'signed', 'sizeof', 'static', 'struct', 'switch', 'template',
+    'this', 'throw', 'true', 'try', 'typedef', 'typename', 'union', 'unsigned', 'using', 'virtual', 'void', 'while',
+  ],
+  csharp: [
+    'abstract', 'as', 'async', 'await', 'base', 'bool', 'break', 'byte', 'case', 'catch', 'char', 'checked', 'class',
+    'const', 'continue', 'decimal', 'default', 'delegate', 'do', 'double', 'else', 'enum', 'event', 'explicit',
+    'extern', 'false', 'finally', 'fixed', 'float', 'for', 'foreach', 'if', 'implicit', 'in', 'int', 'interface',
+    'internal', 'is', 'lock', 'long', 'namespace', 'new', 'null', 'object', 'operator', 'out', 'override', 'params',
+    'private', 'protected', 'public', 'readonly', 'record', 'ref', 'return', 'sealed', 'short', 'static', 'string',
+    'struct', 'switch', 'this', 'throw', 'true', 'try', 'typeof', 'uint', 'ulong', 'using', 'var', 'virtual', 'void',
+    'while',
+  ],
   javascript: [
     'async', 'await', 'break', 'case', 'catch', 'class', 'const', 'continue', 'default', 'delete', 'else', 'export',
     'extends', 'finally', 'for', 'from', 'function', 'if', 'import', 'in', 'instanceof', 'let', 'new', 'of', 'return',
@@ -94,6 +157,48 @@ const KEYWORDS_BY_LANGUAGE: Partial<Record<SupportedCodeLanguage, string[]>> = {
     'finally', 'for', 'from', 'global', 'if', 'import', 'in', 'is', 'lambda', 'nonlocal', 'not', 'or', 'pass',
     'raise', 'return', 'try', 'while', 'with', 'yield',
   ],
+  php: [
+    'abstract', 'array', 'as', 'break', 'case', 'catch', 'class', 'clone', 'const', 'continue', 'declare', 'default',
+    'do', 'echo', 'else', 'elseif', 'empty', 'enddeclare', 'endfor', 'endforeach', 'endif', 'endswitch', 'endwhile',
+    'eval', 'exit', 'extends', 'final', 'finally', 'fn', 'for', 'foreach', 'function', 'global', 'if', 'implements',
+    'include', 'include_once', 'instanceof', 'interface', 'isset', 'match', 'namespace', 'new', 'print', 'private',
+    'protected', 'public', 'readonly', 'require', 'require_once', 'return', 'static', 'switch', 'throw', 'trait',
+    'try', 'use', 'var', 'while', 'yield',
+  ],
+  go: [
+    'break', 'case', 'chan', 'const', 'continue', 'default', 'defer', 'else', 'fallthrough', 'for', 'func', 'go',
+    'goto', 'if', 'import', 'interface', 'map', 'package', 'range', 'return', 'select', 'struct', 'switch', 'type',
+    'var',
+  ],
+  rust: [
+    'as', 'async', 'await', 'break', 'const', 'continue', 'crate', 'dyn', 'else', 'enum', 'extern', 'false', 'fn',
+    'for', 'if', 'impl', 'in', 'let', 'loop', 'match', 'mod', 'move', 'mut', 'pub', 'ref', 'return', 'self', 'Self',
+    'static', 'struct', 'super', 'trait', 'true', 'type', 'unsafe', 'use', 'where', 'while',
+  ],
+  java: [
+    'abstract', 'assert', 'boolean', 'break', 'byte', 'case', 'catch', 'char', 'class', 'const', 'continue', 'default',
+    'do', 'double', 'else', 'enum', 'extends', 'false', 'final', 'finally', 'float', 'for', 'if', 'implements',
+    'import', 'instanceof', 'int', 'interface', 'long', 'native', 'new', 'null', 'package', 'private', 'protected',
+    'public', 'return', 'short', 'static', 'strictfp', 'super', 'switch', 'synchronized', 'this', 'throw', 'throws',
+    'transient', 'true', 'try', 'void', 'volatile', 'while',
+  ],
+  kotlin: [
+    'abstract', 'annotation', 'as', 'break', 'by', 'catch', 'class', 'companion', 'const', 'constructor', 'continue',
+    'data', 'do', 'else', 'enum', 'false', 'for', 'fun', 'if', 'import', 'in', 'interface', 'internal', 'is', 'lateinit',
+    'null', 'object', 'open', 'operator', 'override', 'package', 'private', 'protected', 'public', 'return', 'sealed',
+    'super', 'suspend', 'this', 'throw', 'true', 'try', 'typealias', 'val', 'var', 'when', 'while',
+  ],
+  swift: [
+    'associatedtype', 'break', 'case', 'class', 'continue', 'default', 'defer', 'deinit', 'do', 'else', 'enum',
+    'extension', 'false', 'fallthrough', 'for', 'func', 'guard', 'if', 'import', 'in', 'init', 'inout', 'internal',
+    'let', 'nil', 'private', 'protocol', 'public', 'repeat', 'return', 'self', 'static', 'struct', 'subscript',
+    'super', 'switch', 'throw', 'throws', 'true', 'try', 'var', 'where', 'while',
+  ],
+  ruby: [
+    'BEGIN', 'END', 'alias', 'and', 'begin', 'break', 'case', 'class', 'def', 'defined?', 'do', 'else', 'elsif', 'end',
+    'ensure', 'false', 'for', 'if', 'in', 'module', 'next', 'nil', 'not', 'or', 'redo', 'rescue', 'retry', 'return',
+    'self', 'super', 'then', 'true', 'undef', 'unless', 'until', 'when', 'while', 'yield',
+  ],
   sql: [
     'all', 'and', 'as', 'asc', 'between', 'by', 'case', 'create', 'delete', 'desc', 'distinct', 'drop', 'else', 'end',
     'from', 'group', 'having', 'in', 'inner', 'insert', 'into', 'join', 'left', 'limit', 'not', 'null', 'offset',
@@ -107,6 +212,39 @@ function escapeHtml(value: string): string {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
+}
+
+function replaceOutsidePlaceholders(
+  value: string,
+  tokenPrefix: string,
+  pattern: RegExp,
+  replacer: string | ((substring: string, ...args: unknown[]) => string),
+): string {
+  const placeholderPattern = new RegExp(`(${tokenPrefix}\\d+___)`, 'g');
+  return value
+    .split(placeholderPattern)
+    .map((part) => (part.startsWith(tokenPrefix) ? part : part.replace(pattern, replacer as never)))
+    .join('');
+}
+
+function decorateOutsidePlaceholders(
+  value: string,
+  tokenPrefix: string,
+  stash: (html: string) => string,
+  pattern: RegExp,
+  replacer: string | ((substring: string, ...args: unknown[]) => string),
+): string {
+  const placeholderPattern = new RegExp(`(${tokenPrefix}\\d+___)`, 'g');
+  return value
+    .split(placeholderPattern)
+    .map((part) => {
+      if (part.startsWith(tokenPrefix)) return part;
+      return part.replace(
+        pattern,
+        (...args) => stash(typeof replacer === 'function' ? replacer(...args) : args[0].replace(pattern, replacer as string)),
+      );
+    })
+    .join('');
 }
 
 function highlightHtmlAttributes(attrs: string): string {
@@ -245,6 +383,7 @@ function highlightGenericLine(value: string, language: Exclude<SupportedCodeLang
   const placeholders: string[] = [];
   const stash = (html: string) => `___LLMSTORE_CODE_TOKEN_${placeholders.push(html) - 1}___`;
   let escaped = escapeHtml(value);
+  const tokenPrefix = '___LLMSTORE_CODE_TOKEN_';
 
   const stringPattern = language === 'bash'
     ? /("(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*')/g
@@ -257,6 +396,10 @@ function highlightGenericLine(value: string, language: Exclude<SupportedCodeLang
 
   const commentPattern = language === 'python'
     ? /(#.*)$/g
+    : language === 'ruby'
+      ? /(#.*)$/g
+    : language === 'php'
+      ? /(\/\/.*|#.*)$/g
     : language === 'sql'
       ? /(--.*)$/gi
       : /((?:\/\/|#).*)$/g;
@@ -267,7 +410,10 @@ function highlightGenericLine(value: string, language: Exclude<SupportedCodeLang
   );
 
   if (language === 'sql') {
-    escaped = escaped.replace(
+    escaped = decorateOutsidePlaceholders(
+      escaped,
+      tokenPrefix,
+      stash,
       /\b([A-Z_][A-Z0-9_]*|select|from|where|join|left|right|inner|outer|group|order|by|limit|offset|insert|into|values|update|set|delete|create|table|drop|case|when|then|else|end|distinct|union|having|on|as|and|or|not|null)\b/gi,
       '<span class="text-sky-300">$1</span>',
     );
@@ -275,32 +421,67 @@ function highlightGenericLine(value: string, language: Exclude<SupportedCodeLang
     const keywords = KEYWORDS_BY_LANGUAGE[language] ?? [];
     if (keywords.length > 0) {
       const keywordPattern = new RegExp(`\\b(${keywords.join('|')})\\b`, 'g');
-      escaped = escaped.replace(
+      escaped = decorateOutsidePlaceholders(
+        escaped,
+        tokenPrefix,
+        stash,
         keywordPattern,
         '<span class="text-sky-300">$1</span>',
       );
     }
   }
 
-  escaped = escaped.replace(
+  escaped = decorateOutsidePlaceholders(
+    escaped,
+    tokenPrefix,
+    stash,
     /\b(true|false|null|undefined|None|True|False)\b/g,
     '<span class="text-fuchsia-300">$1</span>',
   );
 
-  escaped = escaped.replace(
+  escaped = decorateOutsidePlaceholders(
+    escaped,
+    tokenPrefix,
+    stash,
     /\b-?\d+(?:\.\d+)?\b/g,
     '<span class="text-amber-200">$&</span>',
   );
 
-  escaped = escaped.replace(
+  escaped = decorateOutsidePlaceholders(
+    escaped,
+    tokenPrefix,
+    stash,
     /\b([A-Za-z_][\w]*)(?=\()/g,
     '<span class="text-cyan-200">$1</span>',
   );
 
-  escaped = escaped.replace(
+  escaped = decorateOutsidePlaceholders(
+    escaped,
+    tokenPrefix,
+    stash,
     /\b([A-Za-z_][\w]*)(?=\s*=)/g,
     '<span class="text-orange-200">$1</span>',
   );
+
+  if (language === 'php') {
+    escaped = decorateOutsidePlaceholders(
+      escaped,
+      tokenPrefix,
+      stash,
+      /\$([A-Za-z_]\w*)/g,
+      '<span class="text-orange-200">$$1</span>',
+    );
+  }
+
+  if (language === 'ruby') {
+    escaped = decorateOutsidePlaceholders(
+      escaped,
+      tokenPrefix,
+      stash,
+      /@{1,2}([A-Za-z_]\w*)/g,
+      '<span class="text-orange-200">@$1</span>',
+    );
+  }
 
   return escaped.replace(
     /___LLMSTORE_CODE_TOKEN_(\d+)___/g,
@@ -334,8 +515,51 @@ function detectCodeLanguage(value: string): SupportedCodeLanguage {
     return 'sql';
   }
 
-  if (/^\s*def\b|^\s*class\b|^\s*from\b.+\bimport\b|^\s*import\b.+$/m.test(trimmed)) {
+  if (/^\s*<\?php\b/m.test(trimmed) || /(^|\n)\s*\$[A-Za-z_]\w*\s*=/.test(trimmed) || /\becho\s+\$[A-Za-z_]\w*/.test(trimmed)) {
+    return 'php';
+  }
+
+  if (/^\s*package\s+\w+/m.test(trimmed) || /^\s*func\s+\w+\s*\(/m.test(trimmed) || /\bfmt\.(?:Print|Println|Printf)\s*\(/.test(trimmed)) {
+    return 'go';
+  }
+
+  if (/^\s*fn\s+\w+\s*\(/m.test(trimmed) || /\bprintln!\s*\(/.test(trimmed) || /\buse\s+std::/.test(trimmed) || /\blet\s+mut\b/.test(trimmed)) {
+    return 'rust';
+  }
+
+  if (/^\s*using\s+[A-Z][\w.]*(?:\s*;|\s*=)/m.test(trimmed) || /\bConsole\.Write(?:Line)?\s*\(/.test(trimmed) || /\bnamespace\s+[A-Z][\w.]*/.test(trimmed)) {
+    return 'csharp';
+  }
+
+  if (/^\s*import\s+java\./m.test(trimmed) || /\bSystem\.out\.println\s*\(/.test(trimmed) || /^\s*public\s+class\s+\w+/m.test(trimmed)) {
+    return 'java';
+  }
+
+  if (/^\s*fun\s+\w+\s*\(/m.test(trimmed) || /^\s*(?:val|var)\s+[A-Za-z_]\w*\s*[:=]/m.test(trimmed) || /^\s*package\s+[\w.]+\s*$/m.test(trimmed)) {
+    return 'kotlin';
+  }
+
+  if (/^\s*import\s+(?:SwiftUI|Foundation)\b/m.test(trimmed) || /^\s*func\s+\w+\s*\(/m.test(trimmed) || /\bguard\b[\s\S]*\belse\b/.test(trimmed)) {
+    return 'swift';
+  }
+
+  if (/^\s*require\s+['"][^'"]+['"]/m.test(trimmed) || /^\s*puts\b/m.test(trimmed) || /^\s*def\s+[A-Za-z_]\w*[!?=]?\b/m.test(trimmed) || /^\s*class\s+[A-Z]\w+/m.test(trimmed) && /\bend\b/m.test(trimmed)) {
+    return 'ruby';
+  }
+
+  if (/^\s*def\b|^\s*class\b|^\s*from\b.+\bimport\b|^\s*import\s+[A-Za-z_][\w.]*(?:\s+as\s+\w+)?\s*$/m.test(trimmed)) {
     return 'python';
+  }
+
+  if (/#include\s*<[^>]+>/.test(trimmed)) {
+    if (/\bstd::\w+/.test(trimmed) || /\bcout\s*<</.test(trimmed) || /\bcin\s*>>/.test(trimmed) || /\btemplate\s*</.test(trimmed) || /\bclass\s+\w+/.test(trimmed)) {
+      return 'cpp';
+    }
+    return 'c';
+  }
+
+  if (/\bprintf\s*\(/.test(trimmed) || /\bscanf\s*\(/.test(trimmed) || /\bint\s+main\s*\(/.test(trimmed)) {
+    return 'c';
   }
 
   if (/^#!\/bin\/(?:bash|sh)|^\s*(?:npm|pnpm|yarn|bun|git|cd|ls|cat|curl|docker|kubectl)\b/m.test(trimmed)) {
@@ -378,6 +602,16 @@ function highlightLine(value: string, language: SupportedCodeLanguage): string {
     case 'typescript':
     case 'bash':
     case 'python':
+    case 'php':
+    case 'c':
+    case 'cpp':
+    case 'csharp':
+    case 'go':
+    case 'rust':
+    case 'java':
+    case 'kotlin':
+    case 'swift':
+    case 'ruby':
     case 'sql':
       return highlightGenericLine(value, language);
     case 'text':
