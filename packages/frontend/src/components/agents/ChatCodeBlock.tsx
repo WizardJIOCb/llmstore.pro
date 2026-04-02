@@ -429,13 +429,10 @@ export function ChatCodeBlock({ code, className }: ChatCodeBlockProps) {
   };
 
   return (
-    <div className="my-3 overflow-hidden rounded-2xl border border-slate-800/80 bg-[radial-gradient(circle_at_top,rgba(56,189,248,0.12),transparent_38%),linear-gradient(180deg,#0f172a_0%,#0b1220_100%)] text-slate-100 shadow-[0_24px_60px_-36px_rgba(15,23,42,0.95)]">
-      <div className="flex items-center justify-between gap-3 border-b border-white/10 bg-white/[0.04] px-3 py-2.5">
+    <div className="my-3 overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-950 text-slate-100 shadow-[0_24px_60px_-36px_rgba(15,23,42,0.95)]">
+      <div className="flex items-center justify-between gap-3 border-b border-white/10 bg-slate-900 px-3 py-2.5">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="h-2.5 w-2.5 rounded-full bg-rose-400/80" />
-          <span className="h-2.5 w-2.5 rounded-full bg-amber-300/85" />
-          <span className="h-2.5 w-2.5 rounded-full bg-emerald-400/80" />
-          <span className="ml-2 inline-flex items-center rounded-full border border-sky-300/20 bg-sky-400/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-sky-100/90">
+          <span className="inline-flex items-center rounded-full border border-sky-300/20 bg-sky-400/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-sky-100/90">
             {LANGUAGE_LABELS[language]}
           </span>
           <span className="truncate text-[11px] text-slate-400">

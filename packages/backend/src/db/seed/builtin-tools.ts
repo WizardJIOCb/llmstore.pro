@@ -29,6 +29,65 @@ const builtinTools = [
     is_active: true,
   },
   {
+    name: 'Web Search Cascade',
+    slug: 'web-search-cascade',
+    tool_type: 'http_request' as const,
+    description: 'Каскадный веб-поиск по нескольким бесплатным провайдерам с fallback на следующий источник при ошибке или пустой выдаче.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Поисковый запрос' },
+        max_results: { type: 'number', description: 'Максимум результатов (по умолчанию 5)', default: 5 },
+        topic: {
+          type: 'string',
+          enum: ['general', 'news'],
+          description: 'Тип поиска: general или news',
+          default: 'general',
+        },
+      },
+      required: ['query'],
+    },
+    output_schema: {
+      type: 'object',
+      properties: {
+        provider: { type: ['string', 'null'] },
+        success: { type: 'boolean' },
+        results: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              title: { type: 'string' },
+              url: { type: 'string' },
+              snippet: { type: 'string' },
+              source: { type: 'string' },
+              published_at: { type: ['string', 'null'] },
+            },
+          },
+        },
+        attempts: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              provider: { type: 'string' },
+              status: { type: 'string' },
+              reason: { type: 'string' },
+              result_count: { type: 'number' },
+            },
+          },
+        },
+      },
+    },
+    config_json: {
+      timeout_ms: 12000,
+      max_results: 5,
+      provider_order: ['tavily', 'brave', 'google_cse', 'exa', 'serpapi', 'duckduckgo_html'],
+    },
+    is_builtin: true,
+    is_active: true,
+  },
+  {
     name: 'Calculator',
     slug: 'calculator',
     tool_type: 'calculator' as const,

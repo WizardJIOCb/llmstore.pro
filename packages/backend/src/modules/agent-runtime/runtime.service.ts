@@ -79,18 +79,25 @@ interface CodingReport {
   preview?: CodingReportPreview | null;
 }
 
-// Pricing per 1M tokens (USD) - OpenRouter rates, verified on April 1, 2026.
+// Pricing per 1M tokens (USD) - OpenRouter rates, verified on April 2, 2026.
 const MODEL_PRICING: Record<string, { input: number; output: number }> = {
   'google/gemini-2.0-flash-001': { input: 0.10, output: 0.40 },
   'google/gemini-2.0-flash-lite-001': { input: 0.075, output: 0.30 },
-  'google/gemini-2.5-flash': { input: 0.15, output: 0.60 },
+  'google/gemini-2.5-flash': { input: 0.30, output: 2.50 },
   'google/gemini-2.5-flash-preview': { input: 0.15, output: 0.60 },
+  'google/gemini-2.5-pro': { input: 1.25, output: 10.00 },
   'openai/gpt-4o': { input: 2.50, output: 10.00 },
   'gpt-4o': { input: 2.50, output: 10.00 },
   'openai/gpt-4o-mini': { input: 0.15, output: 0.60 },
   'gpt-4o-mini': { input: 0.15, output: 0.60 },
+  'openai/gpt-5.4': { input: 2.50, output: 15.00 },
+  'gpt-5.4': { input: 2.50, output: 15.00 },
   'openai/gpt-5.4-mini': { input: 0.75, output: 4.50 },
   'gpt-5.4-mini': { input: 0.75, output: 4.50 },
+  'openai/gpt-5.3-codex': { input: 1.75, output: 14.00 },
+  'gpt-5.3-codex': { input: 1.75, output: 14.00 },
+  'openai/gpt-5.1-codex-max': { input: 1.25, output: 10.00 },
+  'gpt-5.1-codex-max': { input: 1.25, output: 10.00 },
   'anthropic/claude-haiku-4.5': { input: 1.00, output: 5.00 },
   'claude-haiku-4.5': { input: 1.00, output: 5.00 },
   'anthropic/claude-sonnet-4.6': { input: 3.00, output: 15.00 },
@@ -99,7 +106,83 @@ const MODEL_PRICING: Record<string, { input: number; output: number }> = {
   'claude-opus-4.6': { input: 5.00, output: 25.00 },
   'qwen/qwen3-coder-plus': { input: 0.65, output: 3.25 },
   'qwen3-coder-plus': { input: 0.65, output: 3.25 },
+  'qwen/qwen3-coder-flash': { input: 0.195, output: 0.975 },
+  'qwen3-coder-flash': { input: 0.195, output: 0.975 },
+  'qwen/qwen3-coder-next': { input: 0.12, output: 0.75 },
+  'qwen3-coder-next': { input: 0.12, output: 0.75 },
+  'mistralai/codestral-2508': { input: 0.30, output: 0.90 },
+  'codestral-2508': { input: 0.30, output: 0.90 },
 };
+
+const MODEL_LABELS: Record<string, string> = {
+  'anthropic/claude-haiku-4.5': 'Claude Haiku 4.5',
+  'claude-haiku-4.5': 'Claude Haiku 4.5',
+  'anthropic/claude-sonnet-4.6': 'Claude Sonnet 4.6',
+  'claude-sonnet-4.6': 'Claude Sonnet 4.6',
+  'anthropic/claude-opus-4.6': 'Claude Opus 4.6',
+  'claude-opus-4.6': 'Claude Opus 4.6',
+  'openai/gpt-5.4': 'GPT-5.4',
+  'gpt-5.4': 'GPT-5.4',
+  'openai/gpt-5.4-mini': 'GPT-5.4 Mini',
+  'gpt-5.4-mini': 'GPT-5.4 Mini',
+  'openai/gpt-5.3-codex': 'GPT-5.3 Codex',
+  'gpt-5.3-codex': 'GPT-5.3 Codex',
+  'openai/gpt-5.1-codex-max': 'GPT-5.1 Codex Max',
+  'gpt-5.1-codex-max': 'GPT-5.1 Codex Max',
+  'qwen/qwen3-coder-plus': 'Qwen3 Coder Plus',
+  'qwen3-coder-plus': 'Qwen3 Coder Plus',
+  'qwen/qwen3-coder-flash': 'Qwen3 Coder Flash',
+  'qwen3-coder-flash': 'Qwen3 Coder Flash',
+  'qwen/qwen3-coder-next': 'Qwen3 Coder Next',
+  'qwen3-coder-next': 'Qwen3 Coder Next',
+  'mistralai/codestral-2508': 'Codestral 2508',
+  'codestral-2508': 'Codestral 2508',
+};
+
+const CODING_MODEL_IDS = new Set([
+  'anthropic/claude-haiku-4.5',
+  'claude-haiku-4.5',
+  'anthropic/claude-sonnet-4.6',
+  'claude-sonnet-4.6',
+  'anthropic/claude-opus-4.6',
+  'claude-opus-4.6',
+  'openai/gpt-5.4',
+  'gpt-5.4',
+  'openai/gpt-5.4-mini',
+  'gpt-5.4-mini',
+  'openai/gpt-5.3-codex',
+  'gpt-5.3-codex',
+  'openai/gpt-5.1-codex-max',
+  'gpt-5.1-codex-max',
+  'qwen/qwen3-coder-plus',
+  'qwen3-coder-plus',
+  'qwen/qwen3-coder-flash',
+  'qwen3-coder-flash',
+  'qwen/qwen3-coder-next',
+  'qwen3-coder-next',
+  'mistralai/codestral-2508',
+  'codestral-2508',
+]);
+
+function normalizeModelLookupKey(modelId?: string | null): string {
+  return modelId?.trim().toLowerCase() ?? '';
+}
+
+function getModelPricingInfo(modelId?: string | null): { input: number; output: number } | null {
+  const normalized = normalizeModelLookupKey(modelId);
+  return normalized ? (MODEL_PRICING[normalized] ?? null) : null;
+}
+
+function getModelDisplayLabel(modelId?: string | null): string | null {
+  const normalized = normalizeModelLookupKey(modelId);
+  if (!normalized) return null;
+  return MODEL_LABELS[normalized] ?? modelId?.trim() ?? null;
+}
+
+function isCodingModel(modelId?: string | null): boolean {
+  const normalized = normalizeModelLookupKey(modelId);
+  return normalized ? CODING_MODEL_IDS.has(normalized) : false;
+}
 
 function estimateCost(model: string, promptTokens: number, completionTokens: number): string {
   const normalizedModel = model.trim().toLowerCase();
@@ -1876,6 +1959,11 @@ interface ChatAgentOption {
   owner_user_id: string;
   is_owner: boolean;
   description: string | null;
+  model_external_id: string | null;
+  model_label: string | null;
+  pricing_input_usd_per_million: number | null;
+  pricing_output_usd_per_million: number | null;
+  is_coding_model: boolean;
   chat_description: string | null;
   starter_prompts: string[];
 }
@@ -2384,6 +2472,30 @@ export async function listChatAgents(userId: string, userRole?: string): Promise
     owner_user_id: row.owner_user_id,
     is_owner: row.owner_user_id === userId,
     description: row.description ?? null,
+    model_external_id:
+      typeof (row.runtime_config as Record<string, unknown> | null)?.model_external_id === 'string'
+        ? ((row.runtime_config as Record<string, unknown>).model_external_id as string).trim() || null
+        : null,
+    model_label: getModelDisplayLabel(
+      typeof (row.runtime_config as Record<string, unknown> | null)?.model_external_id === 'string'
+        ? ((row.runtime_config as Record<string, unknown>).model_external_id as string).trim() || null
+        : null,
+    ),
+    pricing_input_usd_per_million: getModelPricingInfo(
+      typeof (row.runtime_config as Record<string, unknown> | null)?.model_external_id === 'string'
+        ? ((row.runtime_config as Record<string, unknown>).model_external_id as string).trim() || null
+        : null,
+    )?.input ?? null,
+    pricing_output_usd_per_million: getModelPricingInfo(
+      typeof (row.runtime_config as Record<string, unknown> | null)?.model_external_id === 'string'
+        ? ((row.runtime_config as Record<string, unknown>).model_external_id as string).trim() || null
+        : null,
+    )?.output ?? null,
+    is_coding_model: isCodingModel(
+      typeof (row.runtime_config as Record<string, unknown> | null)?.model_external_id === 'string'
+        ? ((row.runtime_config as Record<string, unknown>).model_external_id as string).trim() || null
+        : null,
+    ),
     chat_description:
       (typeof (row.runtime_config as Record<string, unknown> | null)?.chat_intro === 'string'
         ? ((row.runtime_config as Record<string, unknown>).chat_intro as string).trim()
@@ -2427,7 +2539,7 @@ export async function createChat(userId: string, input: {
     mode,
     agent_id: input.agent_id ?? null,
     title: (input.title?.trim() || 'РќРѕРІС‹Р№ С‡Р°С‚').slice(0, 500),
-    model_external_id: input.model_external_id ?? null,
+    model_external_id: mode === 'agent' ? null : (input.model_external_id ?? null),
     system_prompt: input.system_prompt ?? null,
     access,
     access_identifiers: accessIdentifiers,
@@ -2818,9 +2930,13 @@ export async function updateChat(chatId: string, userId: string, input: {
       title: input.title ? input.title.trim().slice(0, 500) : existing.title,
       mode: nextMode,
       agent_id: nextAgentId ?? null,
-      model_external_id: input.model_external_id === undefined
-        ? existing.model_external_id
-        : (input.model_external_id ?? null),
+      model_external_id: nextMode === 'agent'
+        ? null
+        : (
+          input.model_external_id === undefined
+            ? existing.model_external_id
+            : (input.model_external_id ?? null)
+        ),
       system_prompt: input.system_prompt === undefined ? existing.system_prompt : (input.system_prompt ?? null),
       access: nextAccess,
       access_identifiers: nextAccessIdentifiers,
@@ -3086,7 +3202,7 @@ export async function sendChatMessage(
       messages: historyForModel
         .filter((m) => m.role === 'user' || m.role === 'assistant')
         .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
-      model_external_id: chat.model_external_id ?? null,
+      model_external_id: null,
     }, {
       sync_to_chats: false,
       on_event: emitChatEvent,

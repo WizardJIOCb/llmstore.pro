@@ -174,6 +174,11 @@ export interface ChatAgentOption {
   owner_user_id: string;
   is_owner: boolean;
   description: string | null;
+  model_external_id: string | null;
+  model_label: string | null;
+  pricing_input_usd_per_million: number | null;
+  pricing_output_usd_per_million: number | null;
+  is_coding_model: boolean;
   chat_description: string | null;
   starter_prompts: string[];
 }

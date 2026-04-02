@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ComponentPropsWithoutRef, CSSProperties, KeyboardEvent, ReactNode } from 'react';
 import Markdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Pencil, Trash2 } from 'lucide-react';
 import type { CodingReport, ToolTrace } from '../../lib/api/agents';
 import { cn } from '../../lib/utils';
@@ -1174,6 +1175,7 @@ export function ChatMessage({
             content
           ) : (
             <Markdown
+              remarkPlugins={[remarkGfm]}
               components={{
                 a: ({ href, children }) => (
                   <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary underline hover:opacity-80">

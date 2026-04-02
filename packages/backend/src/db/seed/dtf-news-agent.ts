@@ -3,6 +3,25 @@ import { agents, agentVersions, agentVersionTools, toolDefinitions } from '../sc
 import { users } from '../schema/auth.js';
 import { eq } from 'drizzle-orm';
 
+const CLEAN_SYSTEM_PROMPT = `Ты — новостной помощник DTF.ru. Твоя задача — помогать пользователю получать и анализировать новости с сайта DTF.ru.
+
+Возможности:
+- получить список последних статей с DTF через инструмент dtf-latest-feed;
+- получить популярные и обсуждаемые статьи за период через dtf-popular-feed;
+- загрузить полный текст конкретной статьи по URL через dtf-article-fetch;
+- сделать краткий пересказ статьи и ответить на вопросы по её содержанию.
+
+Правила:
+- всегда отвечай на русском языке;
+- при перечислении статей указывай заголовок, автора, ссылку и статистику, если она доступна;
+- при пересказе выделяй суть, ключевые факты и интересные детали;
+- если пользователь просит последние новости, используй dtf-latest-feed;
+- если пользователь просит популярные или обсуждаемые материалы, используй dtf-popular-feed с подходящими параметрами сортировки и периода;
+- если пользователь просит пересказать статью по названию, сначала найди нужный материал через ленту, затем загрузи текст через dtf-article-fetch.`;
+
+const DTF_AGENT_DESCRIPTION =
+  'AI-агент для получения и анализа новостей с DTF.ru. Умеет показывать свежие и популярные статьи, загружать полный текст и делать краткие пересказы.';
+
 const SYSTEM_PROMPT = `Ты — новостной помощник DTF.ru. Твоя задача — помогать пользователю получать и анализировать новости с сайта DTF.ru.
 
 Возможности:
@@ -57,7 +76,7 @@ export async function seedDtfNewsAgent() {
         agent_id: existing.id,
         version_number: 2,
         runtime_engine: 'openrouter_chat',
-        system_prompt: SYSTEM_PROMPT,
+        system_prompt: CLEAN_SYSTEM_PROMPT,
         response_mode: 'text',
         runtime_config: {
           max_iterations: 6,
@@ -69,7 +88,7 @@ export async function seedDtfNewsAgent() {
         target: [agentVersions.agent_id, agentVersions.version_number],
         set: {
           runtime_engine: 'openrouter_chat',
-          system_prompt: SYSTEM_PROMPT,
+          system_prompt: CLEAN_SYSTEM_PROMPT,
           response_mode: 'text',
           runtime_config: {
             max_iterations: 6,
@@ -80,7 +99,13 @@ export async function seedDtfNewsAgent() {
       })
       .returning();
 
-    await db.update(agents).set({ current_version_id: version.id }).where(eq(agents.id, existing.id));
+    await db
+      .update(agents)
+      .set({
+        current_version_id: version.id,
+        description: DTF_AGENT_DESCRIPTION,
+      })
+      .where(eq(agents.id, existing.id));
 
     for (const t of toolIds) {
       await db.insert(agentVersionTools).values({
@@ -114,7 +139,7 @@ export async function seedDtfNewsAgent() {
       agent_id: agent.id,
       version_number: 1,
       runtime_engine: 'openrouter_chat',
-      system_prompt: SYSTEM_PROMPT,
+      system_prompt: CLEAN_SYSTEM_PROMPT,
       response_mode: 'text',
       runtime_config: {
         max_iterations: 6,
@@ -124,7 +149,13 @@ export async function seedDtfNewsAgent() {
     })
     .returning();
 
-  await db.update(agents).set({ current_version_id: version.id }).where(eq(agents.id, agent.id));
+  await db
+    .update(agents)
+    .set({
+      current_version_id: version.id,
+      description: DTF_AGENT_DESCRIPTION,
+    })
+    .where(eq(agents.id, agent.id));
 
   for (const t of toolIds) {
     await db.insert(agentVersionTools).values({

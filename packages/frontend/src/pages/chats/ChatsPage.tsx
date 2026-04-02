@@ -29,21 +29,85 @@ import { useProfile } from '../../hooks/useProfile';
 import { chatsApi } from '../../lib/api/chats';
 import type {
   ChatAccess,
+  ChatAgentOption,
   ChatAttachment,
   ChatDetails,
   ChatListItem,
   ChatMessage as ChatMessageType,
+  ChatMode,
   CodingReport,
   ToolTrace,
 } from '../../lib/api/chats';
 import { cn } from '../../lib/utils';
 import { TopUpHelp } from '../../components/billing/TopUpHelp';
 
-const GENERAL_MODELS = [
-  { value: 'openai/gpt-4o-mini', label: 'OpenAI GPT-4o Mini' },
-  { value: 'openai/gpt-4o', label: 'OpenAI GPT-4o' },
-  { value: 'google/gemini-2.0-flash-001', label: 'Gemini 2.0 Flash' },
-  { value: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+interface GeneralModelOption {
+  value: string;
+  label: string;
+  description: string;
+  pricing_input_usd_per_million: number;
+  pricing_output_usd_per_million: number;
+}
+
+type PropertiesModeView = 'general' | 'coding' | 'other';
+
+const GENERAL_MODELS: GeneralModelOption[] = [
+  {
+    value: 'openai/gpt-4o-mini',
+    label: 'GPT-4o Mini',
+    description: 'Лучший бюджетный дефолт для повседневного общения, быстрых ответов и недорогих диалогов.',
+    pricing_input_usd_per_million: 0.15,
+    pricing_output_usd_per_million: 0.60,
+  },
+  {
+    value: 'google/gemini-2.5-flash',
+    label: 'Gemini 2.5 Flash',
+    description: 'Быстрый reasoning-вариант с большим контекстом, когда нужен баланс цены и “умности”.',
+    pricing_input_usd_per_million: 0.30,
+    pricing_output_usd_per_million: 2.50,
+  },
+  {
+    value: 'openai/gpt-5.4-mini',
+    label: 'GPT-5.4 Mini',
+    description: 'Сильный modern-balanced вариант для чатов, где хочется лучшее качество без premium-цены.',
+    pricing_input_usd_per_million: 0.75,
+    pricing_output_usd_per_million: 4.50,
+  },
+  {
+    value: 'anthropic/claude-haiku-4.5',
+    label: 'Claude Haiku 4.5',
+    description: 'Очень приятная быстрая модель для живого стиля ответа, summaries и частых коротких запросов.',
+    pricing_input_usd_per_million: 1.00,
+    pricing_output_usd_per_million: 5.00,
+  },
+  {
+    value: 'google/gemini-2.5-pro',
+    label: 'Gemini 2.5 Pro',
+    description: 'Сильный вариант для длинного контекста, сложного reasoning и вдумчивых ответов.',
+    pricing_input_usd_per_million: 1.25,
+    pricing_output_usd_per_million: 10.00,
+  },
+  {
+    value: 'openai/gpt-4o',
+    label: 'GPT-4o',
+    description: 'Стабильный premium-класс для качественного мультимодального общения и общего использования.',
+    pricing_input_usd_per_million: 2.50,
+    pricing_output_usd_per_million: 10.00,
+  },
+  {
+    value: 'openai/gpt-5.4',
+    label: 'GPT-5.4',
+    description: 'Флагманский general-purpose вариант, когда нужен максимально сильный обычный чат.',
+    pricing_input_usd_per_million: 2.50,
+    pricing_output_usd_per_million: 15.00,
+  },
+  {
+    value: 'anthropic/claude-sonnet-4.6',
+    label: 'Claude Sonnet 4.6',
+    description: 'Очень сильный quality-first вариант для содержательных ответов, письма и сложных обсуждений.',
+    pricing_input_usd_per_million: 3.00,
+    pricing_output_usd_per_million: 15.00,
+  },
 ];
 
 const CHAT_ACCESS_OPTIONS = [
@@ -73,6 +137,37 @@ function formatMoney(value: number, currency: 'USD' | 'RUB'): string {
     minimumFractionDigits: 4,
     maximumFractionDigits: 4,
   }).format(value);
+}
+
+function formatUsdCompact(value: number): string {
+  if (value >= 1) {
+    return `$${value.toFixed(value % 1 === 0 ? 0 : 2)}`;
+  }
+
+  if (value >= 0.1) {
+    return `$${value.toFixed(2)}`;
+  }
+
+  return `$${value.toFixed(3)}`;
+}
+
+function formatAgentPricing(agent: ChatAgentOption): string | null {
+  if (
+    typeof agent.pricing_input_usd_per_million !== 'number'
+    || typeof agent.pricing_output_usd_per_million !== 'number'
+  ) {
+    return null;
+  }
+
+  return `${formatUsdCompact(agent.pricing_input_usd_per_million)} in / ${formatUsdCompact(agent.pricing_output_usd_per_million)} out за 1M`;
+}
+
+function formatGeneralModelPricing(model: GeneralModelOption): string {
+  return `${formatUsdCompact(model.pricing_input_usd_per_million)} in / ${formatUsdCompact(model.pricing_output_usd_per_million)} out за 1M`;
+}
+
+function buildAgentMetaLabel(agent: ChatAgentOption): string {
+  return agent.model_external_id?.trim() || '';
 }
 
 function formatDuration(ms: number): string {
@@ -298,10 +393,14 @@ export function ChatsPage() {
   const [isDesktop, setIsDesktop] = useState(() => window.matchMedia('(min-width: 768px)').matches);
   const [newChatMode, setNewChatMode] = useState<'general' | 'agent'>('general');
   const [newChatAgentId, setNewChatAgentId] = useState('');
+  const [newChatModel, setNewChatModel] = useState('openai/gpt-4o-mini');
+  const [propertiesModeView, setPropertiesModeView] = useState<PropertiesModeView>('general');
+  const [propertiesAgentId, setPropertiesAgentId] = useState('');
   const [propertiesModel, setPropertiesModel] = useState('openai/gpt-4o-mini');
   const [propertiesAccess, setPropertiesAccess] = useState<ChatAccess>('public');
   const [propertiesAllowedText, setPropertiesAllowedText] = useState('');
   const [propertiesSaving, setPropertiesSaving] = useState(false);
+  const [propertiesError, setPropertiesError] = useState<string | null>(null);
   const [streamEvents, setStreamEvents] = useState<LiveChatEvent[]>([]);
   const [streamConnected, setStreamConnected] = useState(false);
   const [isAwaitingLateReply, setIsAwaitingLateReply] = useState(false);
@@ -803,10 +902,19 @@ export function ChatsPage() {
 
   useEffect(() => {
     if (!isPropertiesOpen || !activeChat) return;
+    const activeAgent = (agents ?? []).find((agent) => agent.id === (activeChat.agent_id ?? '')) ?? null;
+    setPropertiesModeView(
+      activeChat.mode === 'general'
+        ? 'general'
+        : activeAgent?.is_coding_model
+          ? 'coding'
+          : 'other',
+    );
+    setPropertiesAgentId(activeChat.agent_id ?? '');
     setPropertiesModel(activeChat.model_external_id ?? 'openai/gpt-4o-mini');
     setPropertiesAccess(activeChat.access ?? 'public');
     setPropertiesAllowedText((activeChat.access_identifiers ?? []).join('\n'));
-  }, [isPropertiesOpen, activeChat]);
+  }, [isPropertiesOpen, activeChat, agents]);
 
   useEffect(() => {
     setIsQuickPromptsOpen(displayedMessages.length === 0);
@@ -853,6 +961,53 @@ export function ChatsPage() {
     ],
     [agents],
   );
+  const propertiesModeOptions = useMemo(
+    () => [
+      { value: 'general', label: 'Общение' },
+      { value: 'coding', label: 'Coding' },
+      { value: 'other', label: 'Другие' },
+    ],
+    [],
+  );
+  const generalModelOptions = useMemo(
+    () => GENERAL_MODELS.map((model) => ({
+      value: model.value,
+      label: `${model.label} • ${formatGeneralModelPricing(model)}`,
+    })),
+    [],
+  );
+  const sortedAgentOptions = useMemo(
+    () => [...(agents ?? [])].sort((left, right) => {
+      const leftPrice = (left.pricing_input_usd_per_million ?? Number.POSITIVE_INFINITY)
+        + (left.pricing_output_usd_per_million ?? Number.POSITIVE_INFINITY);
+      const rightPrice = (right.pricing_input_usd_per_million ?? Number.POSITIVE_INFINITY)
+        + (right.pricing_output_usd_per_million ?? Number.POSITIVE_INFINITY);
+
+      if (leftPrice !== rightPrice) {
+        return leftPrice - rightPrice;
+      }
+
+      return left.name.localeCompare(right.name, 'ru');
+    }),
+    [agents],
+  );
+  const codingAgentOptions = useMemo(
+    () => sortedAgentOptions.filter((agent) => agent.is_coding_model),
+    [sortedAgentOptions],
+  );
+  const otherAgentOptions = useMemo(
+    () => sortedAgentOptions.filter((agent) => !agent.is_coding_model),
+    [sortedAgentOptions],
+  );
+  const propertiesSelectedAgent = useMemo(
+    () => (agents ?? []).find((agent) => agent.id === propertiesAgentId) ?? null,
+    [agents, propertiesAgentId],
+  );
+  const propertiesSelectedGeneralModel = useMemo(
+    () => GENERAL_MODELS.find((model) => model.value === propertiesModel) ?? null,
+    [propertiesModel],
+  );
+  const isPropertiesAgentMode = propertiesModeView !== 'general';
 
   const activeModeValue = useMemo(() => {
     if (!activeChat) return '';
@@ -871,6 +1026,11 @@ export function ChatsPage() {
     ?? activeAgentListMeta?.chat_description
     ?? activeAgentListMeta?.description
     ?? null;
+  const activeAgentPricing = activeAgentListMeta ? formatAgentPricing(activeAgentListMeta) : null;
+  const activeGeneralModel = useMemo(
+    () => GENERAL_MODELS.find((model) => model.value === activeChat?.model_external_id) ?? null,
+    [activeChat?.model_external_id],
+  );
   const activeStarterPrompts =
     activeChatData?.chat.agent_starter_prompts
     ?? activeAgentListMeta?.starter_prompts
@@ -924,13 +1084,32 @@ export function ChatsPage() {
         mode: newChatMode,
         title: 'Новый чат',
         agent_id: newChatMode === 'agent' ? newChatAgentId : null,
+        model_external_id: newChatMode === 'general' ? newChatModel : null,
       });
       setActiveChatId(created.id);
       setIsCreateDialogOpen(false);
       setNewChatMode('general');
       setNewChatAgentId('');
+      setNewChatModel('openai/gpt-4o-mini');
     } catch {
       showLocalError('Не удалось создать чат');
+    }
+  };
+
+  const updateActiveGeneralModel = async (modelExternalId: string) => {
+    if (!activeChat || activeChat.mode !== 'general') return;
+    if (activeChat.model_external_id === modelExternalId) return;
+
+    setLocalError(null);
+    try {
+      await updateChatMutation.mutateAsync({
+        chatId: activeChat.id,
+        mode: 'general',
+        agent_id: null,
+        model_external_id: modelExternalId,
+      });
+    } catch {
+      showLocalError('Не удалось сменить модель чата');
     }
   };
 
@@ -980,27 +1159,39 @@ export function ChatsPage() {
   const openProperties = (chatId: string) => {
     setActiveChatId(chatId);
     setOpenMenu(null);
+    setPropertiesError(null);
     setIsPropertiesOpen(true);
   };
 
   const saveProperties = async () => {
     if (!activeChat) return;
     setLocalError(null);
-    setPropertiesSaving(true);
+    setPropertiesError(null);
+    if (isPropertiesAgentMode && !propertiesAgentId) {
+      setPropertiesError('Выберите агента для режима чата');
+      return;
+    }
     const accessIdentifiers = propertiesAllowedText
       .split(/\r?\n|,/)
       .map((item) => item.trim())
       .filter(Boolean);
+    if (propertiesAccess === 'restricted' && accessIdentifiers.length === 0) {
+      setPropertiesError('Для ограниченного доступа укажите хотя бы один email или @логин');
+      return;
+    }
+    setPropertiesSaving(true);
     try {
       await updateChatMutation.mutateAsync({
         chatId: activeChat.id,
-        model_external_id: propertiesModel,
+        mode: isPropertiesAgentMode ? 'agent' : 'general',
+        agent_id: isPropertiesAgentMode ? propertiesAgentId : null,
+        model_external_id: isPropertiesAgentMode ? null : propertiesModel,
         access: propertiesAccess,
         access_identifiers: accessIdentifiers,
       });
       setIsPropertiesOpen(false);
     } catch (error) {
-      showLocalError(getApiErrorMessage(error) ?? 'Не удалось сохранить свойства чата');
+      setPropertiesError(getApiErrorMessage(error) ?? 'Не удалось сохранить свойства чата');
     } finally {
       setPropertiesSaving(false);
     }
@@ -1023,6 +1214,26 @@ export function ChatsPage() {
       }
     } catch {
       showLocalError('Не удалось изменить режим чата');
+    }
+  };
+
+  const handlePropertiesModeViewChange = (value: string) => {
+    const nextValue = value as PropertiesModeView;
+    setPropertiesModeView(nextValue);
+
+    if (nextValue === 'coding') {
+      const currentIsCoding = codingAgentOptions.some((agent) => agent.id === propertiesAgentId);
+      if (!currentIsCoding && codingAgentOptions[0]) {
+        setPropertiesAgentId(codingAgentOptions[0].id);
+      }
+      return;
+    }
+
+    if (nextValue === 'other') {
+      const currentIsOther = otherAgentOptions.some((agent) => agent.id === propertiesAgentId);
+      if (!currentIsOther && otherAgentOptions[0]) {
+        setPropertiesAgentId(otherAgentOptions[0].id);
+      }
     }
   };
 
@@ -1304,6 +1515,9 @@ export function ChatsPage() {
                   <div className="mx-auto max-w-3xl rounded-xl border bg-muted/20 p-5 space-y-4">
                     <div>
                       <h3 className="text-base font-semibold">{activeAgentName ?? 'Агент'}</h3>
+                      {activeAgentPricing ? (
+                        <p className="mt-1 text-xs text-muted-foreground">{activeAgentPricing}</p>
+                      ) : null}
                       <p className="mt-1 text-sm text-muted-foreground">
                         {activeAgentDescription || 'Опишите задачу агенту простыми словами, и он начнет работу.'}
                       </p>
@@ -1320,6 +1534,31 @@ export function ChatsPage() {
                         </div>
                       </div>
                     )}
+                  </div>
+                ) : activeChat.mode === 'general' ? (
+                  <div className="mx-auto max-w-3xl rounded-xl border bg-muted/20 p-5 space-y-4">
+                    <div>
+                      <h3 className="text-base font-semibold">
+                        {activeGeneralModel?.label ?? activeChat.model_external_id ?? 'OpenRouter'}
+                      </h3>
+                      <div className="mt-3 max-w-md">
+                        <Select
+                          value={activeChat.model_external_id ?? 'openai/gpt-4o-mini'}
+                          options={generalModelOptions}
+                          onChange={(e) => updateActiveGeneralModel(e.target.value)}
+                          disabled={updateChatMutation.isPending}
+                          className="w-full"
+                        />
+                      </div>
+                      {activeGeneralModel ? (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {formatGeneralModelPricing(activeGeneralModel)}
+                        </p>
+                      ) : null}
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {activeGeneralModel?.description || 'Выбрана модель для обычного общения через OpenRouter. Отправьте первое сообщение, чтобы начать диалог.'}
+                      </p>
+                    </div>
                   </div>
                 ) : (
                   <div className="text-center text-muted-foreground">История пока пустая. Отправьте первое сообщение.</div>
@@ -1634,6 +1873,41 @@ export function ChatsPage() {
                 />
               </div>
 
+              {newChatMode === 'general' && (
+                <div className="rounded-xl border bg-muted/20 p-4 space-y-3">
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium">Выберите модель для общения</p>
+                    <p className="text-xs text-muted-foreground">
+                      Под каждой моделью видно, для чего она лучше подходит и сколько стоит.
+                    </p>
+                  </div>
+                  <div className="max-h-72 space-y-2 overflow-y-auto rounded-xl border bg-background p-2">
+                    {GENERAL_MODELS.map((model) => {
+                      const isSelected = newChatModel === model.value;
+
+                      return (
+                        <button
+                          key={model.value}
+                          type="button"
+                          onClick={() => setNewChatModel(model.value)}
+                          className={cn(
+                            'w-full rounded-lg border px-3 py-3 text-left transition-colors',
+                            isSelected
+                              ? 'border-primary bg-primary/8 shadow-sm'
+                              : 'border-border bg-background hover:border-primary/30 hover:bg-accent/40',
+                          )}
+                        >
+                          <p className="text-sm font-medium text-foreground">{model.label}</p>
+                          <p className="mt-1 break-all text-xs text-muted-foreground">{model.value}</p>
+                          <p className="mt-1 text-xs leading-5 text-muted-foreground">{model.description}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">{formatGeneralModelPricing(model)}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {newChatMode === 'agent' && (
                 <div className="rounded-xl border bg-muted/20 p-4 space-y-2">
                   <p className="text-sm font-medium">Выберите агента</p>
@@ -1681,40 +1955,201 @@ export function ChatsPage() {
               <Button variant="ghost" size="sm" onClick={() => setIsPropertiesOpen(false)}>Закрыть</Button>
             </div>
             <div className="p-5 space-y-5 max-h-[70vh] overflow-y-auto">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1"><p className="text-xs uppercase tracking-wide text-muted-foreground">Режим</p><p className="text-sm font-medium">{activeChat.mode === 'general' ? 'Общение' : 'Агент'}</p></div>
-                <div className="space-y-1"><p className="text-xs uppercase tracking-wide text-muted-foreground">Агент</p><p className="text-sm font-medium">{activeChatStats?.chat.agent_name ?? '—'}</p></div>
-                <div className="space-y-1"><p className="text-xs uppercase tracking-wide text-muted-foreground">Создан</p><p className="text-sm font-medium">{formatDate(activeChat.created_at)}</p></div>
-                <div className="space-y-1"><p className="text-xs uppercase tracking-wide text-muted-foreground">Обновлен</p><p className="text-sm font-medium">{formatDate(activeChat.updated_at)}</p></div>
-              </div>
-              <div className="space-y-2"><p className="text-sm font-medium">Модель OpenRouter</p><Select options={GENERAL_MODELS} value={propertiesModel} onChange={(e) => setPropertiesModel(e.target.value)} className="w-full max-w-md" /></div>
-              <div className="grid gap-4 lg:grid-cols-[minmax(0,260px)_minmax(0,1fr)]">
-                <div className="space-y-2">
-                  <p className="text-sm font-medium">Доступ к чату</p>
-                  <Select
-                    options={CHAT_ACCESS_OPTIONS}
-                    value={propertiesAccess}
-                    onChange={(e) => setPropertiesAccess(e.target.value as ChatAccess)}
-                    className="w-full"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    В галерею и по публичной ссылке попадают только общие чаты.
-                  </p>
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-xl border bg-muted/10 p-3 space-y-1">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Текущий режим</p>
+                  <p className="text-sm font-medium">{activeChat.mode === 'general' ? 'Общение' : 'Агент'}</p>
                 </div>
-                <div className="space-y-2">
-                  <p className="text-sm font-medium">Разрешённые email и логины</p>
-                  <textarea
-                    value={propertiesAllowedText}
-                    onChange={(e) => setPropertiesAllowedText(e.target.value)}
-                    disabled={propertiesAccess !== 'restricted'}
-                    className="min-h-32 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:border-input"
-                    placeholder={"Один email или @логин на строку\nuser@example.com\n@rodion"}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Используется только для режима “Ограниченный”.
-                  </p>
+                <div className="rounded-xl border bg-muted/10 p-3 space-y-1">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Текущий агент</p>
+                  <p className="text-sm font-medium">{activeChatStats?.chat.agent_name ?? '—'}</p>
+                </div>
+                <div className="rounded-xl border bg-muted/10 p-3 space-y-1">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Создан</p>
+                  <p className="text-sm font-medium">{formatDate(activeChat.created_at)}</p>
+                </div>
+                <div className="rounded-xl border bg-muted/10 p-3 space-y-1">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Обновлен</p>
+                  <p className="text-sm font-medium">{formatDate(activeChat.updated_at)}</p>
                 </div>
               </div>
+
+              <div className="rounded-2xl border bg-muted/10 p-4 space-y-4">
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">Как чат должен отвечать</p>
+                  <p className="text-xs text-muted-foreground">
+                    Можно переключить обычный чат в режим агента и обратно прямо отсюда.
+                  </p>
+                </div>
+
+                {propertiesModeView === 'general' ? (
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium">Режим чата</p>
+                      <Select
+                        options={propertiesModeOptions}
+                        value={propertiesModeView}
+                        onChange={(e) => handlePropertiesModeViewChange(e.target.value)}
+                        className="w-full max-w-sm"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        {propertiesSelectedGeneralModel
+                          ? `Сейчас выбрана: ${propertiesSelectedGeneralModel.label} • ${formatGeneralModelPricing(propertiesSelectedGeneralModel)}`
+                          : 'Если у чата старая модель, выбери новую из каталога ниже.'}
+                      </p>
+                    </div>
+
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm font-medium">Каталог моделей для общения</p>
+                        <p className="text-xs text-muted-foreground">Под каждой моделью видно, для чего она лучше подходит и сколько стоит</p>
+                      </div>
+                      <div className="max-h-72 space-y-2 overflow-y-auto rounded-xl border bg-background p-2">
+                        {GENERAL_MODELS.map((model) => {
+                          const isSelected = propertiesModel === model.value;
+
+                          return (
+                            <button
+                              key={model.value}
+                              type="button"
+                              onClick={() => setPropertiesModel(model.value)}
+                              className={cn(
+                                'w-full rounded-lg border px-3 py-3 text-left transition-colors',
+                                isSelected
+                                  ? 'border-primary bg-primary/8 shadow-sm'
+                                  : 'border-border bg-background hover:border-primary/30 hover:bg-accent/40',
+                              )}
+                            >
+                              <p className="text-sm font-medium text-foreground">{model.label}</p>
+                              <p className="mt-1 break-all text-xs text-muted-foreground">{model.value}</p>
+                              <p className="mt-1 text-xs leading-5 text-muted-foreground">{model.description}</p>
+                              <p className="mt-1 text-xs text-muted-foreground">{formatGeneralModelPricing(model)}</p>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium">Режим чата</p>
+                      <Select
+                        options={propertiesModeOptions}
+                        value={propertiesModeView}
+                        onChange={(e) => handlePropertiesModeViewChange(e.target.value)}
+                        className="w-full max-w-sm"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        {propertiesSelectedAgent
+                          ? `Сейчас выбран: ${propertiesSelectedAgent.model_label ?? propertiesSelectedAgent.name}${formatAgentPricing(propertiesSelectedAgent) ? ` • ${formatAgentPricing(propertiesSelectedAgent)}` : ''}`
+                          : 'Выберите агента ниже. Для coding-моделей сразу видна ориентировочная стоимость input/output.'}
+                      </p>
+                    </div>
+
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm font-medium">Каталог агентов</p>
+                        <p className="text-xs text-muted-foreground">Модель и цена показаны отдельно для удобного выбора</p>
+                      </div>
+                      <div className="space-y-3">
+                        {propertiesModeView === 'coding' && codingAgentOptions.length > 0 && (
+                          <div className="space-y-2">
+                            <p className="text-xs uppercase tracking-wide text-muted-foreground">Подходят для кодинга</p>
+                            <div className="max-h-72 space-y-2 overflow-y-auto rounded-xl border bg-background p-2">
+                              {codingAgentOptions.map((agent) => {
+                                const isSelected = propertiesAgentId === agent.id;
+                                const agentMeta = buildAgentMetaLabel(agent);
+                                const pricingLabel = formatAgentPricing(agent);
+
+                                return (
+                                  <button
+                                    key={agent.id}
+                                    type="button"
+                                    onClick={() => setPropertiesAgentId(agent.id)}
+                                    className={cn(
+                                      'w-full rounded-lg border px-3 py-3 text-left transition-colors',
+                                      isSelected
+                                        ? 'border-primary bg-primary/8 shadow-sm'
+                                        : 'border-border bg-background hover:border-primary/30 hover:bg-accent/40',
+                                    )}
+                                  >
+                                    <div className="flex items-start justify-between gap-3">
+                                      <div className="min-w-0">
+                                        <p className="truncate text-sm font-medium text-foreground">
+                                          {agent.model_label ?? agent.name}
+                                        </p>
+                                        {agentMeta ? (
+                                          <p className="mt-1 break-all text-xs text-muted-foreground">
+                                            {agentMeta}
+                                          </p>
+                                        ) : null}
+                                        <p className="mt-1 text-xs text-muted-foreground">
+                                          {pricingLabel || 'Цена для этой модели пока не указана'}
+                                        </p>
+                                      </div>
+                                      <span className="shrink-0 rounded-full border border-sky-300/30 bg-sky-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-700">
+                                        coding
+                                      </span>
+                                    </div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                        {propertiesModeView === 'other' && otherAgentOptions.length > 0 && (
+                          <div className="space-y-2">
+                            <p className="text-xs uppercase tracking-wide text-muted-foreground">Остальные агенты</p>
+                            <div className="max-h-56 space-y-2 overflow-y-auto rounded-xl border bg-background p-2">
+                              {otherAgentOptions.map((agent) => {
+                                const isSelected = propertiesAgentId === agent.id;
+                                const agentMeta = buildAgentMetaLabel(agent);
+                                const pricingLabel = formatAgentPricing(agent);
+
+                                return (
+                                  <button
+                                    key={agent.id}
+                                    type="button"
+                                    onClick={() => setPropertiesAgentId(agent.id)}
+                                    className={cn(
+                                      'w-full rounded-lg border px-3 py-3 text-left transition-colors',
+                                      isSelected
+                                        ? 'border-primary bg-primary/8 shadow-sm'
+                                        : 'border-border bg-background hover:border-primary/30 hover:bg-accent/40',
+                                    )}
+                                  >
+                                    <p className="truncate text-sm font-medium text-foreground">{agent.name}</p>
+                                    {agentMeta ? (
+                                      <p className="mt-1 break-all text-xs text-muted-foreground">
+                                        {agentMeta}
+                                      </p>
+                                    ) : null}
+                                    <p className="mt-1 text-xs text-muted-foreground">
+                                      {pricingLabel || (agent.chat_description ?? agent.description ?? 'Без дополнительного описания')}
+                                    </p>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                        {propertiesModeView === 'coding' && codingAgentOptions.length === 0 && (
+                          <div className="rounded-lg border bg-background px-3 py-4 text-sm text-muted-foreground">
+                            Сейчас нет доступных coding-агентов.
+                          </div>
+                        )}
+                        {propertiesModeView === 'other' && otherAgentOptions.length === 0 && (
+                          <div className="rounded-lg border bg-background px-3 py-4 text-sm text-muted-foreground">
+                            Нет доступных агентов для выбора.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {chatStatsLoading ? <div className="flex justify-center py-6"><Spinner /></div> : null}
               {!chatStatsLoading && activeChatStats && (
                 <div className="space-y-5">
@@ -1767,10 +2202,45 @@ export function ChatsPage() {
                   </div>
                 </div>
               )}
+              <div className="rounded-2xl border bg-muted/10 p-4">
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">Доступ к чату</p>
+                    <Select
+                      options={CHAT_ACCESS_OPTIONS}
+                      value={propertiesAccess}
+                      onChange={(e) => setPropertiesAccess(e.target.value as ChatAccess)}
+                      className="w-full"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      В галерею и по публичной ссылке попадают только общие чаты.
+                    </p>
+                  </div>
+                  {propertiesAccess === 'restricted' ? (
+                    <div className="space-y-2">
+                    <p className="text-sm font-medium">Разрешённые email и логины</p>
+                    <textarea
+                      value={propertiesAllowedText}
+                      onChange={(e) => setPropertiesAllowedText(e.target.value)}
+                      className="min-h-32 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:border-input"
+                      placeholder={"Один email или @логин на строку\nuser@example.com\n@rodion"}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Используется только для режима “Ограниченный”.
+                    </p>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
             </div>
-            <div className="border-t px-5 py-4 flex items-center justify-end gap-2">
+            <div className="border-t px-5 py-4 flex items-center justify-between gap-3">
+              <div className="min-h-5 text-sm text-destructive">
+                {propertiesError ?? ''}
+              </div>
+              <div className="flex items-center gap-2">
               <Button variant="outline" size="sm" onClick={() => setIsPropertiesOpen(false)}>Отмена</Button>
               <Button size="sm" onClick={saveProperties} disabled={propertiesSaving}>{propertiesSaving ? 'Сохраняю...' : 'Сохранить'}</Button>
+              </div>
             </div>
           </div>
         </div>

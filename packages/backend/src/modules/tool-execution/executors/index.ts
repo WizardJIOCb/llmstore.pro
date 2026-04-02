@@ -3,9 +3,14 @@ import { AppError } from '../../../middleware/error-handler.js';
 import { executeDtfFeed } from './dtf-feed.executor.js';
 import { executeDtfArticleFetch } from './dtf-article.executor.js';
 import { executeDtfPopularFeed } from './dtf-popular-feed.executor.js';
+import { executeHttpRequest } from './http-request.executor.js';
+import { executeWebSearchCascade } from './web-search-cascade.executor.js';
 import type { ToolExecutionResult } from '../types.js';
 
-type ToolExecutor = (input: Record<string, unknown>) => Promise<Record<string, unknown>>;
+type ToolExecutor = (
+  input: Record<string, unknown>,
+  config?: Record<string, unknown>,
+) => Promise<Record<string, unknown>>;
 
 const executorRegistry = new Map<string, ToolExecutor>();
 
@@ -23,6 +28,14 @@ executorRegistry.set('dtf-article-fetch', async (input) => {
 executorRegistry.set('dtf-popular-feed', async (input) => {
   const result = await executeDtfPopularFeed(input as { sorting?: string; period?: string; limit?: number });
   return result as unknown as Record<string, unknown>;
+});
+
+executorRegistry.set('http-request', async (input, config) => {
+  return executeHttpRequest(input, config);
+});
+
+executorRegistry.set('web-search-cascade', async (input, config) => {
+  return executeWebSearchCascade(input, config);
 });
 
 // Calculator executor
@@ -50,7 +63,7 @@ executorRegistry.set('mock-tool', async (input) => {
 export async function executeTool(
   slug: string,
   input: Record<string, unknown>,
-  _config?: Record<string, unknown>,
+  config?: Record<string, unknown>,
 ): Promise<ToolExecutionResult> {
   const executor = executorRegistry.get(slug);
   if (!executor) {
@@ -60,7 +73,7 @@ export async function executeTool(
   const startTime = Date.now();
   try {
     logger.debug({ slug, input }, 'Executing tool');
-    const result = await executor(input);
+    const result = await executor(input, config);
     const duration_ms = Date.now() - startTime;
     logger.debug({ slug, duration_ms }, 'Tool execution complete');
     return { result, duration_ms };

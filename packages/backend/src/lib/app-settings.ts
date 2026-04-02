@@ -50,6 +50,34 @@ const DEFAULT_STARTER_PROMPTS = {
   ],
 } as const;
 
+const CLEAN_DEFAULT_STARTER_PROMPTS = {
+  openrouter_coding_agent: [
+    'Сделай одностраничный лендинг и покажи preview',
+    'Проанализируй приложенный файл и предложи улучшенную версию',
+    'Собери структуру небольшой React-фичи по ТЗ',
+  ],
+  openrouter_coding_agent_fast: [
+    'Коротко разберись в приложенном коде и предложи улучшения',
+    'Сделай небольшой рефакторинг компонента',
+    'Подготовь минимальную версию страницы по ТЗ',
+  ],
+  openrouter_coding_agent_heavy_planning: [
+    'Сделай подробный план большого рефакторинга и предложи структуру файлов',
+    'Перепроектируй модуль с учётом масштабирования',
+    'Разбери сложное ТЗ и предложи архитектуру реализации',
+  ],
+  openrouter_coding_agent_coding_alternative: [
+    'Сгенерируй реализацию фичи по приложенному ТЗ',
+    'Предложи структуру файлов и ключевые компоненты для новой страницы',
+    'Перепиши код с упором на чистую реализацию',
+  ],
+  dtf_news_agent: [
+    'Покажи 5 последних новостей DTF',
+    'Найди самую обсуждаемую новость и кратко объясни контекст',
+    'Сделай короткий дайджест главных тем за сегодня',
+  ],
+} as const;
+
 export interface StarterPromptSettings {
   openrouter_coding_agent: string[];
   openrouter_coding_agent_fast: string[];
@@ -224,46 +252,46 @@ export async function getStarterPromptSettings(): Promise<StarterPromptSettings>
   ] = await Promise.all([
     getSettingValue(
       SETTINGS_KEYS.starter_prompts_openrouter_coding_agent,
-      serializePromptList(DEFAULT_STARTER_PROMPTS.openrouter_coding_agent),
+      serializePromptList(CLEAN_DEFAULT_STARTER_PROMPTS.openrouter_coding_agent),
     ),
     getSettingValue(
       SETTINGS_KEYS.starter_prompts_openrouter_coding_agent_fast,
-      serializePromptList(DEFAULT_STARTER_PROMPTS.openrouter_coding_agent_fast),
+      serializePromptList(CLEAN_DEFAULT_STARTER_PROMPTS.openrouter_coding_agent_fast),
     ),
     getSettingValue(
       SETTINGS_KEYS.starter_prompts_openrouter_coding_agent_heavy_planning,
-      serializePromptList(DEFAULT_STARTER_PROMPTS.openrouter_coding_agent_heavy_planning),
+      serializePromptList(CLEAN_DEFAULT_STARTER_PROMPTS.openrouter_coding_agent_heavy_planning),
     ),
     getSettingValue(
       SETTINGS_KEYS.starter_prompts_openrouter_coding_agent_coding_alternative,
-      serializePromptList(DEFAULT_STARTER_PROMPTS.openrouter_coding_agent_coding_alternative),
+      serializePromptList(CLEAN_DEFAULT_STARTER_PROMPTS.openrouter_coding_agent_coding_alternative),
     ),
     getSettingValue(
       SETTINGS_KEYS.starter_prompts_dtf_news_agent,
-      serializePromptList(DEFAULT_STARTER_PROMPTS.dtf_news_agent),
+      serializePromptList(CLEAN_DEFAULT_STARTER_PROMPTS.dtf_news_agent),
     ),
   ]);
 
   return {
     openrouter_coding_agent: normalizePromptList(
       openrouterCodingAgent,
-      DEFAULT_STARTER_PROMPTS.openrouter_coding_agent,
+      CLEAN_DEFAULT_STARTER_PROMPTS.openrouter_coding_agent,
     ),
     openrouter_coding_agent_fast: normalizePromptList(
       openrouterCodingAgentFast,
-      DEFAULT_STARTER_PROMPTS.openrouter_coding_agent_fast,
+      CLEAN_DEFAULT_STARTER_PROMPTS.openrouter_coding_agent_fast,
     ),
     openrouter_coding_agent_heavy_planning: normalizePromptList(
       openrouterCodingAgentHeavyPlanning,
-      DEFAULT_STARTER_PROMPTS.openrouter_coding_agent_heavy_planning,
+      CLEAN_DEFAULT_STARTER_PROMPTS.openrouter_coding_agent_heavy_planning,
     ),
     openrouter_coding_agent_coding_alternative: normalizePromptList(
       openrouterCodingAgentCodingAlternative,
-      DEFAULT_STARTER_PROMPTS.openrouter_coding_agent_coding_alternative,
+      CLEAN_DEFAULT_STARTER_PROMPTS.openrouter_coding_agent_coding_alternative,
     ),
     dtf_news_agent: normalizePromptList(
       dtfNewsAgent,
-      DEFAULT_STARTER_PROMPTS.dtf_news_agent,
+      CLEAN_DEFAULT_STARTER_PROMPTS.dtf_news_agent,
     ),
   };
 }
@@ -272,23 +300,23 @@ export async function updateStarterPromptSettings(input: Partial<StarterPromptSe
   const normalized = {
     openrouter_coding_agent: normalizePromptList(
       input.openrouter_coding_agent,
-      DEFAULT_STARTER_PROMPTS.openrouter_coding_agent,
+      CLEAN_DEFAULT_STARTER_PROMPTS.openrouter_coding_agent,
     ),
     openrouter_coding_agent_fast: normalizePromptList(
       input.openrouter_coding_agent_fast,
-      DEFAULT_STARTER_PROMPTS.openrouter_coding_agent_fast,
+      CLEAN_DEFAULT_STARTER_PROMPTS.openrouter_coding_agent_fast,
     ),
     openrouter_coding_agent_heavy_planning: normalizePromptList(
       input.openrouter_coding_agent_heavy_planning,
-      DEFAULT_STARTER_PROMPTS.openrouter_coding_agent_heavy_planning,
+      CLEAN_DEFAULT_STARTER_PROMPTS.openrouter_coding_agent_heavy_planning,
     ),
     openrouter_coding_agent_coding_alternative: normalizePromptList(
       input.openrouter_coding_agent_coding_alternative,
-      DEFAULT_STARTER_PROMPTS.openrouter_coding_agent_coding_alternative,
+      CLEAN_DEFAULT_STARTER_PROMPTS.openrouter_coding_agent_coding_alternative,
     ),
     dtf_news_agent: normalizePromptList(
       input.dtf_news_agent,
-      DEFAULT_STARTER_PROMPTS.dtf_news_agent,
+      CLEAN_DEFAULT_STARTER_PROMPTS.dtf_news_agent,
     ),
   };
 
