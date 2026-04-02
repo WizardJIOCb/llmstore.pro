@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { requireAuth } from '../../middleware/auth-guard.js';
 import * as controller from './runtime.controller.js';
-import { chatUpload } from '../../config/upload.js';
+import { chatBundleUpload, chatUpload } from '../../config/upload.js';
 import {
   validateStartRun,
   validateCreateChat,
@@ -29,6 +29,8 @@ router.delete('/gallery/previews/:chatId/reaction', requireAuth, controller.dele
 router.get('/chats', requireAuth, controller.listChats);
 router.get('/chats/agents', requireAuth, controller.listChatAgents);
 router.post('/chats', requireAuth, validateCreateChat, controller.createChat);
+router.post('/chats/import', requireAuth, chatBundleUpload.single('file'), controller.importChatBundle);
+router.get('/chats/:chatId/export', requireAuth, controller.exportChatBundle);
 router.get('/chats/:chatId/messages/:messageId/preview', controller.getChatMessagePreview);
 router.patch('/chats/:chatId/messages/:messageId/preview', requireAuth, validateUpdateMessagePreview, controller.updateChatMessagePreview);
 router.get('/chats/:chatId', requireAuth, controller.getChatById);
@@ -46,6 +48,7 @@ router.post('/chats/:chatId/messages', requireAuth, validateSendChatMessage, con
 router.get('/shared/chats/:token/messages/:messageId/preview', controller.getSharedChatMessagePreview);
 router.patch('/shared/chats/:token/messages/:messageId/preview', requireAuth, validateUpdateMessagePreview, controller.updateSharedChatMessagePreview);
 router.get('/shared/chats/:token', controller.getSharedChatById);
+router.get('/shared/chats/:token/export', controller.exportSharedChatBundle);
 
 // Runs
 router.post('/agents/:agentId/runs', requireAuth, validateStartRun, controller.startRun);

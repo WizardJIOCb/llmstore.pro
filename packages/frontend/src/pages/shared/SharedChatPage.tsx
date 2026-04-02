@@ -1,7 +1,9 @@
+import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChatMessage } from '../../components/agents/ChatMessage';
 import { Spinner } from '../../components/ui/Spinner';
+import { Button } from '../../components/ui/Button';
 import { apiClient } from '../../lib/api-client';
 import { chatsApi, type ChatAttachment, type CodingReport } from '../../lib/api/chats';
 import { useProfile } from '../../hooks/useProfile';
@@ -40,6 +42,25 @@ interface SharedPageData {
   title: string;
   subtitle: string;
   messages: SharedMessageItem[];
+}
+
+function downloadChatBundle(filename: string, payload: unknown) {
+  const blob = new Blob([JSON.stringify({ data: payload }, null, 2)], {
+    type: 'application/json;charset=utf-8',
+  });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function getApiErrorMessage(error: unknown): string | undefined {
+  const maybe = error as { response?: { data?: { error?: { message?: string } } } };
+  return maybe?.response?.data?.error?.message;
 }
 
 function extractFirstJsonObject(value: string): string | null {
@@ -131,6 +152,7 @@ export function SharedChatPage() {
   const { token } = useParams<{ token: string }>();
   const queryClient = useQueryClient();
   const { data: profile } = useProfile();
+  const [isExporting, setIsExporting] = useState(false);
   const updateSharedPreviewMutation = useMutation({
     mutationFn: ({ messageId, ...payload }: { messageId: string; title?: string | null; html: string }) =>
       chatsApi.updateSharedPreview(token!, messageId, payload),
@@ -189,11 +211,29 @@ export function SharedChatPage() {
     );
   }
 
+  const exportChat = async () => {
+    if (!token) return;
+    setIsExporting(true);
+    try {
+      const bundle = await chatsApi.exportSharedBundle(token);
+      downloadChatBundle(bundle.filename, bundle.payload);
+    } catch (err) {
+      window.alert(getApiErrorMessage(err) ?? 'Не удалось экспортировать чат');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   return (
     <div className="container mx-auto max-w-3xl px-4 py-8">
-      <div className="mb-6">
-        <h1 className="text-xl font-semibold">{data.title}</h1>
-        <p className="text-xs text-muted-foreground">{data.subtitle}</p>
+      <div className="mb-6 flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold">{data.title}</h1>
+          <p className="text-xs text-muted-foreground">{data.subtitle}</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={exportChat} disabled={isExporting}>
+          {isExporting ? 'Экспорт...' : 'Экспортировать чат'}
+        </Button>
       </div>
 
       <div className="space-y-4">

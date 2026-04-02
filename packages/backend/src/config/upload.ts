@@ -94,6 +94,13 @@ const CHAT_ALLOWED_BASENAMES = new Set([
   'dockerfile',
 ]);
 
+const CHAT_BUNDLE_ALLOWED_MIME_TYPES = new Set([
+  'application/json',
+  'text/json',
+  'text/plain',
+  'application/octet-stream',
+]);
+
 function isAllowedChatFile(file: Express.Multer.File): boolean {
   if (CHAT_ALLOWED_MIME_TYPES.has(file.mimetype)) {
     return true;
@@ -147,5 +154,21 @@ export const chatUpload = multer({
   limits: {
     fileSize: 10 * 1024 * 1024,
     files: 8,
+  },
+});
+
+export const chatBundleUpload = multer({
+  storage: multer.memoryStorage(),
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (ext === '.json' || ext === '.llmchat' || CHAT_BUNDLE_ALLOWED_MIME_TYPES.has(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Unsupported bundle file type. Allowed: .json, .llmchat'));
+    }
+  },
+  limits: {
+    fileSize: 25 * 1024 * 1024,
+    files: 1,
   },
 });

@@ -184,6 +184,30 @@ export interface ChatAgentOption {
   starter_prompts: string[];
 }
 
+export interface ChatBundleExport {
+  filename: string;
+  payload: unknown;
+}
+
+function resolveBundleFilename(contentDisposition: string | undefined, fallback: string): string {
+  if (!contentDisposition) return fallback;
+
+  const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1]);
+    } catch {
+      return utf8Match[1];
+    }
+  }
+
+  const quotedMatch = contentDisposition.match(/filename="([^"]+)"/i);
+  if (quotedMatch?.[1]) return quotedMatch[1];
+
+  const plainMatch = contentDisposition.match(/filename=([^;]+)/i);
+  return plainMatch?.[1]?.trim() || fallback;
+}
+
 export const chatsApi = {
   list: () => apiClient.get<{ data: ChatListItem[] }>('/chats').then((r) => r.data.data),
 
@@ -266,4 +290,30 @@ export const chatsApi = {
     apiClient
       .patch<{ data: UpdateMessagePreviewResult }>(`/shared/chats/${token}/messages/${messageId}/preview`, payload)
       .then((r) => r.data.data),
+
+  exportBundle: (chatId: string) =>
+    apiClient
+      .get<{ data: unknown }>(`/chats/${chatId}/export`)
+      .then((r): ChatBundleExport => ({
+        filename: resolveBundleFilename(r.headers['content-disposition'], `chat-${chatId}.llmchat.json`),
+        payload: r.data.data,
+      })),
+
+  exportSharedBundle: (token: string) =>
+    apiClient
+      .get<{ data: unknown }>(`/shared/chats/${token}/export`)
+      .then((r): ChatBundleExport => ({
+        filename: resolveBundleFilename(r.headers['content-disposition'], `shared-chat-${token}.llmchat.json`),
+        payload: r.data.data,
+      })),
+
+  importBundle: (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return apiClient
+      .post<{ data: ChatListItem }>('/chats/import', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      .then((r) => r.data.data);
+  },
 };

@@ -1,5 +1,5 @@
 ﻿import { db } from '../../config/database.js';
-import { readFile, stat } from 'fs/promises';
+import { readFile, stat, writeFile } from 'fs/promises';
 import path from 'path';
 import type { Response } from 'express';
 import { agents, agentVersions, agentVersionTools, toolDefinitions } from '../../db/schema/agents.js';
@@ -1988,6 +1988,42 @@ interface ConversationDetails {
   messages: ConversationMessage[];
 }
 
+interface ChatTransferAttachment {
+  filename: string;
+  original_name: string;
+  mime_type: string;
+  kind: 'image' | 'text' | 'file';
+  size: number;
+  data_base64: string;
+}
+
+interface ChatTransferMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  usage: Record<string, unknown> | null;
+  latency_ms: number | null;
+  created_at: string;
+}
+
+interface ChatTransferBundlePayload {
+  schema_version: 1;
+  exported_at: string;
+  chat: {
+    title: string;
+    mode: ChatMode;
+    model_external_id: string | null;
+    agent_name: string | null;
+    agent_model_external_id: string | null;
+  };
+  messages: ChatTransferMessage[];
+  attachments: ChatTransferAttachment[];
+}
+
+interface ChatTransferBundleFile {
+  filename: string;
+  payload: ChatTransferBundlePayload;
+}
+
 interface GalleryPreviewItem {
   message_id: string;
   chat_id: string;
@@ -2118,6 +2154,154 @@ async function getConversationMessages(chatId: string): Promise<ConversationMess
   return rows
     .filter((row) => row.role === 'user' || row.role === 'assistant')
     .map((row) => toConversationMessage(row, usdToRubRate));
+}
+
+function extractUsageAttachments(value: Record<string, unknown> | null | undefined): ChatAttachmentMeta[] {
+  if (!value || !Array.isArray((value as { attachments?: unknown[] }).attachments)) return [];
+  return ((value as { attachments: unknown[] }).attachments ?? [])
+    .filter((item) => item && typeof item === 'object')
+    .map((item) => item as ChatAttachmentMeta);
+}
+
+function sanitizeImportedDate(value: string | undefined, fallback: Date): Date {
+  if (!value) return fallback;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? fallback : parsed;
+}
+
+function buildChatTransferFilename(title: string): string {
+  const slug = title
+    .toLowerCase()
+    .replace(/[^a-z0-9а-яё]+/gi, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60);
+  return `${slug || 'chat'}-${Date.now()}.llmchat.json`;
+}
+
+function getExtensionForImportedAttachment(attachment: ChatTransferAttachment): string {
+  const originalExt = path.extname(attachment.original_name || attachment.filename).toLowerCase();
+  if (originalExt) return originalExt;
+
+  switch (attachment.mime_type) {
+    case 'image/png': return '.png';
+    case 'image/jpeg': return '.jpg';
+    case 'image/webp': return '.webp';
+    case 'image/gif': return '.gif';
+    case 'text/markdown': return '.md';
+    case 'text/plain': return '.txt';
+    case 'application/json': return '.json';
+    case 'text/html': return '.html';
+    default: return '.bin';
+  }
+}
+
+function deriveImportedGeneralModel(
+  messages: ChatTransferMessage[],
+  preferredModelExternalId?: string | null,
+): string | null {
+  if (preferredModelExternalId?.trim()) {
+    return normalizeOpenRouterModelId(preferredModelExternalId.trim());
+  }
+
+  const counts = new Map<string, number>();
+  for (const message of messages) {
+    const model = typeof message.usage?.model === 'string' ? message.usage.model.trim() : '';
+    if (!model) continue;
+    counts.set(model, (counts.get(model) ?? 0) + 1);
+  }
+
+  const winner = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+  return winner ? normalizeOpenRouterModelId(winner) : DEFAULT_GENERAL_MODEL;
+}
+
+async function findImportTargetAgent(
+  userId: string,
+  userRole: string | undefined,
+  agentName: string | null,
+  agentModelExternalId: string | null,
+): Promise<string | null> {
+  if (!agentName?.trim()) return null;
+
+  const visibleAgents = await listChatAgents(userId, userRole);
+  const normalizedName = agentName.trim().toLowerCase();
+  const normalizedModel = normalizeModelLookupKey(agentModelExternalId);
+
+  const exact = visibleAgents.find((agent) => (
+    agent.name.trim().toLowerCase() === normalizedName
+    && normalizeModelLookupKey(agent.model_external_id) === normalizedModel
+  ));
+  if (exact) return exact.id;
+
+  const byName = visibleAgents.find((agent) => agent.name.trim().toLowerCase() === normalizedName);
+  return byName?.id ?? null;
+}
+
+async function buildChatTransferBundlePayload(
+  chat: ChatConversationRow,
+  messages: ConversationMessage[],
+): Promise<ChatTransferBundlePayload> {
+  let agentName: string | null = null;
+  let agentModelExternalId: string | null = null;
+
+  if (chat.agent_id) {
+    const [agentRow] = await db
+      .select({
+        name: agents.name,
+        runtime_config: agentVersions.runtime_config,
+      })
+      .from(agents)
+      .leftJoin(agentVersions, eq(agentVersions.id, agents.current_version_id))
+      .where(eq(agents.id, chat.agent_id))
+      .limit(1);
+
+    agentName = agentRow?.name ?? null;
+    agentModelExternalId =
+      typeof (agentRow?.runtime_config as Record<string, unknown> | null)?.model_external_id === 'string'
+        ? (((agentRow?.runtime_config as Record<string, unknown>).model_external_id as string).trim() || null)
+        : null;
+  }
+
+  const attachmentMap = new Map<string, ChatTransferAttachment>();
+
+  for (const message of messages) {
+    const attachments = extractUsageAttachments(message.usage);
+    for (const attachment of attachments) {
+      if (!attachment.filename || attachmentMap.has(attachment.filename)) continue;
+
+      try {
+        const buffer = await readFile(safeAttachmentPath(attachment.filename));
+        attachmentMap.set(attachment.filename, {
+          filename: attachment.filename,
+          original_name: attachment.original_name,
+          mime_type: attachment.mime_type,
+          kind: attachment.kind,
+          size: attachment.size,
+          data_base64: buffer.toString('base64'),
+        });
+      } catch {
+      }
+    }
+  }
+
+  return {
+    schema_version: 1,
+    exported_at: new Date().toISOString(),
+    chat: {
+      title: chat.title,
+      mode: chat.mode,
+      model_external_id: chat.model_external_id ?? null,
+      agent_name: agentName,
+      agent_model_external_id: agentModelExternalId,
+    },
+    messages: messages.map((message) => ({
+      role: message.role,
+      content: message.content,
+      usage: message.usage,
+      latency_ms: message.latency_ms,
+      created_at: message.created_at,
+    })),
+    attachments: [...attachmentMap.values()],
+  };
 }
 
 function buildLatestHtmlPreviewContext(
@@ -3388,7 +3572,235 @@ export async function getSharedChatById(token: string, viewerUserId?: string | n
       content: m.content,
       usage: m.usage,
       created_at: m.created_at,
-    })),
+      })),
+    };
+}
+
+export async function exportChatBundle(chatId: string, userId: string): Promise<ChatTransferBundleFile> {
+  const chat = await getConversationForUser(chatId, userId);
+  const messages = await getConversationMessages(chat.id);
+  const payload = await buildChatTransferBundlePayload(chat, messages);
+  return {
+    filename: buildChatTransferFilename(chat.title),
+    payload,
+  };
+}
+
+export async function exportSharedChatBundle(
+  token: string,
+  viewerUserId?: string | null,
+  _viewerKey?: string | null,
+): Promise<ChatTransferBundleFile> {
+  const chat = await getConversationForSharedViewer(token, viewerUserId);
+  const messages = await getConversationMessages(chat.id);
+  const payload = await buildChatTransferBundlePayload(chat, messages);
+  return {
+    filename: buildChatTransferFilename(chat.title),
+    payload,
+  };
+}
+
+export async function importChatBundle(
+  userId: string,
+  file: Express.Multer.File,
+  userRole?: string,
+): Promise<ConversationListItem> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(file.buffer.toString('utf8'));
+  } catch {
+    throw new AppError(400, 'INVALID_CHAT_BUNDLE', 'Не удалось прочитать файл переноса чата');
+  }
+
+  const payload = (parsed && typeof parsed === 'object')
+    ? (('data' in (parsed as Record<string, unknown>))
+      ? ((parsed as { data?: unknown }).data ?? null)
+      : parsed)
+    : null;
+
+  if (!payload || typeof payload !== 'object') {
+    throw new AppError(400, 'INVALID_CHAT_BUNDLE', 'Файл переноса чата имеет неверный формат');
+  }
+
+  const bundle = payload as Partial<ChatTransferBundlePayload>;
+  const rawMessages = Array.isArray(bundle.messages) ? bundle.messages : [];
+  if (rawMessages.length === 0) {
+    throw new AppError(400, 'INVALID_CHAT_BUNDLE', 'В файле переноса нет сообщений');
+  }
+
+  const messages: ChatTransferMessage[] = rawMessages
+    .filter((item) => Boolean(item && typeof item === 'object'))
+    .map((item): ChatTransferMessage => {
+      const record = item as Partial<ChatTransferMessage>;
+      return {
+        role: record.role === 'assistant' ? 'assistant' : 'user',
+        content: typeof record.content === 'string' ? record.content : '',
+        usage: record.usage && typeof record.usage === 'object' ? (record.usage as Record<string, unknown>) : null,
+        latency_ms: typeof record.latency_ms === 'number' ? record.latency_ms : null,
+        created_at: typeof record.created_at === 'string' ? record.created_at : new Date().toISOString(),
+      };
+    })
+    .filter((item) => item.content.trim().length > 0 || item.role === 'assistant');
+
+  if (messages.length === 0) {
+    throw new AppError(400, 'INVALID_CHAT_BUNDLE', 'В файле переноса нет валидных сообщений');
+  }
+
+  const rawAttachments = Array.isArray(bundle.attachments) ? bundle.attachments : [];
+  const attachmentMetaMap = new Map<string, ChatAttachmentMeta>();
+
+  for (const item of rawAttachments) {
+    if (!item || typeof item !== 'object') continue;
+    const attachment = item as Partial<ChatTransferAttachment>;
+    const sourceFilename = typeof attachment.filename === 'string' ? attachment.filename.trim() : '';
+    const originalName = typeof attachment.original_name === 'string' ? attachment.original_name.trim() : '';
+    const dataBase64 = typeof attachment.data_base64 === 'string' ? attachment.data_base64.trim() : '';
+    if (!sourceFilename || !dataBase64) continue;
+
+    let buffer: Buffer;
+    try {
+      buffer = Buffer.from(dataBase64, 'base64');
+    } catch {
+      continue;
+    }
+
+    const ext = getExtensionForImportedAttachment({
+      filename: sourceFilename,
+      original_name: originalName || sourceFilename,
+      mime_type: typeof attachment.mime_type === 'string' ? attachment.mime_type : 'application/octet-stream',
+      kind: attachment.kind === 'image' || attachment.kind === 'text' ? attachment.kind : 'file',
+      size: typeof attachment.size === 'number' ? attachment.size : buffer.length,
+      data_base64: dataBase64,
+    });
+    const filename = `${uuidv4()}${ext}`;
+    await writeFile(safeAttachmentPath(filename), buffer);
+
+    const mime = typeof attachment.mime_type === 'string' && attachment.mime_type.trim()
+      ? attachment.mime_type.trim()
+      : getAttachmentMimeType(filename);
+    const kind: ChatAttachmentMeta['kind'] = attachment.kind === 'image' || attachment.kind === 'text' || attachment.kind === 'file'
+      ? attachment.kind
+      : (isImageMime(mime) ? 'image' : (isTextMime(mime) ? 'text' : 'file'));
+    const meta: ChatAttachmentMeta = {
+      filename,
+      original_name: originalName || sourceFilename,
+      mime_type: mime,
+      size: buffer.length,
+      kind,
+      url: `/uploads/chat/${filename}`,
+    };
+
+    if (kind === 'text') {
+      try {
+        const compact = buffer.toString('utf8').replace(/\r\n/g, '\n').trim();
+        if (compact.length > 0) {
+          meta.text_preview = compact.slice(0, 400);
+        }
+      } catch {
+      }
+    }
+
+    attachmentMetaMap.set(sourceFilename, meta);
+  }
+
+  const remappedMessages = messages.map((message) => {
+    if (!message.usage) return message;
+    const usageCopy: Record<string, unknown> = { ...message.usage };
+    const usageAttachments = extractUsageAttachments(message.usage);
+    if (usageAttachments.length > 0) {
+      usageCopy.attachments = usageAttachments
+        .map((attachment) => attachmentMetaMap.get(attachment.filename) ?? null)
+        .filter((attachment): attachment is ChatAttachmentMeta => Boolean(attachment));
+    }
+    return {
+      ...message,
+      usage: usageCopy,
+    };
+  });
+
+  const bundleTitle = typeof bundle.chat?.title === 'string' && bundle.chat.title.trim()
+    ? bundle.chat.title.trim()
+    : 'Импортированный чат';
+  const bundleMode: ChatMode = bundle.chat?.mode === 'agent' ? 'agent' : 'general';
+  const bundleAgentName = typeof bundle.chat?.agent_name === 'string' ? bundle.chat.agent_name.trim() || null : null;
+  const bundleAgentModel = typeof bundle.chat?.agent_model_external_id === 'string'
+    ? bundle.chat.agent_model_external_id.trim() || null
+    : null;
+  const bundleModel = typeof bundle.chat?.model_external_id === 'string'
+    ? bundle.chat.model_external_id.trim() || null
+    : null;
+
+  let nextMode: ChatMode = bundleMode;
+  let agentId: string | null = null;
+  let modelExternalId: string | null = null;
+
+  if (bundleMode === 'agent') {
+    agentId = await findImportTargetAgent(userId, userRole, bundleAgentName, bundleAgentModel);
+    if (!agentId) {
+      nextMode = 'general';
+      modelExternalId = deriveImportedGeneralModel(remappedMessages, bundleModel ?? bundleAgentModel);
+    }
+  } else {
+    modelExternalId = deriveImportedGeneralModel(remappedMessages, bundleModel);
+  }
+
+  const shareToken = uuidv4().replace(/-/g, '').slice(0, 16);
+  const createdAtFallback = new Date();
+  const orderedMessages = remappedMessages
+    .map((message, index) => ({
+      ...message,
+      createdAtDate: sanitizeImportedDate(
+        message.created_at,
+        new Date(createdAtFallback.getTime() + index * 1000),
+      ),
+    }))
+    .sort((a, b) => a.createdAtDate.getTime() - b.createdAtDate.getTime());
+
+  const lastMessageAt = orderedMessages[orderedMessages.length - 1]?.createdAtDate ?? createdAtFallback;
+
+  const [chat] = await db.insert(chatConversations).values({
+    user_id: userId,
+    agent_id: agentId,
+    mode: nextMode,
+    title: bundleTitle.slice(0, 500),
+    model_external_id: nextMode === 'general' ? (modelExternalId ?? DEFAULT_GENERAL_MODEL) : null,
+    system_prompt: null,
+    access: 'private',
+    access_identifiers: [],
+    share_token: shareToken,
+    last_message_at: lastMessageAt,
+    created_at: createdAtFallback,
+    updated_at: new Date(),
+  }).returning();
+
+  if (orderedMessages.length > 0) {
+    await db.insert(chatConversationMessages).values(
+      orderedMessages.map((message) => ({
+        conversation_id: chat.id,
+        role: message.role,
+        content_text: message.content,
+        run_id: null,
+        usage_json: message.usage ?? null,
+        latency_ms: message.latency_ms ?? null,
+        created_at: message.createdAtDate,
+      })),
+    );
+  }
+
+  return {
+    id: chat.id,
+    title: chat.title,
+    mode: chat.mode,
+    agent_id: chat.agent_id ?? null,
+    model_external_id: chat.model_external_id ?? null,
+    access: chat.access,
+    access_identifiers: normalizeAccessIdentifiers(chat.access_identifiers),
+    share_token: chat.share_token ?? null,
+    message_count: orderedMessages.length,
+    last_message_preview: orderedMessages[orderedMessages.length - 1]?.content.slice(0, 160) ?? null,
+    last_message_at: toIso(chat.last_message_at),
+    created_at: toIso(chat.created_at),
+    updated_at: toIso(chat.updated_at),
   };
 }
 

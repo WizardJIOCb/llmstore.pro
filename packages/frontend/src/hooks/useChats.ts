@@ -156,6 +156,22 @@ export function useUploadChatFiles() {
   });
 }
 
+export function useImportChatBundle() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (file: File) => chatsApi.importBundle(file),
+    onSuccess: (chat) => {
+      qc.setQueryData<ChatListItem[] | undefined>(['chats'], (prev) => {
+        const existing = prev ?? [];
+        const withoutImported = existing.filter((item) => item.id !== chat.id);
+        return [chat, ...withoutImported];
+      });
+      qc.invalidateQueries({ queryKey: ['chats'] });
+      qc.invalidateQueries({ queryKey: ['chats', chat.id] });
+    },
+  });
+}
+
 export function useChatStats(chatId: string | undefined, enabled = true) {
   return useQuery({
     queryKey: ['chats', chatId, 'stats'],

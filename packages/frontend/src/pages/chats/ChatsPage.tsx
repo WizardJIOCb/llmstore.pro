@@ -23,6 +23,7 @@ import {
   useUploadChatFiles,
   useShareChatById,
   useUpdateChat,
+  useImportChatBundle,
 } from '../../hooks/useChats';
 import { useAppSettings } from '../../hooks/useAppSettings';
 import { useProfile } from '../../hooks/useProfile';
@@ -336,6 +337,20 @@ function getApiErrorMessage(err: unknown): string | undefined {
   return maybe?.response?.data?.error?.message;
 }
 
+function downloadChatBundle(filename: string, payload: unknown) {
+  const blob = new Blob([JSON.stringify({ data: payload }, null, 2)], {
+    type: 'application/json;charset=utf-8',
+  });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
 function getApiErrorStatus(err: unknown): number | undefined {
   const maybe = err as { response?: { status?: number } };
   return maybe?.response?.status;
@@ -381,6 +396,7 @@ export function ChatsPage() {
   const sendMessageMutation = useSendChatMessage();
   const updatePreviewMutation = useUpdateChatMessagePreview();
   const uploadFilesMutation = useUploadChatFiles();
+  const importChatBundleMutation = useImportChatBundle();
 
   const [search, setSearch] = useState('');
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
@@ -435,6 +451,7 @@ export function ChatsPage() {
   const messageEnterCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollAnimationFrameRef = useRef<number | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const importFileInputRef = useRef<HTMLInputElement | null>(null);
   const previousMessageCountRef = useRef(0);
   const initializedAnimatedChatIdsRef = useRef<Set<string>>(new Set());
   const animatedMessageIdsRef = useRef<Set<string>>(new Set());
@@ -1085,6 +1102,37 @@ export function ChatsPage() {
 
   const createNewChat = async () => setIsCreateDialogOpen(true);
 
+  const triggerImportChat = () => {
+    importFileInputRef.current?.click();
+  };
+
+  const handleImportChatFile = async (event: { target: HTMLInputElement & EventTarget }) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    setLocalError(null);
+    try {
+      const imported = await importChatBundleMutation.mutateAsync(file);
+      setActiveChatId(imported.id);
+      setLocalNoticeTone('warning');
+      setLocalError(`Чат импортирован: ${imported.title}`);
+    } catch (error) {
+      showLocalError(getApiErrorMessage(error) ?? 'Не удалось импортировать чат');
+    }
+  };
+
+  const exportChatBundle = async (chatId: string) => {
+    setLocalError(null);
+    setOpenMenu(null);
+    try {
+      const bundle = await chatsApi.exportBundle(chatId);
+      downloadChatBundle(bundle.filename, bundle.payload);
+    } catch (error) {
+      showLocalError(getApiErrorMessage(error) ?? 'Не удалось экспортировать чат');
+    }
+  };
+
   const createChatFromDialog = async () => {
     setLocalError(null);
     if (newChatMode === 'agent' && !newChatAgentId) {
@@ -1458,6 +1506,9 @@ export function ChatsPage() {
             <button type="button" className="w-full rounded px-2 py-1.5 text-left text-sm hover:bg-accent" onClick={() => openProperties(chat.id)}>
               Свойства
             </button>
+            <button type="button" className="w-full rounded px-2 py-1.5 text-left text-sm hover:bg-accent" onClick={() => exportChatBundle(chat.id)}>
+              Экспортировать
+            </button>
             <button type="button" className="w-full rounded px-2 py-1.5 text-left text-sm hover:bg-accent" onClick={() => deleteChat(chat.id)}>
               Удалить
             </button>
@@ -1472,6 +1523,14 @@ export function ChatsPage() {
 
   return (
     <div className="px-4 py-6">
+      <input
+        ref={importFileInputRef}
+        type="file"
+        accept=".json,.llmchat,.llmchat.json,application/json,text/json,text/plain"
+        className="hidden"
+        onChange={handleImportChatFile}
+      />
+
       <div className={cn('pointer-events-none fixed left-1/2 top-4 z-[70] -translate-x-1/2 rounded-lg border border-emerald-200 bg-emerald-500 px-4 py-2 text-sm font-medium text-white shadow-lg transition-all duration-500', shareToastVisible ? 'translate-y-0 opacity-100' : '-translate-y-16 opacity-0')}>
         Ссылка скопирована
       </div>
@@ -1480,7 +1539,12 @@ export function ChatsPage() {
         {showSidebar && (
         <aside className={cn('flex w-full shrink-0 flex-col', isDesktop ? 'max-w-xs border-r' : 'max-w-none')}>
           <div className="border-b p-3 space-y-3">
-            <Button className="w-full" onClick={createNewChat} disabled={createChatMutation.isPending}>Новый чат</Button>
+            <div className="grid grid-cols-2 gap-2">
+              <Button className="w-full" onClick={createNewChat} disabled={createChatMutation.isPending}>Новый чат</Button>
+              <Button variant="outline" className="w-full" onClick={triggerImportChat} disabled={importChatBundleMutation.isPending}>
+                {importChatBundleMutation.isPending ? 'Импорт...' : 'Импорт'}
+              </Button>
+            </div>
             <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Поиск чата..." />
           </div>
           <div className="flex-1 overflow-y-auto p-2 space-y-4">
@@ -1507,6 +1571,13 @@ export function ChatsPage() {
             </div>
             {activeChat && (
               <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => exportChatBundle(activeChat.id)}
+                >
+                  Экспорт
+                </Button>
                 <Button
                   variant="outline"
                   size="sm"

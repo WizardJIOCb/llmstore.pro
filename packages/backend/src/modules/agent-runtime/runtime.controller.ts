@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import { randomUUID } from 'crypto';
 import * as runtimeService from './runtime.service.js';
+import { AppError } from '../../middleware/error-handler.js';
 
 const PREVIEW_CSP = [
   "default-src 'self'",
@@ -20,6 +21,19 @@ const EMOJI_PROXY_BASE_URL = 'https://cdn.jsdelivr.net/gh/jdecked/twemoji@latest
 const EMOJI_CACHE_TTL_MS = 1000 * 60 * 60 * 24;
 const emojiSvgCache = new Map<string, { body: Buffer; fetchedAt: number }>();
 const VIEWER_COOKIE_NAME = 'llmstore_viewer_id';
+
+function buildAttachmentDisposition(filename: string): string {
+  const asciiFallback = filename
+    .normalize('NFKD')
+    .replace(/[^\x20-\x7E]+/g, '-')
+    .replace(/["\\]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    || 'chat-export.llmchat.json';
+
+  return `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
+}
 
 function escapeSvgText(value: string): string {
   return value
@@ -224,6 +238,35 @@ export async function createChat(req: Request, res: Response, next: NextFunction
   try {
     const chat = await runtimeService.createChat(req.session.userId!, req.body, req.session.userRole);
     res.status(201).json({ data: chat });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function importChatBundle(req: Request, res: Response, next: NextFunction) {
+  try {
+    const file = req.file;
+    if (!file) {
+      throw new AppError(400, 'CHAT_BUNDLE_REQUIRED', 'Файл переноса чата обязателен');
+    }
+
+    const chat = await runtimeService.importChatBundle(
+      req.session.userId!,
+      file,
+      req.session.userRole,
+    );
+    res.status(201).json({ data: chat });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function exportChatBundle(req: Request<{ chatId: string }>, res: Response, next: NextFunction) {
+  try {
+    const bundle = await runtimeService.exportChatBundle(req.params.chatId, req.session.userId!);
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Content-Disposition', buildAttachmentDisposition(bundle.filename));
+    res.json({ data: bundle.payload });
   } catch (err) {
     next(err);
   }
@@ -451,6 +494,18 @@ export async function getSharedChatById(req: Request<{ token: string }>, res: Re
     const viewer = resolveViewerContext(req, res);
     const result = await runtimeService.getSharedChatById(req.params.token, viewer.viewerUserId, viewer.viewerKey);
     res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function exportSharedChatBundle(req: Request<{ token: string }>, res: Response, next: NextFunction) {
+  try {
+    const viewer = resolveViewerContext(req, res);
+    const bundle = await runtimeService.exportSharedChatBundle(req.params.token, viewer.viewerUserId, viewer.viewerKey);
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Content-Disposition', buildAttachmentDisposition(bundle.filename));
+    res.json({ data: bundle.payload });
   } catch (err) {
     next(err);
   }
