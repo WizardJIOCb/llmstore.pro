@@ -41,6 +41,35 @@ function stripDevReportEnvelope(content: string): string {
   return content.replace(/<dev-report>\s*[\s\S]*?(?:\s*<\/dev-report>|$)/gi, '').trim();
 }
 
+function autolinkBareDomainsOutsideCode(content: string): string {
+  const fencePattern = /(```[\s\S]*?```|`[^`\n]+`)/g;
+  const bareDomainPattern = /(^|[\s([{"'«])((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}(?:\/[^\s<]*)?)(?=[$\s)\]},"'».!?:;])/gim;
+
+  return content
+    .split(fencePattern)
+    .map((part) => {
+      if (!part) return part;
+      if (part.startsWith('```') || (part.startsWith('`') && part.endsWith('`'))) {
+        return part;
+      }
+
+      return part.replace(bareDomainPattern, (match, prefix: string, domain: string) => {
+        const normalized = domain.toLowerCase();
+        if (
+          normalized.startsWith('http://')
+          || normalized.startsWith('https://')
+          || normalized.startsWith('www.')
+          || prefix.includes('@')
+        ) {
+          return match;
+        }
+
+        return `${prefix}[${domain}](https://${domain})`;
+      });
+    })
+    .join('');
+}
+
 function resolveBrowserUrl(url?: string | null): string | null {
   if (!url) return null;
 
@@ -758,7 +787,9 @@ export function ChatMessage({
   const beautifyAppliedSourceHashesRef = useRef<Set<string>>(new Set());
   const isEditorOpen = Boolean(previewEditor);
   const absolutePreviewPageUrl = resolveBrowserUrl(previewPageUrl);
-  const renderedContent = !isUser ? stripDevReportEnvelope(content) : content;
+  const renderedContent = !isUser
+    ? autolinkBareDomainsOutsideCode(stripDevReportEnvelope(content))
+    : content;
   const propHtmlPreview = codingReport?.preview?.type === 'html' && codingReport.preview.html
     ? {
       title: codingReport.preview.title || 'Agent preview',
