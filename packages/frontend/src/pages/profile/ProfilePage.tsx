@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Ca
 import { Input } from '../../components/ui/Input';
 import { Spinner } from '../../components/ui/Spinner';
 import { TopUpHelp } from '../../components/billing/TopUpHelp';
+import { UserLink } from '../../components/users/UserLink';
 
 const ROLE_LABELS: Record<string, string> = {
   user: 'Пользователь',
@@ -210,7 +211,14 @@ export function ProfilePage() {
                 </Badge>
               </div>
               {profile.username && (
-                <p className="text-sm text-muted-foreground">Логин: @{profile.username}</p>
+                <p className="text-sm text-muted-foreground">
+                  Логин:{' '}
+                  <UserLink
+                    username={profile.username}
+                    name={null}
+                    className="hover:text-primary hover:underline"
+                  />
+                </p>
               )}
               <p className="text-sm text-muted-foreground">
                 Зарегистрирован: {new Date(profile.created_at).toLocaleDateString('ru-RU')}
@@ -487,3 +495,4 @@ export function ProfilePage() {
     </div>
   );
 }
+

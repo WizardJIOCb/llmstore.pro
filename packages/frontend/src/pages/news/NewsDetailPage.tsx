@@ -53,6 +53,7 @@ export function NewsDetailPage() {
           {displayDate && (
             <p className="text-sm text-muted-foreground">{displayDate}</p>
           )}
+          <p className="text-sm text-muted-foreground">{article.views_count ?? 0} просмотров</p>
         </header>
 
         {article.images.length > 0 && (

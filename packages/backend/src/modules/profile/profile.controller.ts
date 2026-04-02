@@ -10,6 +10,15 @@ export async function getProfile(req: Request, res: Response, next: NextFunction
   }
 }
 
+export async function getPublicProfile(req: Request<{ username: string }>, res: Response, next: NextFunction) {
+  try {
+    const profile = await profileService.getPublicProfileByUsername(req.params.username);
+    res.json({ data: profile });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function updateProfile(req: Request, res: Response, next: NextFunction) {
   try {
     const profile = await profileService.updateProfile(req.session.userId!, req.body);

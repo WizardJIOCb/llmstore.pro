@@ -1998,6 +1998,7 @@ interface GalleryPreviewItem {
   preview_url: string | null;
   preview_html: string | null;
   author_name: string;
+  author_username: string | null;
   view_count: number;
   unique_view_count: number;
   total_view_count: number;
@@ -3587,6 +3588,7 @@ export async function listGalleryPreviews(limit = 24, viewerUserId?: string | nu
         username: row.author_username,
         name: row.author_name_raw,
       }),
+      author_username: row.author_username,
       view_count: uniqueViewCount,
       unique_view_count: uniqueViewCount,
       total_view_count: totalViewCount,

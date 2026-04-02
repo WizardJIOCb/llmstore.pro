@@ -22,7 +22,7 @@ interface Attachment {
 interface ChatMessageProps {
   role: 'user' | 'assistant' | 'tool';
   content: string;
-  authorLabel?: string | null;
+  authorLabel?: ReactNode;
   animateOnMount?: boolean;
   attachments?: Attachment[];
   toolTraces?: ToolTrace[];

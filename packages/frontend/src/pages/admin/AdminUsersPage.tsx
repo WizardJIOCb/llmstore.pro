@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { AdminLayout } from '../../components/admin/AdminLayout';
 import { useAdminUsers, useUpdateUserRole, useUpdateUserStatus, useAdjustUserBalance } from '../../hooks/useAdmin';
 import { Button, Badge, Spinner } from '../../components/ui';
+import { UserLink } from '../../components/users/UserLink';
 
 const roleLabels: Record<string, string> = {
   user: 'Пользователь',
@@ -152,7 +153,7 @@ export function AdminUsersPage() {
                     <td className="px-4 py-3">
                       <div className="font-medium">{user.email}</div>
                       {user.username && (
-                        <div className="text-xs text-muted-foreground">@{user.username}</div>
+                        <div className="text-xs text-muted-foreground"><UserLink username={user.username} name={null} className="hover:text-primary hover:underline" /></div>
                       )}
                     </td>
                     <td className="px-4 py-3">{user.name || '-'}</td>
@@ -307,3 +308,4 @@ export function AdminUsersPage() {
     </AdminLayout>
   );
 }
+

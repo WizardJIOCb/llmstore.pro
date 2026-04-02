@@ -13,6 +13,7 @@ import { Badge } from '../../components/ui/Badge';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { Spinner } from '../../components/ui/Spinner';
+import { UserLink } from '../../components/users/UserLink';
 import type { AgentStats } from '../../lib/api/agents';
 
 const statusLabels: Record<string, string> = {
@@ -308,7 +309,13 @@ export function AgentsHubPage() {
                       <div className="flex items-center justify-between gap-4">
                         <CardTitle className="text-base">{agent.name}</CardTitle>
                         <span className="text-xs text-muted-foreground whitespace-nowrap">
-                          Автор: {agent.owner_name || (agent.owner_username ? `@${agent.owner_username}` : 'пользователь')}
+                          Автор:{' '}
+                          <UserLink
+                            username={agent.owner_username}
+                            name={agent.owner_name}
+                            fallback="пользователь"
+                            className="hover:text-foreground hover:underline"
+                          />
                         </span>
                       </div>
                       {agent.description && <CardDescription>{agent.description}</CardDescription>}

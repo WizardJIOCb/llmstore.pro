@@ -91,3 +91,9 @@ export interface UserProfile extends UserPublic {
   balance_history: BalanceHistoryItem[];
   limits: UserLimits;
 }
+
+export interface PublicUserProfile extends UserSlim {
+  role: UserRole;
+  created_at: string;
+  usage: UserUsageSummary;
+}

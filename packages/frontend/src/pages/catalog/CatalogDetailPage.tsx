@@ -2,6 +2,7 @@ import { useParams, Link } from 'react-router-dom';
 import type { ContentType } from '@llmstore/shared';
 import { useCatalogItem } from '../../hooks/useCatalog';
 import { CatalogCard } from '../../components/catalog/CatalogCard';
+import { UserLink } from '../../components/users/UserLink';
 import { Badge, Skeleton, Spinner } from '../../components/ui';
 import {
   contentTypeLabels, pricingTypeLabels, deploymentTypeLabels,
@@ -180,7 +181,12 @@ export function CatalogDetailPage({ type }: Props) {
           {item.author && (
             <div className="rounded-lg border p-6">
               <h3 className="mb-3 text-lg font-semibold">–ê–≤—Ç–æ—Ä</h3>
-              <p className="text-sm">{item.author.name ?? item.author.username ?? '–ê–Ω–æ–Ω–∏–º'}</p>
+              <UserLink
+                username={item.author.username}
+                name={item.author.name}
+                fallback="¿ÌÓÌËÏ"
+                className="text-sm text-foreground hover:text-primary hover:underline"
+              />
             </div>
           )}
         </div>
@@ -200,3 +206,4 @@ export function CatalogDetailPage({ type }: Props) {
     </div>
   );
 }
+

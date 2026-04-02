@@ -3,6 +3,7 @@ import { Button } from '../ui/Button';
 import { Textarea } from '../ui/Textarea';
 import { Spinner } from '../ui/Spinner';
 import type { PublicComment } from '../../lib/api/comments';
+import { UserLink } from '../users/UserLink';
 
 interface CommentsSectionProps {
   title?: string;
@@ -109,7 +110,12 @@ export function CommentsSection({
           {comments.map((comment) => (
             <article key={comment.id} className="rounded-md border p-3">
               <div className="mb-2 flex items-center justify-between gap-3">
-                <p className="text-sm font-medium">{displayUserName(comment)}</p>
+                <UserLink
+                  username={comment.user.username}
+                  name={comment.user.name}
+                  fallback="Пользователь"
+                  className="text-sm font-medium text-foreground hover:text-primary hover:underline"
+                />
                 <div className="flex items-center gap-3">
                   <p className="text-xs text-muted-foreground">{formatDate(comment.created_at)}</p>
                   {onDelete && (canDeleteAny || currentUserId === comment.user.id) && (

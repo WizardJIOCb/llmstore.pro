@@ -91,6 +91,7 @@ export interface GalleryPreviewItem {
   preview_url: string | null;
   preview_html: string | null;
   author_name: string;
+  author_username: string | null;
   view_count: number;
   unique_view_count: number;
   total_view_count: number;

@@ -32,6 +32,7 @@ import { RunsDashboardPage } from './pages/dashboard/RunsDashboardPage';
 import { AgentsHubPage } from './pages/agents/AgentsHubPage';
 import { SharedChatPage } from './pages/shared/SharedChatPage';
 import { ProfilePage } from './pages/profile/ProfilePage';
+import { PublicProfilePage } from './pages/profile/PublicProfilePage';
 import { ChatsPage } from './pages/chats/ChatsPage';
 import { GalleryPage } from './pages/gallery/GalleryPage';
 
@@ -115,6 +116,7 @@ export function App() {
             <ProfilePage />
           </ProtectedRoute>
         } />
+        <Route path="/u/:username" element={<PublicProfilePage />} />
 
         {/* Shared chat (public, no auth) */}
         <Route path="/shared/chat/:token" element={<SharedChatPage />} />

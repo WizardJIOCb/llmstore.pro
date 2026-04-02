@@ -6,6 +6,7 @@ import type { ChatReactionType, GalleryPreviewItem } from '../../lib/api/chats';
 import { Spinner } from '../../components/ui/Spinner';
 import { Button } from '../../components/ui/Button';
 import { Select } from '../../components/ui/Select';
+import { UserLink } from '../../components/users/UserLink';
 import { authApi } from '../../lib/api/auth';
 
 const PAGE_SIZE_OPTIONS = [2, 4, 6, 8, 10];
@@ -231,7 +232,13 @@ export function GalleryPage() {
 
                   <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
                     <span className="rounded-full border bg-muted/20 px-2.5 py-1">
-                      –ê–≤—Ç–æ—Ä: {item.author_name}
+                      –ê–≤—Ç–æ—Ä:{' '}
+                      <UserLink
+                        username={item.author_username}
+                        name={item.author_name}
+                        fallback="œÓÎ¸ÁÓ‚‡ÚÂÎ¸"
+                        className="text-foreground hover:text-primary hover:underline"
+                      />
                     </span>
                     <span className="rounded-full border bg-muted/20 px-2.5 py-1">
                       –í—Å–µ–≥–æ: {formatViews(item.total_view_count)}

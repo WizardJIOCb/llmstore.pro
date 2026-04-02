@@ -4,6 +4,7 @@ import { useCreateArticleComment, useDeleteArticleComment, useArticleComments } 
 import { useAuth } from '../../hooks/useAuth';
 import { CatalogCard } from '../../components/catalog/CatalogCard';
 import { CommentsSection } from '../../components/comments/CommentsSection';
+import { UserLink } from '../../components/users/UserLink';
 import { Badge, Skeleton } from '../../components/ui';
 import {
   pricingTypeLabels,
@@ -176,7 +177,12 @@ export function ArticleDetailPage() {
           {item.author && (
             <div className="rounded-lg border p-6">
               <h3 className="mb-3 text-lg font-semibold">–ê–≤—Ç–æ—Ä</h3>
-              <p className="text-sm">{item.author.name ?? item.author.username ?? '–ê–Ω–æ–Ω–∏–º'}</p>
+              <UserLink
+                username={item.author.username}
+                name={item.author.name}
+                fallback="¿ÌÓÌËÏ"
+                className="text-sm text-foreground hover:text-primary hover:underline"
+              />
             </div>
           )}
         </div>
@@ -206,3 +212,4 @@ export function ArticleDetailPage() {
     </div>
   );
 }
+

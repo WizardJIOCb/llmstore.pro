@@ -4,6 +4,8 @@ import { requireAuth } from '../../middleware/auth-guard.js';
 
 const router = Router();
 
+router.get('/public/:username', controller.getPublicProfile);
+
 router.use(requireAuth);
 
 router.get('/', controller.getProfile);

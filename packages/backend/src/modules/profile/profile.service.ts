@@ -9,6 +9,7 @@ import { AppError, ConflictError, NotFoundError } from '../../middleware/error-h
 import { ROLE_LIMITS } from '@llmstore/shared';
 import type {
   UserProfile,
+  PublicUserProfile,
   LinkedAccount,
   UserUsageSummary,
   AgentUsageSummary,
@@ -158,6 +159,48 @@ async function getBalanceHistory(userId: string): Promise<BalanceHistoryItem[]> 
     .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
 }
 
+async function getUserUsageSummary(userId: string): Promise<UserUsageSummary> {
+  const usageRows = await db.execute<{
+    agent_id: string;
+    agent_name: string;
+    total_runs: string;
+    total_tokens: string;
+    total_cost: string;
+  }>(sql`
+    SELECT
+      ar.agent_id,
+      COALESCE(a.name, 'Удаленный агент') AS agent_name,
+      COUNT(ar.id) AS total_runs,
+      COALESCE(SUM(ul.prompt_tokens + ul.completion_tokens), 0) AS total_tokens,
+      COALESCE(SUM(ul.estimated_cost::numeric), 0) AS total_cost
+    FROM agent_runs ar
+    LEFT JOIN usage_ledger ul ON ul.run_id = ar.id
+    LEFT JOIN agents a ON a.id = ar.agent_id
+    WHERE ar.user_id = ${userId}
+    GROUP BY ar.agent_id, a.name
+    ORDER BY total_cost DESC
+  `);
+
+  const perAgent: AgentUsageSummary[] = usageRows.map((r) => ({
+    agent_id: r.agent_id,
+    agent_name: r.agent_name,
+    total_runs: Number(r.total_runs),
+    total_tokens: Number(r.total_tokens),
+    total_cost: String(r.total_cost),
+  }));
+
+  const totalRuns = perAgent.reduce((sum, agent) => sum + agent.total_runs, 0);
+  const totalTokens = perAgent.reduce((sum, agent) => sum + agent.total_tokens, 0);
+  const totalCost = perAgent.reduce((sum, agent) => sum + Number(agent.total_cost), 0);
+
+  return {
+    total_runs: totalRuns,
+    total_tokens: totalTokens,
+    total_cost_usd: totalCost.toFixed(6),
+    per_agent: perAgent,
+  };
+}
+
 export async function getProfile(userId: string): Promise<UserProfile> {
   const [user] = await db
     .select()
@@ -169,7 +212,7 @@ export async function getProfile(userId: string): Promise<UserProfile> {
     throw new NotFoundError('Пользователь не найден');
   }
 
-  const [accounts, usageRows, balanceHistory] = await Promise.all([
+  const [accounts, usage, balanceHistory] = await Promise.all([
     db.select({
       provider: authAccounts.provider,
       provider_account_id: authAccounts.provider_account_id,
@@ -177,26 +220,7 @@ export async function getProfile(userId: string): Promise<UserProfile> {
     })
       .from(authAccounts)
       .where(eq(authAccounts.user_id, userId)),
-    db.execute<{
-      agent_id: string;
-      agent_name: string;
-      total_runs: string;
-      total_tokens: string;
-      total_cost: string;
-    }>(sql`
-      SELECT
-        ar.agent_id,
-        COALESCE(a.name, 'Удаленный агент') AS agent_name,
-        COUNT(ar.id) AS total_runs,
-        COALESCE(SUM(ul.prompt_tokens + ul.completion_tokens), 0) AS total_tokens,
-        COALESCE(SUM(ul.estimated_cost::numeric), 0) AS total_cost
-      FROM agent_runs ar
-      LEFT JOIN usage_ledger ul ON ul.run_id = ar.id
-      LEFT JOIN agents a ON a.id = ar.agent_id
-      WHERE ar.user_id = ${userId}
-      GROUP BY ar.agent_id, a.name
-      ORDER BY total_cost DESC
-    `),
+    getUserUsageSummary(userId),
     getBalanceHistory(userId),
   ]);
 
@@ -205,25 +229,6 @@ export async function getProfile(userId: string): Promise<UserProfile> {
     provider_account_id: a.provider_account_id,
     created_at: a.created_at.toISOString(),
   }));
-
-  const perAgent: AgentUsageSummary[] = usageRows.map((r) => ({
-    agent_id: r.agent_id,
-    agent_name: r.agent_name,
-    total_runs: Number(r.total_runs),
-    total_tokens: Number(r.total_tokens),
-    total_cost: String(r.total_cost),
-  }));
-
-  const totalRuns = perAgent.reduce((s, a) => s + a.total_runs, 0);
-  const totalTokens = perAgent.reduce((s, a) => s + a.total_tokens, 0);
-  const totalCost = perAgent.reduce((s, a) => s + Number(a.total_cost), 0);
-
-  const usage: UserUsageSummary = {
-    total_runs: totalRuns,
-    total_tokens: totalTokens,
-    total_cost_usd: totalCost.toFixed(6),
-    per_agent: perAgent,
-  };
 
   const usdToRubRate = await getUsdToRubRate();
   const balanceUsd = Number(user.balance_usd);
@@ -248,6 +253,43 @@ export async function getProfile(userId: string): Promise<UserProfile> {
     usage,
     balance_history: balanceHistory,
     limits,
+  };
+}
+
+export async function getPublicProfileByUsername(username: string): Promise<PublicUserProfile> {
+  const normalized = username.trim().replace(/^@+/, '').toLowerCase();
+  if (!normalized) {
+    throw new NotFoundError('Пользователь не найден');
+  }
+
+  const [user] = await db
+    .select({
+      id: users.id,
+      username: users.username,
+      name: users.name,
+      avatar_url: users.avatar_url,
+      role: users.role,
+      status: users.status,
+      created_at: users.created_at,
+    })
+    .from(users)
+    .where(sql`lower(${users.username}) = ${normalized}`)
+    .limit(1);
+
+  if (!user || !user.username || user.status !== 'active') {
+    throw new NotFoundError('Пользователь не найден');
+  }
+
+  const usage = await getUserUsageSummary(user.id);
+
+  return {
+    id: user.id,
+    username: user.username,
+    name: user.name,
+    avatar_url: user.avatar_url,
+    role: user.role as UserRole,
+    created_at: user.created_at.toISOString(),
+    usage,
   };
 }
 

@@ -27,6 +27,7 @@ import {
 import { useAppSettings } from '../../hooks/useAppSettings';
 import { useProfile } from '../../hooks/useProfile';
 import { chatsApi } from '../../lib/api/chats';
+import { UserLink } from '../../components/users/UserLink';
 import type {
   ChatAccess,
   ChatAgentOption,
@@ -1046,7 +1047,13 @@ export function ChatsPage() {
   const isSubmittingMessage = sendMessageMutation.isPending || uploadFilesMutation.isPending || isAwaitingLateReply;
   const sidebarLoading = chatsLoading || agentsLoading;
   const userMessageAuthorLabel = profile?.username?.trim()
-    ? `@${profile.username.trim()}`
+    ? (
+      <UserLink
+        username={profile.username.trim()}
+        name={profile.name?.trim() || null}
+        className="hover:text-primary hover:underline"
+      />
+    )
     : (profile?.name?.trim() || 'Вы');
 
   const getAssistantAuthorLabel = (message: ChatMessageType) => {

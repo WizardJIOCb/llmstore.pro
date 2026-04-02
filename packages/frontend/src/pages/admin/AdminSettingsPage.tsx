@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { AdminLayout } from '../../components/admin/AdminLayout';
 import { Button, Input, Spinner, Textarea } from '../../components/ui';
+import { UserLink } from '../../components/users/UserLink';
 import { adminApi } from '../../lib/api/admin';
 import { useAdminSettings, useAdjustUserBalance, useUpdateAdminSettings } from '../../hooks/useAdmin';
 
@@ -282,7 +283,7 @@ export function AdminSettingsPage() {
                         <td className="px-4 py-3">
                           <div className="font-medium">{user.email}</div>
                           {user.username ? (
-                            <div className="text-xs text-muted-foreground">@{user.username}</div>
+                            <div className="text-xs text-muted-foreground"><UserLink username={user.username} name={null} className="hover:text-primary hover:underline" /></div>
                           ) : null}
                         </td>
                         <td className="px-4 py-3">{user.name || '-'}</td>
@@ -310,7 +311,7 @@ export function AdminSettingsPage() {
             <h2 className="mb-2 text-lg font-semibold">Корректировка баланса</h2>
             <p className="text-sm text-muted-foreground">{balanceModal.email}</p>
             {balanceModal.username ? (
-              <p className="mb-4 text-xs text-muted-foreground">@{balanceModal.username}</p>
+              <p className="mb-4 text-xs text-muted-foreground"><UserLink username={balanceModal.username} name={null} className="hover:text-primary hover:underline" /></p>
             ) : (
               <div className="mb-4" />
             )}
@@ -352,3 +353,4 @@ export function AdminSettingsPage() {
     </AdminLayout>
   );
 }
+

@@ -10,6 +10,7 @@ import { ToolTracePanel } from '../../components/agents/ToolTracePanel';
 import { RunMetadata } from '../../components/agents/RunMetadata';
 import { Spinner } from '../../components/ui/Spinner';
 import { Button } from '../../components/ui/Button';
+import { UserLink } from '../../components/users/UserLink';
 import type { ToolTrace } from '../../lib/api/agents';
 import { TopUpHelp } from '../../components/billing/TopUpHelp';
 
@@ -78,7 +79,13 @@ export function AgentPlaygroundPage() {
   }, []);
   const hasAvailableBalance = profile ? Number(profile.balance_usd) > 0 : true;
   const userMessageAuthorLabel = profile?.username?.trim()
-    ? `@${profile.username.trim()}`
+    ? (
+      <UserLink
+        username={profile.username.trim()}
+        name={profile.name?.trim() || null}
+        className="hover:text-primary hover:underline"
+      />
+    )
     : (profile?.name?.trim() || 'Вы');
   const assistantAuthorLabel = agent?.version?.model_id || 'AI';
 
