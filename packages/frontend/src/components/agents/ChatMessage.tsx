@@ -165,6 +165,127 @@ function getStringHash(value: string): string {
   return Math.abs(hash).toString(36);
 }
 
+function slugifyFilename(value: string): string {
+  const slug = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60);
+
+  return slug || 'preview-project';
+}
+
+const CRC32_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let index = 0; index < 256; index += 1) {
+    let current = index;
+    for (let bit = 0; bit < 8; bit += 1) {
+      current = (current & 1) !== 0 ? (0xedb88320 ^ (current >>> 1)) : (current >>> 1);
+    }
+    table[index] = current >>> 0;
+  }
+  return table;
+})();
+
+function crc32(bytes: Uint8Array): number {
+  let crc = 0xffffffff;
+  for (let index = 0; index < bytes.length; index += 1) {
+    crc = CRC32_TABLE[(crc ^ bytes[index]) & 0xff] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function writeUint16(view: DataView, offset: number, value: number) {
+  view.setUint16(offset, value, true);
+}
+
+function writeUint32(view: DataView, offset: number, value: number) {
+  view.setUint32(offset, value >>> 0, true);
+}
+
+function buildZipArchive(files: Array<{ name: string; content: string }>): Blob {
+  const encoder = new TextEncoder();
+  const localParts: Uint8Array[] = [];
+  const centralParts: Uint8Array[] = [];
+  let offset = 0;
+
+  for (const file of files) {
+    const nameBytes = encoder.encode(file.name);
+    const contentBytes = encoder.encode(file.content);
+    const checksum = crc32(contentBytes);
+
+    const localHeader = new Uint8Array(30 + nameBytes.length);
+    const localView = new DataView(localHeader.buffer);
+    writeUint32(localView, 0, 0x04034b50);
+    writeUint16(localView, 4, 20);
+    writeUint16(localView, 6, 0x0800);
+    writeUint16(localView, 8, 0);
+    writeUint16(localView, 10, 0);
+    writeUint16(localView, 12, 0);
+    writeUint32(localView, 14, checksum);
+    writeUint32(localView, 18, contentBytes.length);
+    writeUint32(localView, 22, contentBytes.length);
+    writeUint16(localView, 26, nameBytes.length);
+    writeUint16(localView, 28, 0);
+    localHeader.set(nameBytes, 30);
+    localParts.push(localHeader, contentBytes);
+
+    const centralHeader = new Uint8Array(46 + nameBytes.length);
+    const centralView = new DataView(centralHeader.buffer);
+    writeUint32(centralView, 0, 0x02014b50);
+    writeUint16(centralView, 4, 20);
+    writeUint16(centralView, 6, 20);
+    writeUint16(centralView, 8, 0x0800);
+    writeUint16(centralView, 10, 0);
+    writeUint16(centralView, 12, 0);
+    writeUint16(centralView, 14, 0);
+    writeUint32(centralView, 16, checksum);
+    writeUint32(centralView, 20, contentBytes.length);
+    writeUint32(centralView, 24, contentBytes.length);
+    writeUint16(centralView, 28, nameBytes.length);
+    writeUint16(centralView, 30, 0);
+    writeUint16(centralView, 32, 0);
+    writeUint16(centralView, 34, 0);
+    writeUint16(centralView, 36, 0);
+    writeUint32(centralView, 38, 0);
+    writeUint32(centralView, 42, offset);
+    centralHeader.set(nameBytes, 46);
+    centralParts.push(centralHeader);
+
+    offset += localHeader.length + contentBytes.length;
+  }
+
+  const centralSize = centralParts.reduce((sum, part) => sum + part.length, 0);
+  const endRecord = new Uint8Array(22);
+  const endView = new DataView(endRecord.buffer);
+  writeUint32(endView, 0, 0x06054b50);
+  writeUint16(endView, 4, 0);
+  writeUint16(endView, 6, 0);
+  writeUint16(endView, 8, files.length);
+  writeUint16(endView, 10, files.length);
+  writeUint32(endView, 12, centralSize);
+  writeUint32(endView, 16, offset);
+  writeUint16(endView, 20, 0);
+
+  const toBlobPart = (part: Uint8Array) => new Uint8Array(part).buffer;
+
+  return new Blob(
+    [...localParts, ...centralParts, endRecord].map(toBlobPart),
+    { type: 'application/zip' },
+  );
+}
+
+function downloadBlob(filename: string, blob: Blob) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
 function highlightHtmlAttributes(attrs: string): string {
   return attrs.replace(
     /(\s+)([^\s=/>]+)(\s*=\s*(?:&quot;.*?&quot;|&#39;.*?&#39;|[^\s"'=<>`]+))?/g,
@@ -253,6 +374,9 @@ function injectPreviewBridge(html: string, previewId: string): string {
   vertical-align: -0.12em !important;
   object-fit: contain !important;
 }
+.llmstore-emoji-native {
+  display: inline !important;
+}
 </style>
 <script>
 (() => {
@@ -262,17 +386,28 @@ function injectPreviewBridge(html: string, previewId: string): string {
     ? window.__LLMSTORE_PREVIEW_ORIGIN__
     : window.location.origin;
   const emojiAssetBase = new URL('/api/emoji/', previewOrigin).toString();
+  const unsupportedEmojiCodes = new Set();
 
   const shouldSkipEmojiWrap = (node) => {
     const parent = node.parentElement;
     if (!parent) return true;
-    return !!parent.closest('script, style, textarea, input, option');
+    return !!parent.closest('script, style, textarea, input, option, .llmstore-emoji-native');
   };
 
   const toEmojiCodePoint = (value) => Array.from(value)
     .map((symbol) => symbol.codePointAt(0)?.toString(16))
     .filter((code) => code && code !== 'fe0f')
     .join('-');
+
+  const createNativeEmojiSpan = (value, code) => {
+    const span = document.createElement('span');
+    span.className = 'llmstore-emoji-native';
+    span.textContent = value;
+    if (code) {
+      span.dataset.llmstoreEmojiCode = code;
+    }
+    return span;
+  };
 
   const wrapEmojiTextNode = (node) => {
     if (!node.nodeValue) return;
@@ -286,23 +421,29 @@ function injectPreviewBridge(html: string, previewId: string): string {
 
     for (const match of matches) {
       const value = match[0];
+      const code = toEmojiCodePoint(value);
       const index = match.index ?? 0;
       if (index > lastIndex) {
         fragment.appendChild(document.createTextNode(node.nodeValue.slice(lastIndex, index)));
       }
 
+      if (!code || unsupportedEmojiCodes.has(code)) {
+        fragment.appendChild(createNativeEmojiSpan(value, code));
+        lastIndex = index + value.length;
+        continue;
+      }
+
       const img = document.createElement('img');
       img.className = 'llmstore-emoji-fallback';
       img.alt = value;
-      img.src = emojiAssetBase + toEmojiCodePoint(value) + '.svg?v=${emojiAssetVersion}';
+      img.src = emojiAssetBase + code + '.svg?v=${emojiAssetVersion}';
       img.decoding = 'async';
       img.loading = 'lazy';
       img.draggable = false;
       img.referrerPolicy = 'no-referrer';
       img.onerror = () => {
-        const span = document.createElement('span');
-        span.textContent = value;
-        img.replaceWith(span);
+        unsupportedEmojiCodes.add(code);
+        img.replaceWith(createNativeEmojiSpan(value, code));
       };
       fragment.appendChild(img);
 
@@ -565,6 +706,7 @@ export function ChatMessage({
   const [htmlPreview, setHtmlPreview] = useState<{ title: string; html: string } | null>(null);
   const [previewEditor, setPreviewEditor] = useState<{ title: string; html: string } | null>(null);
   const [editorSaving, setEditorSaving] = useState(false);
+  const [editorExporting, setEditorExporting] = useState(false);
   const [editorError, setEditorError] = useState<string | null>(null);
   const [editorStatus, setEditorStatus] = useState<string | null>(null);
   const [messageActionError, setMessageActionError] = useState<string | null>(null);
@@ -574,6 +716,7 @@ export function ChatMessage({
   const editorHistoryRef = useRef<string[]>([]);
   const editorHistoryIndexRef = useRef(-1);
   const editorStatusTimeoutRef = useRef<number | null>(null);
+  const beautifyAppliedSourceHashesRef = useRef<Set<string>>(new Set());
   const isEditorOpen = Boolean(previewEditor);
   const absolutePreviewPageUrl = resolveBrowserUrl(previewPageUrl);
   const renderedContent = !isUser ? stripDevReportEnvelope(content) : content;
@@ -590,6 +733,7 @@ export function ChatMessage({
     [previewEditor],
   );
   const resolvedPreviewRevision = resolvedHtmlPreview ? getStringHash(resolvedHtmlPreview.html) : undefined;
+  const editorBusy = editorSaving || editorExporting;
 
   useEffect(() => {
     if (!isEditorOpen || !previewEditor) return;
@@ -622,6 +766,62 @@ export function ChatMessage({
         setEditorStatus(null);
         editorStatusTimeoutRef.current = null;
       }, 2200);
+    }
+  };
+
+  const openPreviewEditor = (title: string, html: string) => {
+    const sourceHash = getStringHash(html);
+    const shouldAutoBeautify = !beautifyAppliedSourceHashesRef.current.has(sourceHash);
+    const nextHtml = shouldAutoBeautify ? beautifyHtml(html) : html;
+
+    if (shouldAutoBeautify) {
+      beautifyAppliedSourceHashesRef.current.add(sourceHash);
+    }
+
+    setEditorError(null);
+    setPreviewEditor({ title, html: nextHtml });
+  };
+
+  const applyBeautifyToEditor = () => {
+    if (!previewEditor) return;
+    beautifyAppliedSourceHashesRef.current.add(getStringHash(previewEditor.html));
+    updatePreviewEditorHtml(beautifyHtml(previewEditor.html));
+    setEditorTransientStatus('HTML аккуратно отформатирован');
+  };
+
+  const exportPreviewProject = async () => {
+    if (!previewEditor) return;
+
+    setEditorExporting(true);
+    setEditorError(null);
+
+    try {
+      const projectSlug = slugifyFilename(previewEditor.title || 'preview-project');
+      const readme = [
+        `# ${previewEditor.title || 'Preview project'}`,
+        '',
+        'Это standalone preview, экспортированный из LLMStore.',
+        '',
+        '## Файлы',
+        '- `index.html` — готовая страница preview.',
+        '',
+        '## Как запустить',
+        '1. Распакуйте архив.',
+        '2. Откройте `index.html` в браузере.',
+        '3. Если нужны локальные запросы/модули, поднимите простый static server в этой папке.',
+      ].join('\n');
+
+      const zip = buildZipArchive([
+        { name: `${projectSlug}/index.html`, content: previewEditor.html },
+        { name: `${projectSlug}/README.md`, content: readme },
+      ]);
+
+      downloadBlob(`${projectSlug}.zip`, zip);
+      setEditorTransientStatus('Архив проекта экспортирован');
+    } catch (error) {
+      setEditorError(error instanceof Error ? error.message : 'Не удалось экспортировать архив');
+    } finally {
+      setEditorExporting(false);
     }
   };
 
@@ -962,7 +1162,7 @@ export function ChatMessage({
                         type="button"
                         variant="outline"
                         size="sm"
-                        className="whitespace-nowrap"
+                        className="order-1 whitespace-nowrap"
                         onClick={() => {
                           if (absolutePreviewPageUrl) {
                             window.open(
@@ -989,14 +1189,8 @@ export function ChatMessage({
                           type="button"
                           variant="outline"
                           size="sm"
-                          className="whitespace-nowrap"
-                          onClick={() => {
-                            setEditorError(null);
-                            setPreviewEditor({
-                              title: resolvedHtmlPreview.title,
-                              html: resolvedHtmlPreview.html,
-                            });
-                          }}
+                          className="order-3 whitespace-nowrap"
+                          onClick={() => openPreviewEditor(resolvedHtmlPreview.title, resolvedHtmlPreview.html)}
                         >
                           Редактор
                         </Button>
@@ -1005,7 +1199,7 @@ export function ChatMessage({
                         type="button"
                         variant="outline"
                         size="sm"
-                        className="whitespace-nowrap"
+                        className="order-2 whitespace-nowrap"
                         onClick={() => setHtmlPreview({
                           title: resolvedHtmlPreview.title,
                           html: resolvedHtmlPreview.html,
@@ -1122,7 +1316,7 @@ export function ChatMessage({
       {previewEditor && (
         <div
           className="fixed inset-0 z-[135] flex items-center justify-center bg-black/85 p-3"
-          onClick={() => !editorSaving && setPreviewEditor(null)}
+          onClick={() => !editorBusy && setPreviewEditor(null)}
         >
           <div
             className="flex h-[94vh] w-[98vw] max-w-[1600px] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
@@ -1134,26 +1328,34 @@ export function ChatMessage({
                 <p className="text-xs text-slate-500">Файл: index.html</p>
               </div>
               <div className="flex items-center gap-2">
-                <Button type="button" variant="outline" size="sm" onClick={() => setPreviewEditor(null)} disabled={editorSaving}>
+                <Button type="button" variant="outline" size="sm" className="order-5" onClick={() => setPreviewEditor(null)} disabled={editorBusy}>
                   Закрыть
                 </Button>
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
-                  disabled={editorSaving}
-                  onClick={() => {
-                    if (!previewEditor) return;
-                    updatePreviewEditorHtml(beautifyHtml(previewEditor.html));
-                    setEditorTransientStatus('HTML аккуратно отформатирован');
-                  }}
+                  className="order-1"
+                  disabled={editorBusy}
+                  onClick={() => { void exportPreviewProject(); }}
+                >
+                  {editorExporting ? 'Экспортирую...' : 'Экспортировать'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="order-3"
+                  disabled={editorBusy}
+                  onClick={applyBeautifyToEditor}
                 >
                   Beautify
                 </Button>
                 <Button
                   type="button"
                   size="sm"
-                  disabled={editorSaving || !onSavePreview}
+                  className="order-4"
+                  disabled={editorBusy || !onSavePreview}
                   onClick={() => { void savePreviewEditor(); }}
                 >
                   {editorSaving ? 'Сохраняю...' : 'Сохранить'}

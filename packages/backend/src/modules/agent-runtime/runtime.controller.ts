@@ -21,6 +21,45 @@ const EMOJI_CACHE_TTL_MS = 1000 * 60 * 60 * 24;
 const emojiSvgCache = new Map<string, { body: Buffer; fetchedAt: number }>();
 const VIEWER_COOKIE_NAME = 'llmstore_viewer_id';
 
+function escapeSvgText(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function decodeEmojiCode(code: string): string | null {
+  try {
+    const points = code
+      .split('-')
+      .map((part) => Number.parseInt(part, 16))
+      .filter((point) => Number.isInteger(point) && point >= 0 && point <= 0x10ffff);
+
+    if (!points.length) {
+      return null;
+    }
+
+    return String.fromCodePoint(...points);
+  } catch {
+    return null;
+  }
+}
+
+function buildEmojiFallbackSvg(code: string): Buffer | null {
+  const value = decodeEmojiCode(code);
+  if (!value) {
+    return null;
+  }
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72">
+  <text x="50%" y="50%" dominant-baseline="central" text-anchor="middle" font-size="56">${escapeSvgText(value)}</text>
+</svg>`;
+
+  return Buffer.from(svg, 'utf-8');
+}
+
 function parseCookieHeader(cookieHeader?: string): Record<string, string> {
   const parsed: Record<string, string> = {};
   if (!cookieHeader) return parsed;
@@ -290,7 +329,22 @@ export async function getEmojiSvg(req: Request<{ code: string }>, res: Response,
 
     const response = await fetch(`${EMOJI_PROXY_BASE_URL}${code}.svg`);
     if (!response.ok) {
-      res.status(response.status === 404 ? 404 : 502).end();
+      if (response.status === 404) {
+        const fallbackBody = buildEmojiFallbackSvg(code);
+        if (!fallbackBody) {
+          res.status(404).end();
+          return;
+        }
+
+        emojiSvgCache.set(code, { body: fallbackBody, fetchedAt: Date.now() });
+        res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
+        res.setHeader('Cache-Control', 'public, max-age=86400');
+        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+        res.send(fallbackBody);
+        return;
+      }
+
+      res.status(502).end();
       return;
     }
 

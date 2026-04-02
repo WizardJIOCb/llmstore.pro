@@ -256,6 +256,7 @@ export function ChatsPage() {
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [openMenu, setOpenMenu] = useState<MenuItem>(null);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [localNoticeTone, setLocalNoticeTone] = useState<'error' | 'warning'>('error');
   const [shareToastVisible, setShareToastVisible] = useState(false);
   const [isPropertiesOpen, setIsPropertiesOpen] = useState(false);
   const [isTopUpOpen, setIsTopUpOpen] = useState(false);
@@ -290,6 +291,16 @@ export function ChatsPage() {
   const activeChat = activeChatData?.chat ?? null;
   const isActiveChatResolved = Boolean(safeActiveChatId && activeChat?.id === safeActiveChatId);
   const messages = activeChatData?.messages ?? [];
+
+  const showLocalError = (message: string) => {
+    setLocalNoticeTone('error');
+    setLocalError(message);
+  };
+
+  const showLocalWarning = (message: string) => {
+    setLocalNoticeTone('warning');
+    setLocalError(message);
+  };
 
   useEffect(() => {
     if (!safeActiveChatId || !activeChatError) return;
@@ -518,7 +529,7 @@ export function ChatsPage() {
   const createChatFromDialog = async () => {
     setLocalError(null);
     if (newChatMode === 'agent' && !newChatAgentId) {
-      setLocalError('Выберите агента для нового чата');
+      showLocalError('Выберите агента для нового чата');
       return;
     }
 
@@ -533,7 +544,7 @@ export function ChatsPage() {
       setNewChatMode('general');
       setNewChatAgentId('');
     } catch {
-      setLocalError('Не удалось создать чат');
+      showLocalError('Не удалось создать чат');
     }
   };
 
@@ -546,7 +557,7 @@ export function ChatsPage() {
     try {
       await updateChatMutation.mutateAsync({ chatId: chat.id, title });
     } catch {
-      setLocalError('Не удалось переименовать чат');
+      showLocalError('Не удалось переименовать чат');
     } finally {
       setOpenMenu(null);
     }
@@ -558,7 +569,7 @@ export function ChatsPage() {
       await deleteChatMutation.mutateAsync(chatId);
       if (activeChatId === chatId) setActiveChatId(null);
     } catch {
-      setLocalError('Не удалось удалить чат');
+      showLocalError('Не удалось удалить чат');
     } finally {
       setOpenMenu(null);
     }
@@ -574,7 +585,7 @@ export function ChatsPage() {
       if (shareToastTimerRef.current) clearTimeout(shareToastTimerRef.current);
       shareToastTimerRef.current = setTimeout(() => setShareToastVisible(false), 2000);
     } catch {
-      setLocalError('Не удалось поделиться чатом');
+      showLocalError('Не удалось поделиться чатом');
     } finally {
       setOpenMenu(null);
     }
@@ -603,7 +614,7 @@ export function ChatsPage() {
       });
       setIsPropertiesOpen(false);
     } catch (error) {
-      setLocalError(getApiErrorMessage(error) ?? 'Не удалось сохранить свойства чата');
+      showLocalError(getApiErrorMessage(error) ?? 'Не удалось сохранить свойства чата');
     } finally {
       setPropertiesSaving(false);
     }
@@ -625,7 +636,7 @@ export function ChatsPage() {
         });
       }
     } catch {
-      setLocalError('Не удалось изменить режим чата');
+      showLocalError('Не удалось изменить режим чата');
     }
   };
 
@@ -666,7 +677,7 @@ export function ChatsPage() {
     if (!activeChat) return;
     if (!hasAvailableBalance) {
       setIsTopUpOpen(true);
-      setLocalError('У вас не осталось баланса. Скоро вы сможете пополнить его на сайте, а пока можете написать Родиону.');
+      showLocalError('У вас не осталось баланса. Скоро вы сможете пополнить его на сайте, а пока можете написать Родиону.');
       return;
     }
     setLocalError(null);
@@ -680,18 +691,18 @@ export function ChatsPage() {
       const status = getApiErrorStatus(err);
       if (code === 'INSUFFICIENT_BALANCE') {
         setIsTopUpOpen(true);
-        setLocalError(getApiErrorMessage(err) || 'У вас не осталось баланса. Скоро вы сможете пополнить его на сайте.');
+        showLocalError(getApiErrorMessage(err) || 'У вас не осталось баланса. Скоро вы сможете пополнить его на сайте.');
         return;
       }
       if (status === 504) {
-        setLocalError('Ответ от модели занял слишком много времени. Проверяю, не завершился ли он в фоне...');
+        showLocalWarning('Ответ от модели занял слишком много времени. Проверяю, не завершился ли он в фоне...');
         const recovered = await recoverLateAssistantReply(activeChat.id, startedAt);
         if (!recovered) {
-          setLocalError('Провайдер слишком долго отвечал, и запрос оборвался по таймауту. Попробуйте ещё раз или выберите более быстрый агент.');
+          showLocalError('Провайдер слишком долго отвечал, и запрос оборвался по таймауту. Попробуйте ещё раз или выберите более быстрый агент.');
         }
         return;
       }
-      setLocalError(err instanceof Error ? err.message : 'Не удалось отправить сообщение');
+      showLocalError(err instanceof Error ? err.message : 'Не удалось отправить сообщение');
     }
   };
 
@@ -919,7 +930,18 @@ export function ChatsPage() {
             <div ref={messagesEndRef} />
           </div>
 
-          {localError && <div className="border-t px-4 py-2 text-sm text-destructive bg-destructive/10">{localError}</div>}
+          {localError && (
+            <div
+              className={cn(
+                'border-t px-4 py-2 text-sm',
+                localNoticeTone === 'warning'
+                  ? 'border-amber-200/80 bg-amber-50 text-amber-900'
+                  : 'bg-destructive/10 text-destructive',
+              )}
+            >
+              {localError}
+            </div>
+          )}
 
           <div className="border-t px-4 py-3 space-y-3">
             {canShowQuickPrompts && messages.length > 0 && (

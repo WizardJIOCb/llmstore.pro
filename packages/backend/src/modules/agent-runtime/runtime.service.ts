@@ -759,6 +759,9 @@ function injectPreviewBridgeHtml(html: string, previewId?: string): string {
   vertical-align: -0.12em !important;
   object-fit: contain !important;
 }
+.llmstore-emoji-native {
+  display: inline !important;
+}
 </style>
 <script>
 (() => {
@@ -768,17 +771,28 @@ function injectPreviewBridgeHtml(html: string, previewId?: string): string {
     ? window.__LLMSTORE_PREVIEW_ORIGIN__
     : window.location.origin;
   const emojiAssetBase = new URL('/api/emoji/', previewOrigin).toString();
+  const unsupportedEmojiCodes = new Set();
 
   const shouldSkipEmojiWrap = (node) => {
     const parent = node.parentElement;
     if (!parent) return true;
-    return !!parent.closest('script, style, textarea, input, option');
+    return !!parent.closest('script, style, textarea, input, option, .llmstore-emoji-native');
   };
 
   const toEmojiCodePoint = (value) => Array.from(value)
     .map((symbol) => symbol.codePointAt(0)?.toString(16))
     .filter((code) => code && code !== 'fe0f')
     .join('-');
+
+  const createNativeEmojiSpan = (value, code) => {
+    const span = document.createElement('span');
+    span.className = 'llmstore-emoji-native';
+    span.textContent = value;
+    if (code) {
+      span.dataset.llmstoreEmojiCode = code;
+    }
+    return span;
+  };
 
   const wrapEmojiTextNode = (node) => {
     if (!node.nodeValue) return;
@@ -792,23 +806,29 @@ function injectPreviewBridgeHtml(html: string, previewId?: string): string {
 
     for (const match of matches) {
       const value = match[0];
+      const code = toEmojiCodePoint(value);
       const index = match.index ?? 0;
       if (index > lastIndex) {
         fragment.appendChild(document.createTextNode(node.nodeValue.slice(lastIndex, index)));
       }
 
+      if (!code || unsupportedEmojiCodes.has(code)) {
+        fragment.appendChild(createNativeEmojiSpan(value, code));
+        lastIndex = index + value.length;
+        continue;
+      }
+
       const img = document.createElement('img');
       img.className = 'llmstore-emoji-fallback';
       img.alt = value;
-      img.src = emojiAssetBase + toEmojiCodePoint(value) + '.svg?v=${emojiAssetVersion}';
+      img.src = emojiAssetBase + code + '.svg?v=${emojiAssetVersion}';
       img.decoding = 'async';
       img.loading = 'lazy';
       img.draggable = false;
       img.referrerPolicy = 'no-referrer';
       img.onerror = () => {
-        const span = document.createElement('span');
-        span.textContent = value;
-        img.replaceWith(span);
+        unsupportedEmojiCodes.add(code);
+        img.replaceWith(createNativeEmojiSpan(value, code));
       };
       fragment.appendChild(img);
 
