@@ -957,7 +957,13 @@ export function ChatsPage() {
   const modeOptions = useMemo(
     () => [
       { value: 'general', label: 'Общение' },
-      ...(agents ?? []).map((agent) => ({ value: `agent:${agent.id}`, label: `Агент: ${agent.name}` })),
+      ...(agents ?? []).map((agent) => {
+        const pricing = formatAgentPricing(agent);
+        return {
+          value: `agent:${agent.id}`,
+          label: `Агент: ${agent.name}${pricing ? ` (${pricing})` : ''}`,
+        };
+      }),
     ],
     [agents],
   );
@@ -1918,7 +1924,7 @@ export function ChatsPage() {
                       { value: '', label: 'Выберите агента...' },
                       ...(agents ?? []).map((agent) => ({
                         value: agent.id,
-                        label: agent.is_owner ? `${agent.name} (мой)` : `${agent.name} (общий)`,
+                        label: `${agent.name}${formatAgentPricing(agent) ? ` (${formatAgentPricing(agent)})` : ''} ${agent.is_owner ? '(мой)' : '(общий)'}`,
                       })),
                     ]}
                     className="w-full"
