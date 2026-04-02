@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { KeyboardEvent, ReactNode } from 'react';
+import type { ComponentPropsWithoutRef, CSSProperties, KeyboardEvent, ReactNode } from 'react';
 import Markdown from 'react-markdown';
+import { Pencil, Trash2 } from 'lucide-react';
 import type { CodingReport, ToolTrace } from '../../lib/api/agents';
 import { cn } from '../../lib/utils';
 import { ToolTracePanel } from './ToolTracePanel';
+import { ChatCodeBlock, ChatInlineCode } from './ChatCodeBlock';
 import { Button } from '../ui/Button';
 
 interface Attachment {
@@ -19,14 +21,19 @@ interface Attachment {
 interface ChatMessageProps {
   role: 'user' | 'assistant' | 'tool';
   content: string;
+  authorLabel?: string | null;
+  animateOnMount?: boolean;
   attachments?: Attachment[];
   toolTraces?: ToolTrace[];
   codingReport?: CodingReport | null;
   previewPageUrl?: string | null;
   canEditPreview?: boolean;
   onSavePreview?: (payload: { title?: string | null; html: string }) => Promise<void>;
+  canEditMessage?: boolean;
+  onEditMessage?: () => Promise<void> | void;
   canDeleteMessage?: boolean;
   onDeleteMessage?: () => Promise<void>;
+  bubbleStyle?: CSSProperties;
 }
 
 function stripDevReportEnvelope(content: string): string {
@@ -284,6 +291,30 @@ function downloadBlob(filename: string, blob: Blob) {
   link.click();
   link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+function downloadPreviewProjectArchive(preview: { title: string; html: string }) {
+  const projectSlug = slugifyFilename(preview.title || 'preview-project');
+  const readme = [
+    `# ${preview.title || 'Preview project'}`,
+    '',
+    'Это standalone preview, экспортированный из LLMStore.',
+    '',
+    '## Файлы',
+    '- `index.html` - готовая страница preview.',
+    '',
+    '## Как запустить',
+    '1. Распакуйте архив.',
+    '2. Откройте `index.html` в браузере.',
+    '3. Если нужны локальные запросы или модули, поднимите простой static server в этой папке.',
+  ].join('\n');
+
+  const zip = buildZipArchive([
+    { name: `${projectSlug}/index.html`, content: preview.html },
+    { name: `${projectSlug}/README.md`, content: readme },
+  ]);
+
+  downloadBlob(`${projectSlug}.zip`, zip);
 }
 
 function highlightHtmlAttributes(attrs: string): string {
@@ -691,26 +722,33 @@ function HtmlPreviewBrowser({
 export function ChatMessage({
   role,
   content,
+  authorLabel = null,
+  animateOnMount = false,
   attachments = [],
   toolTraces = [],
   codingReport = null,
   previewPageUrl = null,
   canEditPreview = false,
   onSavePreview,
+  canEditMessage = false,
+  onEditMessage,
   canDeleteMessage = false,
   onDeleteMessage,
+  bubbleStyle,
 }: ChatMessageProps) {
   const isUser = role === 'user';
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewAlt, setPreviewAlt] = useState('');
   const [htmlPreview, setHtmlPreview] = useState<{ title: string; html: string } | null>(null);
   const [previewEditor, setPreviewEditor] = useState<{ title: string; html: string } | null>(null);
+  const [previewExporting, setPreviewExporting] = useState(false);
   const [editorSaving, setEditorSaving] = useState(false);
   const [editorExporting, setEditorExporting] = useState(false);
   const [editorError, setEditorError] = useState<string | null>(null);
   const [editorStatus, setEditorStatus] = useState<string | null>(null);
   const [messageActionError, setMessageActionError] = useState<string | null>(null);
   const [deletingMessage, setDeletingMessage] = useState(false);
+  const [editingMessage, setEditingMessage] = useState(false);
   const editorTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const editorHighlightRef = useRef<HTMLPreElement | null>(null);
   const editorHistoryRef = useRef<string[]>([]);
@@ -734,6 +772,7 @@ export function ChatMessage({
   );
   const resolvedPreviewRevision = resolvedHtmlPreview ? getStringHash(resolvedHtmlPreview.html) : undefined;
   const editorBusy = editorSaving || editorExporting;
+  const messageActionBusy = deletingMessage || editingMessage;
 
   useEffect(() => {
     if (!isEditorOpen || !previewEditor) return;
@@ -822,6 +861,21 @@ export function ChatMessage({
       setEditorError(error instanceof Error ? error.message : 'Не удалось экспортировать архив');
     } finally {
       setEditorExporting(false);
+    }
+  };
+
+  const exportResolvedPreviewProject = async () => {
+    if (!resolvedHtmlPreview) return;
+
+    setPreviewExporting(true);
+    setMessageActionError(null);
+
+    try {
+      downloadPreviewProjectArchive(resolvedHtmlPreview);
+    } catch (error) {
+      setMessageActionError(error instanceof Error ? error.message : 'Не удалось экспортировать архив');
+    } finally {
+      setPreviewExporting(false);
     }
   };
 
@@ -1022,34 +1076,95 @@ export function ChatMessage({
     }
   };
 
+  const editMessage = async () => {
+    if (!onEditMessage || editingMessage) return;
+
+    setEditingMessage(true);
+    setMessageActionError(null);
+    try {
+      await onEditMessage();
+    } catch (error) {
+      setMessageActionError(error instanceof Error ? error.message : 'Не удалось подготовить сообщение к редактированию');
+    } finally {
+      setEditingMessage(false);
+    }
+  };
+
   return (
     <>
-      <div className={cn('flex', isUser ? 'justify-end' : 'justify-start')}>
-        <div
-          className={cn(
-            'rounded-lg px-4 py-3 text-sm',
-            isUser ? 'max-w-[80%]' : 'w-full',
-            isUser
-              ? 'border border-sky-200/80 bg-sky-50 text-slate-900 shadow-sm'
-              : 'bg-muted text-foreground',
-            isUser ? 'whitespace-pre-wrap' : '',
+      <div
+        className={cn(
+          'group flex',
+          isUser ? 'justify-end' : 'justify-start',
+          animateOnMount && 'chat-message-enter',
+          animateOnMount && isUser && 'chat-message-enter--user',
+          animateOnMount && !isUser && 'chat-message-enter--assistant',
+        )}
+      >
+        <div className={cn(isUser ? 'max-w-[80%]' : 'w-full')}>
+          {authorLabel && (
+            <p
+              className={cn(
+                'mb-1 px-1 text-[11px] font-medium tracking-wide',
+                isUser ? 'text-right text-sky-700/80' : 'text-muted-foreground',
+              )}
+            >
+              {authorLabel}
+            </p>
           )}
-        >
-          {canDeleteMessage && onDeleteMessage && (
-            <div className="mb-2 flex justify-end">
-              <button
+          <div
+            className={cn(
+              'relative overflow-visible rounded-lg px-4 py-3 text-sm',
+              isUser
+                ? 'border border-sky-200/80 bg-sky-50 text-slate-900 shadow-sm'
+                : 'bg-muted text-foreground',
+              isUser ? 'whitespace-pre-wrap' : '',
+            )}
+            style={bubbleStyle}
+          >
+          {(canEditMessage || canDeleteMessage) && (
+            <div className="absolute -bottom-8 right-0 z-[2] flex justify-end gap-1">
+              {canEditMessage && onEditMessage && (
+                <button
+                  type="button"
+                  className={cn(
+                    'inline-flex h-7 w-7 items-center justify-center rounded-full border text-[0] transition-all',
+                    'pointer-events-none translate-y-1 opacity-0',
+                    'group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100',
+                    'group-focus-within:pointer-events-auto group-focus-within:translate-y-0 group-focus-within:opacity-100',
+                    isUser
+                      ? 'border-sky-200/80 bg-white/90 text-sky-700 hover:bg-sky-50 hover:text-sky-900'
+                      : 'border-border/80 bg-background/90 text-muted-foreground hover:bg-accent hover:text-foreground',
+                  )}
+                  onClick={() => void editMessage()}
+                  disabled={messageActionBusy}
+                  aria-label={editingMessage ? 'Подготавливаю редактирование сообщения' : 'Изменить сообщение'}
+                  title={editingMessage ? 'Подготавливаю...' : 'Изменить'}
+                >
+                  <Pencil className={cn('h-3.5 w-3.5', editingMessage && 'animate-pulse')} />
+                </button>
+              )}
+              {canDeleteMessage && onDeleteMessage && (
+                <button
                 type="button"
                 className={cn(
-                  'text-[11px] transition-colors',
+                  'inline-flex h-7 w-7 items-center justify-center rounded-full border text-[0] transition-all',
+                  'pointer-events-none translate-y-1 opacity-0',
+                  'group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100',
+                  'group-focus-within:pointer-events-auto group-focus-within:translate-y-0 group-focus-within:opacity-100',
                   isUser
-                    ? 'text-sky-700/80 hover:text-sky-900'
-                    : 'text-muted-foreground hover:text-foreground',
+                    ? 'border-sky-200/80 bg-white/90 text-sky-700 hover:bg-sky-50 hover:text-sky-900'
+                    : 'border-border/80 bg-background/90 text-muted-foreground hover:bg-accent hover:text-foreground',
                 )}
                 onClick={() => void deleteMessage()}
-                disabled={deletingMessage}
+                disabled={messageActionBusy}
+                aria-label={deletingMessage ? 'Удаляю сообщение' : 'Удалить сообщение'}
+                title={deletingMessage ? 'Удаляю...' : 'Удалить'}
               >
+                <Trash2 className={cn('h-3.5 w-3.5', deletingMessage && 'animate-pulse')} />
                 {deletingMessage ? 'Удаляю...' : 'Удалить'}
-              </button>
+                </button>
+              )}
             </div>
           )}
           {messageActionError && (
@@ -1069,8 +1184,21 @@ export function ChatMessage({
                 ul: ({ children }) => <ul className="list-disc pl-5 my-1 space-y-1">{children}</ul>,
                 p: ({ children }) => <p className="my-1.5 first:mt-0 last:mb-0">{children}</p>,
                 strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
-                code: ({ children }) => <code className="bg-black/10 dark:bg-white/10 rounded px-1 py-0.5 text-xs">{children}</code>,
-                pre: ({ children }) => <pre className="bg-black/10 dark:bg-white/10 rounded p-3 my-2 overflow-x-auto text-xs">{children}</pre>,
+                pre: ({ children }) => <>{children}</>,
+                code: ({ className, children }: ComponentPropsWithoutRef<'code'> & { inline?: boolean }) => {
+                  const codeValue = String(children ?? '').replace(/\n$/, '');
+                  const isBlock = Boolean(className?.includes('language-')) || codeValue.includes('\n');
+
+                  if (isBlock) {
+                    return <ChatCodeBlock code={codeValue} className={className} />;
+                  }
+
+                  return (
+                    <ChatInlineCode>
+                      {String(children ?? '')}
+                    </ChatInlineCode>
+                  );
+                },
               }}
             >
               {renderedContent}
@@ -1163,6 +1291,16 @@ export function ChatMessage({
                         variant="outline"
                         size="sm"
                         className="order-1 whitespace-nowrap"
+                        onClick={() => { void exportResolvedPreviewProject(); }}
+                        disabled={previewExporting}
+                      >
+                        {previewExporting ? 'Экспортирую...' : 'Экспортировать'}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="order-2 whitespace-nowrap"
                         onClick={() => {
                           if (absolutePreviewPageUrl) {
                             window.open(
@@ -1189,7 +1327,7 @@ export function ChatMessage({
                           type="button"
                           variant="outline"
                           size="sm"
-                          className="order-3 whitespace-nowrap"
+                          className="order-4 whitespace-nowrap"
                           onClick={() => openPreviewEditor(resolvedHtmlPreview.title, resolvedHtmlPreview.html)}
                         >
                           Редактор
@@ -1199,7 +1337,7 @@ export function ChatMessage({
                         type="button"
                         variant="outline"
                         size="sm"
-                        className="order-2 whitespace-nowrap"
+                        className="order-3 whitespace-nowrap"
                         onClick={() => setHtmlPreview({
                           title: resolvedHtmlPreview.title,
                           html: resolvedHtmlPreview.html,
@@ -1260,6 +1398,7 @@ export function ChatMessage({
               ))}
             </div>
           )}
+          </div>
         </div>
       </div>
 

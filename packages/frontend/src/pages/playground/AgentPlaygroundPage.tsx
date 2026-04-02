@@ -77,6 +77,10 @@ export function AgentPlaygroundPage() {
     return acc;
   }, []);
   const hasAvailableBalance = profile ? Number(profile.balance_usd) > 0 : true;
+  const userMessageAuthorLabel = profile?.username?.trim()
+    ? `@${profile.username.trim()}`
+    : (profile?.name?.trim() || 'Вы');
+  const assistantAuthorLabel = agent?.version?.model_id || 'AI';
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -236,6 +240,7 @@ export function AgentPlaygroundPage() {
               <ChatMessage
                 role={msg.role}
                 content={msg.content}
+                authorLabel={msg.role === 'user' ? userMessageAuthorLabel : (msg.usage?.model || assistantAuthorLabel)}
                 toolTraces={msg.toolTraces}
                 codingReport={msg.codingReport}
               />

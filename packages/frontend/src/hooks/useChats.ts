@@ -119,6 +119,18 @@ export function useDeleteChatMessage() {
   });
 }
 
+export function useTruncateChatFromMessage() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ chatId, messageId }: { chatId: string; messageId: string }) =>
+      chatsApi.truncateFromMessage(chatId, messageId),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['chats'] });
+      qc.invalidateQueries({ queryKey: ['chats', vars.chatId] });
+    },
+  });
+}
+
 export function useShareChatById() {
   return useMutation({
     mutationFn: (chatId: string) => chatsApi.share(chatId),

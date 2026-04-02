@@ -7,6 +7,7 @@ interface ChatInputProps {
   disabled?: boolean;
   placeholder?: string;
   allowAttachments?: boolean;
+  prefill?: { text: string; token: number } | null;
 }
 
 const MAX_TEXTAREA_HEIGHT = 220;
@@ -17,6 +18,7 @@ export function ChatInput({
   disabled,
   placeholder = 'Введите сообщение...',
   allowAttachments = false,
+  prefill = null,
 }: ChatInputProps) {
   const [value, setValue] = useState('');
   const [files, setFiles] = useState<File[]>([]);
@@ -31,6 +33,23 @@ export function ChatInput({
     const nextHeight = Math.min(textarea.scrollHeight, MAX_TEXTAREA_HEIGHT);
     textarea.style.height = `${Math.max(nextHeight, MIN_TEXTAREA_HEIGHT)}px`;
   }, [value]);
+
+  useEffect(() => {
+    if (!prefill) return;
+
+    setValue(prefill.text);
+    setFiles([]);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+
+    requestAnimationFrame(() => {
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+      textarea.focus();
+      const caret = prefill.text.length;
+      textarea.selectionStart = caret;
+      textarea.selectionEnd = caret;
+    });
+  }, [prefill?.text, prefill?.token]);
 
   const resetComposer = () => {
     setValue('');

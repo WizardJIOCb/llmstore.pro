@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { ChatInput } from '../../components/agents/ChatInput';
 import { ChatMessage } from '../../components/agents/ChatMessage';
+import { ChatThinkingBubble } from '../../components/agents/ChatThinkingBubble';
 import { RunMetadata } from '../../components/agents/RunMetadata';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
@@ -16,6 +17,7 @@ import {
   useCreateChat,
   useDeleteChat,
   useDeleteChatMessage,
+  useTruncateChatFromMessage,
   useSendChatMessage,
   useUpdateChatMessagePreview,
   useUploadChatFiles,
@@ -27,6 +29,7 @@ import { useProfile } from '../../hooks/useProfile';
 import { chatsApi } from '../../lib/api/chats';
 import type {
   ChatAccess,
+  ChatAttachment,
   ChatDetails,
   ChatListItem,
   ChatMessage as ChatMessageType,
@@ -218,6 +221,15 @@ interface LiveChatEvent {
   error?: string;
 }
 
+declare global {
+  interface Window {
+    llmstoreDebugShowThinking?: (
+      input?: string | { text?: string; label?: string; detail?: string },
+    ) => boolean;
+    llmstoreDebugClearThinking?: () => void;
+  }
+}
+
 function getApiErrorCode(err: unknown): string | undefined {
   const maybe = err as { response?: { data?: { error?: { code?: string } } } };
   return maybe?.response?.data?.error?.code;
@@ -233,8 +245,29 @@ function getApiErrorStatus(err: unknown): number | undefined {
   return maybe?.response?.status;
 }
 
+function getUsageModel(value: Record<string, unknown> | null): string | null {
+  return typeof value?.model === 'string' && value.model.trim()
+    ? value.model.trim()
+    : null;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function inferOptimisticAttachmentKind(file: File): ChatAttachment['kind'] {
+  if (file.type.startsWith('image/')) {
+    return 'image';
+  }
+
+  if (
+    file.type.startsWith('text/')
+    || /\.(txt|log|md|csv|json|xml|html?|css|scss|sass|less|jsx?|tsx?|mjs|cjs|py|java|kt|go|rs|php|rb|sh|bash|zsh|sql|ya?ml|toml|ini|conf|env|gitignore|svg)$/i.test(file.name)
+  ) {
+    return 'text';
+  }
+
+  return 'file';
 }
 
 export function ChatsPage() {
@@ -247,6 +280,7 @@ export function ChatsPage() {
   const updateChatMutation = useUpdateChat();
   const deleteChatMutation = useDeleteChat();
   const deleteChatMessageMutation = useDeleteChatMessage();
+  const truncateChatFromMessageMutation = useTruncateChatFromMessage();
   const shareChatMutation = useShareChatById();
   const sendMessageMutation = useSendChatMessage();
   const updatePreviewMutation = useUpdateChatMessagePreview();
@@ -272,12 +306,40 @@ export function ChatsPage() {
   const [streamConnected, setStreamConnected] = useState(false);
   const [isAwaitingLateReply, setIsAwaitingLateReply] = useState(false);
   const [isQuickPromptsOpen, setIsQuickPromptsOpen] = useState(false);
+  const [optimisticPendingMessage, setOptimisticPendingMessage] = useState<{
+    chatId: string;
+    message: ChatMessageType;
+    objectUrls: string[];
+  } | null>(null);
+  const [debugThinkingPreview, setDebugThinkingPreview] = useState<{
+    chatId: string;
+    label: string;
+    detail: string;
+    message: ChatMessageType;
+  } | null>(null);
+  const [composerPrefill, setComposerPrefill] = useState<{ text: string; token: number } | null>(null);
+  const [assistantResponseSlot, setAssistantResponseSlot] = useState<{
+    label: string;
+    detail: string;
+    chatId: string;
+    visualKey: string;
+    startedAt: string;
+    actualMessageId: string | null;
+  } | null>(null);
+  const [enteringMessageIds, setEnteringMessageIds] = useState<string[]>([]);
 
   const menuRef = useRef<HTMLDivElement>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesScrollRef = useRef<HTMLDivElement>(null);
+  const assistantSlotNodeRef = useRef<HTMLDivElement | null>(null);
   const shareToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const messageEnterCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scrollAnimationFrameRef = useRef<number | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const previousMessageCountRef = useRef(0);
+  const initializedAnimatedChatIdsRef = useRef<Set<string>>(new Set());
+  const animatedMessageIdsRef = useRef<Set<string>>(new Set());
+  const messageNodeRefs = useRef(new Map<string, HTMLDivElement>());
+  const messageVisualKeyByIdRef = useRef(new Map<string, string>());
   const knownChatIds = useMemo(() => new Set((chats ?? []).map((chat) => chat.id)), [chats]);
   const safeActiveChatId = activeChatId && (chats == null || chats.length === 0 || knownChatIds.has(activeChatId))
     ? activeChatId
@@ -291,6 +353,40 @@ export function ChatsPage() {
   const activeChat = activeChatData?.chat ?? null;
   const isActiveChatResolved = Boolean(safeActiveChatId && activeChat?.id === safeActiveChatId);
   const messages = activeChatData?.messages ?? [];
+  const debugThinkingForActiveChat = debugThinkingPreview && debugThinkingPreview.chatId === activeChat?.id
+    ? debugThinkingPreview
+    : null;
+  const optimisticMessageForActiveChat = optimisticPendingMessage && optimisticPendingMessage.chatId === activeChat?.id
+    ? optimisticPendingMessage.message
+    : null;
+  const assistantResponseSlotForActiveChat = assistantResponseSlot && assistantResponseSlot.chatId === activeChat?.id
+    ? assistantResponseSlot
+    : null;
+  const displayedMessages = useMemo(
+    () => {
+      const nextMessages = [...messages];
+
+      if (debugThinkingForActiveChat) {
+        nextMessages.push(debugThinkingForActiveChat.message);
+      }
+
+      if (optimisticMessageForActiveChat) {
+        const optimisticCreatedAt = Date.parse(optimisticMessageForActiveChat.created_at);
+        const hasServerReplacement = messages.some((message) => (
+          message.role === 'user'
+          && message.content === optimisticMessageForActiveChat.content
+          && Math.abs(Date.parse(message.created_at) - optimisticCreatedAt) < 15_000
+        ));
+
+        if (!hasServerReplacement) {
+          nextMessages.push(optimisticMessageForActiveChat);
+        }
+      }
+
+      return nextMessages;
+    },
+    [messages, debugThinkingForActiveChat, optimisticMessageForActiveChat],
+  );
 
   const showLocalError = (message: string) => {
     setLocalNoticeTone('error');
@@ -327,6 +423,67 @@ export function ChatsPage() {
     if (chats.some((chat) => chat.id === activeChatId)) return;
     setActiveChatId(isDesktop ? chats[0]?.id ?? null : null);
   }, [activeChatId, chats, isDesktop]);
+
+  useEffect(() => {
+    const showDebugThinking = (
+      input?: string | { text?: string; label?: string; detail?: string },
+    ) => {
+      if (!activeChat) {
+        console.warn('[llmstore] Откройте чат перед запуском debug thinking preview.');
+        return false;
+      }
+
+      const payload = typeof input === 'string' ? { text: input } : (input ?? {});
+      const text = payload.text?.trim() || 'Тестовое сообщение для просмотра анимации.';
+      const label = payload.label?.trim() || 'Думаю...';
+      const detail = payload.detail?.trim() || 'Демо-режим: можно спокойно оценить анимацию и компоновку пузыря.';
+
+      setDebugThinkingPreview({
+        chatId: activeChat.id,
+        label,
+        detail,
+        message: {
+          id: `debug-fake-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+          role: 'user',
+          content: text,
+          run_id: null,
+          usage: null,
+          attachments: [],
+          latency_ms: null,
+          created_at: new Date().toISOString(),
+        },
+      });
+      setAssistantResponseSlot({
+        chatId: activeChat.id,
+        visualKey: `assistant-slot-debug-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        startedAt: new Date().toISOString(),
+        label,
+        detail,
+        actualMessageId: null,
+      });
+
+      console.info('[llmstore] Debug thinking preview shown.');
+      return true;
+    };
+
+    const clearDebugThinking = () => {
+      setDebugThinkingPreview(null);
+      setAssistantResponseSlot(null);
+      console.info('[llmstore] Debug thinking preview cleared.');
+    };
+
+    window.llmstoreDebugShowThinking = showDebugThinking;
+    window.llmstoreDebugClearThinking = clearDebugThinking;
+
+    return () => {
+      if (window.llmstoreDebugShowThinking === showDebugThinking) {
+        delete window.llmstoreDebugShowThinking;
+      }
+      if (window.llmstoreDebugClearThinking === clearDebugThinking) {
+        delete window.llmstoreDebugClearThinking;
+      }
+    };
+  }, [activeChat]);
 
   useEffect(() => {
     const handler = (event: Event) => {
@@ -444,8 +601,205 @@ export function ChatsPage() {
   }, [openMenu]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, streamEvents, sendMessageMutation.isPending, isAwaitingLateReply]);
+    const urls = optimisticPendingMessage?.objectUrls ?? [];
+    return () => {
+      urls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [optimisticPendingMessage?.objectUrls]);
+
+  useEffect(() => {
+    if (!activeChat?.id || activeChatLoading) return;
+    if (initializedAnimatedChatIdsRef.current.has(activeChat.id)) return;
+
+    initializedAnimatedChatIdsRef.current.add(activeChat.id);
+    messages.forEach((message) => animatedMessageIdsRef.current.add(message.id));
+    setEnteringMessageIds([]);
+  }, [activeChat?.id, activeChatLoading, messages]);
+
+  useEffect(() => {
+    const nextMessageIds = displayedMessages.map((message) => message.id);
+    const nextEnteringIds = nextMessageIds.filter((id) => !animatedMessageIdsRef.current.has(id));
+    if (nextEnteringIds.length === 0) return;
+
+    nextEnteringIds.forEach((id) => animatedMessageIdsRef.current.add(id));
+    setEnteringMessageIds((prev) => {
+      const next = [...prev];
+      nextEnteringIds.forEach((id) => {
+        if (!next.includes(id)) next.push(id);
+      });
+      return next;
+    });
+
+    if (messageEnterCleanupTimerRef.current) {
+      clearTimeout(messageEnterCleanupTimerRef.current);
+    }
+
+    messageEnterCleanupTimerRef.current = setTimeout(() => {
+      setEnteringMessageIds([]);
+      messageEnterCleanupTimerRef.current = null;
+    }, 420);
+  }, [displayedMessages]);
+
+  useEffect(() => {
+    const optimisticMessageId = optimisticMessageForActiveChat?.id;
+    const container = messagesScrollRef.current;
+    if (!container || !optimisticMessageId) return;
+
+    if (scrollAnimationFrameRef.current) {
+      cancelAnimationFrame(scrollAnimationFrameRef.current);
+      scrollAnimationFrameRef.current = null;
+    }
+
+    const anchorNode = messageNodeRefs.current.get(optimisticMessageId);
+    if (!anchorNode) return;
+
+    const startTop = container.scrollTop;
+    const targetTop = Math.max(0, anchorNode.offsetTop - 4);
+    if (Math.abs(targetTop - startTop) < 1) {
+      return;
+    }
+
+    const startTime = performance.now();
+    const duration = 300;
+
+    const step = (now: number) => {
+      const elapsed = now - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+
+      container.scrollTop = startTop + ((targetTop - startTop) * eased);
+
+      if (progress < 1) {
+        scrollAnimationFrameRef.current = requestAnimationFrame(step);
+        return;
+      }
+
+      container.scrollTop = targetTop;
+      scrollAnimationFrameRef.current = null;
+    };
+
+    scrollAnimationFrameRef.current = requestAnimationFrame(step);
+
+    return () => {
+      if (scrollAnimationFrameRef.current) {
+        cancelAnimationFrame(scrollAnimationFrameRef.current);
+        scrollAnimationFrameRef.current = null;
+      }
+    };
+  }, [optimisticMessageForActiveChat?.id]);
+
+  useEffect(() => {
+    if (assistantResponseSlotForActiveChat) return;
+
+    const container = messagesScrollRef.current;
+    if (!container) return;
+
+    if (scrollAnimationFrameRef.current) {
+      cancelAnimationFrame(scrollAnimationFrameRef.current);
+      scrollAnimationFrameRef.current = null;
+    }
+
+    const startTop = container.scrollTop;
+    const targetTop = Math.max(0, container.scrollHeight - container.clientHeight);
+    if (targetTop <= startTop + 1) {
+      return;
+    }
+
+    const startTime = performance.now();
+    const duration = 320;
+
+    const step = (now: number) => {
+      const elapsed = now - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 4);
+
+      container.scrollTop = startTop + ((targetTop - startTop) * eased);
+
+      if (progress < 1) {
+        scrollAnimationFrameRef.current = requestAnimationFrame(step);
+        return;
+      }
+
+      container.scrollTop = targetTop;
+      scrollAnimationFrameRef.current = null;
+    };
+
+    scrollAnimationFrameRef.current = requestAnimationFrame(step);
+
+    return () => {
+      if (scrollAnimationFrameRef.current) {
+        cancelAnimationFrame(scrollAnimationFrameRef.current);
+        scrollAnimationFrameRef.current = null;
+      }
+    };
+  }, [assistantResponseSlotForActiveChat, displayedMessages.length, streamEvents.length]);
+
+  useEffect(() => {
+    if (!assistantResponseSlotForActiveChat?.actualMessageId) return;
+
+    const container = messagesScrollRef.current;
+    const slotNode = assistantSlotNodeRef.current;
+    if (!container || !slotNode) return;
+
+    let observer: ResizeObserver | null = null;
+    let rafId: number | null = null;
+
+    const ensureSlotVisible = () => {
+      const measureOverflow = () => (
+        (slotNode.offsetTop + slotNode.offsetHeight) - (container.scrollTop + container.clientHeight) + 12
+      );
+
+      const initialOverflow = measureOverflow();
+      if (initialOverflow <= 2) {
+        return;
+      }
+
+      if (scrollAnimationFrameRef.current) {
+        cancelAnimationFrame(scrollAnimationFrameRef.current);
+        scrollAnimationFrameRef.current = null;
+      }
+
+      const startTop = container.scrollTop;
+      const startTime = performance.now();
+      const duration = 320;
+
+      const step = (now: number) => {
+        const elapsed = now - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        const eased = 1 - Math.pow(1 - progress, 3);
+        const liveOverflow = Math.max(0, measureOverflow());
+        const liveTargetTop = startTop + initialOverflow + Math.max(0, liveOverflow - initialOverflow);
+
+        container.scrollTop = startTop + ((liveTargetTop - startTop) * eased);
+
+        if (progress < 1) {
+          scrollAnimationFrameRef.current = requestAnimationFrame(step);
+          return;
+        }
+
+        container.scrollTop += Math.max(0, measureOverflow());
+        scrollAnimationFrameRef.current = null;
+      };
+
+      scrollAnimationFrameRef.current = requestAnimationFrame(step);
+    };
+
+    rafId = requestAnimationFrame(() => {
+      ensureSlotVisible();
+    });
+
+    if (typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(() => {
+        ensureSlotVisible();
+      });
+      observer.observe(slotNode);
+    }
+
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      observer?.disconnect();
+    };
+  }, [assistantResponseSlotForActiveChat?.actualMessageId]);
 
   useEffect(() => {
     if (!isPropertiesOpen || !activeChat) return;
@@ -455,20 +809,23 @@ export function ChatsPage() {
   }, [isPropertiesOpen, activeChat]);
 
   useEffect(() => {
-    setIsQuickPromptsOpen(messages.length === 0);
-    previousMessageCountRef.current = messages.length;
+    setIsQuickPromptsOpen(displayedMessages.length === 0);
+    previousMessageCountRef.current = displayedMessages.length;
+    setComposerPrefill(null);
   }, [activeChat?.id]);
 
   useEffect(() => {
-    if (previousMessageCountRef.current === 0 && messages.length > 0) {
+    if (previousMessageCountRef.current === 0 && displayedMessages.length > 0) {
       setIsQuickPromptsOpen(false);
     }
-    previousMessageCountRef.current = messages.length;
-  }, [messages.length]);
+    previousMessageCountRef.current = displayedMessages.length;
+  }, [displayedMessages.length]);
 
   useEffect(() => {
     return () => {
       if (shareToastTimerRef.current) clearTimeout(shareToastTimerRef.current);
+      if (messageEnterCleanupTimerRef.current) clearTimeout(messageEnterCleanupTimerRef.current);
+      if (scrollAnimationFrameRef.current) cancelAnimationFrame(scrollAnimationFrameRef.current);
     };
   }, []);
 
@@ -521,8 +878,37 @@ export function ChatsPage() {
   const canShowQuickPrompts = activeChat?.mode === 'agent' && activeStarterPrompts.length > 0;
   const hasAvailableBalance = profile ? Number(profile.balance_usd) > 0 : true;
   const isSubmittingMessage = sendMessageMutation.isPending || uploadFilesMutation.isPending || isAwaitingLateReply;
-
   const sidebarLoading = chatsLoading || agentsLoading;
+  const userMessageAuthorLabel = profile?.username?.trim()
+    ? `@${profile.username.trim()}`
+    : (profile?.name?.trim() || 'Вы');
+
+  const getAssistantAuthorLabel = (message: ChatMessageType) => {
+    const usageModel = getUsageModel(message.usage);
+    if (usageModel) return usageModel;
+
+    if (activeChat?.model_external_id?.trim()) {
+      return activeChat.model_external_id.trim();
+    }
+
+    return 'AI';
+  };
+
+  useEffect(() => {
+    if (!assistantResponseSlotForActiveChat || assistantResponseSlotForActiveChat.actualMessageId) return;
+
+    const resolvedAssistant = [...messages].reverse().find((message) => (
+      message.role === 'assistant' && Date.parse(message.created_at) >= Date.parse(assistantResponseSlotForActiveChat.startedAt)
+    ));
+
+    if (!resolvedAssistant) return;
+
+    setAssistantResponseSlot((prev) => (
+      prev && prev.chatId === activeChat?.id
+        ? { ...prev, actualMessageId: resolvedAssistant.id }
+        : prev
+    ));
+  }, [activeChat?.id, assistantResponseSlotForActiveChat, messages]);
 
   const createNewChat = async () => setIsCreateDialogOpen(true);
 
@@ -680,31 +1066,137 @@ export function ChatsPage() {
       showLocalError('У вас не осталось баланса. Скоро вы сможете пополнить его на сайте, а пока можете написать Родиону.');
       return;
     }
+
+    const chatId = activeChat.id;
+    const optimisticAttachments = files.map((file) => ({
+      filename: file.name,
+      original_name: file.name,
+      mime_type: file.type || 'application/octet-stream',
+      size: file.size,
+      kind: inferOptimisticAttachmentKind(file),
+      url: URL.createObjectURL(file),
+    }));
+
     setLocalError(null);
     setStreamEvents([]);
+    setOptimisticPendingMessage({
+      chatId,
+      objectUrls: optimisticAttachments.map((file) => file.url),
+      message: {
+        id: `optimistic-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        role: 'user',
+        content,
+        run_id: null,
+        usage: null,
+        attachments: optimisticAttachments,
+        latency_ms: null,
+        created_at: new Date().toISOString(),
+      },
+    });
     const startedAt = new Date().toISOString();
+    setAssistantResponseSlot({
+      chatId,
+      visualKey: `assistant-slot-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      startedAt,
+      label: 'Думаю...',
+      detail: 'Собираю ответ, инструменты и preview, если он нужен.',
+      actualMessageId: null,
+    });
+
     try {
       const attachments = files.length > 0 ? await uploadFilesMutation.mutateAsync(files) : [];
-      await sendMessageMutation.mutateAsync({ chatId: activeChat.id, content, attachments });
+      const result = await sendMessageMutation.mutateAsync({ chatId, content, attachments });
+      const optimisticVisualKey = optimisticPendingMessage?.chatId === chatId
+        ? optimisticPendingMessage.message.id
+        : result.user_message.id;
+      animatedMessageIdsRef.current.add(result.user_message.id);
+      messageVisualKeyByIdRef.current.set(result.user_message.id, optimisticVisualKey);
+
+      queryClient.setQueryData<ChatDetails>(['chats', chatId], (prev) => {
+        if (!prev) return prev;
+
+        const nextMessages = prev.messages.filter((message) => (
+          message.id !== result.user_message.id && message.id !== result.assistant_message.id
+        ));
+
+        return {
+          ...prev,
+          chat: {
+            ...prev.chat,
+            ...result.chat,
+          },
+          messages: [...nextMessages, result.user_message, result.assistant_message],
+        };
+      });
+
+      setAssistantResponseSlot((prev) => (
+        prev && prev.chatId === chatId
+          ? { ...prev, actualMessageId: result.assistant_message.id }
+          : prev
+      ));
+      setOptimisticPendingMessage((prev) => (prev?.chatId === chatId ? null : prev));
     } catch (err) {
+      setOptimisticPendingMessage((prev) => (prev?.chatId === chatId ? null : prev));
       const code = getApiErrorCode(err);
       const status = getApiErrorStatus(err);
       if (code === 'INSUFFICIENT_BALANCE') {
+        setAssistantResponseSlot((prev) => (prev?.chatId === chatId ? null : prev));
         setIsTopUpOpen(true);
         showLocalError(getApiErrorMessage(err) || 'У вас не осталось баланса. Скоро вы сможете пополнить его на сайте.');
         return;
       }
       if (status === 504) {
         showLocalWarning('Ответ от модели занял слишком много времени. Проверяю, не завершился ли он в фоне...');
-        const recovered = await recoverLateAssistantReply(activeChat.id, startedAt);
+        const recovered = await recoverLateAssistantReply(chatId, startedAt);
         if (!recovered) {
+          setAssistantResponseSlot((prev) => (prev?.chatId === chatId ? null : prev));
           showLocalError('Провайдер слишком долго отвечал, и запрос оборвался по таймауту. Попробуйте ещё раз или выберите более быстрый агент.');
         }
         return;
       }
+      setAssistantResponseSlot((prev) => (prev?.chatId === chatId ? null : prev));
       showLocalError(err instanceof Error ? err.message : 'Не удалось отправить сообщение');
     }
   };
+
+  const editMessage = async (messageId: string, content: string) => {
+    if (!activeChat) return;
+
+    setLocalError(null);
+    setStreamEvents([]);
+    setOptimisticPendingMessage(null);
+    setDebugThinkingPreview(null);
+    setAssistantResponseSlot((prev) => (prev?.chatId === activeChat.id ? null : prev));
+
+    try {
+      await truncateChatFromMessageMutation.mutateAsync({
+        chatId: activeChat.id,
+        messageId,
+      });
+
+      queryClient.setQueryData<ChatDetails>(['chats', activeChat.id], (prev) => {
+        if (!prev) return prev;
+        const targetIndex = prev.messages.findIndex((message) => message.id === messageId);
+        if (targetIndex === -1) return prev;
+
+        return {
+          ...prev,
+          messages: prev.messages.slice(0, targetIndex),
+        };
+      });
+
+      setComposerPrefill({
+        text: content,
+        token: Date.now(),
+      });
+    } catch (error) {
+      throw new Error(getApiErrorMessage(error) ?? 'Не удалось подготовить сообщение к редактированию');
+    }
+  };
+
+  const assistantSlotResolvedMessage = assistantResponseSlotForActiveChat?.actualMessageId
+    ? messages.find((message) => message.id === assistantResponseSlotForActiveChat.actualMessageId) ?? null
+    : null;
 
   const renderChatRow = (chat: ChatListItem) => (
     <div
@@ -804,9 +1296,9 @@ export function ChatsPage() {
             )}
           </div>
 
-          <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-            {activeChatLoading && messages.length === 0 && <div className="flex justify-center py-8"><Spinner /></div>}
-            {!activeChatLoading && activeChat && messages.length === 0 && (
+          <div ref={messagesScrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+            {activeChatLoading && displayedMessages.length === 0 && <div className="flex justify-center py-8"><Spinner /></div>}
+            {!activeChatLoading && activeChat && displayedMessages.length === 0 && (
               <div className="py-8">
                 {activeChat.mode === 'agent' && (activeAgentName || activeStarterPrompts.length > 0 || activeAgentDescription) ? (
                   <div className="mx-auto max-w-3xl rounded-xl border bg-muted/20 p-5 space-y-4">
@@ -873,12 +1365,37 @@ export function ChatsPage() {
                 </div>
               </div>
             )}
-            {messages.map((msg: ChatMessageType) => (
-              <div key={msg.id}>
+            {displayedMessages
+              .filter((msg) => msg.id !== assistantResponseSlotForActiveChat?.actualMessageId)
+              .map((msg: ChatMessageType) => (
+              <div
+                key={messageVisualKeyByIdRef.current.get(msg.id) ?? msg.id}
+                ref={(node) => {
+                  if (node) {
+                    messageNodeRefs.current.set(msg.id, node);
+                  } else {
+                    messageNodeRefs.current.delete(msg.id);
+                  }
+                }}
+              >
+                {(() => {
+                  const resolvedAttachments = msg.attachments ?? extractAttachments(msg.usage);
+                  const shouldAnimateMessage = msg.id.startsWith('optimistic-') || msg.id.startsWith('debug-fake-');
+                  const canEditUserMessage = (
+                    msg.role === 'user'
+                    && Boolean(activeChat)
+                    && !msg.id.startsWith('optimistic-')
+                    && !msg.id.startsWith('debug-fake-')
+                    && resolvedAttachments.length === 0
+                  );
+
+                  return (
                 <ChatMessage
                   role={msg.role}
                   content={msg.content}
-                  attachments={msg.attachments ?? extractAttachments(msg.usage)}
+                  animateOnMount={shouldAnimateMessage}
+                  authorLabel={msg.role === 'user' ? userMessageAuthorLabel : getAssistantAuthorLabel(msg)}
+                  attachments={resolvedAttachments}
                   toolTraces={msg.role === 'assistant' ? extractToolTraces(msg.usage) : undefined}
                   codingReport={msg.role === 'assistant' ? extractCodingReport(msg.usage, msg.content) : undefined}
                   previewPageUrl={msg.role === 'assistant' && activeChat
@@ -900,8 +1417,16 @@ export function ChatsPage() {
                       }
                     }
                     : undefined}
-                  canDeleteMessage={Boolean(activeChat)}
+                  canEditMessage={canEditUserMessage}
+                  onEditMessage={canEditUserMessage
+                    ? async () => {
+                      await editMessage(msg.id, msg.content);
+                    }
+                    : undefined}
+                  canDeleteMessage={Boolean(activeChat) && !msg.id.startsWith('optimistic-') && !msg.id.startsWith('debug-fake-')}
                   onDeleteMessage={activeChat
+                    && !msg.id.startsWith('optimistic-')
+                    && !msg.id.startsWith('debug-fake-')
                     ? async () => {
                       try {
                         await deleteChatMessageMutation.mutateAsync({
@@ -914,6 +1439,8 @@ export function ChatsPage() {
                     }
                     : undefined}
                 />
+                  );
+                })()}
                 {msg.role === 'assistant' && (
                   <div className="mt-1 ml-1">
                     <RunMetadata
@@ -926,8 +1453,76 @@ export function ChatsPage() {
                 )}
               </div>
             ))}
-            {isSubmittingMessage && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Spinner /> {isAwaitingLateReply ? 'Проверяю, не завершился ли ответ в фоне...' : 'Думаю...'}</div>}
-            <div ref={messagesEndRef} />
+            {assistantResponseSlotForActiveChat && (
+              <div
+                key={assistantResponseSlotForActiveChat.visualKey}
+                ref={(node) => {
+                  assistantSlotNodeRef.current = node;
+                }}
+              >
+                {assistantSlotResolvedMessage ? (
+                  <>
+                    <ChatMessage
+                      role={assistantSlotResolvedMessage.role}
+                      content={assistantSlotResolvedMessage.content}
+                      animateOnMount={false}
+                      authorLabel={getAssistantAuthorLabel(assistantSlotResolvedMessage)}
+                      attachments={assistantSlotResolvedMessage.attachments ?? extractAttachments(assistantSlotResolvedMessage.usage)}
+                      toolTraces={extractToolTraces(assistantSlotResolvedMessage.usage)}
+                      codingReport={extractCodingReport(assistantSlotResolvedMessage.usage, assistantSlotResolvedMessage.content)}
+                      previewPageUrl={activeChat
+                        ? (activeChat.share_token
+                          ? `/api/shared/chats/${activeChat.share_token}/messages/${assistantSlotResolvedMessage.id}/preview`
+                          : `/api/chats/${activeChat.id}/messages/${assistantSlotResolvedMessage.id}/preview`)
+                        : undefined}
+                      canEditPreview={Boolean(activeChat)}
+                      onSavePreview={activeChat
+                        ? async (payload) => {
+                          try {
+                            await updatePreviewMutation.mutateAsync({
+                              chatId: activeChat.id,
+                              messageId: assistantSlotResolvedMessage.id,
+                              ...payload,
+                            });
+                          } catch (error) {
+                            throw new Error(getApiErrorMessage(error) ?? 'Не удалось сохранить preview');
+                          }
+                        }
+                        : undefined}
+                      canDeleteMessage={Boolean(activeChat)}
+                      onDeleteMessage={activeChat
+                        ? async () => {
+                          try {
+                            await deleteChatMessageMutation.mutateAsync({
+                              chatId: activeChat.id,
+                              messageId: assistantSlotResolvedMessage.id,
+                            });
+                            setAssistantResponseSlot((prev) => (
+                              prev?.actualMessageId === assistantSlotResolvedMessage.id ? null : prev
+                            ));
+                          } catch (error) {
+                            throw new Error(getApiErrorMessage(error) ?? 'Не удалось удалить сообщение');
+                          }
+                        }
+                        : undefined}
+                    />
+                    <div className="mt-1 ml-1">
+                      <RunMetadata
+                        usage={extractUsage(assistantSlotResolvedMessage.usage)}
+                        latencyMs={assistantSlotResolvedMessage.latency_ms ?? undefined}
+                        createdAt={assistantSlotResolvedMessage.created_at}
+                        agentName={activeChat?.mode === 'agent' ? (activeAgentName ?? undefined) : undefined}
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <ChatThinkingBubble
+                    label={assistantResponseSlotForActiveChat.label}
+                    detail={assistantResponseSlotForActiveChat.detail}
+                  />
+                )}
+              </div>
+            )}
           </div>
 
           {localError && (
@@ -944,7 +1539,7 @@ export function ChatsPage() {
           )}
 
           <div className="border-t px-4 py-3 space-y-3">
-            {canShowQuickPrompts && messages.length > 0 && (
+            {canShowQuickPrompts && displayedMessages.length > 0 && (
               <div className="flex justify-end">
                 <Button
                   type="button"
@@ -957,7 +1552,7 @@ export function ChatsPage() {
                 </Button>
               </div>
             )}
-            {canShowQuickPrompts && messages.length > 0 && isQuickPromptsOpen && (
+            {canShowQuickPrompts && displayedMessages.length > 0 && isQuickPromptsOpen && (
               <div className="flex flex-wrap gap-2">
                 {activeStarterPrompts.map((prompt, idx) => (
                   <Button key={`quick-${prompt}-${idx}`} type="button" variant="outline" size="sm" disabled={isSubmittingMessage || !hasAvailableBalance} onClick={() => sendMessage(prompt)}>
@@ -979,6 +1574,7 @@ export function ChatsPage() {
             <ChatInput
               onSend={sendMessage}
               allowAttachments
+              prefill={composerPrefill}
               disabled={!activeChat || isSubmittingMessage || !hasAvailableBalance}
               placeholder={
                 !activeChat

@@ -2894,6 +2894,57 @@ export async function deleteChatMessage(chatId: string, messageId: string, userI
   return { ok: true };
 }
 
+export async function truncateChatFromMessage(chatId: string, messageId: string, userId: string): Promise<{ ok: true }> {
+  const chat = await getConversationForUser(chatId, userId);
+
+  const messages = await db
+    .select({
+      id: chatConversationMessages.id,
+      role: chatConversationMessages.role,
+      created_at: chatConversationMessages.created_at,
+    })
+    .from(chatConversationMessages)
+    .where(eq(chatConversationMessages.conversation_id, chat.id))
+    .orderBy(asc(chatConversationMessages.created_at));
+
+  const targetIndex = messages.findIndex((message) => message.id === messageId);
+  if (targetIndex === -1) {
+    throw new NotFoundError('Сообщение не найдено');
+  }
+
+  const target = messages[targetIndex];
+  if (target.role !== 'user') {
+    throw new AppError(400, 'VALIDATION_ERROR', 'Редактировать можно только пользовательское сообщение');
+  }
+
+  const idsToDelete = messages.slice(targetIndex).map((message) => message.id);
+  if (idsToDelete.length === 0) {
+    return { ok: true };
+  }
+
+  await db.delete(chatConversationMessages)
+    .where(and(
+      eq(chatConversationMessages.conversation_id, chat.id),
+      inArray(chatConversationMessages.id, idsToDelete),
+    ));
+
+  const [latestMessage] = await db
+    .select({ created_at: chatConversationMessages.created_at })
+    .from(chatConversationMessages)
+    .where(eq(chatConversationMessages.conversation_id, chat.id))
+    .orderBy(desc(chatConversationMessages.created_at))
+    .limit(1);
+
+  await db.update(chatConversations)
+    .set({
+      last_message_at: latestMessage?.created_at ?? chat.created_at,
+      updated_at: new Date(),
+    })
+    .where(eq(chatConversations.id, chat.id));
+
+  return { ok: true };
+}
+
 export async function deleteChat(chatId: string, userId: string) {
   await getConversationForUser(chatId, userId);
   await db.delete(chatConversations).where(and(eq(chatConversations.id, chatId), eq(chatConversations.user_id, userId)));
