@@ -1769,7 +1769,8 @@ export function ChatsPage() {
                   options={modeOptions}
                   value={activeModeValue}
                   onChange={(e) => handleModeChange(e.target.value)}
-                  className="min-w-0 flex-1 sm:flex-none xl:w-64"
+                  wrapperClassName="min-w-0 flex-1 basis-full md:basis-auto md:max-w-[420px] xl:max-w-none"
+                  className="min-w-0 w-full xl:w-64"
                 />
               </div>
             )}
