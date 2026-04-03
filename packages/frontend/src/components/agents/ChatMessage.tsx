@@ -2198,12 +2198,12 @@ export function ChatMessage({
                           )}
                         </div>
                         {projectRunResult.stdout && (
-                          <pre className="mt-3 max-h-48 overflow-auto rounded bg-slate-950 p-3 text-xs text-slate-100">
+                          <pre className="mt-3 max-h-96 overflow-auto rounded bg-slate-950 p-3 text-xs text-slate-100">
                             {projectRunResult.stdout}
                           </pre>
                         )}
                         {projectRunResult.stderr && (
-                          <pre className="mt-3 max-h-48 overflow-auto rounded bg-slate-950 p-3 text-xs text-rose-200">
+                          <pre className="mt-3 max-h-96 overflow-auto rounded bg-slate-950 p-3 text-xs text-rose-200">
                             {projectRunResult.stderr}
                           </pre>
                         )}
