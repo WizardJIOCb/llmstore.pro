@@ -1483,7 +1483,8 @@ export function ChatMessage({
   const beautifyAppliedSourceHashesRef = useRef<Set<string>>(new Set());
   const isEditorOpen = Boolean(previewEditor);
   const absolutePreviewPageUrl = resolveBrowserUrl(previewPageUrl);
-  const renderedContent = !isUser
+  const renderUserAsMarkdown = isUser && /(^|\n)```|`[^`\n]+`|(^|\n)(?:[-*]|\d+\.)\s/m.test(content);
+  const renderedContent = (!isUser || renderUserAsMarkdown)
     ? autolinkBareDomainsOutsideCode(stripDevReportEnvelope(content))
     : content;
   const propHtmlPreview = codingReport?.preview?.type === 'html' && codingReport.preview.html
@@ -1945,7 +1946,7 @@ export function ChatMessage({
               isUser
                 ? 'border border-sky-200/80 bg-sky-50 text-slate-900 shadow-sm'
                 : 'bg-muted text-foreground',
-              isUser ? 'whitespace-pre-wrap' : '',
+              isUser && !renderUserAsMarkdown ? 'whitespace-pre-wrap' : '',
             )}
             style={bubbleStyle}
           >
@@ -2000,7 +2001,7 @@ export function ChatMessage({
           {messageActionStatus && (
             <p className="mb-2 text-xs text-emerald-700">{messageActionStatus}</p>
           )}
-          {isUser ? (
+          {(isUser && !renderUserAsMarkdown) ? (
             content
           ) : (
             <Markdown
