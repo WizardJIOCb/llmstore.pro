@@ -870,6 +870,35 @@ function extractMarkdownProjectFiles(
     });
   }
 
+  if (results.length === 0) {
+    const normalizedChangedFiles = (changedFiles ?? [])
+      .map((file) => ({
+        path: file.path.trim(),
+        summary: file.summary,
+      }))
+      .filter((file) => file.path.length > 0);
+
+    const singleChangedFile = normalizedChangedFiles.length === 1 ? normalizedChangedFiles[0] : null;
+    const bareFenceMatch = content.match(/```([^\n`]*)\n([\s\S]*?)\n```/);
+
+    if (singleChangedFile && bareFenceMatch) {
+      try {
+        const normalizedPath = sanitizeProjectFilePath(singleChangedFile.path);
+        const fence = (bareFenceMatch[1] ?? '').trim();
+        const language = clampText(fence.split(/\s+/)[0] || undefined, 40);
+        const contentBlock = bareFenceMatch[2] ?? '';
+        results.push({
+          path: normalizedPath,
+          content: contentBlock.replace(/\r\n/g, '\n'),
+          summary: singleChangedFile.summary,
+          language,
+        });
+      } catch {
+        // Ignore fallback recovery if the inferred path is unsafe.
+      }
+    }
+  }
+
   return results.length > 0 ? results : null;
 }
 
