@@ -1960,8 +1960,12 @@ interface ChatAgentOption {
   id: string;
   name: string;
   owner_user_id: string;
+  owner_name: string | null;
+  owner_username: string | null;
   is_owner: boolean;
   description: string | null;
+  created_at: string;
+  total_runs: number;
   model_external_id: string | null;
   model_label: string | null;
   pricing_input_usd_per_million: number | null;
@@ -2846,12 +2850,17 @@ export async function listChatAgents(userId: string, userRole?: string): Promise
       slug: agents.slug,
       name: agents.name,
       owner_user_id: agents.owner_user_id,
+      owner_name: users.name,
+      owner_username: users.username,
       description: agents.description,
       runtime_config: agentVersions.runtime_config,
       created_at: agents.created_at,
+      total_runs: sql<number>`count(${agentRuns.id})::int`,
     })
     .from(agents)
     .leftJoin(agentVersions, eq(agentVersions.id, agents.current_version_id))
+    .leftJoin(users, eq(users.id, agents.owner_user_id))
+    .leftJoin(agentRuns, eq(agentRuns.agent_id, agents.id))
     .where(
       and(
         eq(agents.status, 'active'),
@@ -2864,14 +2873,29 @@ export async function listChatAgents(userId: string, userRole?: string): Promise
           ),
       ),
     )
-    .orderBy(desc(agents.created_at));
+    .groupBy(
+      agents.id,
+      agents.slug,
+      agents.name,
+      agents.owner_user_id,
+      users.name,
+      users.username,
+      agents.description,
+      agentVersions.runtime_config,
+      agents.created_at,
+    )
+    .orderBy(desc(sql<number>`count(${agentRuns.id})::int`), desc(agents.created_at));
 
   return rows.map((row) => ({
     id: row.id,
     name: row.name,
     owner_user_id: row.owner_user_id,
+    owner_name: row.owner_name ?? null,
+    owner_username: row.owner_username ?? null,
     is_owner: row.owner_user_id === userId,
     description: row.description ?? null,
+    created_at: toIso(row.created_at),
+    total_runs: row.total_runs ?? 0,
     model_external_id:
       typeof (row.runtime_config as Record<string, unknown> | null)?.model_external_id === 'string'
         ? ((row.runtime_config as Record<string, unknown>).model_external_id as string).trim() || null

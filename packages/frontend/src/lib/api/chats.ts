@@ -185,8 +185,12 @@ export interface ChatAgentOption {
   id: string;
   name: string;
   owner_user_id: string;
+  owner_name: string | null;
+  owner_username: string | null;
   is_owner: boolean;
   description: string | null;
+  created_at: string;
+  total_runs: number;
   model_external_id: string | null;
   model_label: string | null;
   pricing_input_usd_per_million: number | null;

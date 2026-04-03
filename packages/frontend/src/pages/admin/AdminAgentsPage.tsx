@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { AdminLayout } from '../../components/admin/AdminLayout';
 import { useAdminAgents } from '../../hooks/useAdmin';
 import { Button, Badge, Spinner } from '../../components/ui';
@@ -24,6 +24,7 @@ const visibilityLabels: Record<string, string> = {
 };
 
 export function AdminAgentsPage() {
+  const location = useLocation();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
@@ -107,7 +108,7 @@ export function AdminAgentsPage() {
                       </div>
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <Link to={`/builder/agent/${agent.id}`}>
+                      <Link to={`/builder/agent/${agent.id}`} state={{ from: `${location.pathname}${location.search}` }}>
                         <Button variant="ghost" size="sm">Редактировать</Button>
                       </Link>
                     </td>

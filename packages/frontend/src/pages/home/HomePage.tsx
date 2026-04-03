@@ -10,10 +10,10 @@ const sections = [
     label: 'Смотреть инструменты',
   },
   {
-    title: 'Конструктор стека',
-    description: 'Ответьте на вопросы и получите персональную рекомендацию AI-стека.',
+    title: 'Быстрый конструктор агента',
+    description: 'Пройдите короткие шаги, выберите роль, инструменты и стиль работы, а на выходе получите готового AI-агента.',
     href: '/builder/stack',
-    label: 'Собрать стек',
+    label: 'Собрать агента',
   },
   {
     title: 'Конструктор агента',
@@ -34,10 +34,10 @@ const sections = [
     label: 'Смотреть статьи',
   },
   {
-    title: 'Паки и ассеты',
-    description: 'Готовые наборы промптов, воркфлоу, шаблоны и компоненты для разработчиков.',
-    href: '/packs',
-    label: 'Каталог паков',
+    title: 'Новости',
+    description: 'Следите за обновлениями платформы, новыми публикациями и важными изменениями в продукте.',
+    href: '/news',
+    label: 'Открыть новости',
   },
 ];
 
@@ -70,7 +70,7 @@ export function HomePage() {
               to="/builder/stack"
               className="inline-flex items-center justify-center rounded-md border border-input bg-background px-6 py-3 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
             >
-              Собрать стек
+              Быстрый запуск агента
             </Link>
           </div>
         </div>

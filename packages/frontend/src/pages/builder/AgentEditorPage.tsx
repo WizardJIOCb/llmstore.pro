@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useAgent, useBuiltinTools, useUpdateAgent, useDeleteAgent } from '../../hooks/useAgents';
 import { AgentForm } from '../../components/agents/AgentForm';
 import { Spinner } from '../../components/ui/Spinner';
@@ -8,12 +8,14 @@ import { Button } from '../../components/ui/Button';
 export function AgentEditorPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { data: agent, isLoading } = useAgent(id);
   const { data: tools, isLoading: toolsLoading } = useBuiltinTools();
   const updateAgent = useUpdateAgent();
   const deleteAgent = useDeleteAgent();
   const [saveToastVisible, setSaveToastVisible] = useState(false);
   const saveToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const backTarget = typeof location.state?.from === 'string' ? location.state.from : null;
 
   useEffect(() => {
     return () => {
@@ -51,7 +53,14 @@ export function AgentEditorPage() {
       model_external_id?: string;
       chat_intro?: string;
       starter_prompts?: string[];
-    }) ?? { max_iterations: 4, temperature: 0.3, max_tokens: 4096, model_external_id: 'google/gemini-2.0-flash-001', chat_intro: '', starter_prompts: [] },
+    }) ?? {
+      max_iterations: 4,
+      temperature: 0.3,
+      max_tokens: 4096,
+      model_external_id: 'google/gemini-2.0-flash-001',
+      chat_intro: '',
+      starter_prompts: [],
+    },
   };
 
   const handleSubmit = async (data: {
@@ -91,6 +100,19 @@ export function AgentEditorPage() {
   };
 
   const isActive = agent.status === 'active';
+
+  const handleBack = () => {
+    if (backTarget) {
+      navigate(backTarget);
+      return;
+    }
+    if (window.history.length > 1) {
+      navigate(-1);
+      return;
+    }
+    navigate('/my/agents');
+  };
+
   const handleToggleStatus = async () => {
     const nextStatus = isActive ? 'archived' : 'active';
     const ok = window.confirm(
@@ -110,7 +132,7 @@ export function AgentEditorPage() {
         Агент сохранён
       </div>
 
-      <div className="flex items-center justify-between mb-6">
+      <div className="mb-6 flex items-center justify-between gap-4">
         <h1 className="text-2xl font-bold">Редактор: {agent.name}</h1>
         <Button variant="outline" size="sm" onClick={() => navigate(`/playground/agent/${agent.id}`)}>
           Площадка
@@ -136,6 +158,12 @@ export function AgentEditorPage() {
             onClick: handleDelete,
             disabled: updateAgent.isPending || deleteAgent.isPending,
             variant: 'destructive',
+          },
+          {
+            label: 'Назад',
+            onClick: handleBack,
+            disabled: updateAgent.isPending || deleteAgent.isPending,
+            variant: 'outline',
           },
         ]}
       />

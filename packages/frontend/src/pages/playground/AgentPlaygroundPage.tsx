@@ -1,5 +1,5 @@
 import { useRef, useEffect, useCallback, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useLocation, useParams, Link } from 'react-router-dom';
 import { useAgent, useStartRun, useChatHistory, useShareChat, useClearChat } from '../../hooks/useAgents';
 import { useAppSettings } from '../../hooks/useAppSettings';
 import { useProfile } from '../../hooks/useProfile';
@@ -25,6 +25,7 @@ function getApiErrorMessage(err: unknown): string | undefined {
 }
 
 export function AgentPlaygroundPage() {
+  const location = useLocation();
   const { id } = useParams<{ id: string }>();
   const { data: agent, isLoading } = useAgent(id);
   const { data: chatHistory, isLoading: historyLoading } = useChatHistory(id);
@@ -208,7 +209,7 @@ export function AgentPlaygroundPage() {
                 {shareLabel}
               </Button>
             )}
-            <Link to={`/builder/agent/${agent.id}`}>
+            <Link to={`/builder/agent/${agent.id}`} state={{ from: `${location.pathname}${location.search}` }}>
               <Button variant="outline" size="sm">Настройки</Button>
             </Link>
             <Button variant="ghost" size="sm" onClick={handleClear}>

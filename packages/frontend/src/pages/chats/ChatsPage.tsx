@@ -1,6 +1,6 @@
 ﻿import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { ChatInput } from '../../components/agents/ChatInput';
 import { ChatMessage } from '../../components/agents/ChatMessage';
 import { ChatThinkingBubble } from '../../components/agents/ChatThinkingBubble';
@@ -382,6 +382,7 @@ function inferOptimisticAttachmentKind(file: File): ChatAttachment['kind'] {
 
 export function ChatsPage() {
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { data: chats, isLoading: chatsLoading } = useChatsList();
   const { data: agents, isLoading: agentsLoading } = useChatAgents();
   const { data: availableTools } = useBuiltinTools();
@@ -410,6 +411,7 @@ export function ChatsPage() {
   const [isDesktop, setIsDesktop] = useState(() => window.matchMedia('(min-width: 768px)').matches);
   const [newChatMode, setNewChatMode] = useState<'general' | 'agent'>('general');
   const [newChatAgentId, setNewChatAgentId] = useState('');
+  const [newChatAgentSearch, setNewChatAgentSearch] = useState('');
   const [newChatModel, setNewChatModel] = useState('openai/gpt-4o-mini');
   const [propertiesModeView, setPropertiesModeView] = useState<PropertiesModeView>('general');
   const [propertiesAgentId, setPropertiesAgentId] = useState('');
@@ -459,9 +461,27 @@ export function ChatsPage() {
   const messageNodeRefs = useRef(new Map<string, HTMLDivElement>());
   const messageVisualKeyByIdRef = useRef(new Map<string, string>());
   const knownChatIds = useMemo(() => new Set((chats ?? []).map((chat) => chat.id)), [chats]);
+  const requestedChatId = searchParams.get('chat');
   const safeActiveChatId = activeChatId && (chats == null || chats.length === 0 || knownChatIds.has(activeChatId))
     ? activeChatId
     : null;
+  const filteredNewChatAgents = useMemo(() => {
+    const query = newChatAgentSearch.trim().toLowerCase();
+    return (agents ?? []).filter((agent) => {
+      if (!query) return true;
+      const haystack = [
+        agent.name,
+        agent.description ?? '',
+        agent.chat_description ?? '',
+        agent.owner_name ?? '',
+        agent.owner_username ?? '',
+        agent.model_label ?? '',
+        agent.model_external_id ?? '',
+      ].join(' ').toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [agents, newChatAgentSearch]);
+  const visibleNewChatAgents = filteredNewChatAgents.slice(0, 24);
 
   const { data: activeChatData, isLoading: activeChatLoading, error: activeChatError } = useChat(safeActiveChatId ?? undefined);
   const { data: activeChatStats, isLoading: chatStatsLoading } = useChatStats(
@@ -535,6 +555,14 @@ export function ChatsPage() {
       setActiveChatId(chats[0].id);
     }
   }, [activeChatId, chats, isDesktop]);
+
+  useEffect(() => {
+    if (!requestedChatId || !chats?.some((chat) => chat.id === requestedChatId)) return;
+    setActiveChatId(requestedChatId);
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete('chat');
+    setSearchParams(nextParams, { replace: true });
+  }, [requestedChatId, chats, searchParams, setSearchParams]);
 
   useEffect(() => {
     if (!chats || chats.length === 0 || !activeChatId) return;
@@ -1172,6 +1200,7 @@ export function ChatsPage() {
       setIsCreateDialogOpen(false);
       setNewChatMode('general');
       setNewChatAgentId('');
+      setNewChatAgentSearch('');
       setNewChatModel('openai/gpt-4o-mini');
     } catch {
       showLocalError('Не удалось создать чат');
@@ -2023,24 +2052,72 @@ export function ChatsPage() {
               )}
 
               {newChatMode === 'agent' && (
-                <div className="rounded-xl border bg-muted/20 p-4 space-y-2">
-                  <p className="text-sm font-medium">Выберите агента</p>
-                  <Select
-                    value={newChatAgentId}
-                    onChange={(e) => setNewChatAgentId(e.target.value)}
-                    options={[
-                      { value: '', label: 'Выберите агента...' },
-                      ...(agents ?? []).map((agent) => ({
-                        value: agent.id,
-                        label: `${agent.name}${formatAgentPricing(agent) ? ` (${formatAgentPricing(agent)})` : ''} ${agent.is_owner ? '(мой)' : '(общий)'}`,
-                      })),
-                    ]}
-                    className="w-full"
+                <div className="rounded-xl border bg-muted/20 p-4 space-y-3">
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium">Выберите агента</p>
+                    <p className="text-xs text-muted-foreground">
+                      Ищите по названию, описанию или автору. Если поле пустое, ниже показаны самые популярные агенты.
+                    </p>
+                  </div>
+                  <Input
+                    value={newChatAgentSearch}
+                    onChange={(e) => setNewChatAgentSearch(e.target.value)}
+                    placeholder="Поиск агентов по названию, описанию или автору..."
                   />
-                  {(agents ?? []).length === 0 && (
+                  {(agents ?? []).length === 0 ? (
                     <p className="text-xs text-muted-foreground">
                       Сейчас нет доступных активных агентов.
                     </p>
+                  ) : visibleNewChatAgents.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      По вашему запросу агенты не найдены.
+                    </p>
+                  ) : (
+                    <div className="max-h-80 space-y-2 overflow-y-auto rounded-xl border bg-background p-2">
+                      <p className="px-2 pt-1 text-xs text-muted-foreground">
+                        {newChatAgentSearch.trim() ? 'Результаты поиска' : 'Популярные агенты'}
+                      </p>
+                      {visibleNewChatAgents.map((agent) => {
+                        const isSelected = newChatAgentId === agent.id;
+
+                        return (
+                          <button
+                            key={agent.id}
+                            type="button"
+                            onClick={() => setNewChatAgentId(agent.id)}
+                            className={cn(
+                              'w-full rounded-lg border px-3 py-3 text-left transition-colors',
+                              isSelected
+                                ? 'border-primary bg-primary/8 shadow-sm'
+                                : 'border-border bg-background hover:border-primary/30 hover:bg-accent/40',
+                            )}
+                          >
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="text-sm font-medium text-foreground">{agent.name}</p>
+                              <Badge variant={agent.is_owner ? 'secondary' : 'outline'}>
+                                {agent.is_owner ? 'мой' : 'публичный'}
+                              </Badge>
+                              <Badge variant="outline">{agent.total_runs.toLocaleString('ru-RU')} запуск.</Badge>
+                            </div>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              Автор:{' '}
+                              <UserLink
+                                username={agent.owner_username}
+                                name={agent.owner_name}
+                                fallback="пользователь"
+                                className="hover:text-foreground hover:underline"
+                              />
+                            </p>
+                            {agent.chat_description && (
+                              <p className="mt-1 text-xs leading-5 text-muted-foreground">{agent.chat_description}</p>
+                            )}
+                            {formatAgentPricing(agent) && (
+                              <p className="mt-1 text-xs text-muted-foreground">{formatAgentPricing(agent)}</p>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
                   )}
                 </div>
               )}

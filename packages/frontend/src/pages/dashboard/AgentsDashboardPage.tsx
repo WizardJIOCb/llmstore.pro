@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useAgentList, useDeleteAgent } from '../../hooks/useAgents';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
@@ -18,6 +18,7 @@ const statusVariants: Record<string, 'default' | 'secondary' | 'outline'> = {
 };
 
 export function AgentsDashboardPage() {
+  const location = useLocation();
   const { data: agents, isLoading } = useAgentList();
   const deleteAgent = useDeleteAgent();
 
@@ -65,7 +66,7 @@ export function AgentsDashboardPage() {
                   <Link to={`/playground/agent/${agent.id}`}>
                     <Button variant="primary" size="sm">Площадка</Button>
                   </Link>
-                  <Link to={`/builder/agent/${agent.id}`}>
+                  <Link to={`/builder/agent/${agent.id}`} state={{ from: `${location.pathname}${location.search}` }}>
                     <Button variant="outline" size="sm">Редактировать</Button>
                   </Link>
                   <Button
