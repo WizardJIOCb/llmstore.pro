@@ -1635,6 +1635,11 @@ export function ChatMessage({
     && onLoadProjectDeployment
     && (projectBundle.runtime === 'node' || projectBundle.runtime === 'python'),
   );
+  const showDeploymentOwnerHint = Boolean(
+    projectBundle
+    && (projectBundle.runtime === 'node' || projectBundle.runtime === 'python')
+    && !canManageDeployment,
+  );
   const displayedProjectRunCount = projectRunResult?.project_run_count ?? projectRunCount ?? 0;
   const resolvedHtmlPreview = previewOverride ?? propHtmlPreview;
   const highlightedEditorHtml = useMemo(
@@ -2467,6 +2472,12 @@ export function ChatMessage({
                         </Button>
                       )}
                     </div>
+
+                    {showDeploymentOwnerHint && (
+                      <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                        Управление deployment, webhook и секретами доступно только владельцу чата.
+                      </div>
+                    )}
 
                     {projectDeploymentLoading && (
                       <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">

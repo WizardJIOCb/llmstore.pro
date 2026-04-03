@@ -17,6 +17,8 @@ interface LegacySharedChat {
 interface V2SharedChat {
   chat: {
     id: string;
+    owner_user_id: string;
+    is_owner: boolean;
     title: string;
     mode: 'general' | 'agent';
     agent_name: string | null;
@@ -42,6 +44,8 @@ interface SharedMessageItem {
 
 interface SharedPageData {
   chatId?: string;
+  ownerUserId?: string;
+  isOwner?: boolean;
   title: string;
   subtitle: string;
   messages: SharedMessageItem[];
@@ -183,8 +187,12 @@ export function SharedChatPage() {
         const v2 = await apiClient.get<{ data: V2SharedChat }>(`/shared/chats/${token}`);
         return {
           chatId: v2.data.data.chat.id,
+          ownerUserId: v2.data.data.chat.owner_user_id,
+          isOwner: v2.data.data.chat.is_owner,
           title: v2.data.data.chat.title,
-          subtitle: 'Общий чат - только для чтения',
+          subtitle: v2.data.data.chat.is_owner
+            ? 'Общий чат. Управление preview и deployment доступно владельцу.'
+            : 'Общий чат только для чтения. Управление preview, deployment и секретами доступно только владельцу.',
           messages: v2.data.data.messages.map((m): SharedMessageItem => ({
             id: m.id,
             role: m.role,
@@ -254,6 +262,8 @@ export function SharedChatPage() {
     });
   };
 
+  const canManageSharedChat = Boolean(profile) && Boolean(data.chatId) && data.isOwner === true;
+
   return (
     <div className="container mx-auto max-w-3xl px-4 py-8">
       <div className="mb-6 flex items-start justify-between gap-3">
@@ -276,8 +286,8 @@ export function SharedChatPage() {
             codingReport={msg.role === 'assistant' ? extractCodingReport(msg.usage, msg.content) : undefined}
             projectRunCount={msg.project_run_count}
             previewPageUrl={msg.role === 'assistant' && token && msg.id ? `/api/shared/chats/${token}/messages/${msg.id}/preview` : undefined}
-            canEditPreview={Boolean(profile) && msg.role === 'assistant' && Boolean(msg.id)}
-	            onSavePreview={profile && msg.role === 'assistant' && msg.id
+            canEditPreview={canManageSharedChat && msg.role === 'assistant' && Boolean(msg.id)}
+	            onSavePreview={canManageSharedChat && msg.role === 'assistant' && msg.id
 	              ? async (payload) => {
 	                const messageId = msg.id!;
                 try {
@@ -299,23 +309,23 @@ export function SharedChatPage() {
                   return result;
                 }
 	              : undefined}
-	            canManageDeployment={Boolean(profile) && Boolean(data.chatId) && msg.role === 'assistant' && Boolean(msg.id)}
-	            onLoadProjectDeployment={profile && data.chatId && msg.role === 'assistant' && msg.id
+	            canManageDeployment={canManageSharedChat && msg.role === 'assistant' && Boolean(msg.id)}
+	            onLoadProjectDeployment={canManageSharedChat && data.chatId && msg.role === 'assistant' && msg.id
 	              ? async () => chatsApi.getProjectDeployment(data.chatId!, msg.id!)
 	              : undefined}
-	            onUpsertProjectDeployment={profile && data.chatId && msg.role === 'assistant' && msg.id
+	            onUpsertProjectDeployment={canManageSharedChat && data.chatId && msg.role === 'assistant' && msg.id
 	              ? async (payload) => chatsApi.upsertProjectDeployment(data.chatId!, msg.id!, payload)
 	              : undefined}
-	            onStartProjectDeployment={profile && data.chatId && msg.role === 'assistant' && msg.id
+	            onStartProjectDeployment={canManageSharedChat && data.chatId && msg.role === 'assistant' && msg.id
 	              ? async () => chatsApi.startProjectDeployment(data.chatId!, msg.id!)
 	              : undefined}
-	            onReinstallProjectDeploymentWebhook={profile && data.chatId && msg.role === 'assistant' && msg.id
+	            onReinstallProjectDeploymentWebhook={canManageSharedChat && data.chatId && msg.role === 'assistant' && msg.id
 	              ? async () => chatsApi.reinstallProjectDeploymentWebhook(data.chatId!, msg.id!)
 	              : undefined}
-	            onStopProjectDeployment={profile && data.chatId && msg.role === 'assistant' && msg.id
+	            onStopProjectDeployment={canManageSharedChat && data.chatId && msg.role === 'assistant' && msg.id
 	              ? async () => chatsApi.stopProjectDeployment(data.chatId!, msg.id!)
 	              : undefined}
-	            onFixProjectError={profile && data.chatId && msg.role === 'assistant'
+	            onFixProjectError={canManageSharedChat && data.chatId && msg.role === 'assistant'
 	              ? async (prompt) => {
 	                  try {
 	                    await sendFixMessageMutation.mutateAsync({
@@ -328,8 +338,8 @@ export function SharedChatPage() {
 	                  }
 	                }
 	              : undefined}
-	            canDeleteMessage={Boolean(profile) && Boolean(data.chatId) && Boolean(msg.id)}
-		            onDeleteMessage={profile && data.chatId && msg.id
+	            canDeleteMessage={canManageSharedChat && Boolean(msg.id)}
+		            onDeleteMessage={canManageSharedChat && data.chatId && msg.id
 		              ? async () => {
 		                try {
 		                  await chatsApi.deleteMessage(data.chatId!, msg.id!);

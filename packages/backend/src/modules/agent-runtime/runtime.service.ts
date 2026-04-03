@@ -4723,6 +4723,8 @@ export async function getSharedChatById(token: string, viewerUserId?: string | n
   return {
     chat: {
       id: chat.id,
+      owner_user_id: chat.user_id,
+      is_owner: chat.user_id === viewerUserId,
       title: chat.title,
       mode: chat.mode,
       agent_name: agentName,
