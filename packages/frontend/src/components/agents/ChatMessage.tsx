@@ -2435,7 +2435,7 @@ export function ChatMessage({
               </div>
             </div>
             <div className="min-h-0 flex-1 overflow-auto px-4 py-4">
-              <div className="space-y-4">
+              <div className="flex min-h-full flex-col gap-4">
                 <div className="rounded-lg border border-border/70 bg-background/70 p-3 text-sm">
                   <p className="font-medium text-slate-900">Проверка</p>
                   <p className="mt-1 text-xs text-muted-foreground">
@@ -2448,22 +2448,29 @@ export function ChatMessage({
                     </p>
                   )}
                 </div>
+                <div className={cn(
+                  'grid min-h-0 flex-1 gap-4',
+                  projectRunResultFullscreen.stdout && projectRunResultFullscreen.stderr
+                    ? 'lg:grid-cols-2'
+                    : 'grid-cols-1',
+                )}>
                 {projectRunResultFullscreen.stdout && (
-                  <div className="space-y-2">
+                  <div className="flex min-h-0 flex-col space-y-2">
                     <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">stdout</p>
-                    <pre className="max-h-[36vh] overflow-auto rounded-lg bg-slate-950 p-4 text-xs text-slate-100">
+                    <pre className="min-h-0 flex-1 overflow-auto rounded-lg bg-slate-950 p-4 text-xs text-slate-100">
                       {projectRunResultFullscreen.stdout}
                     </pre>
                   </div>
                 )}
                 {projectRunResultFullscreen.stderr && (
-                  <div className="space-y-2">
+                  <div className="flex min-h-0 flex-col space-y-2">
                     <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">stderr</p>
-                    <pre className="max-h-[36vh] overflow-auto rounded-lg bg-slate-950 p-4 text-xs text-rose-200">
+                    <pre className="min-h-0 flex-1 overflow-auto rounded-lg bg-slate-950 p-4 text-xs text-rose-200">
                       {projectRunResultFullscreen.stderr}
                     </pre>
                   </div>
                 )}
+                </div>
                 {!projectRunResultFullscreen.stdout && !projectRunResultFullscreen.stderr && (
                   <div className="rounded-lg border border-border/70 bg-background/70 p-3 text-sm text-muted-foreground">
                     Процесс не вернул stdout или stderr.
