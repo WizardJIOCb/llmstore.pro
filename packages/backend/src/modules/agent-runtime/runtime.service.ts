@@ -62,8 +62,8 @@ interface ChatAttachmentMeta {
 }
 
 type ChatAccess = 'public' | 'private' | 'restricted';
-export type ChatReactionType = 'heart' | 'thumbs_up' | 'thumbs_down' | 'laugh' | 'meh';
-const CHAT_REACTION_TYPES: ChatReactionType[] = ['heart', 'thumbs_up', 'thumbs_down', 'laugh', 'meh'];
+export type ChatReactionType = 'heart' | 'thumbs_up' | 'thumbs_down' | 'laugh' | 'smile' | 'meh';
+const CHAT_REACTION_TYPES: ChatReactionType[] = ['heart', 'thumbs_up', 'thumbs_down', 'laugh', 'smile', 'meh'];
 
 interface CodingReportChangedFile {
   path: string;
@@ -3316,6 +3316,7 @@ function emptyReactionCounts(): Record<ChatReactionType, number> {
     thumbs_up: 0,
     thumbs_down: 0,
     laugh: 0,
+    smile: 0,
     meh: 0,
   };
 }

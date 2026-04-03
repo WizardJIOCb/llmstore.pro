@@ -13,10 +13,11 @@ import { authApi } from '../../lib/api/auth';
 
 const PAGE_SIZE_OPTIONS = [2, 4, 6, 8, 10];
 const REACTION_OPTIONS: Array<{ type: ChatReactionType; emoji: string; label: string }> = [
-  { type: 'heart', emoji: '❤', label: 'Сердце' },
+  { type: 'heart', emoji: '❤️', label: 'Люблю' },
   { type: 'thumbs_up', emoji: '👍', label: 'Нравится' },
   { type: 'thumbs_down', emoji: '👎', label: 'Не нравится' },
-  { type: 'laugh', emoji: '🤣', label: 'Смешно' },
+  { type: 'laugh', emoji: '😂', label: 'Смешно' },
+  { type: 'smile', emoji: '😊', label: 'Улыбнуло' },
   { type: 'meh', emoji: '😐', label: 'Нейтрально' },
 ];
 const GALLERY_KIND_FILTERS = [
@@ -75,6 +76,53 @@ function formatKindLabel(kind: GalleryPreviewItem['kind']): string {
   if (kind === 'project') return 'Runnable Project';
   if (kind === 'hybrid') return 'Preview + Project';
   return 'Preview';
+}
+
+function getReactionAccentClasses(type: ChatReactionType, isActive: boolean): string {
+  if (isActive) {
+    switch (type) {
+      case 'heart':
+        return 'border-rose-300/70 bg-gradient-to-br from-rose-50 via-white to-pink-50 text-rose-700 shadow-sm';
+      case 'thumbs_up':
+        return 'border-emerald-300/70 bg-gradient-to-br from-emerald-50 via-white to-lime-50 text-emerald-700 shadow-sm';
+      case 'thumbs_down':
+        return 'border-amber-300/70 bg-gradient-to-br from-amber-50 via-white to-orange-50 text-amber-700 shadow-sm';
+      case 'laugh':
+        return 'border-sky-300/70 bg-gradient-to-br from-sky-50 via-white to-cyan-50 text-sky-700 shadow-sm';
+      case 'smile':
+        return 'border-fuchsia-300/70 bg-gradient-to-br from-fuchsia-50 via-white to-violet-50 text-fuchsia-700 shadow-sm';
+      case 'meh':
+        return 'border-slate-300/80 bg-gradient-to-br from-slate-50 via-white to-zinc-50 text-slate-700 shadow-sm';
+      default:
+        return 'border-primary/40 bg-primary/10 text-primary shadow-sm';
+    }
+  }
+
+  return 'border-border bg-white/85 text-slate-600 hover:-translate-y-0.5 hover:bg-slate-50 hover:text-slate-900 hover:shadow-sm';
+}
+
+function getReactionEmojiBubbleClasses(type: ChatReactionType, isActive: boolean): string {
+  const base = 'inline-flex h-6 w-6 items-center justify-center rounded-full text-[15px] shadow-sm transition-transform';
+  if (isActive) {
+    switch (type) {
+      case 'heart':
+        return `${base} bg-rose-100`;
+      case 'thumbs_up':
+        return `${base} bg-emerald-100`;
+      case 'thumbs_down':
+        return `${base} bg-amber-100`;
+      case 'laugh':
+        return `${base} bg-sky-100`;
+      case 'smile':
+        return `${base} bg-fuchsia-100`;
+      case 'meh':
+        return `${base} bg-slate-100`;
+      default:
+        return `${base} bg-slate-100`;
+    }
+  }
+
+  return `${base} bg-slate-100/80`;
 }
 
 function buildPageButtons(totalPages: number, currentPage: number): Array<number | 'ellipsis'> {
@@ -474,14 +522,14 @@ export function GalleryPage() {
                             setReactionMutation.mutate({ chatId: item.chat_id, reactionType: reaction.type });
                           }}
                           className={[
-                            'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors',
-                            isActive
-                              ? 'border-primary/40 bg-primary/10 text-primary'
-                              : 'border-border bg-muted/20 text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+                            'inline-flex items-center gap-2 rounded-full border px-2.5 py-1.5 text-xs font-medium transition-all',
+                            getReactionAccentClasses(reaction.type, isActive),
                             !currentUser ? 'cursor-default opacity-70' : '',
                           ].join(' ')}
                         >
-                          <span aria-hidden="true">{reaction.emoji}</span>
+                          <span aria-hidden="true" className={getReactionEmojiBubbleClasses(reaction.type, isActive)}>
+                            {reaction.emoji}
+                          </span>
                           <span>{count}</span>
                         </button>
                       );

@@ -19,7 +19,7 @@ export function useGalleryPreviews(limit = 24) {
 export function useSetGalleryReaction() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ chatId, reactionType }: { chatId: string; reactionType: 'heart' | 'thumbs_up' | 'thumbs_down' | 'laugh' | 'meh' }) =>
+    mutationFn: ({ chatId, reactionType }: { chatId: string; reactionType: 'heart' | 'thumbs_up' | 'thumbs_down' | 'laugh' | 'smile' | 'meh' }) =>
       chatsApi.setGalleryReaction(chatId, reactionType),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['gallery-previews'] });

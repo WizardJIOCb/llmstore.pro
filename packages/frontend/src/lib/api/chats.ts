@@ -2,7 +2,7 @@ import { apiClient } from '../api-client';
 
 export type ChatMode = 'general' | 'agent';
 export type ChatAccess = 'public' | 'private' | 'restricted';
-export type ChatReactionType = 'heart' | 'thumbs_up' | 'thumbs_down' | 'laugh' | 'meh';
+export type ChatReactionType = 'heart' | 'thumbs_up' | 'thumbs_down' | 'laugh' | 'smile' | 'meh';
 
 export interface CodingReportChangedFile {
   path: string;

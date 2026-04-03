@@ -1162,6 +1162,22 @@ export function ChatsPage() {
     return 'AI';
   };
 
+  const syncProjectRunCount = (chatId: string, messageId: string, projectRunCount: number | null) => {
+    if (typeof projectRunCount !== 'number') return;
+
+    queryClient.setQueryData<ChatDetails | undefined>(['chats', chatId], (current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        messages: current.messages.map((message) => (
+          message.id === messageId
+            ? { ...message, project_run_count: projectRunCount }
+            : message
+        )),
+      };
+    });
+  };
+
   useEffect(() => {
     if (!assistantResponseSlotForActiveChat || assistantResponseSlotForActiveChat.actualMessageId) return;
 
@@ -1906,7 +1922,11 @@ export function ChatsPage() {
                     : undefined}
                   canRunProject={msg.role === 'assistant' && Boolean(activeChat)}
                   onRunProject={msg.role === 'assistant' && activeChat
-                    ? async () => chatsApi.runProject(activeChat.id, msg.id)
+                    ? async () => {
+                      const result = await chatsApi.runProject(activeChat.id, msg.id);
+                      syncProjectRunCount(activeChat.id, msg.id, result.project_run_count);
+                      return result;
+                    }
                     : undefined}
                   onFixProjectError={msg.role === 'assistant' && activeChat
                     ? async (prompt) => sendMessage(prompt)
@@ -1986,7 +2006,11 @@ export function ChatsPage() {
                         : undefined}
                       canRunProject={Boolean(activeChat)}
                       onRunProject={activeChat
-                        ? async () => chatsApi.runProject(activeChat.id, assistantSlotResolvedMessage.id)
+                        ? async () => {
+                          const result = await chatsApi.runProject(activeChat.id, assistantSlotResolvedMessage.id);
+                          syncProjectRunCount(activeChat.id, assistantSlotResolvedMessage.id, result.project_run_count);
+                          return result;
+                        }
                         : undefined}
                       onFixProjectError={activeChat
                         ? async (prompt) => sendMessage(prompt)

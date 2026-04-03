@@ -53,7 +53,7 @@ const updateMessagePreviewSchema = z.object({
 });
 
 const setGalleryReactionSchema = z.object({
-  reaction_type: z.enum(['heart', 'thumbs_up', 'thumbs_down', 'laugh', 'meh']),
+  reaction_type: z.enum(['heart', 'thumbs_up', 'thumbs_down', 'laugh', 'smile', 'meh']),
 });
 
 export const validateCreateChat = validate(createChatSchema, 'body');

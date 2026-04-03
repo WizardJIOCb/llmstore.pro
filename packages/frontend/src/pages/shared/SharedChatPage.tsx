@@ -190,6 +190,7 @@ export function SharedChatPage() {
             role: m.role,
             content: m.content,
             usage: m.usage ?? null,
+            project_run_count: m.project_run_count ?? 0,
             attachments: extractAttachments(m.usage ?? null),
           })),
         };
@@ -237,6 +238,22 @@ export function SharedChatPage() {
     }
   };
 
+  const syncProjectRunCount = (messageId: string, projectRunCount: number | null) => {
+    if (!token || typeof projectRunCount !== 'number') return;
+
+    queryClient.setQueryData<SharedPageData | undefined>(['shared-chat-any', token], (current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        messages: current.messages.map((message) => (
+          message.id === messageId
+            ? { ...message, project_run_count: projectRunCount }
+            : message
+        )),
+      };
+    });
+  };
+
   return (
     <div className="container mx-auto max-w-3xl px-4 py-8">
       <div className="mb-6 flex items-start justify-between gap-3">
@@ -276,7 +293,11 @@ export function SharedChatPage() {
 	              : undefined}
 	            canRunProject={Boolean(profile) && Boolean(data.chatId) && msg.role === 'assistant' && Boolean(msg.id)}
 	            onRunProject={profile && data.chatId && msg.role === 'assistant' && msg.id
-	              ? async () => chatsApi.runProject(data.chatId!, msg.id!)
+	              ? async () => {
+                  const result = await chatsApi.runProject(data.chatId!, msg.id!);
+                  syncProjectRunCount(msg.id!, result.project_run_count);
+                  return result;
+                }
 	              : undefined}
 	            onFixProjectError={profile && data.chatId && msg.role === 'assistant'
 	              ? async (prompt) => {
