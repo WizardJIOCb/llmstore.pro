@@ -132,8 +132,8 @@ export function AppLayout() {
                     type="button"
                     className={
                       isNavItemActive(item.href)
-                        ? `rounded-md ${activeMenuClass} px-3 py-1.5 text-sm font-medium text-primary transition-colors`
-                        : 'rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors'
+                        ? `rounded-md ${activeMenuClass} px-[0.35rem] py-1.5 text-sm font-medium text-primary transition-colors`
+                        : 'rounded-md px-[0.35rem] py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors'
                     }
                     onClick={openChatsSection}
                   >
@@ -145,8 +145,8 @@ export function AppLayout() {
                     to={item.href}
                     className={
                       isNavItemActive(item.href)
-                        ? `rounded-md ${activeMenuClass} px-3 py-1.5 text-sm font-medium text-primary transition-colors`
-                        : 'rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors'
+                        ? `rounded-md ${activeMenuClass} px-[0.35rem] py-1.5 text-sm font-medium text-primary transition-colors`
+                        : 'rounded-md px-[0.35rem] py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors'
                     }
                   >
                     {item.label}
