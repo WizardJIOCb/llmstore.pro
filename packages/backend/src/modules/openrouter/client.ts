@@ -29,10 +29,14 @@ export class OpenRouterClient {
   }
 
   async chatCompletion(params: ChatCompletionParams): Promise<ChatCompletionResponse> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT);
     try {
       logger.debug({ model: params.model, messageCount: params.messages.length }, 'OpenRouter chat completion request');
 
-      const { data } = await this.http.post<ChatCompletionResponse>('/chat/completions', params);
+      const { data } = await this.http.post<ChatCompletionResponse>('/chat/completions', params, {
+        signal: controller.signal,
+      });
 
       logger.debug({
         model: data.model,
@@ -42,6 +46,12 @@ export class OpenRouterClient {
 
       return data;
     } catch (err) {
+      if (err instanceof AxiosError && err.code === 'ERR_CANCELED') {
+        const message = `OpenRouter request timed out after ${Math.round(DEFAULT_TIMEOUT / 1000)}s`;
+        logger.error({ model: params.model, timeout_ms: DEFAULT_TIMEOUT }, 'OpenRouter request timeout');
+        throw new AppError(504, 'LLM_TIMEOUT', message);
+      }
+
       if (err instanceof AxiosError) {
         const orError = err.response?.data as OpenRouterError | undefined;
         const message = orError?.error?.message || err.message;
@@ -62,6 +72,8 @@ export class OpenRouterClient {
         throw new AppError(502, 'LLM_PROVIDER_ERROR', `OpenRouter error: ${message}`);
       }
       throw err;
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 
