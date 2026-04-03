@@ -110,6 +110,7 @@ export interface ProjectRunVerification {
 export interface ProjectRunResult {
   runtime: 'node' | 'python' | 'static' | 'generic';
   status: 'passed' | 'failed' | 'timeout' | 'unsupported';
+  project_run_count: number | null;
   command: string[];
   entrypoint: string | null;
   duration_ms: number;

@@ -118,6 +118,7 @@ export interface ProjectRunVerification {
 export interface ProjectRunResult {
   runtime: 'node' | 'python' | 'static' | 'generic';
   status: 'passed' | 'failed' | 'timeout' | 'unsupported';
+  project_run_count: number | null;
   command: string[];
   entrypoint: string | null;
   duration_ms: number;
@@ -1232,6 +1233,7 @@ async function runProjectBundle(project: CodingReportProject): Promise<ProjectRu
     return {
       runtime: project.runtime,
       status,
+      project_run_count: null,
       command: [command, ...args],
       entrypoint,
       duration_ms: Date.now() - startedAt,
@@ -2572,6 +2574,7 @@ interface ConversationMessage {
   content: string;
   run_id: string | null;
   usage: Record<string, unknown> | null;
+  project_run_count: number;
   latency_ms: number | null;
   created_at: string;
 }
@@ -2611,6 +2614,7 @@ interface ChatTransferMessage {
   role: 'user' | 'assistant';
   content: string;
   usage: Record<string, unknown> | null;
+  project_run_count: number | null;
   latency_ms: number | null;
   created_at: string;
 }
@@ -2650,6 +2654,7 @@ interface GalleryPreviewItem {
   project_runtime: 'node' | 'python' | 'static' | 'generic' | null;
   project_entrypoint: string | null;
   project_file_count: number;
+  project_run_count: number;
   author_name: string;
   author_username: string | null;
   view_count: number;
@@ -3114,6 +3119,7 @@ async function buildChatTransferBundlePayload(
       role: message.role,
       content: message.content,
       usage: message.usage,
+      project_run_count: message.project_run_count,
       latency_ms: message.latency_ms,
       created_at: message.created_at,
     })),
@@ -3225,6 +3231,7 @@ function toConversationMessage(
     content: normalized.content,
     run_id: row.run_id ?? null,
     usage: attachUsdToRubRate(normalizedUsage, usdToRubRate),
+    project_run_count: row.project_run_count ?? 0,
     latency_ms: row.latency_ms ?? null,
     created_at: toIso(row.created_at),
   };
@@ -3244,6 +3251,15 @@ async function incrementPreviewViewCount(messageId: string) {
   await db.update(chatConversationMessages)
     .set({ preview_view_count: sql`${chatConversationMessages.preview_view_count} + 1` })
     .where(eq(chatConversationMessages.id, messageId));
+}
+
+async function incrementProjectRunCount(messageId: string): Promise<number> {
+  const [row] = await db.update(chatConversationMessages)
+    .set({ project_run_count: sql`${chatConversationMessages.project_run_count} + 1` })
+    .where(eq(chatConversationMessages.id, messageId))
+    .returning({ project_run_count: chatConversationMessages.project_run_count });
+
+  return row?.project_run_count ?? 0;
 }
 
 async function registerConversationView(
@@ -3751,7 +3767,13 @@ export async function runChatMessageProject(
 ): Promise<ProjectRunResult> {
   await getConversationForUser(chatId, userId);
   const message = await getAssistantMessageForConversation(chatId, messageId);
-  return runProjectBundle(extractProjectBundleFromMessage(message));
+  const project = extractProjectBundleFromMessage(message);
+  const projectRunCount = await incrementProjectRunCount(message.id);
+  const result = await runProjectBundle(project);
+  return {
+    ...result,
+    project_run_count: projectRunCount,
+  };
 }
 
 export async function getChatMessagePreviewHtml(
@@ -4368,6 +4390,7 @@ export async function sendChatMessage(
     role: 'user',
     content: trimmedContent,
     run_id: null,
+    project_run_count: 0,
     usage: attachmentMetas.length > 0 ? ({ attachments: attachmentMetas } as Record<string, unknown>) : null,
     latency_ms: null,
     created_at: new Date().toISOString(),
@@ -4641,6 +4664,7 @@ export async function sendChatMessage(
       content: assistantRow.content_text,
       run_id: assistantRow.run_id ?? null,
       usage: (assistantRow.usage_json as Record<string, unknown> | null) ?? null,
+      project_run_count: assistantRow.project_run_count ?? 0,
       latency_ms: assistantRow.latency_ms ?? null,
       created_at: toIso(assistantRow.created_at),
     },
@@ -4679,6 +4703,7 @@ export async function getSharedChatById(token: string, viewerUserId?: string | n
       role: m.role,
       content: m.content,
       usage: m.usage,
+      project_run_count: m.project_run_count,
       created_at: m.created_at,
       })),
     };
@@ -4744,6 +4769,7 @@ export async function importChatBundle(
         role: record.role === 'assistant' ? 'assistant' : 'user',
         content: typeof record.content === 'string' ? record.content : '',
         usage: record.usage && typeof record.usage === 'object' ? (record.usage as Record<string, unknown>) : null,
+        project_run_count: typeof record.project_run_count === 'number' ? record.project_run_count : null,
         latency_ms: typeof record.latency_ms === 'number' ? record.latency_ms : null,
         created_at: typeof record.created_at === 'string' ? record.created_at : new Date().toISOString(),
       };
@@ -4889,6 +4915,7 @@ export async function importChatBundle(
         content_text: message.content,
         run_id: null,
         usage_json: message.usage ?? null,
+        project_run_count: message.project_run_count ?? 0,
         latency_ms: message.latency_ms ?? null,
         created_at: message.createdAtDate,
       })),
@@ -4941,6 +4968,7 @@ export async function listGalleryPreviews(limit = 24, viewerUserId?: string | nu
     content_text: string;
     usage_json: Record<string, unknown> | null;
     preview_view_count: number;
+    project_run_count: number;
     created_at: Date;
   }> = [];
   const selectedChatIds = new Set<string>();
@@ -4974,6 +5002,7 @@ export async function listGalleryPreviews(limit = 24, viewerUserId?: string | nu
         content_text: chatConversationMessages.content_text,
         usage_json: chatConversationMessages.usage_json,
         preview_view_count: chatConversationMessages.preview_view_count,
+        project_run_count: chatConversationMessages.project_run_count,
         created_at: chatConversationMessages.created_at,
       })
       .from(chatConversationMessages)
@@ -5133,6 +5162,7 @@ export async function listGalleryPreviews(limit = 24, viewerUserId?: string | nu
       project_runtime: project?.runtime ?? null,
       project_entrypoint: project?.entrypoint?.trim() || null,
       project_file_count: Array.isArray(project?.files) ? project.files.length : 0,
+      project_run_count: row.project_run_count ?? 0,
       author_name: formatAuthorName({
         email: row.author_email,
         username: row.author_username,

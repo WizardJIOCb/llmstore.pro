@@ -144,7 +144,13 @@ function buildSearchText(item: GalleryPreviewItem): string {
     .toLowerCase();
 }
 
-function GalleryArtifactFrame({ item }: { item: GalleryPreviewItem }) {
+function GalleryArtifactFrame({
+  item,
+  projectRunCount,
+}: {
+  item: GalleryPreviewItem;
+  projectRunCount: number;
+}) {
   const previewUrl = useMemo(() => buildGalleryPreviewUrl(item), [item]);
 
   if ((item.kind === 'preview' || item.kind === 'hybrid') && item.preview_type === 'html' && previewUrl) {
@@ -196,6 +202,9 @@ function GalleryArtifactFrame({ item }: { item: GalleryPreviewItem }) {
         <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">
           Файлов: {item.project_file_count || 0}
         </div>
+        <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">
+          Запусков: {formatViews(projectRunCount)}
+        </div>
         <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 sm:col-span-2">
           Entrypoint: {item.project_entrypoint || 'Не указан'}
         </div>
@@ -210,6 +219,7 @@ export function GalleryPage() {
   const [search, setSearch] = useState('');
   const [kindFilter, setKindFilter] = useState<GalleryKindFilter>('all');
   const [runningMessageId, setRunningMessageId] = useState<string | null>(null);
+  const [projectRunCounts, setProjectRunCounts] = useState<Record<string, number>>({});
   const [runResult, setRunResult] = useState<(ProjectRunResult & {
     title: string;
     message_id: string;
@@ -263,6 +273,9 @@ export function GalleryPage() {
     }
   }, [currentPage, totalPages]);
 
+  const getDisplayedProjectRunCount = (item: GalleryPreviewItem): number =>
+    projectRunCounts[item.message_id] ?? item.project_run_count ?? 0;
+
   const runGalleryProject = async (item: GalleryPreviewItem) => {
     if (!currentUser) return;
 
@@ -270,6 +283,13 @@ export function GalleryPage() {
     setRunningMessageId(item.message_id);
     try {
       const result = await chatsApi.runProject(item.chat_id, item.message_id);
+      const nextProjectRunCount = result.project_run_count;
+      if (typeof nextProjectRunCount === 'number') {
+        setProjectRunCounts((current) => ({
+          ...current,
+          [item.message_id]: nextProjectRunCount,
+        }));
+      }
       setRunResult({
         ...result,
         title: item.project_title || item.preview_title || item.chat_title,
@@ -364,7 +384,7 @@ export function GalleryPage() {
             {currentItems.map((item) => (
               <article key={item.message_id} className="overflow-hidden rounded-2xl border bg-white shadow-sm">
                 <div className="aspect-[16/10] border-b bg-slate-50">
-                  <GalleryArtifactFrame item={item} />
+                  <GalleryArtifactFrame item={item} projectRunCount={getDisplayedProjectRunCount(item)} />
                 </div>
 
                 <div className="space-y-4 p-5">
@@ -421,6 +441,11 @@ export function GalleryPage() {
                         Файлов: {item.project_file_count}
                       </span>
                     ) : null}
+                    {(item.kind === 'project' || item.kind === 'hybrid') && (
+                      <span className="rounded-full border bg-muted/20 px-2.5 py-1">
+                        Запусков: {formatViews(getDisplayedProjectRunCount(item))}
+                      </span>
+                    )}
                     {formatModelName(item.model) && (
                       <span className="rounded-full border bg-muted/20 px-2.5 py-1">
                         Модель: {formatModelName(item.model)}
@@ -556,6 +581,9 @@ export function GalleryPage() {
                 <p className="truncate text-xs text-slate-500">
                   {runResult.title} • {runResult.command.join(' ')} • {runResult.duration_ms} ms
                 </p>
+                <p className="truncate text-xs text-slate-500">
+                  Запусков: {formatViews(runResult.project_run_count ?? projectRunCounts[runResult.message_id] ?? 0)}
+                </p>
               </div>
               <div className="flex items-center gap-2">
                 <Button
@@ -590,6 +618,9 @@ export function GalleryPage() {
                       Entrypoint: {runResult.entrypoint}
                     </p>
                   )}
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Запусков: {formatViews(runResult.project_run_count ?? projectRunCounts[runResult.message_id] ?? 0)}
+                  </p>
                 </div>
 
                 <div className={[

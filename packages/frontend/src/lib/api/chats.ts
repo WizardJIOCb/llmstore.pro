@@ -57,6 +57,7 @@ export interface ProjectRunVerification {
 export interface ProjectRunResult {
   runtime: 'node' | 'python' | 'static' | 'generic';
   status: 'passed' | 'failed' | 'timeout' | 'unsupported';
+  project_run_count: number | null;
   command: string[];
   entrypoint: string | null;
   duration_ms: number;
@@ -103,6 +104,7 @@ export interface ChatMessage {
   content: string;
   run_id: string | null;
   usage: Record<string, unknown> | null;
+  project_run_count?: number | null;
   attachments?: ChatAttachment[];
   latency_ms: number | null;
   created_at: string;
@@ -153,6 +155,7 @@ export interface GalleryPreviewItem {
   project_runtime: 'node' | 'python' | 'static' | 'generic' | null;
   project_entrypoint: string | null;
   project_file_count: number;
+  project_run_count: number;
   author_name: string;
   author_username: string | null;
   view_count: number;

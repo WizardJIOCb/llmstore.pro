@@ -26,6 +26,7 @@ interface V2SharedChat {
     role: 'user' | 'assistant';
     content: string;
     usage?: Record<string, unknown> | null;
+    project_run_count?: number | null;
     created_at: string;
   }>;
 }
@@ -35,6 +36,7 @@ interface SharedMessageItem {
   role: 'user' | 'assistant';
   content: string;
   usage?: Record<string, unknown> | null;
+  project_run_count?: number | null;
   attachments?: ChatAttachment[];
 }
 
@@ -255,6 +257,7 @@ export function SharedChatPage() {
             content={msg.content}
             attachments={msg.attachments ?? extractAttachments(msg.usage)}
             codingReport={msg.role === 'assistant' ? extractCodingReport(msg.usage, msg.content) : undefined}
+            projectRunCount={msg.project_run_count}
             previewPageUrl={msg.role === 'assistant' && token && msg.id ? `/api/shared/chats/${token}/messages/${msg.id}/preview` : undefined}
             canEditPreview={Boolean(profile) && msg.role === 'assistant' && Boolean(msg.id)}
 	            onSavePreview={profile && msg.role === 'assistant' && msg.id

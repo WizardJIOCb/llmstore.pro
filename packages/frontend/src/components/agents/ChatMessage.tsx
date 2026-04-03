@@ -32,6 +32,7 @@ interface ChatMessageProps {
   onSavePreview?: (payload: { title?: string | null; html: string }) => Promise<void>;
   canRunProject?: boolean;
   onRunProject?: () => Promise<ProjectRunResult>;
+  projectRunCount?: number | null;
   onFixProjectError?: (prompt: string) => Promise<void>;
   canEditMessage?: boolean;
   onEditMessage?: () => Promise<void> | void;
@@ -1450,6 +1451,7 @@ export function ChatMessage({
   onSavePreview,
   canRunProject = false,
   onRunProject,
+  projectRunCount = null,
   onFixProjectError,
   canEditMessage = false,
   onEditMessage,
@@ -1498,6 +1500,7 @@ export function ChatMessage({
   const projectBundle = codingReport?.project && codingReport.project.files.length > 0
     ? codingReport.project
     : null;
+  const displayedProjectRunCount = projectRunResult?.project_run_count ?? projectRunCount ?? 0;
   const resolvedHtmlPreview = previewOverride ?? propHtmlPreview;
   const highlightedEditorHtml = useMemo(
     () => (previewEditor ? highlightHtmlCode(previewEditor.html) : ''),
@@ -2114,6 +2117,9 @@ export function ChatMessage({
                         Runtime: {getProjectRuntimeLabel(projectBundle.runtime)}. Files: {projectBundle.files.length}
                         {projectBundle.entrypoint ? `, entrypoint: ${projectBundle.entrypoint}` : ''}
                       </p>
+                      <p className="text-muted-foreground">
+                        Запусков: {displayedProjectRunCount}
+                      </p>
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">
@@ -2160,6 +2166,9 @@ export function ChatMessage({
                         </p>
                         <p className="mt-1 text-xs text-muted-foreground">
                           {projectRunResult.command.join(' ')} · {projectRunResult.duration_ms} ms
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Запусков: {displayedProjectRunCount}
                         </p>
                         <p className="mt-2 text-xs">
                           {projectRunResult.verification.message}
@@ -2430,6 +2439,9 @@ export function ChatMessage({
                 </p>
                 <p className="truncate text-xs text-slate-500">
                   {projectRunResultFullscreen.command.join(' ')} · {projectRunResultFullscreen.duration_ms} ms
+                </p>
+                <p className="truncate text-xs text-slate-500">
+                  Запусков: {projectRunResultFullscreen.project_run_count ?? displayedProjectRunCount}
                 </p>
               </div>
               <div className="flex items-center gap-2">

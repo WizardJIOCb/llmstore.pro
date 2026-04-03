@@ -109,6 +109,7 @@ export const chatConversationMessages = pgTable('chat_conversation_messages', {
   run_id: uuid('run_id').references(() => agentRuns.id, { onDelete: 'set null' }),
   usage_json: jsonb('usage_json').$type<Record<string, unknown>>(),
   preview_view_count: integer('preview_view_count').notNull().default(0),
+  project_run_count: integer('project_run_count').notNull().default(0),
   latency_ms: integer('latency_ms'),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [

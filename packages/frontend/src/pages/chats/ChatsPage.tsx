@@ -1884,6 +1884,7 @@ export function ChatsPage() {
                   attachments={resolvedAttachments}
                   toolTraces={msg.role === 'assistant' ? extractToolTraces(msg.usage) : undefined}
                   codingReport={msg.role === 'assistant' ? extractCodingReport(msg.usage, msg.content) : undefined}
+                  projectRunCount={msg.project_run_count}
                   previewPageUrl={msg.role === 'assistant' && activeChat
                     ? (activeChat.share_token
                       ? `/api/shared/chats/${activeChat.share_token}/messages/${msg.id}/preview`
@@ -1963,6 +1964,7 @@ export function ChatsPage() {
                       attachments={assistantSlotResolvedMessage.attachments ?? extractAttachments(assistantSlotResolvedMessage.usage)}
                       toolTraces={extractToolTraces(assistantSlotResolvedMessage.usage)}
                       codingReport={extractCodingReport(assistantSlotResolvedMessage.usage, assistantSlotResolvedMessage.content)}
+                      projectRunCount={assistantSlotResolvedMessage.project_run_count}
                       previewPageUrl={activeChat
                         ? (activeChat.share_token
                           ? `/api/shared/chats/${activeChat.share_token}/messages/${assistantSlotResolvedMessage.id}/preview`
