@@ -12,7 +12,6 @@ import { useAuth } from '../../hooks/useAuth';
 import { ImageGallery } from '../../components/news/ImageGallery';
 import { NewsLightbox } from '../../components/news/NewsLightbox';
 import { NewsCommentsPanel } from '../../components/news/NewsCommentsPanel';
-import { Button } from '../../components/ui/Button';
 import { Spinner } from '../../components/ui/Spinner';
 
 function formatDisplayDate(value: string | null): string | null {
@@ -73,6 +72,7 @@ export function NewsDetailPage() {
   const displayDate = formatDisplayDate(article.published_at);
   const leadImage = article.images[0] ?? null;
   const initialComposerOpen = location.hash === '#comment-form';
+  const resolvedCommentsCount = commentsLoading ? article.comments_count : comments.length;
 
   return (
     <div className="bg-[linear-gradient(180deg,#f8fafc_0%,#ffffff_25%,#f8fafc_100%)]">
@@ -104,7 +104,7 @@ export function NewsDetailPage() {
                 className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-700 transition hover:bg-slate-100"
                 onClick={() => scrollToElement('comments')}
               >
-                {article.comments_count} комментариев
+                {resolvedCommentsCount} комментариев
               </button>
               <span className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-700">
                 {article.views_count ?? 0} просмотров
@@ -146,7 +146,7 @@ export function NewsDetailPage() {
 
             <NewsCommentsPanel
               comments={comments}
-              commentsCount={article.comments_count}
+              commentsCount={resolvedCommentsCount}
               isLoading={commentsLoading}
               isAuthenticated={isAuthenticated}
               isSubmitting={createComment.isPending}

@@ -120,14 +120,24 @@ export async function listPublished(query: { page: number; per_page: number }) {
       published_at: news.published_at,
       created_at: news.created_at,
       updated_at: news.updated_at,
-      comments_count: sql<number>`(
-        select count(*)::int
-        from ${newsComments}
-        where ${newsComments.news_id} = ${news.id}
-      )`,
+      comments_count: sql<number>`count(${newsComments.id})::int`,
     })
     .from(news)
+    .leftJoin(newsComments, eq(newsComments.news_id, news.id))
     .where(eq(news.status, 'published'))
+    .groupBy(
+      news.id,
+      news.title,
+      news.slug,
+      news.content,
+      news.excerpt,
+      news.status,
+      news.views_count,
+      news.author_user_id,
+      news.published_at,
+      news.created_at,
+      news.updated_at,
+    )
     .orderBy(desc(news.published_at))
     .limit(per_page)
     .offset(offset);
@@ -167,14 +177,24 @@ export async function getBySlug(slug: string) {
       published_at: news.published_at,
       created_at: news.created_at,
       updated_at: news.updated_at,
-      comments_count: sql<number>`(
-        select count(*)::int
-        from ${newsComments}
-        where ${newsComments.news_id} = ${news.id}
-      )`,
+      comments_count: sql<number>`count(${newsComments.id})::int`,
     })
     .from(news)
+    .leftJoin(newsComments, eq(newsComments.news_id, news.id))
     .where(and(eq(news.slug, slug), eq(news.status, 'published')))
+    .groupBy(
+      news.id,
+      news.title,
+      news.slug,
+      news.content,
+      news.excerpt,
+      news.status,
+      news.views_count,
+      news.author_user_id,
+      news.published_at,
+      news.created_at,
+      news.updated_at,
+    )
     .limit(1);
 
   if (!row) throw new NotFoundError('Новость не найдена');

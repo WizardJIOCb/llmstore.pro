@@ -54,6 +54,11 @@ export function App() {
     window.ym?.(108206991, 'hit', location.pathname + location.search);
   }, [location]);
 
+  useEffect(() => {
+    if (location.hash) return;
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+  }, [location.pathname, location.search, location.hash]);
+
   return (
     <Routes>
       <Route element={<AppLayout />}>
