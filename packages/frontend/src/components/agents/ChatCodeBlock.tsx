@@ -34,6 +34,9 @@ const CODE_FONT_FAMILY = [
   'monospace',
 ].join(', ');
 
+const COLLAPSED_CODE_PREVIEW_LINES = 10;
+const COLLAPSIBLE_CODE_MIN_LINES = 24;
+
 const LANGUAGE_ALIASES: Record<string, SupportedCodeLanguage> = {
   c: 'c',
   h: 'c',
@@ -627,6 +630,7 @@ interface ChatCodeBlockProps {
 
 export function ChatCodeBlock({ code, className }: ChatCodeBlockProps) {
   const [copied, setCopied] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const normalizedCode = useMemo(
@@ -641,12 +645,21 @@ export function ChatCodeBlock({ code, className }: ChatCodeBlockProps) {
     () => normalizedCode.split('\n').map((line) => highlightLine(line, language)),
     [language, normalizedCode],
   );
+  const isCollapsible = highlightedLines.length >= COLLAPSIBLE_CODE_MIN_LINES;
+  const visibleLines = expanded || !isCollapsible
+    ? highlightedLines
+    : highlightedLines.slice(0, COLLAPSED_CODE_PREVIEW_LINES);
+  const hiddenLineCount = Math.max(highlightedLines.length - visibleLines.length, 0);
 
   useEffect(() => {
     return () => {
       if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    setExpanded(false);
+  }, [normalizedCode]);
 
   const copyCode = async () => {
     try {
@@ -672,22 +685,40 @@ export function ChatCodeBlock({ code, className }: ChatCodeBlockProps) {
           <span className="truncate text-[11px] text-slate-400">
             {highlightedLines.length} lines
           </span>
-        </div>
-        <button
-          type="button"
-          className={cn(
-            'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors',
-            copied
-              ? 'border-emerald-300/30 bg-emerald-400/15 text-emerald-100'
-              : 'border-white/10 bg-white/5 text-slate-300 hover:border-sky-300/20 hover:bg-sky-400/10 hover:text-sky-100',
+          {isCollapsible && !expanded && (
+            <span className="truncate text-[11px] text-slate-500">
+              First {COLLAPSED_CODE_PREVIEW_LINES}
+            </span>
           )}
-          onClick={() => void copyCode()}
-          title={copied ? 'Скопировано' : 'Скопировать код'}
-          aria-label={copied ? 'Код скопирован' : 'Скопировать код'}
-        >
-          {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-          {copied ? 'Скопировано' : 'Копировать'}
-        </button>
+        </div>
+        <div className="flex items-center gap-2">
+          {isCollapsible && (
+            <button
+              type="button"
+              className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] font-medium text-slate-300 transition-colors hover:border-sky-300/20 hover:bg-sky-400/10 hover:text-sky-100"
+              onClick={() => setExpanded((prev) => !prev)}
+              title={expanded ? 'Свернуть' : 'Показать всё'}
+              aria-label={expanded ? 'Свернуть код' : 'Показать весь код'}
+            >
+              {expanded ? 'Свернуть' : 'Показать всё'}
+            </button>
+          )}
+          <button
+            type="button"
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors',
+              copied
+                ? 'border-emerald-300/30 bg-emerald-400/15 text-emerald-100'
+                : 'border-white/10 bg-white/5 text-slate-300 hover:border-sky-300/20 hover:bg-sky-400/10 hover:text-sky-100',
+            )}
+            onClick={() => void copyCode()}
+            title={copied ? 'Скопировано' : 'Скопировать код'}
+            aria-label={copied ? 'Код скопирован' : 'Скопировать код'}
+          >
+            {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+            {copied ? 'Скопировано' : 'Копировать'}
+          </button>
+        </div>
       </div>
 
       <div className="overflow-x-auto">
@@ -695,7 +726,7 @@ export function ChatCodeBlock({ code, className }: ChatCodeBlockProps) {
           className="m-0 min-w-full bg-transparent py-3 text-[13px] leading-6"
           style={{ fontFamily: CODE_FONT_FAMILY }}
         >
-          {highlightedLines.map((line, index) => (
+          {visibleLines.map((line, index) => (
             <div
               key={`${language}-${index}`}
               className="grid grid-cols-[3.5rem_minmax(0,1fr)] items-start hover:bg-white/[0.03]"
@@ -711,6 +742,20 @@ export function ChatCodeBlock({ code, className }: ChatCodeBlockProps) {
           ))}
         </pre>
       </div>
+      {isCollapsible && !expanded && (
+        <div className="border-t border-white/10 bg-slate-900/80 px-4 py-2.5 text-[11px] text-slate-400">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span>{hiddenLineCount} more lines hidden</span>
+            <button
+              type="button"
+              className="font-medium text-sky-200 transition-colors hover:text-sky-100"
+              onClick={() => setExpanded(true)}
+            >
+              Показать всё
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
