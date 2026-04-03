@@ -12,7 +12,7 @@ const navItems = [
   { label: 'Галерея', href: '/gallery' },
   { label: 'Чаты', href: '/chats', requiresAuth: true },
   { label: 'Агенты', href: '/my/agents', requiresAuth: true },
-  { label: 'Статьи', href: '/articles' },
+  { label: 'Инструменты', href: '/tools' },
 ];
 
 export function AppLayout() {
@@ -66,16 +66,9 @@ export function AppLayout() {
   const isNavItemActive = (href: string) => {
     if (href === '/news') return location.pathname === '/news' || location.pathname.startsWith('/news/');
     if (href === '/milestones') return location.pathname === '/milestones' || location.pathname.startsWith('/milestones/');
+    if (href === '/tools') return location.pathname === '/tools' || location.pathname.startsWith('/tools/');
     if (href === '/gallery') return location.pathname === '/gallery' || location.pathname.startsWith('/gallery/');
     if (href === '/chats') return location.pathname.startsWith('/chats');
-    if (href === '/articles') {
-      return (
-        location.pathname === '/articles'
-        || location.pathname.startsWith('/article/')
-        || location.pathname.startsWith('/articles/')
-        || location.pathname === '/russian-market'
-      );
-    }
     if (href === '/my/agents') {
       return (
         location.pathname.startsWith('/my/agents')

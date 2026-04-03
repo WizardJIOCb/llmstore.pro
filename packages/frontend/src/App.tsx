@@ -39,6 +39,7 @@ import { GalleryPage } from './pages/gallery/GalleryPage';
 import { PricingPage } from './pages/legal/PricingPage';
 import { OfferPage } from './pages/legal/OfferPage';
 import { ContactsPage } from './pages/legal/ContactsPage';
+import { ToolsPage } from './pages/tools/ToolsPage';
 
 declare global {
   interface Window {
@@ -59,7 +60,7 @@ export function App() {
         <Route path="/" element={<HomePage />} />
 
         {/* Catalog routes */}
-        <Route path="/tools" element={<CatalogListPage type="tool" />} />
+        <Route path="/tools" element={<ToolsPage />} />
         <Route path="/tools/:slug" element={<CatalogDetailPage type="tool" />} />
         <Route path="/models" element={<CatalogListPage type="model" />} />
         <Route path="/models/:slug" element={<CatalogDetailPage type="model" />} />

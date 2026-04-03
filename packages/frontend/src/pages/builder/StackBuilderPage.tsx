@@ -816,7 +816,7 @@ export function StackBuilderPage() {
                         value={purpose}
                         onChange={(event) => setPurpose(event.target.value)}
                         placeholder={direction.purposeHint}
-                        className="min-h-[120px]"
+                        className="min-h-[188px]"
                       />
                     </div>
                     <div>
