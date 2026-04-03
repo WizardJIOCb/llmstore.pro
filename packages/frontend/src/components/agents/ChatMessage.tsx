@@ -2448,28 +2448,18 @@ export function ChatMessage({
                           </div>
                         </div>
                         {(projectDeployment.live_stdout || projectDeployment.live_stderr) && (
-                          <div className="mt-3 grid gap-3 lg:grid-cols-2">
-                            {projectDeployment.live_stdout && (
-                              <div className="space-y-1">
-                                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">stdout</p>
-                                <pre className="max-h-48 overflow-auto rounded bg-slate-950 p-3 text-xs text-slate-100">
-                                  {projectDeployment.live_stdout}
-                                </pre>
-                              </div>
-                            )}
-                            {projectDeployment.live_stderr && (
-                              <div className="space-y-1">
-                                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">stderr</p>
-                                <pre className={cn(
-                                  'max-h-48 overflow-auto rounded bg-slate-950 p-3 text-xs',
-                                  looksLikeErrorLog(projectDeployment.live_stderr)
-                                    ? 'text-rose-200'
-                                    : 'text-slate-100',
-                                )}>
-                                  {projectDeployment.live_stderr}
-                                </pre>
-                              </div>
-                            )}
+                          <div className="mt-3 space-y-1">
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Логи</p>
+                            <pre className={cn(
+                              'max-h-[32rem] min-h-[18rem] w-full overflow-auto rounded bg-slate-950 p-3 text-xs',
+                              looksLikeErrorLog([projectDeployment.live_stderr, projectDeployment.live_stdout].filter(Boolean).join('\n'))
+                                ? 'text-rose-200'
+                                : 'text-slate-100',
+                            )}>
+                              {[projectDeployment.live_stdout, projectDeployment.live_stderr]
+                                .filter((chunk) => chunk && chunk.trim())
+                                .join('\n')}
+                            </pre>
                           </div>
                         )}
                       </div>
