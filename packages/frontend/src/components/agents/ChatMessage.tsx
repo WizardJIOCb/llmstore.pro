@@ -1461,6 +1461,7 @@ export function ChatMessage({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewAlt, setPreviewAlt] = useState('');
   const [htmlPreview, setHtmlPreview] = useState<{ title: string; html: string } | null>(null);
+  const [projectRunResultFullscreen, setProjectRunResultFullscreen] = useState<ProjectRunResult | null>(null);
   const [previewEditor, setPreviewEditor] = useState<{ title: string; html: string } | null>(null);
   const [previewExporting, setPreviewExporting] = useState(false);
   const [projectExporting, setProjectExporting] = useState(false);
@@ -2160,8 +2161,17 @@ export function ChatMessage({
                           {projectRunResult.verification.message}
                           {projectRunResult.verification.url ? ` (${projectRunResult.verification.url})` : ''}
                         </p>
-                        {onFixProjectError && projectRunResult.status !== 'passed' && (
-                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="whitespace-nowrap"
+                            onClick={() => setProjectRunResultFullscreen(projectRunResult)}
+                          >
+                            На весь экран
+                          </Button>
+                          {onFixProjectError && projectRunResult.status !== 'passed' && (
                             <Button
                               type="button"
                               variant="outline"
@@ -2172,8 +2182,8 @@ export function ChatMessage({
                             >
                               {projectFixing ? 'Отправляю...' : 'Fix from error'}
                             </Button>
-                          </div>
-                        )}
+                          )}
+                        </div>
                         {projectRunResult.stdout && (
                           <pre className="mt-3 max-h-48 overflow-auto rounded bg-slate-950 p-3 text-xs text-slate-100">
                             {projectRunResult.stdout}
@@ -2396,6 +2406,71 @@ export function ChatMessage({
               revisionKey={getStringHash(htmlPreview.html)}
               className="min-h-0 flex-1"
             />
+          </div>
+        </div>
+      )}
+
+      {projectRunResultFullscreen && (
+        <div
+          className="fixed inset-0 z-[132] flex items-center justify-center bg-black/85 p-3"
+          onClick={() => setProjectRunResultFullscreen(null)}
+        >
+          <div
+            className="flex h-[94vh] w-[96vw] max-w-7xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-slate-900">
+                  Результат запуска: {projectRunResultFullscreen.status}
+                </p>
+                <p className="truncate text-xs text-slate-500">
+                  {projectRunResultFullscreen.command.join(' ')} · {projectRunResultFullscreen.duration_ms} ms
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => setProjectRunResultFullscreen(null)}>
+                  Закрыть
+                </Button>
+              </div>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto px-4 py-4">
+              <div className="space-y-4">
+                <div className="rounded-lg border border-border/70 bg-background/70 p-3 text-sm">
+                  <p className="font-medium text-slate-900">Проверка</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {projectRunResultFullscreen.verification.message}
+                    {projectRunResultFullscreen.verification.url ? ` (${projectRunResultFullscreen.verification.url})` : ''}
+                  </p>
+                  {projectRunResultFullscreen.entrypoint && (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Entrypoint: {projectRunResultFullscreen.entrypoint}
+                    </p>
+                  )}
+                </div>
+                {projectRunResultFullscreen.stdout && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">stdout</p>
+                    <pre className="max-h-[36vh] overflow-auto rounded-lg bg-slate-950 p-4 text-xs text-slate-100">
+                      {projectRunResultFullscreen.stdout}
+                    </pre>
+                  </div>
+                )}
+                {projectRunResultFullscreen.stderr && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">stderr</p>
+                    <pre className="max-h-[36vh] overflow-auto rounded-lg bg-slate-950 p-4 text-xs text-rose-200">
+                      {projectRunResultFullscreen.stderr}
+                    </pre>
+                  </div>
+                )}
+                {!projectRunResultFullscreen.stdout && !projectRunResultFullscreen.stderr && (
+                  <div className="rounded-lg border border-border/70 bg-background/70 p-3 text-sm text-muted-foreground">
+                    Процесс не вернул stdout или stderr.
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}
