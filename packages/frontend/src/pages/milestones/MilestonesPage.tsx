@@ -162,12 +162,7 @@ const milestonesByStatus = {
   planned: milestoneItems.filter((item) => item.status === 'planned'),
 };
 
-const pulseItems = [
-  ...milestonesByStatus.active,
-  ...milestonesByStatus.shipped,
-  ...milestonesByStatus.planned,
-];
-
+const pulseItems = [...milestoneItems].sort((a, b) => b.timelineOrder - a.timelineOrder);
 const timelineItems = [...milestoneItems].sort((a, b) => b.timelineOrder - a.timelineOrder);
 
 export function MilestonesPage() {
