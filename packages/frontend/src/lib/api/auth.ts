@@ -11,6 +11,8 @@ export interface RegisterInput {
   password: string;
   name?: string;
   username?: string;
+  device_fingerprint?: string;
+  turnstile_token?: string;
 }
 
 export const authApi = {

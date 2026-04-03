@@ -55,6 +55,7 @@ const envSchema = z.object({
   YOOKASSA_SECRET_KEY: z.string().default(''),
   YOOKASSA_TOPUP_MIN_RUB: z.coerce.number().positive().default(100),
   YOOKASSA_TOPUP_MAX_RUB: z.coerce.number().positive().default(500000),
+  TURNSTILE_SECRET_KEY: z.string().default(''),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
 });
 

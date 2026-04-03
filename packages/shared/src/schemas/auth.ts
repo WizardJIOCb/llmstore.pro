@@ -10,6 +10,8 @@ export const registerSchema = z.object({
     .max(30)
     .regex(/^[a-zA-Z0-9_]+$/)
     .optional(),
+  device_fingerprint: z.string().min(8).max(255).optional(),
+  turnstile_token: z.string().min(1).max(2048).optional(),
 });
 
 export type RegisterInput = z.infer<typeof registerSchema>;

@@ -1,5 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import * as authService from './auth.service.js';
+import { normalizeIpAddress } from './signup-bonus.service.js';
+import { verifyTurnstileToken } from './turnstile.service.js';
 
 function getSessionSameSite() {
   return process.env.NODE_ENV === 'production' ? 'none' : 'lax';
@@ -7,7 +9,13 @@ function getSessionSameSite() {
 
 export async function register(req: Request, res: Response, next: NextFunction) {
   try {
-    const user = await authService.register(req.body);
+    const requestIp = normalizeIpAddress(req.ip);
+    await verifyTurnstileToken(req.body.turnstile_token, requestIp);
+    const user = await authService.register({
+      ...req.body,
+      signup_ip: requestIp,
+      signup_user_agent: req.get('user-agent') ?? null,
+    });
     req.session.userId = user.id;
     req.session.userRole = user.role;
     res.status(201).json({ data: user });

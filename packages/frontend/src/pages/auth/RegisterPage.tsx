@@ -1,8 +1,10 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { useAuth } from '../../hooks/useAuth';
-import { Button, Input } from '../../components/ui';
+import { Link, useNavigate } from 'react-router-dom';
 import { OAuthButtons } from '../../components/auth/OAuthButtons';
+import { TurnstileWidget } from '../../components/auth/TurnstileWidget';
+import { Button, Input } from '../../components/ui';
+import { useAuth } from '../../hooks/useAuth';
+import { getOrCreateDeviceFingerprint } from '../../lib/device-fingerprint';
 
 export function RegisterPage() {
   const navigate = useNavigate();
@@ -10,10 +12,20 @@ export function RegisterPage() {
   const [form, setForm] = useState({ email: '', password: '', name: '', username: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState('');
+
+  const turnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY?.trim() || '';
+  const isTurnstileEnabled = Boolean(turnstileSiteKey);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
+    if (isTurnstileEnabled && !turnstileToken) {
+      setError('Подтвердите, что вы не робот');
+      return;
+    }
+
     setLoading(true);
     try {
       await register({
@@ -21,6 +33,8 @@ export function RegisterPage() {
         password: form.password,
         name: form.name || undefined,
         username: form.username || undefined,
+        device_fingerprint: getOrCreateDeviceFingerprint(),
+        turnstile_token: turnstileToken || undefined,
       });
       navigate('/');
     } catch (err: any) {
@@ -73,9 +87,9 @@ export function RegisterPage() {
               type="password"
               value={form.password}
               onChange={update('password')}
-              placeholder="Минимум 6 символов"
+              placeholder="Минимум 8 символов"
               required
-              minLength={6}
+              minLength={8}
             />
           </div>
 
@@ -96,6 +110,24 @@ export function RegisterPage() {
               placeholder="username"
             />
           </div>
+
+          {isTurnstileEnabled && (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <p className="mb-3 text-xs uppercase tracking-[0.18em] text-slate-400">Проверка защиты</p>
+              <TurnstileWidget
+                siteKey={turnstileSiteKey}
+                onVerify={(token) => {
+                  setTurnstileToken(token);
+                  setError('');
+                }}
+                onExpire={() => setTurnstileToken('')}
+                onError={() => {
+                  setTurnstileToken('');
+                  setError('Не удалось загрузить защитную проверку');
+                }}
+              />
+            </div>
+          )}
 
           <Button type="submit" className="w-full" disabled={loading}>
             {loading ? 'Регистрация...' : 'Зарегистрироваться'}

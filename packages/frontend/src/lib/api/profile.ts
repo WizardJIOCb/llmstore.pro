@@ -15,10 +15,14 @@ export const profileApi = {
     apiClient.delete(`/profile/linked-accounts/${provider}`).then(r => r.data),
 };
 
-export function getOAuthLinkUrl(provider: string): string {
-  return `/api/auth/oauth/${provider}?mode=link`;
+export function getOAuthLinkUrl(provider: string, deviceFingerprint?: string): string {
+  const params = new URLSearchParams({ mode: 'link' });
+  if (deviceFingerprint) params.set('device_fingerprint', deviceFingerprint);
+  return `/api/auth/oauth/${provider}?${params.toString()}`;
 }
 
-export function getOAuthLoginUrl(provider: string): string {
-  return `/api/auth/oauth/${provider}?mode=login`;
+export function getOAuthLoginUrl(provider: string, deviceFingerprint?: string): string {
+  const params = new URLSearchParams({ mode: 'login' });
+  if (deviceFingerprint) params.set('device_fingerprint', deviceFingerprint);
+  return `/api/auth/oauth/${provider}?${params.toString()}`;
 }

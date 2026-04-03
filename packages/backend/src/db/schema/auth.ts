@@ -38,3 +38,17 @@ export const sessions = pgTable('sessions', {
   index('sessions_user_id_idx').on(table.user_id),
   index('sessions_expires_at_idx').on(table.expires_at),
 ]);
+
+export const signupBonusGrants = pgTable('signup_bonus_grants', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  user_id: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  ip_address: varchar('ip_address', { length: 128 }),
+  device_fingerprint: varchar('device_fingerprint', { length: 255 }),
+  user_agent: text('user_agent'),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex('signup_bonus_grants_user_id_idx').on(table.user_id),
+  uniqueIndex('signup_bonus_grants_ip_idx').on(table.ip_address),
+  uniqueIndex('signup_bonus_grants_fingerprint_idx').on(table.device_fingerprint),
+  index('signup_bonus_grants_created_at_idx').on(table.created_at),
+]);

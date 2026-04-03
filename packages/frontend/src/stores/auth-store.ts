@@ -8,7 +8,14 @@ interface AuthState {
   setUser: (user: UserPublic | null) => void;
   fetchMe: () => Promise<void>;
   login: (email: string, password: string) => Promise<UserPublic>;
-  register: (data: { email: string; password: string; name?: string; username?: string }) => Promise<UserPublic>;
+  register: (data: {
+    email: string;
+    password: string;
+    name?: string;
+    username?: string;
+    device_fingerprint?: string;
+    turnstile_token?: string;
+  }) => Promise<UserPublic>;
   logout: () => Promise<void>;
 }
 

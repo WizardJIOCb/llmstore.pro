@@ -1,11 +1,12 @@
 import axios from 'axios';
 import crypto from 'crypto';
-import { eq, and } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { db } from '../../config/database.js';
-import { users, authAccounts, balanceTransactions } from '../../db/schema/index.js';
+import { users, authAccounts } from '../../db/schema/index.js';
 import { env } from '../../config/env.js';
 import { AppError, ConflictError } from '../../middleware/error-handler.js';
 import type { UserPublic } from '@llmstore/shared';
+import { grantSignupBonusIfEligible, normalizeIpAddress } from './signup-bonus.service.js';
 
 interface OAuthUserInfo {
   email: string;
@@ -59,7 +60,6 @@ const PROVIDER_CONFIG: Record<string, {
 };
 
 const SUPPORTED_PROVIDERS = Object.keys(PROVIDER_CONFIG);
-const REGISTRATION_BONUS_USD = '0.05';
 
 export function validateProvider(provider: string): void {
   if (!SUPPORTED_PROVIDERS.includes(provider)) {
@@ -71,8 +71,6 @@ function getCallbackUrl(provider: string): string {
   return `${env.BACKEND_URL}/api/auth/oauth/${provider}/callback`;
 }
 
-// ─── PKCE helpers ───────────────────────────────────────────
-
 export function generatePkce(): { codeVerifier: string; codeChallenge: string } {
   const codeVerifier = crypto.randomBytes(32).toString('base64url');
   const codeChallenge = crypto
@@ -81,8 +79,6 @@ export function generatePkce(): { codeVerifier: string; codeChallenge: string } 
     .digest('base64url');
   return { codeVerifier, codeChallenge };
 }
-
-// ─── OAuth URL generation ───────────────────────────────────
 
 export function getOAuthUrl(provider: string, state: string, codeChallenge?: string): string {
   validateProvider(provider);
@@ -103,7 +99,6 @@ export function getOAuthUrl(provider: string, state: string, codeChallenge?: str
     params.set('prompt', 'consent');
   }
 
-  // VK ID requires PKCE
   if (config.pkce && codeChallenge) {
     params.set('code_challenge', codeChallenge);
     params.set('code_challenge_method', 's256');
@@ -111,8 +106,6 @@ export function getOAuthUrl(provider: string, state: string, codeChallenge?: str
 
   return `${config.authorizeUrl}?${params.toString()}`;
 }
-
-// ─── Token exchange ─────────────────────────────────────────
 
 interface TokenExchangeOptions {
   provider: string;
@@ -139,7 +132,6 @@ async function exchangeCodeForToken(opts: TokenExchangeOptions): Promise<TokenRe
     grant_type: 'authorization_code',
   });
 
-  // VK uses PKCE instead of client_secret
   if (config.pkce) {
     if (opts.codeVerifier) params.set('code_verifier', opts.codeVerifier);
     if (opts.deviceId) params.set('device_id', opts.deviceId);
@@ -152,10 +144,6 @@ async function exchangeCodeForToken(opts: TokenExchangeOptions): Promise<TokenRe
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
   });
 
-  if (opts.provider === 'vk') {
-    console.log('[OAuth VK] token response:', JSON.stringify(response.data));
-  }
-
   return {
     accessToken: response.data.access_token,
     email: response.data.email,
@@ -164,27 +152,20 @@ async function exchangeCodeForToken(opts: TokenExchangeOptions): Promise<TokenRe
   };
 }
 
-// ─── User info fetching ─────────────────────────────────────
-
 async function fetchUserInfo(provider: string, token: TokenResult): Promise<OAuthUserInfo> {
   const config = PROVIDER_CONFIG[provider];
 
-  // VK uses POST with form data for user info
   if (provider === 'vk') {
     const response = await axios.post(
       config.userInfoUrl,
       new URLSearchParams({ client_id: config.clientId(), access_token: token.accessToken }).toString(),
       { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
     );
-    console.log('[OAuth VK] userinfo response:', JSON.stringify(response.data));
     const data = response.data.user;
 
-    // Email can come from token response or userinfo
     const email = data?.email || token.email || '';
     const phone = data?.phone || token.phone || '';
     const userId = String(data?.user_id || token.userId || '');
-
-    // If no email, generate a placeholder from VK user_id so we can still create account
     const effectiveEmail = email || (phone ? `${phone}@vk.user` : `${userId}@vk.user`);
 
     return {
@@ -195,7 +176,6 @@ async function fetchUserInfo(provider: string, token: TokenResult): Promise<OAut
     };
   }
 
-  // Other providers use GET with Bearer token
   const response = await axios.get(config.userInfoUrl, {
     headers: { Authorization: `Bearer ${token.accessToken}` },
   });
@@ -231,8 +211,6 @@ async function fetchUserInfo(provider: string, token: TokenResult): Promise<OAut
   }
 }
 
-// ─── Helpers ────────────────────────────────────────────────
-
 type ProviderType = 'google' | 'yandex' | 'mailru' | 'vk';
 
 const userPublicColumns = {
@@ -260,9 +238,6 @@ function toUserPublic(user: typeof userPublicColumns extends infer T ? { [K in k
   };
 }
 
-// ─── Main callback handler ──────────────────────────────────
-
-/** Update user avatar from OAuth provider if user has no avatar set */
 async function updateAvatarIfMissing(userId: string, avatarUrl: string | null) {
   if (!avatarUrl) return;
   const [user] = await db
@@ -270,6 +245,7 @@ async function updateAvatarIfMissing(userId: string, avatarUrl: string | null) {
     .from(users)
     .where(eq(users.id, userId))
     .limit(1);
+
   if (user && !user.avatar_url) {
     await db.update(users).set({ avatar_url: avatarUrl }).where(eq(users.id, userId));
   }
@@ -282,10 +258,13 @@ export interface HandleCallbackOptions {
   codeVerifier?: string;
   deviceId?: string;
   state?: string;
+  signupIp?: string | null;
+  signupUserAgent?: string | null;
+  deviceFingerprint?: string | null;
 }
 
 export async function handleCallback(opts: HandleCallbackOptions): Promise<UserPublic> {
-  const { provider, code, sessionUserId, codeVerifier, deviceId, state } = opts;
+  const { provider, code, sessionUserId, codeVerifier, deviceId, state, signupIp, signupUserAgent, deviceFingerprint } = opts;
   validateProvider(provider);
 
   const token = await exchangeCodeForToken({ provider, code, codeVerifier, deviceId, state });
@@ -295,7 +274,6 @@ export async function handleCallback(opts: HandleCallbackOptions): Promise<UserP
     throw new AppError(400, 'NO_EMAIL', 'Не удалось получить email от провайдера');
   }
 
-  // Check if this provider account is already linked
   const [existingAccount] = await db
     .select({ id: authAccounts.id, user_id: authAccounts.user_id })
     .from(authAccounts)
@@ -307,7 +285,6 @@ export async function handleCallback(opts: HandleCallbackOptions): Promise<UserP
     )
     .limit(1);
 
-  // Link mode: user is already logged in, linking a new provider
   if (sessionUserId) {
     if (existingAccount) {
       if (existingAccount.user_id === sessionUserId) {
@@ -330,9 +307,6 @@ export async function handleCallback(opts: HandleCallbackOptions): Promise<UserP
     return toUserPublic(user);
   }
 
-  // Login mode: find or create user
-
-  // Case 1: Account already exists — login
   if (existingAccount) {
     await updateAvatarIfMissing(existingAccount.user_id, userInfo.avatar_url);
     const [user] = await db.select(userPublicColumns).from(users).where(eq(users.id, existingAccount.user_id)).limit(1);
@@ -340,7 +314,6 @@ export async function handleCallback(opts: HandleCallbackOptions): Promise<UserP
     return toUserPublic(user);
   }
 
-  // Case 2: User with same email exists — link and login
   const [existingUser] = await db
     .select(userPublicColumns)
     .from(users)
@@ -355,11 +328,14 @@ export async function handleCallback(opts: HandleCallbackOptions): Promise<UserP
       access_token: token.accessToken,
     });
     await updateAvatarIfMissing(existingUser.id as string, userInfo.avatar_url);
-    const [updated] = await db.select(userPublicColumns).from(users).where(eq(users.id, existingUser.id as string)).limit(1);
+    const [updated] = await db
+      .select(userPublicColumns)
+      .from(users)
+      .where(eq(users.id, existingUser.id as string))
+      .limit(1);
     return toUserPublic(updated);
   }
 
-  // Case 3: Create new user
   const [newUser] = await db
     .insert(users)
     .values({
@@ -368,17 +344,14 @@ export async function handleCallback(opts: HandleCallbackOptions): Promise<UserP
       avatar_url: userInfo.avatar_url,
       role: 'user',
       status: 'active',
-      balance_usd: REGISTRATION_BONUS_USD,
+      balance_usd: '0',
     })
     .returning(userPublicColumns);
 
-  await db.insert(balanceTransactions).values({
-    user_id: newUser.id as string,
-    amount: REGISTRATION_BONUS_USD,
-    balance_after: REGISTRATION_BONUS_USD,
-    type: 'signup_bonus',
-    description: 'Стартовый бонус для новых пользователей',
-    performed_by: null,
+  await grantSignupBonusIfEligible(newUser.id as string, {
+    ipAddress: normalizeIpAddress(signupIp),
+    deviceFingerprint,
+    userAgent: signupUserAgent,
   });
 
   await db.insert(authAccounts).values({

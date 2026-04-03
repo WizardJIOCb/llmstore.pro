@@ -100,7 +100,7 @@ export function HomePage() {
             LLMStore.pro помогает собрать агента под задачу, выбрать модель и инструменты,
             запускать чаты с агентами и находить готовых публичных агентов в одном месте.
           </p>
-          <div className="flex justify-center gap-4">
+          <div className="flex flex-wrap justify-center gap-4">
             <Link
               to="/tools"
               className="inline-flex items-center justify-center rounded-md bg-primary px-6 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
@@ -112,6 +112,12 @@ export function HomePage() {
               className="inline-flex items-center justify-center rounded-md border border-input bg-background px-6 py-3 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
             >
               Быстрый запуск агента
+            </Link>
+            <Link
+              to="/gallery"
+              className="inline-flex items-center justify-center rounded-md border border-input bg-background px-6 py-3 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
+            >
+              Галерея
             </Link>
           </div>
         </div>

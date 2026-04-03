@@ -8,6 +8,7 @@ declare module 'express-session' {
     oauthState?: string;
     oauthMode?: 'login' | 'link';
     oauthCodeVerifier?: string;
+    oauthDeviceFingerprint?: string;
     aliceAuthorizeRequest?: AliceAuthorizeRequest;
   }
 }

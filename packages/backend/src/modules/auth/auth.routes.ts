@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import rateLimit from 'express-rate-limit';
 import * as controller from './auth.controller.js';
 import * as oauthController from './oauth.controller.js';
 import { validateRegister, validateLogin } from './auth.validators.js';
@@ -6,7 +7,20 @@ import { requireAuth } from '../../middleware/auth-guard.js';
 
 const router = Router();
 
-router.post('/register', validateRegister, controller.register);
+const registerLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    error: {
+      code: 'RATE_LIMITED',
+      message: 'Слишком много попыток регистрации. Попробуйте позже.',
+    },
+  },
+});
+
+router.post('/register', registerLimiter, validateRegister, controller.register);
 router.post('/login', validateLogin, controller.login);
 router.post('/logout', requireAuth, controller.logout);
 router.get('/me', requireAuth, controller.me);

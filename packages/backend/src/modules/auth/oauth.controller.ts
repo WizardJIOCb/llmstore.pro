@@ -2,6 +2,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import * as oauthService from './oauth.service.js';
 import { env } from '../../config/env.js';
+import { normalizeIpAddress } from './signup-bonus.service.js';
 
 type ProviderParams = { provider: string };
 
@@ -13,6 +14,9 @@ export async function startOAuth(req: Request<ProviderParams>, res: Response, ne
     const state = uuidv4();
     req.session.oauthState = state;
     req.session.oauthMode = (req.query.mode as 'login' | 'link') || 'login';
+    req.session.oauthDeviceFingerprint = typeof req.query.device_fingerprint === 'string'
+      ? req.query.device_fingerprint
+      : undefined;
 
     // VK requires PKCE
     let codeChallenge: string | undefined;
@@ -53,11 +57,13 @@ export async function handleCallback(req: Request<ProviderParams>, res: Response
     const mode = req.session.oauthMode || 'login';
     const sessionUserId = mode === 'link' ? req.session.userId : undefined;
     const codeVerifier = req.session.oauthCodeVerifier;
+    const deviceFingerprint = req.session.oauthDeviceFingerprint;
 
     // Clean up session oauth fields
     delete req.session.oauthState;
     delete req.session.oauthMode;
     delete req.session.oauthCodeVerifier;
+    delete req.session.oauthDeviceFingerprint;
 
     const user = await oauthService.handleCallback({
       provider,
@@ -66,6 +72,9 @@ export async function handleCallback(req: Request<ProviderParams>, res: Response
       codeVerifier,
       deviceId: device_id ? String(device_id) : undefined,
       state: String(state),
+      signupIp: normalizeIpAddress(req.ip),
+      signupUserAgent: req.get('user-agent') ?? null,
+      deviceFingerprint,
     });
 
     console.log(`[OAuth] success: user ${user.email} (${user.id}), mode=${mode}`);
