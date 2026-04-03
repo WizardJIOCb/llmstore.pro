@@ -131,11 +131,11 @@ function getLogLineClassName(line: string): string {
   if (!text) return 'text-slate-500';
 
   const lower = text.toLowerCase();
-  const statusMatch = text.match(/\b([1-5]\d{2})\b/);
-  const statusCode = statusMatch ? Number(statusMatch[1]) : null;
+  const httpStatusMatch = text.match(/"\s+([1-5]\d{2})\b/) ?? text.match(/\bstatus(?:=|:)\s*([1-5]\d{2})\b/i);
+  const statusCode = httpStatusMatch ? Number(httpStatusMatch[1]) : null;
 
   if (statusCode !== null) {
-    if (statusCode >= 200 && statusCode < 300) return 'text-emerald-300';
+    if (statusCode >= 200 && statusCode < 300) return 'text-emerald-400';
     if (statusCode >= 300 && statusCode < 400) return 'text-sky-300';
     if (statusCode >= 400 && statusCode < 500) return 'text-amber-300';
     if (statusCode >= 500) return 'text-rose-300';
