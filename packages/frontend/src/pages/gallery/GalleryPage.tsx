@@ -174,22 +174,22 @@ function GalleryArtifactFrame({ item }: { item: GalleryPreviewItem }) {
   }
 
   return (
-    <div className="flex h-full flex-col justify-between bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.12),transparent_38%),linear-gradient(135deg,#0f172a,#111827_52%,#1e293b)] p-6 text-white">
-      <div className="space-y-3">
+    <div className="flex h-full min-h-0 flex-col justify-between overflow-hidden bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.12),transparent_38%),linear-gradient(135deg,#0f172a,#111827_52%,#1e293b)] p-5 text-white">
+      <div className="min-h-0 space-y-3 overflow-hidden">
         <span className="inline-flex rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.18em] text-sky-100">
           Runnable Project
         </span>
-        <div>
-          <p className="text-lg font-semibold">
+        <div className="space-y-2">
+          <p className="line-clamp-4 text-lg font-semibold leading-8">
             {item.project_title || item.chat_title}
           </p>
-          <p className="mt-2 text-sm text-slate-300">
+          <p className="line-clamp-2 text-sm text-slate-300">
             Самодостаточный проект из чата, который можно скачать и запустить.
           </p>
         </div>
       </div>
 
-      <div className="grid gap-2 text-sm text-slate-200 sm:grid-cols-2">
+      <div className="mt-4 grid shrink-0 gap-2 text-sm text-slate-200 sm:grid-cols-2">
         <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">
           Runtime: {formatProjectRuntime(item.project_runtime) || 'Не указан'}
         </div>
