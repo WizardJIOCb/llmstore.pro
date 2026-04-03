@@ -112,6 +112,20 @@ function formatEnvText(value: Record<string, string> | undefined): string {
     .join('\n');
 }
 
+function looksLikeErrorLog(value: string): boolean {
+  const text = value.trim().toLowerCase();
+  if (!text) return false;
+
+  return (
+    text.includes('traceback')
+    || text.includes('exception')
+    || text.includes('error')
+    || text.includes('failed')
+    || text.includes('fatal')
+    || /\b5\d\d\b/.test(text)
+  );
+}
+
 function stripDevReportEnvelope(content: string): string {
   return content.replace(/<dev-report>\s*[\s\S]*?(?:\s*<\/dev-report>|$)/gi, '').trim();
 }
@@ -2446,7 +2460,12 @@ export function ChatMessage({
                             {projectDeployment.live_stderr && (
                               <div className="space-y-1">
                                 <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">stderr</p>
-                                <pre className="max-h-48 overflow-auto rounded bg-slate-950 p-3 text-xs text-rose-200">
+                                <pre className={cn(
+                                  'max-h-48 overflow-auto rounded bg-slate-950 p-3 text-xs',
+                                  looksLikeErrorLog(projectDeployment.live_stderr)
+                                    ? 'text-rose-200'
+                                    : 'text-slate-100',
+                                )}>
                                   {projectDeployment.live_stderr}
                                 </pre>
                               </div>
