@@ -144,10 +144,15 @@ export interface GalleryPreviewItem {
   chat_id: string;
   chat_title: string;
   chat_url: string;
+  kind: 'preview' | 'project' | 'hybrid';
   preview_title: string | null;
-  preview_type: 'html' | 'url';
+  preview_type: 'html' | 'url' | null;
   preview_url: string | null;
   preview_html: string | null;
+  project_title: string | null;
+  project_runtime: 'node' | 'python' | 'static' | 'generic' | null;
+  project_entrypoint: string | null;
+  project_file_count: number;
   author_name: string;
   author_username: string | null;
   view_count: number;

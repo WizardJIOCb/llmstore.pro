@@ -2634,15 +2634,22 @@ interface ChatTransferBundleFile {
   payload: ChatTransferBundlePayload;
 }
 
+type GalleryItemKind = 'preview' | 'project' | 'hybrid';
+
 interface GalleryPreviewItem {
   message_id: string;
   chat_id: string;
   chat_title: string;
   chat_url: string;
+  kind: GalleryItemKind;
   preview_title: string | null;
-  preview_type: 'html' | 'url';
+  preview_type: 'html' | 'url' | null;
   preview_url: string | null;
   preview_html: string | null;
+  project_title: string | null;
+  project_runtime: 'node' | 'python' | 'static' | 'generic' | null;
+  project_entrypoint: string | null;
+  project_file_count: number;
   author_name: string;
   author_username: string | null;
   view_count: number;
@@ -4939,6 +4946,18 @@ export async function listGalleryPreviews(limit = 24, viewerUserId?: string | nu
   const selectedChatIds = new Set<string>();
   let offset = 0;
 
+  const getGalleryItemKind = (report?: CodingReport | null): GalleryItemKind | null => {
+    const preview = report?.preview;
+    const project = report?.project;
+    const hasPreview = Boolean(preview && (preview.type === 'html' || preview.type === 'url'));
+    const hasProject = Boolean(project && project.runtime && Array.isArray(project.files) && project.files.length > 0);
+
+    if (hasPreview && hasProject) return 'hybrid';
+    if (hasProject) return 'project';
+    if (hasPreview) return 'preview';
+    return null;
+  };
+
   while (selectedRows.length < galleryLimit) {
     const rows = await db
       .select({
@@ -4979,9 +4998,9 @@ export async function listGalleryPreviews(limit = 24, viewerUserId?: string | nu
 
       const rawUsage = (row.usage_json as Record<string, unknown> | null) ?? null;
       const normalized = normalizeAssistantChatPayload(row.content_text, rawUsage);
-      const preview = normalized.codingReport?.preview;
+      const kind = getGalleryItemKind(normalized.codingReport);
 
-      if (!preview || (preview.type !== 'html' && preview.type !== 'url')) {
+      if (!kind) {
         continue;
       }
 
@@ -5075,6 +5094,8 @@ export async function listGalleryPreviews(limit = 24, viewerUserId?: string | nu
     const rawUsage = (row.usage_json as Record<string, unknown> | null) ?? null;
     const normalized = normalizeAssistantChatPayload(row.content_text, rawUsage);
     const preview = normalized.codingReport?.preview;
+    const project = normalized.codingReport?.project;
+    const kind = getGalleryItemKind(normalized.codingReport);
     const totals = chatTotals.get(row.chat_id);
     const dominantModel = totals
       ? [...totals.model_costs.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
@@ -5084,7 +5105,7 @@ export async function listGalleryPreviews(limit = 24, viewerUserId?: string | nu
       my_reaction: null,
     };
 
-    if (!preview || ((preview.type !== 'html' && preview.type !== 'url'))) {
+    if (!kind) {
       continue;
     }
 
@@ -5101,12 +5122,17 @@ export async function listGalleryPreviews(limit = 24, viewerUserId?: string | nu
       chat_id: row.chat_id,
       chat_title: row.chat_title,
       chat_url: `/shared/chats/${shareToken}`,
-      preview_title: preview.title?.trim() || null,
-      preview_type: preview.type,
-      preview_url: preview.type === 'html'
+      kind,
+      preview_title: preview?.title?.trim() || null,
+      preview_type: preview?.type === 'html' || preview?.type === 'url' ? preview.type : null,
+      preview_url: preview?.type === 'html'
         ? `/api/shared/chats/${shareToken}/messages/${row.message_id}/preview`
-        : (preview.url ?? null),
-      preview_html: preview.type === 'html' ? (preview.html ?? null) : null,
+        : (preview?.url ?? null),
+      preview_html: preview?.type === 'html' ? (preview.html ?? null) : null,
+      project_title: project?.title?.trim() || null,
+      project_runtime: project?.runtime ?? null,
+      project_entrypoint: project?.entrypoint?.trim() || null,
+      project_file_count: Array.isArray(project?.files) ? project.files.length : 0,
       author_name: formatAuthorName({
         email: row.author_email,
         username: row.author_username,

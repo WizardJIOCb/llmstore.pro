@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useDeleteGalleryReaction, useGalleryPreviews, useSetGalleryReaction } from '../../hooks/useChats';
@@ -6,17 +6,25 @@ import type { ChatReactionType, GalleryPreviewItem } from '../../lib/api/chats';
 import { Spinner } from '../../components/ui/Spinner';
 import { Button } from '../../components/ui/Button';
 import { Select } from '../../components/ui/Select';
+import { Input } from '../../components/ui/Input';
 import { UserLink } from '../../components/users/UserLink';
 import { authApi } from '../../lib/api/auth';
 
 const PAGE_SIZE_OPTIONS = [2, 4, 6, 8, 10];
 const REACTION_OPTIONS: Array<{ type: ChatReactionType; emoji: string; label: string }> = [
-  { type: 'heart', emoji: '❤️', label: 'Сердечко' },
-  { type: 'thumbs_up', emoji: '👍', label: 'Палец вверх' },
-  { type: 'thumbs_down', emoji: '👎', label: 'Палец вниз' },
-  { type: 'laugh', emoji: '🤣', label: 'Громкий смех' },
-  { type: 'meh', emoji: '😐', label: 'Без эмоций' },
+  { type: 'heart', emoji: '❤', label: 'Сердце' },
+  { type: 'thumbs_up', emoji: '👍', label: 'Нравится' },
+  { type: 'thumbs_down', emoji: '👎', label: 'Не нравится' },
+  { type: 'laugh', emoji: '🤣', label: 'Смешно' },
+  { type: 'meh', emoji: '😐', label: 'Нейтрально' },
 ];
+const GALLERY_KIND_FILTERS = [
+  { value: 'all', label: 'Все' },
+  { value: 'project', label: 'Runnable Projects' },
+  { value: 'preview', label: 'Лендинги и Preview' },
+] as const;
+
+type GalleryKindFilter = (typeof GALLERY_KIND_FILTERS)[number]['value'];
 
 function formatDate(iso: string): string {
   return new Intl.DateTimeFormat('ru-RU', {
@@ -51,6 +59,21 @@ function formatModelName(model: string | null): string | null {
   if (!trimmed) return null;
   const lastPart = trimmed.split('/').pop()?.trim();
   return lastPart && lastPart.length > 0 ? lastPart : trimmed;
+}
+
+function formatProjectRuntime(runtime: GalleryPreviewItem['project_runtime']): string | null {
+  if (!runtime) return null;
+  if (runtime === 'node') return 'Node.js';
+  if (runtime === 'python') return 'Python';
+  if (runtime === 'static') return 'Static';
+  if (runtime === 'generic') return 'Generic';
+  return runtime;
+}
+
+function formatKindLabel(kind: GalleryPreviewItem['kind']): string {
+  if (kind === 'project') return 'Runnable Project';
+  if (kind === 'hybrid') return 'Preview + Project';
+  return 'Preview';
 }
 
 function buildPageButtons(totalPages: number, currentPage: number): Array<number | 'ellipsis'> {
@@ -97,10 +120,33 @@ function buildGalleryPreviewUrl(item: GalleryPreviewItem): string | null {
   }
 }
 
-function GalleryPreviewFrame({ item }: { item: GalleryPreviewItem }) {
+function matchesKindFilter(item: GalleryPreviewItem, filter: GalleryKindFilter): boolean {
+  if (filter === 'all') return true;
+  if (filter === 'project') return item.kind === 'project' || item.kind === 'hybrid';
+  return item.kind === 'preview' || item.kind === 'hybrid';
+}
+
+function buildSearchText(item: GalleryPreviewItem): string {
+  return [
+    item.chat_title,
+    item.preview_title,
+    item.project_title,
+    item.project_runtime,
+    item.project_entrypoint,
+    item.author_name,
+    item.author_username,
+    item.model,
+    item.kind,
+  ]
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .join(' ')
+    .toLowerCase();
+}
+
+function GalleryArtifactFrame({ item }: { item: GalleryPreviewItem }) {
   const previewUrl = useMemo(() => buildGalleryPreviewUrl(item), [item]);
 
-  if (item.preview_type === 'html' && previewUrl) {
+  if ((item.kind === 'preview' || item.kind === 'hybrid') && item.preview_type === 'html' && previewUrl) {
     return (
       <iframe
         title={item.preview_title || item.chat_title}
@@ -113,7 +159,7 @@ function GalleryPreviewFrame({ item }: { item: GalleryPreviewItem }) {
     );
   }
 
-  if (previewUrl) {
+  if ((item.kind === 'preview' || item.kind === 'hybrid') && previewUrl) {
     return (
       <a
         href={previewUrl}
@@ -127,8 +173,32 @@ function GalleryPreviewFrame({ item }: { item: GalleryPreviewItem }) {
   }
 
   return (
-    <div className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground">
-      Preview недоступен
+    <div className="flex h-full flex-col justify-between bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.12),transparent_38%),linear-gradient(135deg,#0f172a,#111827_52%,#1e293b)] p-6 text-white">
+      <div className="space-y-3">
+        <span className="inline-flex rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.18em] text-sky-100">
+          Runnable Project
+        </span>
+        <div>
+          <p className="text-lg font-semibold">
+            {item.project_title || item.chat_title}
+          </p>
+          <p className="mt-2 text-sm text-slate-300">
+            Самодостаточный проект из чата, который можно скачать и запустить.
+          </p>
+        </div>
+      </div>
+
+      <div className="grid gap-2 text-sm text-slate-200 sm:grid-cols-2">
+        <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">
+          Runtime: {formatProjectRuntime(item.project_runtime) || 'Не указан'}
+        </div>
+        <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">
+          Файлов: {item.project_file_count || 0}
+        </div>
+        <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 sm:col-span-2">
+          Entrypoint: {item.project_entrypoint || 'Не указан'}
+        </div>
+      </div>
     </div>
   );
 }
@@ -136,6 +206,8 @@ function GalleryPreviewFrame({ item }: { item: GalleryPreviewItem }) {
 export function GalleryPage() {
   const [pageSize, setPageSize] = useState(4);
   const [currentPage, setCurrentPage] = useState(1);
+  const [search, setSearch] = useState('');
+  const [kindFilter, setKindFilter] = useState<GalleryKindFilter>('all');
   const { data: currentUser } = useQuery({
     queryKey: ['gallery-auth-me'],
     queryFn: async () => {
@@ -152,12 +224,30 @@ export function GalleryPage() {
   const deleteReactionMutation = useDeleteGalleryReaction();
 
   const items = data ?? [];
-  const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
+  const filteredItems = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return items.filter((item) => {
+      if (!matchesKindFilter(item, kindFilter)) {
+        return false;
+      }
+
+      if (!query) {
+        return true;
+      }
+
+      return buildSearchText(item).includes(query);
+    });
+  }, [items, kindFilter, search]);
+  const totalPages = Math.max(1, Math.ceil(filteredItems.length / pageSize));
   const pageButtons = useMemo(() => buildPageButtons(totalPages, currentPage), [currentPage, totalPages]);
   const currentItems = useMemo(() => {
     const start = (currentPage - 1) * pageSize;
-    return items.slice(start, start + pageSize);
-  }, [currentPage, items, pageSize]);
+    return filteredItems.slice(start, start + pageSize);
+  }, [currentPage, filteredItems, pageSize]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [kindFilter, pageSize, search]);
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -171,27 +261,47 @@ export function GalleryPage() {
         <div className="space-y-2">
           <h1 className="text-3xl font-bold">Галерея</h1>
           <p className="max-w-3xl text-sm text-muted-foreground">
-            Здесь собраны публичные preview из общих чатов: можно посмотреть результат,
-            узнать автора, открыть сам чат и вдохновиться свежими генерациями.
+            Здесь собраны публичные результаты из общих чатов: лендинги и preview, а также runnable project bundle.
+            Можно быстро отфильтровать нужный тип, найти проект по названию и открыть исходный чат.
           </p>
         </div>
 
         {!isLoading && !error && items.length > 0 && (
-          <div className="flex flex-col gap-3 rounded-2xl border bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm text-muted-foreground">
-              Показано {currentItems.length} из {items.length} preview, страница {currentPage} из {totalPages}
-            </p>
-            <div className="flex items-center gap-3">
-              <span className="text-sm text-muted-foreground">Показывать</span>
-              <Select
-                value={String(pageSize)}
-                onChange={(event) => {
-                  setPageSize(Number(event.target.value));
-                  setCurrentPage(1);
-                }}
-                options={PAGE_SIZE_OPTIONS.map((value) => ({ value: String(value), label: String(value) }))}
-                className="h-9 min-w-[88px]"
+          <div className="space-y-4 rounded-2xl border bg-white p-4 shadow-sm">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <p className="text-sm text-muted-foreground">
+                Найдено {filteredItems.length} из {items.length} элементов, страница {currentPage} из {totalPages}
+              </p>
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-muted-foreground">Показывать</span>
+                <Select
+                  value={String(pageSize)}
+                  onChange={(event) => setPageSize(Number(event.target.value))}
+                  options={PAGE_SIZE_OPTIONS.map((value) => ({ value: String(value), label: String(value) }))}
+                  className="h-9 min-w-[88px]"
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
+              <Input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Поиск по названию, автору, runtime, entrypoint или модели"
               />
+              <div className="flex flex-wrap gap-2">
+                {GALLERY_KIND_FILTERS.map((filter) => (
+                  <Button
+                    key={filter.value}
+                    type="button"
+                    size="sm"
+                    variant={kindFilter === filter.value ? 'primary' : 'outline'}
+                    onClick={() => setKindFilter(filter.value)}
+                  >
+                    {filter.label}
+                  </Button>
+                ))}
+              </div>
             </div>
           </div>
         )}
@@ -204,30 +314,55 @@ export function GalleryPage() {
 
         {!isLoading && error && (
           <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-5 text-sm text-destructive">
-            Не удалось загрузить галерею preview.
+            Не удалось загрузить галерею.
           </div>
         )}
 
         {!isLoading && !error && items.length === 0 && (
           <div className="rounded-2xl border bg-muted/20 p-8 text-center text-muted-foreground">
-            Пока нет публичных preview для галереи.
+            Пока нет публичных элементов для галереи.
           </div>
         )}
 
-        {!isLoading && !error && items.length > 0 && (
+        {!isLoading && !error && items.length > 0 && filteredItems.length === 0 && (
+          <div className="rounded-2xl border bg-muted/20 p-8 text-center text-muted-foreground">
+            По текущему фильтру ничего не найдено. Попробуйте другой запрос или переключите тип карточек.
+          </div>
+        )}
+
+        {!isLoading && !error && filteredItems.length > 0 && (
           <div className="grid gap-6 md:grid-cols-2">
             {currentItems.map((item) => (
               <article key={item.message_id} className="overflow-hidden rounded-2xl border bg-white shadow-sm">
                 <div className="aspect-[16/10] border-b bg-slate-50">
-                  <GalleryPreviewFrame item={item} />
+                  <GalleryArtifactFrame item={item} />
                 </div>
 
                 <div className="space-y-4 p-5">
                   <div className="space-y-2">
-                    <p className="line-clamp-2 text-lg font-semibold">{item.chat_title}</p>
-                    {item.preview_title && (
-                      <p className="line-clamp-2 text-sm text-muted-foreground">{item.preview_title}</p>
-                    )}
+                    <div className="flex flex-wrap gap-2">
+                      <span className="rounded-full border bg-muted/20 px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                        {formatKindLabel(item.kind)}
+                      </span>
+                      {item.project_runtime ? (
+                        <span className="rounded-full border bg-muted/20 px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                          {formatProjectRuntime(item.project_runtime)}
+                        </span>
+                      ) : null}
+                    </div>
+                    <p className="line-clamp-2 text-lg font-semibold">
+                      {item.project_title || item.preview_title || item.chat_title}
+                    </p>
+                    {(item.preview_title && item.preview_title !== item.chat_title) || item.project_entrypoint ? (
+                      <p className="line-clamp-2 text-sm text-muted-foreground">
+                        {[
+                          item.preview_title && item.preview_title !== item.chat_title ? item.preview_title : null,
+                          item.project_entrypoint ? `Entrypoint: ${item.project_entrypoint}` : null,
+                        ]
+                          .filter((value): value is string => Boolean(value))
+                          .join(' • ')}
+                      </p>
+                    ) : null}
                   </div>
 
                   <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
@@ -236,7 +371,7 @@ export function GalleryPage() {
                       <UserLink
                         username={item.author_username}
                         name={item.author_name}
-                        fallback="������������"
+                        fallback="Пользователь"
                         className="text-foreground hover:text-primary hover:underline"
                       />
                     </span>
@@ -252,6 +387,11 @@ export function GalleryPage() {
                     <span className="rounded-full border bg-muted/20 px-2.5 py-1">
                       Стоимость: {formatUsdCost(item.total_usd_cost)} ({formatRubCost(item.total_rub_cost)})
                     </span>
+                    {item.project_file_count > 0 ? (
+                      <span className="rounded-full border bg-muted/20 px-2.5 py-1">
+                        Файлов: {item.project_file_count}
+                      </span>
+                    ) : null}
                     {formatModelName(item.model) && (
                       <span className="rounded-full border bg-muted/20 px-2.5 py-1">
                         Модель: {formatModelName(item.model)}
@@ -298,11 +438,11 @@ export function GalleryPage() {
                     <Link to={item.chat_url}>
                       <Button size="sm">Перейти в чат</Button>
                     </Link>
-                    {item.preview_url && (
+                    {item.preview_url ? (
                       <a href={item.preview_url} target="_blank" rel="noopener noreferrer">
                         <Button variant="outline" size="sm">Открыть preview</Button>
                       </a>
-                    )}
+                    ) : null}
                   </div>
                 </div>
               </article>
@@ -310,7 +450,7 @@ export function GalleryPage() {
           </div>
         )}
 
-        {!isLoading && !error && items.length > 0 && totalPages > 1 && (
+        {!isLoading && !error && filteredItems.length > 0 && totalPages > 1 && (
           <div className="flex flex-col gap-4 rounded-2xl border bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
               <Button
