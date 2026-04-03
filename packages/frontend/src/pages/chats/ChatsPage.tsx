@@ -58,6 +58,7 @@ type LocalNoticeAction = {
   label: string;
   onClick: () => void;
 };
+const PENDING_REPLY_RECOVERY_WINDOW_MS = 5 * 60_000;
 
 const GENERAL_MODELS: GeneralModelOption[] = [
   {
@@ -478,6 +479,7 @@ export function ChatsPage() {
   const previousMessageCountRef = useRef(0);
   const initializedAnimatedChatIdsRef = useRef<Set<string>>(new Set());
   const animatedMessageIdsRef = useRef<Set<string>>(new Set());
+  const lateReplyRecoveryAttemptedRef = useRef<Set<string>>(new Set());
   const messageNodeRefs = useRef(new Map<string, HTMLDivElement>());
   const messageVisualKeyByIdRef = useRef(new Map<string, string>());
   const knownChatIds = useMemo(() => new Set((chats ?? []).map((chat) => chat.id)), [chats]);
@@ -1176,6 +1178,49 @@ export function ChatsPage() {
     ));
   }, [activeChat?.id, assistantResponseSlotForActiveChat, messages]);
 
+  useEffect(() => {
+    if (!activeChat?.id || messages.length === 0) return;
+    if (optimisticMessageForActiveChat) return;
+    if (assistantResponseSlotForActiveChat) return;
+
+    const lastMessage = messages[messages.length - 1];
+    if (!lastMessage || lastMessage.role !== 'user') return;
+
+    const startedAtMs = Date.parse(lastMessage.created_at);
+    if (Number.isNaN(startedAtMs)) return;
+    if ((Date.now() - startedAtMs) > PENDING_REPLY_RECOVERY_WINDOW_MS) return;
+
+    const recoveryKey = `${activeChat.id}:${lastMessage.id}:${lastMessage.created_at}`;
+    if (lateReplyRecoveryAttemptedRef.current.has(recoveryKey)) return;
+    lateReplyRecoveryAttemptedRef.current.add(recoveryKey);
+
+    setAssistantResponseSlot({
+      chatId: activeChat.id,
+      visualKey: `assistant-slot-recovered-${lastMessage.id}`,
+      startedAt: lastMessage.created_at,
+      label: 'Думаю...',
+      detail: 'Восстанавливаю ответ после перезагрузки страницы.',
+      actualMessageId: null,
+    });
+
+    void recoverLateAssistantReply(activeChat.id, lastMessage.created_at, {
+      trackAwaitingState: false,
+    }).then((recovered) => {
+      if (recovered) return;
+      setAssistantResponseSlot((prev) => {
+        if (!prev || prev.chatId !== activeChat.id) {
+          return prev;
+        }
+
+        if (prev.startedAt !== lastMessage.created_at || prev.actualMessageId) {
+          return prev;
+        }
+
+        return null;
+      });
+    });
+  }, [activeChat?.id, assistantResponseSlotForActiveChat, messages, optimisticMessageForActiveChat]);
+
   const createNewChat = async () => setIsCreateDialogOpen(true);
 
   const triggerImportChat = () => {
@@ -1384,11 +1429,20 @@ export function ChatsPage() {
     }
   };
 
-  const recoverLateAssistantReply = async (chatId: string, startedAt: string) => {
-    setIsAwaitingLateReply(true);
+  const recoverLateAssistantReply = async (
+    chatId: string,
+    startedAt: string,
+    options: { trackAwaitingState?: boolean } = {},
+  ) => {
+    const trackAwaitingState = options.trackAwaitingState ?? true;
+    if (trackAwaitingState) {
+      setIsAwaitingLateReply(true);
+    }
 
     const startedAtMs = Date.parse(startedAt);
-    const deadline = Date.now() + 180_000;
+    const deadline = Number.isNaN(startedAtMs)
+      ? Date.now() + PENDING_REPLY_RECOVERY_WINDOW_MS
+      : startedAtMs + PENDING_REPLY_RECOVERY_WINDOW_MS;
 
     while (Date.now() < deadline) {
       await sleep(4_000);
@@ -1405,7 +1459,9 @@ export function ChatsPage() {
 
         if (hasAssistantReply) {
           setLocalError(null);
-          setIsAwaitingLateReply(false);
+          if (trackAwaitingState) {
+            setIsAwaitingLateReply(false);
+          }
           return true;
         }
       } catch {
@@ -1413,7 +1469,9 @@ export function ChatsPage() {
       }
     }
 
-    setIsAwaitingLateReply(false);
+    if (trackAwaitingState) {
+      setIsAwaitingLateReply(false);
+    }
     return false;
   };
 
