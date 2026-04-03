@@ -6,6 +6,27 @@ import { Button, Input } from '../../components/ui';
 import { useAuth } from '../../hooks/useAuth';
 import { getOrCreateDeviceFingerprint } from '../../lib/device-fingerprint';
 
+function getRegisterErrorMessage(err: any): string {
+  const responseError = err?.response?.data?.error;
+  const usernameErrors = responseError?.details?.fieldErrors?.username;
+  const emailErrors = responseError?.details?.fieldErrors?.email;
+  const passwordErrors = responseError?.details?.fieldErrors?.password;
+
+  if (Array.isArray(usernameErrors) && usernameErrors.length > 0) {
+    return 'Логин может содержать только латинские буквы, цифры и _. Email сюда вводить не нужно.';
+  }
+
+  if (Array.isArray(emailErrors) && emailErrors.length > 0) {
+    return 'Проверьте email: он должен быть в корректном формате.';
+  }
+
+  if (Array.isArray(passwordErrors) && passwordErrors.length > 0) {
+    return 'Пароль должен быть длиной от 8 до 128 символов.';
+  }
+
+  return responseError?.message || 'Ошибка регистрации';
+}
+
 export function RegisterPage() {
   const navigate = useNavigate();
   const { register } = useAuth();
@@ -38,7 +59,7 @@ export function RegisterPage() {
       });
       navigate(result.signup_bonus_pending_email_verification ? '/verify-email?sent=1' : '/');
     } catch (err: any) {
-      setError(err.response?.data?.error?.message || 'Ошибка регистрации');
+      setError(getRegisterErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -109,6 +130,9 @@ export function RegisterPage() {
               onChange={update('username')}
               placeholder="username"
             />
+            <p className="mt-1 text-xs text-muted-foreground">
+              Необязательно. Только латинские буквы, цифры и <code>_</code>, без <code>@</code> и пробелов.
+            </p>
           </div>
 
           {isTurnstileEnabled && (
