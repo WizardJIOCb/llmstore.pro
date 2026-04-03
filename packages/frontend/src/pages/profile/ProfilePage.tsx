@@ -2,10 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { useProfile, useUnlinkAccount, useUpdateProfile } from '../../hooks/useProfile';
-import { useAppSettings } from '../../hooks/useAppSettings';
 import { useTopUpStatus } from '../../hooks/usePayments';
 import { getOAuthLinkUrl } from '../../lib/api/profile';
-import { BalanceTopUpPanel } from '../../components/billing/BalanceTopUpPanel';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
@@ -54,7 +52,6 @@ function eventTypeLabel(type: string): string {
 export function ProfilePage() {
   const queryClient = useQueryClient();
   const { data: profile, isLoading, error } = useProfile();
-  const { data: appSettings } = useAppSettings();
   const updateMutation = useUpdateProfile();
   const unlinkMutation = useUnlinkAccount();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -331,7 +328,9 @@ export function ProfilePage() {
           <p className="mt-2 text-xs text-muted-foreground">
             Курс: $1 = {formatRub(usdToRubRate, { minimumFractionDigits: 0, maximumFractionDigits: 4 })}.
           </p>
-          <BalanceTopUpPanel settings={appSettings} />
+          <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            Мы в процессе подключения платежей. Возможность пополнения баланса скоро появится.
+          </div>
         </CardContent>
       </Card>
 
