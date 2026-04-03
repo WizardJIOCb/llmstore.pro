@@ -55,6 +55,7 @@ const updateMessagePreviewSchema = z.object({
 const upsertProjectDeploymentSchema = z.object({
   env: z.record(z.string().max(4000)).optional().default({}),
   linked_agent_id: z.string().uuid().optional().nullable(),
+  set_telegram_webhook: z.boolean().optional().default(false),
 });
 
 const projectDeploymentAgentRunSchema = z.object({

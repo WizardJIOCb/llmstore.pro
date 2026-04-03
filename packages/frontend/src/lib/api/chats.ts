@@ -74,6 +74,7 @@ export interface ProjectDeployment {
   title: string;
   runtime: 'node' | 'python';
   entrypoint: string | null;
+  env: Record<string, string>;
   webhook_url: string;
   linked_agent_id: string | null;
   linked_agent_name: string | null;
@@ -392,7 +393,7 @@ export const chatsApi = {
   upsertProjectDeployment: (
     chatId: string,
     messageId: string,
-    payload: { env?: Record<string, string>; linked_agent_id?: string | null },
+    payload: { env?: Record<string, string>; linked_agent_id?: string | null; set_telegram_webhook?: boolean },
   ) =>
     apiClient
       .post<{ data: ProjectDeployment }>(`/chats/${chatId}/messages/${messageId}/project-deployment`, payload)

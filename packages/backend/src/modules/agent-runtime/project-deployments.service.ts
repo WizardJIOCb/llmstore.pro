@@ -27,6 +27,7 @@ export interface ProjectDeploymentRecord {
   title: string;
   runtime: 'node' | 'python';
   entrypoint: string | null;
+  env: Record<string, string>;
   webhook_url: string;
   linked_agent_id: string | null;
   linked_agent_name: string | null;
@@ -54,6 +55,7 @@ interface DeploymentRuntime {
 interface DeploymentUpsertInput {
   env?: Record<string, string>;
   linked_agent_id?: string | null;
+  set_telegram_webhook?: boolean;
 }
 
 interface DeploymentAgentRunInput {
@@ -350,6 +352,7 @@ function toProjectDeploymentRecord(
     title: row.title,
     runtime,
     entrypoint: row.entrypoint ?? null,
+    env: normalizeDeploymentEnv(row.env_json),
     webhook_url: buildWebhookUrl(row.public_token),
     linked_agent_id: row.linked_agent_id ?? null,
     linked_agent_name: row.linked_agent_name ?? null,
@@ -364,6 +367,52 @@ function toProjectDeploymentRecord(
     last_started_at: row.last_started_at?.toISOString() ?? null,
     last_stopped_at: row.last_stopped_at?.toISOString() ?? null,
   };
+}
+
+async function installTelegramWebhookForDeployment(
+  deploymentId: string,
+  userId: string,
+  envVars: Record<string, string>,
+): Promise<void> {
+  const row = await getDeploymentWithAgentMeta(deploymentId, userId);
+  const token = envVars.TELEGRAM_BOT_TOKEN?.trim();
+  const secretToken = envVars.TELEGRAM_SECRET_TOKEN?.trim();
+
+  if (!token) {
+    throw new AppError(400, 'TELEGRAM_BOT_TOKEN_REQUIRED', 'Чтобы сразу установить webhook, добавьте TELEGRAM_BOT_TOKEN в env');
+  }
+
+  if (secretToken && !/^[A-Za-z0-9_-]{1,256}$/.test(secretToken)) {
+    throw new AppError(400, 'TELEGRAM_SECRET_TOKEN_INVALID', 'TELEGRAM_SECRET_TOKEN должен содержать только буквы, цифры, _, - и быть длиной до 256 символов');
+  }
+
+  const response = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      url: buildWebhookUrl(row.public_token),
+      ...(secretToken ? { secret_token: secretToken } : {}),
+    }),
+  });
+
+  let payload: Record<string, unknown> | null = null;
+  try {
+    payload = await response.json() as Record<string, unknown>;
+  } catch {
+    // noop
+  }
+
+  const ok = payload?.ok === true;
+  if (!response.ok || !ok) {
+    const description = typeof payload?.description === 'string' ? payload.description : null;
+    throw new AppError(
+      502,
+      'TELEGRAM_SET_WEBHOOK_FAILED',
+      description ?? 'Telegram не принял setWebhook для этого deployment',
+    );
+  }
 }
 
 async function startDeploymentInternal(deploymentId: string, userId: string): Promise<void> {
@@ -677,6 +726,9 @@ export async function upsertChatMessageProjectDeployment(
   }
 
   await startDeploymentInternal(deploymentId, userId);
+  if (input.set_telegram_webhook) {
+    await installTelegramWebhookForDeployment(deploymentId, userId, normalizedEnv);
+  }
   return toProjectDeploymentRecord(await getDeploymentWithAgentMeta(deploymentId, userId));
 }
 

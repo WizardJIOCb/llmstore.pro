@@ -37,7 +37,7 @@ interface ChatMessageProps {
   onFixProjectError?: (prompt: string) => Promise<void>;
   canManageDeployment?: boolean;
   onLoadProjectDeployment?: () => Promise<ProjectDeployment | null>;
-  onUpsertProjectDeployment?: (payload: { env?: Record<string, string>; linked_agent_id?: string | null }) => Promise<ProjectDeployment>;
+  onUpsertProjectDeployment?: (payload: { env?: Record<string, string>; linked_agent_id?: string | null; set_telegram_webhook?: boolean }) => Promise<ProjectDeployment>;
   onStartProjectDeployment?: () => Promise<ProjectDeployment>;
   onStopProjectDeployment?: () => Promise<ProjectDeployment>;
   canEditMessage?: boolean;
@@ -1538,6 +1538,7 @@ export function ChatMessage({
   const [projectDeploymentEditorOpen, setProjectDeploymentEditorOpen] = useState(false);
   const [projectDeploymentEnvText, setProjectDeploymentEnvText] = useState('');
   const [projectDeploymentLinkedAgentId, setProjectDeploymentLinkedAgentId] = useState('');
+  const [projectDeploymentSetTelegramWebhook, setProjectDeploymentSetTelegramWebhook] = useState(false);
   const [editorSaving, setEditorSaving] = useState(false);
   const [editorExporting, setEditorExporting] = useState(false);
   const [editorError, setEditorError] = useState<string | null>(null);
@@ -1613,8 +1614,9 @@ export function ChatMessage({
       .then((deployment) => {
         if (cancelled) return;
         setProjectDeployment(deployment);
-        setProjectDeploymentEnvText('');
+        setProjectDeploymentEnvText(formatEnvText(deployment?.env));
         setProjectDeploymentLinkedAgentId(deployment?.linked_agent_id ?? '');
+        setProjectDeploymentSetTelegramWebhook(false);
       })
       .catch((error) => {
         if (cancelled) return;
@@ -1836,10 +1838,15 @@ export function ChatMessage({
       const deployment = await onUpsertProjectDeployment({
         env: parseEnvText(projectDeploymentEnvText),
         linked_agent_id: projectDeploymentLinkedAgentId.trim() || null,
+        set_telegram_webhook: projectDeploymentSetTelegramWebhook,
       });
       setProjectDeployment(deployment);
       setProjectDeploymentEditorOpen(false);
-      setProjectDeploymentStatus('Webhook-проект развернут и готов принимать запросы');
+      setProjectDeploymentStatus(
+        projectDeploymentSetTelegramWebhook
+          ? 'Webhook-проект развернут, и Telegram webhook установлен'
+          : 'Webhook-проект развернут и готов принимать запросы',
+      );
     } catch (error) {
       setProjectDeploymentError(error instanceof Error ? error.message : 'Не удалось развернуть webhook-проект');
     } finally {
@@ -2321,6 +2328,9 @@ export function ChatMessage({
                             setProjectDeploymentEditorOpen(true);
                             setProjectDeploymentError(null);
                             setProjectDeploymentStatus(null);
+                            setProjectDeploymentEnvText(formatEnvText(projectDeployment?.env));
+                            setProjectDeploymentLinkedAgentId(projectDeployment?.linked_agent_id ?? '');
+                            setProjectDeploymentSetTelegramWebhook(false);
                           }}
                           disabled={projectDeploymentLoading}
                         >
@@ -2849,6 +2859,22 @@ export function ChatMessage({
                   и опционально `TELEGRAM_SECRET_TOKEN`.
                 </p>
               </div>
+
+              <label className="flex items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 rounded border-input"
+                  checked={projectDeploymentSetTelegramWebhook}
+                  onChange={(e) => setProjectDeploymentSetTelegramWebhook(e.target.checked)}
+                />
+                <span className="space-y-1">
+                  <span className="block font-medium text-foreground">Сразу установить webhook в Telegram</span>
+                  <span className="block text-xs text-muted-foreground">
+                    После успешного deploy backend вызовет `setWebhook` в Telegram на URL этого deployment.
+                    Нужен `TELEGRAM_BOT_TOKEN`, а если указан `TELEGRAM_SECRET_TOKEN`, он тоже будет передан.
+                  </span>
+                </span>
+              </label>
 
               {projectDeploymentError && (
                 <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
