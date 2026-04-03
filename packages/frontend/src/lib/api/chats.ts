@@ -40,6 +40,10 @@ export interface ChatListItem {
   title: string;
   mode: ChatMode;
   agent_id: string | null;
+  agent_name?: string | null;
+  agent_model_external_id?: string | null;
+  agent_model_label?: string | null;
+  effective_model_label?: string | null;
   model_external_id: string | null;
   access: ChatAccess;
   access_identifiers: string[];

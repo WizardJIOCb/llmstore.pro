@@ -179,6 +179,11 @@ function getModelDisplayLabel(modelId?: string | null): string | null {
   return MODEL_LABELS[normalized] ?? modelId?.trim() ?? null;
 }
 
+function getRuntimeConfigModelExternalId(runtimeConfig?: Record<string, unknown> | null): string | null {
+  const value = runtimeConfig?.model_external_id;
+  return typeof value === 'string' ? (value.trim() || null) : null;
+}
+
 function isCodingModel(modelId?: string | null): boolean {
   const normalized = normalizeModelLookupKey(modelId);
   return normalized ? CODING_MODEL_IDS.has(normalized) : false;
@@ -1945,6 +1950,10 @@ interface ConversationListItem {
   title: string;
   mode: ChatMode;
   agent_id: string | null;
+  agent_name: string | null;
+  agent_model_external_id: string | null;
+  agent_model_label: string | null;
+  effective_model_label: string | null;
   model_external_id: string | null;
   access: ChatAccess;
   access_identifiers: string[];
@@ -2739,11 +2748,19 @@ async function getGalleryReactionState(chatId: string, viewerUserId?: string | n
 
 async function getAgentChatMeta(agentId: string | null): Promise<{
   agent_name: string | null;
+  agent_model_external_id: string | null;
+  agent_model_label: string | null;
   agent_chat_description: string | null;
   agent_starter_prompts: string[];
 }> {
   if (!agentId) {
-    return { agent_name: null, agent_chat_description: null, agent_starter_prompts: [] };
+    return {
+      agent_name: null,
+      agent_model_external_id: null,
+      agent_model_label: null,
+      agent_chat_description: null,
+      agent_starter_prompts: [],
+    };
   }
 
   const [row] = await db
@@ -2759,10 +2776,17 @@ async function getAgentChatMeta(agentId: string | null): Promise<{
     .limit(1);
 
   if (!row) {
-    return { agent_name: null, agent_chat_description: null, agent_starter_prompts: [] };
+    return {
+      agent_name: null,
+      agent_model_external_id: null,
+      agent_model_label: null,
+      agent_chat_description: null,
+      agent_starter_prompts: [],
+    };
   }
 
   const runtime = row.runtime_config as Record<string, unknown> | null;
+  const modelExternalId = getRuntimeConfigModelExternalId(runtime);
   const chatIntro = typeof runtime?.chat_intro === 'string' ? runtime.chat_intro.trim() : '';
   const starterPrompts = resolveStarterPromptsForAgentSlug(
     row.slug,
@@ -2772,6 +2796,8 @@ async function getAgentChatMeta(agentId: string | null): Promise<{
 
   return {
     agent_name: row.name ?? null,
+    agent_model_external_id: modelExternalId,
+    agent_model_label: getModelDisplayLabel(modelExternalId),
     agent_chat_description: chatIntro || row.description || null,
     agent_starter_prompts: starterPrompts,
   };
@@ -2792,6 +2818,7 @@ export async function listChats(userId: string): Promise<ConversationListItem[]>
 
   const ids = chats.map((chat) => chat.id);
   if (ids.length === 0) return [];
+  const agentIds = Array.from(new Set(chats.map((chat) => chat.agent_id).filter((agentId): agentId is string => Boolean(agentId))));
 
   const counts = await db
     .select({
@@ -2824,21 +2851,53 @@ export async function listChats(userId: string): Promise<ConversationListItem[]>
     }
   }
 
-  return chats.map((chat) => ({
-    id: chat.id,
-    title: chat.title,
-    mode: chat.mode as ChatMode,
-    agent_id: chat.agent_id ?? null,
-    model_external_id: chat.model_external_id ?? null,
-    access: normalizeChatAccess(chat.access),
-    access_identifiers: normalizeAccessIdentifiers(chat.access_identifiers),
-    share_token: chat.share_token ?? null,
-    message_count: countMap.get(chat.id) ?? 0,
-    last_message_preview: previewMap.get(chat.id) ?? null,
-    last_message_at: toIso(chat.last_message_at),
-    created_at: toIso(chat.created_at),
-    updated_at: toIso(chat.updated_at),
-  }));
+  const agentMetaMap = new Map<string, { name: string | null; model_external_id: string | null; model_label: string | null }>();
+  if (agentIds.length > 0) {
+    const agentRows = await db
+      .select({
+        id: agents.id,
+        name: agents.name,
+        runtime_config: agentVersions.runtime_config,
+      })
+      .from(agents)
+      .leftJoin(agentVersions, eq(agentVersions.id, agents.current_version_id))
+      .where(inArray(agents.id, agentIds));
+
+    for (const row of agentRows) {
+      const modelExternalId = getRuntimeConfigModelExternalId(row.runtime_config as Record<string, unknown> | null);
+
+      agentMetaMap.set(row.id, {
+        name: row.name ?? null,
+        model_external_id: modelExternalId,
+        model_label: getModelDisplayLabel(modelExternalId),
+      });
+    }
+  }
+
+  return chats.map((chat) => {
+    const agentMeta = chat.agent_id ? agentMetaMap.get(chat.agent_id) : undefined;
+    const generalModelLabel = getModelDisplayLabel(chat.model_external_id ?? null);
+
+    return {
+      id: chat.id,
+      title: chat.title,
+      mode: chat.mode as ChatMode,
+      agent_id: chat.agent_id ?? null,
+      agent_name: agentMeta?.name ?? null,
+      agent_model_external_id: agentMeta?.model_external_id ?? null,
+      agent_model_label: agentMeta?.model_label ?? null,
+      effective_model_label: chat.mode === 'agent' ? (agentMeta?.model_label ?? null) : generalModelLabel,
+      model_external_id: chat.model_external_id ?? null,
+      access: normalizeChatAccess(chat.access),
+      access_identifiers: normalizeAccessIdentifiers(chat.access_identifiers),
+      share_token: chat.share_token ?? null,
+      message_count: countMap.get(chat.id) ?? 0,
+      last_message_preview: previewMap.get(chat.id) ?? null,
+      last_message_at: toIso(chat.last_message_at),
+      created_at: toIso(chat.created_at),
+      updated_at: toIso(chat.updated_at),
+    };
+  });
 }
 
 export async function listChatAgents(userId: string, userRole?: string): Promise<ChatAgentOption[]> {
@@ -3000,11 +3059,22 @@ export async function createChat(userId: string, input: {
       .where(eq(chatConversations.id, chat.id));
   }
 
+  const agentMeta = chat.mode === 'agent'
+    ? await getAgentChatMeta(chat.agent_id ?? null)
+    : null;
+  const effectiveModelLabel = chat.mode === 'agent'
+    ? (agentMeta?.agent_model_label ?? null)
+    : getModelDisplayLabel(chat.model_external_id ?? null);
+
   return {
     id: chat.id,
     title: chat.title,
     mode: chat.mode,
     agent_id: chat.agent_id,
+    agent_name: agentMeta?.agent_name ?? null,
+    agent_model_external_id: agentMeta?.agent_model_external_id ?? null,
+    agent_model_label: agentMeta?.agent_model_label ?? null,
+    effective_model_label: effectiveModelLabel,
     model_external_id: chat.model_external_id,
     access: normalizeChatAccess(chat.access),
     access_identifiers: normalizeAccessIdentifiers(chat.access_identifiers),
@@ -3033,12 +3103,17 @@ export async function getChatById(chatId: string, userId: string): Promise<Conve
       title: chat.title,
       mode: chat.mode,
       agent_id: chat.agent_id ?? null,
+      agent_name: agentMeta.agent_name,
+      agent_model_external_id: agentMeta.agent_model_external_id,
+      agent_model_label: agentMeta.agent_model_label,
+      effective_model_label: chat.mode === 'agent'
+        ? agentMeta.agent_model_label
+        : getModelDisplayLabel(chat.model_external_id ?? null),
       model_external_id: chat.model_external_id ?? null,
       access: normalizeChatAccess(chat.access),
       access_identifiers: normalizeAccessIdentifiers(chat.access_identifiers),
       share_token: shareToken,
       message_count: messages.length,
-      agent_name: agentMeta.agent_name,
       agent_chat_description: agentMeta.agent_chat_description,
       agent_starter_prompts: agentMeta.agent_starter_prompts,
       tool_ids: tools.map((tool) => tool.id),
@@ -3440,11 +3515,22 @@ export async function updateChat(chatId: string, userId: string, input: {
     .from(chatConversationMessages)
     .where(eq(chatConversationMessages.conversation_id, chatId));
 
+  const agentMeta = chat.mode === 'agent'
+    ? await getAgentChatMeta(chat.agent_id ?? null)
+    : null;
+  const effectiveModelLabel = chat.mode === 'agent'
+    ? (agentMeta?.agent_model_label ?? null)
+    : getModelDisplayLabel(chat.model_external_id ?? null);
+
   return {
     id: chat.id,
     title: chat.title,
     mode: chat.mode,
     agent_id: chat.agent_id ?? null,
+    agent_name: agentMeta?.agent_name ?? null,
+    agent_model_external_id: agentMeta?.agent_model_external_id ?? null,
+    agent_model_label: agentMeta?.agent_model_label ?? null,
+    effective_model_label: effectiveModelLabel,
     model_external_id: chat.model_external_id ?? null,
     access: normalizeChatAccess(chat.access),
     access_identifiers: normalizeAccessIdentifiers(chat.access_identifiers),
@@ -4177,11 +4263,22 @@ export async function importChatBundle(
     );
   }
 
+  const agentMeta = chat.mode === 'agent'
+    ? await getAgentChatMeta(chat.agent_id ?? null)
+    : null;
+  const effectiveModelLabel = chat.mode === 'agent'
+    ? (agentMeta?.agent_model_label ?? null)
+    : getModelDisplayLabel(chat.model_external_id ?? null);
+
   return {
     id: chat.id,
     title: chat.title,
     mode: chat.mode,
     agent_id: chat.agent_id ?? null,
+    agent_name: agentMeta?.agent_name ?? null,
+    agent_model_external_id: agentMeta?.agent_model_external_id ?? null,
+    agent_model_label: agentMeta?.agent_model_label ?? null,
+    effective_model_label: effectiveModelLabel,
     model_external_id: chat.model_external_id ?? null,
     access: chat.access,
     access_identifiers: normalizeAccessIdentifiers(chat.access_identifiers),

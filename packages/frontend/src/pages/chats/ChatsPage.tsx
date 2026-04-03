@@ -163,6 +163,21 @@ function formatAgentPricing(agent: ChatAgentOption): string | null {
   return `${formatUsdCompact(agent.pricing_input_usd_per_million)} in / ${formatUsdCompact(agent.pricing_output_usd_per_million)} out за 1M`;
 }
 
+function getChatListMeta(chat: ChatListItem): string {
+  if (chat.mode === 'agent') {
+    const parts = ['Агент'];
+    if (chat.agent_name?.trim()) parts.push(chat.agent_name.trim());
+    if (chat.effective_model_label?.trim()) parts.push(chat.effective_model_label.trim());
+    return parts.join(' • ');
+  }
+
+  if (chat.effective_model_label?.trim()) {
+    return `Общение • ${chat.effective_model_label.trim()}`;
+  }
+
+  return 'Общение';
+}
+
 function formatGeneralModelPricing(model: GeneralModelOption): string {
   return `${formatUsdCompact(model.pricing_input_usd_per_million)} in / ${formatUsdCompact(model.pricing_output_usd_per_million)} out за 1M`;
 }
@@ -1539,6 +1554,9 @@ export function ChatsPage() {
     >
       <button type="button" onClick={() => setActiveChatId(chat.id)} className="w-full pr-8 text-left">
         <p className="truncate text-sm font-medium">{chat.title}</p>
+        <p className="truncate text-[11px] text-muted-foreground">
+          {getChatListMeta(chat)}
+        </p>
         <p className="truncate text-xs text-muted-foreground">
           {formatChatPreview(chat.last_message_preview) || (chat.mode === 'general' ? 'Общение' : 'Чат с ботом')}
         </p>
