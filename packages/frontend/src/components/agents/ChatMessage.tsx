@@ -1384,33 +1384,35 @@ function HtmlPreviewBrowser({
 
   return (
     <div className={cn('flex flex-col gap-2', className)}>
-      <div className="flex flex-wrap items-center gap-2 rounded-md border border-border/70 bg-background/80 p-2">
-        <Button type="button" variant="outline" size="sm" className="whitespace-nowrap" onClick={() => sendCommand('back')} disabled={!canGoBack}>
-          Back
-        </Button>
-        <Button type="button" variant="outline" size="sm" className="whitespace-nowrap" onClick={() => sendCommand('forward')} disabled={!canGoForward}>
-          Forward
-        </Button>
-        <Button type="button" variant="outline" size="sm" className="whitespace-nowrap" onClick={() => sendCommand('reload')} disabled={!(embeddedPreviewUrl || objectUrl)}>
-          Reload
-        </Button>
-        <div className="min-w-0 flex-1 rounded-md border border-border/70 bg-muted/50 px-3 py-1.5">
+      <div className="rounded-md border border-border/70 bg-background/80 p-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" variant="outline" size="sm" className="whitespace-nowrap" onClick={() => sendCommand('back')} disabled={!canGoBack}>
+            Back
+          </Button>
+          <Button type="button" variant="outline" size="sm" className="whitespace-nowrap" onClick={() => sendCommand('forward')} disabled={!canGoForward}>
+            Forward
+          </Button>
+          <Button type="button" variant="outline" size="sm" className="whitespace-nowrap" onClick={() => sendCommand('reload')} disabled={!(embeddedPreviewUrl || objectUrl)}>
+            Reload
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="whitespace-nowrap"
+            onClick={async () => {
+              await navigator.clipboard.writeText(shareableHref || 'about:blank');
+            }}
+            disabled={!shareableHref}
+          >
+            Copy Link
+          </Button>
+        </div>
+        <div className="mt-2 min-w-0 w-full rounded-md border border-border/70 bg-muted/50 px-3 py-1.5">
           <p className="truncate font-mono text-xs text-foreground" title={shareableHref || 'about:blank'}>
             {shareableHref || 'about:blank'}
           </p>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="whitespace-nowrap"
-          onClick={async () => {
-            await navigator.clipboard.writeText(shareableHref || 'about:blank');
-          }}
-          disabled={!shareableHref}
-        >
-          Copy Link
-        </Button>
       </div>
 
       <div className="min-h-0 flex-1 overflow-hidden rounded-md border bg-white">
@@ -2233,7 +2235,7 @@ export function ChatMessage({
 
               {resolvedHtmlPreview && (
                 <div className="rounded-lg border border-border/70 bg-background/70 p-3">
-                  <div className="flex items-start justify-between gap-3">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-semibold text-slate-900">
                         {resolvedHtmlPreview.title || 'Preview'}
