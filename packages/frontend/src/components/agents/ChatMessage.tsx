@@ -1117,6 +1117,24 @@ function injectPreviewBridge(html: string, previewId: string): string {
   const emojiAssetVersion = '20260401b';
   const bridge = `
 <style id="llmstore-preview-emoji-bridge">
+html, body {
+  max-width: 100% !important;
+  overflow-x: hidden !important;
+}
+body {
+  overflow-wrap: break-word !important;
+}
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+img, svg, video, canvas, iframe, embed, object {
+  max-width: 100% !important;
+}
+table {
+  max-width: 100% !important;
+  display: block;
+  overflow-x: auto;
+}
 .llmstore-emoji-fallback {
   display: inline-block !important;
   width: 1em !important;
