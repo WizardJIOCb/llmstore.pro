@@ -54,6 +54,7 @@ export function AdminSettingsPage() {
   const [codingHeavyPrompts, setCodingHeavyPrompts] = useState('');
   const [codingAlternativePrompts, setCodingAlternativePrompts] = useState('');
   const [dtfPrompts, setDtfPrompts] = useState('');
+  const [signupBonusRequiresEmailVerification, setSignupBonusRequiresEmailVerification] = useState(false);
   const [settingsSaved, setSettingsSaved] = useState(false);
 
   const [userSearch, setUserSearch] = useState('');
@@ -81,6 +82,7 @@ export function AdminSettingsPage() {
     setCodingHeavyPrompts(promptsToText(settings.starter_prompts_openrouter_coding_agent_heavy_planning));
     setCodingAlternativePrompts(promptsToText(settings.starter_prompts_openrouter_coding_agent_coding_alternative));
     setDtfPrompts(promptsToText(settings.starter_prompts_dtf_news_agent));
+    setSignupBonusRequiresEmailVerification(settings.signup_bonus_requires_email_verification);
   }, [settings]);
 
   const searchTerm = userSearch.trim();
@@ -119,6 +121,7 @@ export function AdminSettingsPage() {
         starter_prompts_openrouter_coding_agent_heavy_planning: textToPrompts(codingHeavyPrompts),
         starter_prompts_openrouter_coding_agent_coding_alternative: textToPrompts(codingAlternativePrompts),
         starter_prompts_dtf_news_agent: textToPrompts(dtfPrompts),
+        signup_bonus_requires_email_verification: signupBonusRequiresEmailVerification,
       },
       {
         onSuccess: () => {
@@ -299,6 +302,30 @@ export function AdminSettingsPage() {
                       />
                     </div>
                   </div>
+                </div>
+
+                <div className="rounded-xl border bg-muted/20 p-4 space-y-4">
+                  <div>
+                    <p className="text-sm font-medium">Стартовый бонус</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Можно требовать подтверждение email перед выдачей приветственного бонуса. По умолчанию лучше держать выключенным, пока SMTP ещё не настроен.
+                    </p>
+                  </div>
+
+                  <label className="flex items-start gap-3 rounded-lg border bg-background px-4 py-3">
+                    <input
+                      type="checkbox"
+                      className="mt-1 h-4 w-4 rounded border-slate-300"
+                      checked={signupBonusRequiresEmailVerification}
+                      onChange={(e) => setSignupBonusRequiresEmailVerification(e.target.checked)}
+                    />
+                    <span className="space-y-1">
+                      <span className="block text-sm font-medium">Требовать подтверждение email для стартового бонуса</span>
+                      <span className="block text-xs text-muted-foreground">
+                        Если включено, аккаунт создаётся сразу, но бонус начисляется только после перехода по ссылке из письма.
+                      </span>
+                    </span>
+                  </label>
                 </div>
 
                 <div className="rounded-xl border bg-muted/20 p-4 space-y-4">

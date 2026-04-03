@@ -8,6 +8,7 @@ import { CatalogDetailPage } from './pages/catalog/CatalogDetailPage';
 import { ArticleDetailPage } from './pages/catalog/ArticleDetailPage';
 import { LoginPage } from './pages/auth/LoginPage';
 import { RegisterPage } from './pages/auth/RegisterPage';
+import { VerifyEmailPage } from './pages/auth/VerifyEmailPage';
 import { AdminCatalogListPage } from './pages/admin/AdminCatalogListPage';
 import { AdminCatalogFormPage } from './pages/admin/AdminCatalogFormPage';
 import { AdminUsersPage } from './pages/admin/AdminUsersPage';
@@ -267,6 +268,7 @@ export function App() {
         {/* Auth */}
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
+        <Route path="/verify-email" element={<VerifyEmailPage />} />
 
         {/* 404 */}
         <Route path="*" element={<NotFoundPage />} />

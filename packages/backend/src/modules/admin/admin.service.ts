@@ -19,6 +19,7 @@ import {
   updateTopUpSettings,
   updateLegalSettings,
   updateStarterPromptSettings,
+  updateSignupBonusSettings,
 } from '../../lib/app-settings.js';
 import { openRouterClient } from '../openrouter/index.js';
 import { logger } from '../../lib/logger.js';
@@ -58,10 +59,11 @@ export async function updateAdminSettings(
     starter_prompts_openrouter_coding_agent_heavy_planning: string[];
     starter_prompts_openrouter_coding_agent_coding_alternative: string[];
     starter_prompts_dtf_news_agent: string[];
+    signup_bonus_requires_email_verification: boolean;
   },
   adminUserId: string,
 ) {
-  const [usdToRubRate, topUp, legal, starterPrompts] = await Promise.all([
+  const [usdToRubRate, topUp, legal, starterPrompts, signupBonus] = await Promise.all([
     setUsdToRubRate(input.usd_to_rub_rate, adminUserId),
     updateTopUpSettings(input, adminUserId),
     updateLegalSettings(input, adminUserId),
@@ -71,6 +73,9 @@ export async function updateAdminSettings(
       openrouter_coding_agent_heavy_planning: input.starter_prompts_openrouter_coding_agent_heavy_planning,
       openrouter_coding_agent_coding_alternative: input.starter_prompts_openrouter_coding_agent_coding_alternative,
       dtf_news_agent: input.starter_prompts_dtf_news_agent,
+    }, adminUserId),
+    updateSignupBonusSettings({
+      signup_bonus_requires_email_verification: input.signup_bonus_requires_email_verification,
     }, adminUserId),
   ]);
 
@@ -93,6 +98,7 @@ export async function updateAdminSettings(
     starter_prompts_openrouter_coding_agent_heavy_planning: starterPrompts.openrouter_coding_agent_heavy_planning,
     starter_prompts_openrouter_coding_agent_coding_alternative: starterPrompts.openrouter_coding_agent_coding_alternative,
     starter_prompts_dtf_news_agent: starterPrompts.dtf_news_agent,
+    signup_bonus_requires_email_verification: signupBonus.requires_email_verification,
   };
 }
 

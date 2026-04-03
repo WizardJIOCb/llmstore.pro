@@ -24,6 +24,7 @@ const SETTINGS_KEYS = {
   starter_prompts_openrouter_coding_agent_heavy_planning: 'starter_prompts_openrouter_coding_agent_heavy_planning',
   starter_prompts_openrouter_coding_agent_coding_alternative: 'starter_prompts_openrouter_coding_agent_coding_alternative',
   starter_prompts_dtf_news_agent: 'starter_prompts_dtf_news_agent',
+  signup_bonus_requires_email_verification: 'signup_bonus_requires_email_verification',
 } as const;
 
 const DEFAULT_TOPUP_MESSAGE = 'Нужна помощь с пополнением или оплатой? Напишите Родиону:';
@@ -38,6 +39,7 @@ const DEFAULT_LEGAL_ADDRESS = '';
 const DEFAULT_LEGAL_SUPPORT_EMAIL = DEFAULT_TOPUP_EMAIL;
 const DEFAULT_LEGAL_SUPPORT_PHONE = DEFAULT_TOPUP_PHONE;
 const DEFAULT_LEGAL_SUPPORT_TELEGRAM = DEFAULT_TOPUP_TELEGRAM;
+const DEFAULT_SIGNUP_BONUS_REQUIRES_EMAIL_VERIFICATION = false;
 const DEFAULT_STARTER_PROMPTS = {
   openrouter_coding_agent: [
     'Сделай одностраничный лендинг и покажи preview',
@@ -139,6 +141,17 @@ function normalizeText(value: unknown, maxLength: number): string | null {
   const normalized = value.trim();
   if (!normalized) return null;
   return normalized.slice(0, maxLength);
+}
+
+function normalizeBoolean(value: unknown, fallback: boolean): boolean {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+    if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+  }
+  if (typeof value === 'number') return value !== 0;
+  return fallback;
 }
 
 function normalizePromptList(value: unknown, fallback: readonly string[]): string[] {
@@ -387,6 +400,39 @@ export async function getStarterPromptSettings(): Promise<StarterPromptSettings>
   };
 }
 
+export async function getSignupBonusSettings() {
+  const raw = await getSettingValue(
+    SETTINGS_KEYS.signup_bonus_requires_email_verification,
+    String(DEFAULT_SIGNUP_BONUS_REQUIRES_EMAIL_VERIFICATION),
+  );
+
+  return {
+    requires_email_verification: normalizeBoolean(
+      raw,
+      DEFAULT_SIGNUP_BONUS_REQUIRES_EMAIL_VERIFICATION,
+    ),
+  };
+}
+
+export async function updateSignupBonusSettings(input: {
+  signup_bonus_requires_email_verification?: boolean;
+}, updatedBy?: string | null) {
+  const requiresEmailVerification = normalizeBoolean(
+    input.signup_bonus_requires_email_verification,
+    DEFAULT_SIGNUP_BONUS_REQUIRES_EMAIL_VERIFICATION,
+  );
+
+  await setSettingValue(
+    SETTINGS_KEYS.signup_bonus_requires_email_verification,
+    String(requiresEmailVerification),
+    updatedBy,
+  );
+
+  return {
+    requires_email_verification: requiresEmailVerification,
+  };
+}
+
 export async function updateStarterPromptSettings(input: Partial<StarterPromptSettings>, updatedBy?: string | null) {
   const normalized = {
     openrouter_coding_agent: normalizePromptList(
@@ -461,11 +507,12 @@ export function resolveStarterPromptsForAgentSlug(
 }
 
 export async function getAdminSettings() {
-  const [usd_to_rub_rate, topUp, legal, starterPrompts] = await Promise.all([
+  const [usd_to_rub_rate, topUp, legal, starterPrompts, signupBonus] = await Promise.all([
     getUsdToRubRate(),
     getTopUpSettings(),
     getLegalSettings(),
     getStarterPromptSettings(),
+    getSignupBonusSettings(),
   ]);
 
   return {
@@ -487,6 +534,7 @@ export async function getAdminSettings() {
     starter_prompts_openrouter_coding_agent_heavy_planning: starterPrompts.openrouter_coding_agent_heavy_planning,
     starter_prompts_openrouter_coding_agent_coding_alternative: starterPrompts.openrouter_coding_agent_coding_alternative,
     starter_prompts_dtf_news_agent: starterPrompts.dtf_news_agent,
+    signup_bonus_requires_email_verification: signupBonus.requires_email_verification,
   };
 }
 

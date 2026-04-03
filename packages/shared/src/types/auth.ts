@@ -9,6 +9,7 @@ export interface UserPublic {
   avatar_url: string | null;
   role: UserRole;
   status: UserStatus;
+  email_verified_at: string | null;
   created_at: string;
 }
 
@@ -82,6 +83,7 @@ export interface BalanceHistoryItem {
 }
 
 export interface UserProfile extends UserPublic {
+  has_pending_email_verification: boolean;
   balance_usd: string;
   balance_rub: string;
   usd_to_rub_rate: number;

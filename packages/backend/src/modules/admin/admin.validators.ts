@@ -92,6 +92,7 @@ const updateAdminSettingsSchema = z.object({
   starter_prompts_openrouter_coding_agent_heavy_planning: z.array(z.string().trim().min(1).max(300)).min(1).max(12),
   starter_prompts_openrouter_coding_agent_coding_alternative: z.array(z.string().trim().min(1).max(300)).min(1).max(12),
   starter_prompts_dtf_news_agent: z.array(z.string().trim().min(1).max(300)).min(1).max(12),
+  signup_bonus_requires_email_verification: z.boolean().default(false),
 });
 
 export const validateUpdateAdminSettings = validate(updateAdminSettingsSchema, 'body');

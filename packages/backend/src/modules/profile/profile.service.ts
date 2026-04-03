@@ -4,6 +4,7 @@ import {
   users,
   authAccounts,
   balanceTransactions,
+  emailVerificationTokens,
 } from '../../db/schema/index.js';
 import { AppError, ConflictError, NotFoundError } from '../../middleware/error-handler.js';
 import { ROLE_LIMITS } from '@llmstore/shared';
@@ -212,7 +213,7 @@ export async function getProfile(userId: string): Promise<UserProfile> {
     throw new NotFoundError('Пользователь не найден');
   }
 
-  const [accounts, usage, balanceHistory] = await Promise.all([
+  const [accounts, usage, balanceHistory, pendingVerificationTokens] = await Promise.all([
     db.select({
       provider: authAccounts.provider,
       provider_account_id: authAccounts.provider_account_id,
@@ -222,6 +223,11 @@ export async function getProfile(userId: string): Promise<UserProfile> {
       .where(eq(authAccounts.user_id, userId)),
     getUserUsageSummary(userId),
     getBalanceHistory(userId),
+    db
+      .select({ id: emailVerificationTokens.id })
+      .from(emailVerificationTokens)
+      .where(sql`${emailVerificationTokens.user_id} = ${userId} AND ${emailVerificationTokens.used_at} IS NULL AND ${emailVerificationTokens.expires_at} > now()`)
+      .limit(1),
   ]);
 
   const linked_accounts: LinkedAccount[] = accounts.map((a) => ({
@@ -244,7 +250,9 @@ export async function getProfile(userId: string): Promise<UserProfile> {
     avatar_url: user.avatar_url,
     role: user.role as UserRole,
     status: user.status as UserProfile['status'],
+    email_verified_at: user.email_verified_at?.toISOString() ?? null,
     created_at: user.created_at.toISOString(),
+    has_pending_email_verification: pendingVerificationTokens.length > 0,
     balance_usd: String(user.balance_usd),
     balance_rub: balanceRub,
     usd_to_rub_rate: usdToRubRate,

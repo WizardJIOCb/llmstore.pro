@@ -28,7 +28,7 @@ export function RegisterPage() {
 
     setLoading(true);
     try {
-      await register({
+      const result = await register({
         email: form.email,
         password: form.password,
         name: form.name || undefined,
@@ -36,7 +36,7 @@ export function RegisterPage() {
         device_fingerprint: getOrCreateDeviceFingerprint(),
         turnstile_token: turnstileToken || undefined,
       });
-      navigate('/');
+      navigate(result.signup_bonus_pending_email_verification ? '/verify-email?sent=1' : '/');
     } catch (err: any) {
       setError(err.response?.data?.error?.message || 'Ошибка регистрации');
     } finally {

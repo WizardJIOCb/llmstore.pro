@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { useProfile, useUnlinkAccount, useUpdateProfile } from '../../hooks/useProfile';
 import { useTopUpStatus } from '../../hooks/usePayments';
+import { authApi } from '../../lib/api/auth';
 import { getOAuthLinkUrl } from '../../lib/api/profile';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -65,6 +66,8 @@ export function ProfilePage() {
   const [historyPageSize, setHistoryPageSize] = useState<5 | 10 | 20>(5);
   const [historyPage, setHistoryPage] = useState(1);
   const [oauthMessage, setOauthMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [emailVerificationMessage, setEmailVerificationMessage] = useState<string | null>(null);
+  const [emailVerificationSending, setEmailVerificationSending] = useState(false);
 
   useEffect(() => {
     const oauth = searchParams.get('oauth');
@@ -117,6 +120,23 @@ export function ProfilePage() {
   const handleUnlink = (provider: string) => {
     if (!confirm(`Отвязать ${PROVIDER_LABELS[provider] || provider}?`)) return;
     unlinkMutation.mutate(provider);
+  };
+
+  const handleResendEmailVerification = async () => {
+    setEmailVerificationSending(true);
+    setEmailVerificationMessage(null);
+    try {
+      const result = await authApi.resendEmailVerification();
+      setEmailVerificationMessage(
+        result.alreadyVerified
+          ? 'Email уже подтверждён.'
+          : 'Письмо отправлено повторно. Проверьте входящие.',
+      );
+    } catch (err: any) {
+      setEmailVerificationMessage(err.response?.data?.error?.message || 'Не удалось отправить письмо.');
+    } finally {
+      setEmailVerificationSending(false);
+    }
   };
 
   const historyItems = useMemo(() => {
@@ -190,6 +210,25 @@ export function ProfilePage() {
           }`}
         >
           {oauthMessage.text}
+        </div>
+      )}
+
+      {!profile.email_verified_at && profile.has_pending_email_verification && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-900">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="font-medium">Email пока не подтверждён.</p>
+              <p className="mt-1 text-amber-800/80">
+                Если для стартового бонуса включено подтверждение email, бонус начислится после перехода по ссылке из письма.
+              </p>
+              {emailVerificationMessage ? (
+                <p className="mt-2 text-amber-800">{emailVerificationMessage}</p>
+              ) : null}
+            </div>
+            <Button variant="outline" size="sm" onClick={handleResendEmailVerification} disabled={emailVerificationSending}>
+              {emailVerificationSending ? 'Отправляю...' : 'Отправить письмо ещё раз'}
+            </Button>
+          </div>
         </div>
       )}
 

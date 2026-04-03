@@ -56,6 +56,13 @@ const envSchema = z.object({
   YOOKASSA_TOPUP_MIN_RUB: z.coerce.number().positive().default(100),
   YOOKASSA_TOPUP_MAX_RUB: z.coerce.number().positive().default(500000),
   TURNSTILE_SECRET_KEY: z.string().default(''),
+  SMTP_HOST: z.string().default(''),
+  SMTP_PORT: z.coerce.number().int().positive().default(587),
+  SMTP_SECURE: z.coerce.boolean().default(false),
+  SMTP_USER: z.string().default(''),
+  SMTP_PASS: z.string().default(''),
+  MAIL_FROM: z.string().default(''),
+  MAIL_REPLY_TO: z.string().default(''),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
 });
 

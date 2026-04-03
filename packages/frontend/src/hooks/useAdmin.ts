@@ -52,6 +52,7 @@ export function useUpdateAdminSettings() {
       starter_prompts_openrouter_coding_agent_heavy_planning: string[];
       starter_prompts_openrouter_coding_agent_coding_alternative: string[];
       starter_prompts_dtf_news_agent: string[];
+      signup_bonus_requires_email_verification: boolean;
     }) => adminApi.updateSettings(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'settings'] });

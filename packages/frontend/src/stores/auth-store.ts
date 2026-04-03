@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { UserPublic } from '@llmstore/shared';
-import { authApi } from '../lib/api/auth';
+import { authApi, type RegisterResult } from '../lib/api/auth';
 
 interface AuthState {
   user: UserPublic | null;
@@ -15,7 +15,7 @@ interface AuthState {
     username?: string;
     device_fingerprint?: string;
     turnstile_token?: string;
-  }) => Promise<UserPublic>;
+  }) => Promise<RegisterResult>;
   logout: () => Promise<void>;
 }
 
@@ -41,9 +41,9 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   register: async (data) => {
-    const user = await authApi.register(data);
-    set({ user });
-    return user;
+    const result = await authApi.register(data);
+    set({ user: result.user });
+    return result;
   },
 
   logout: async () => {

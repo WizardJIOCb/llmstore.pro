@@ -221,6 +221,7 @@ const userPublicColumns = {
   avatar_url: users.avatar_url,
   role: users.role,
   status: users.status,
+  email_verified_at: users.email_verified_at,
   created_at: users.created_at,
 } as const;
 
@@ -234,6 +235,7 @@ function toUserPublic(user: typeof userPublicColumns extends infer T ? { [K in k
     avatar_url: u.avatar_url as string | null,
     role: u.role as UserPublic['role'],
     status: u.status as UserPublic['status'],
+    email_verified_at: (u.email_verified_at as Date | null)?.toISOString() ?? null,
     created_at: (u.created_at as Date).toISOString(),
   };
 }
@@ -249,6 +251,26 @@ async function updateAvatarIfMissing(userId: string, avatarUrl: string | null) {
   if (user && !user.avatar_url) {
     await db.update(users).set({ avatar_url: avatarUrl }).where(eq(users.id, userId));
   }
+}
+
+async function markEmailVerifiedIfMissing(userId: string) {
+  const [user] = await db
+    .select({ email_verified_at: users.email_verified_at })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+
+  if (user && !user.email_verified_at) {
+    await db.update(users).set({ email_verified_at: new Date() }).where(eq(users.id, userId));
+  }
+}
+
+async function getUserPublicById(userId: string): Promise<UserPublic> {
+  const [user] = await db.select(userPublicColumns).from(users).where(eq(users.id, userId)).limit(1);
+  if (!user) {
+    throw new AppError(500, 'USER_NOT_FOUND', 'Пользователь не найден');
+  }
+  return toUserPublic(user);
 }
 
 export interface HandleCallbackOptions {
@@ -289,8 +311,8 @@ export async function handleCallback(opts: HandleCallbackOptions): Promise<UserP
     if (existingAccount) {
       if (existingAccount.user_id === sessionUserId) {
         await updateAvatarIfMissing(sessionUserId, userInfo.avatar_url);
-        const [user] = await db.select(userPublicColumns).from(users).where(eq(users.id, sessionUserId)).limit(1);
-        return toUserPublic(user);
+        await markEmailVerifiedIfMissing(sessionUserId);
+        return getUserPublicById(sessionUserId);
       }
       throw new ConflictError('Этот аккаунт уже привязан к другому пользователю');
     }
@@ -303,15 +325,14 @@ export async function handleCallback(opts: HandleCallbackOptions): Promise<UserP
     });
 
     await updateAvatarIfMissing(sessionUserId, userInfo.avatar_url);
-    const [user] = await db.select(userPublicColumns).from(users).where(eq(users.id, sessionUserId)).limit(1);
-    return toUserPublic(user);
+    await markEmailVerifiedIfMissing(sessionUserId);
+    return getUserPublicById(sessionUserId);
   }
 
   if (existingAccount) {
     await updateAvatarIfMissing(existingAccount.user_id, userInfo.avatar_url);
-    const [user] = await db.select(userPublicColumns).from(users).where(eq(users.id, existingAccount.user_id)).limit(1);
-    if (!user) throw new AppError(500, 'USER_NOT_FOUND', 'Пользователь не найден');
-    return toUserPublic(user);
+    await markEmailVerifiedIfMissing(existingAccount.user_id);
+    return getUserPublicById(existingAccount.user_id);
   }
 
   const [existingUser] = await db
@@ -328,12 +349,8 @@ export async function handleCallback(opts: HandleCallbackOptions): Promise<UserP
       access_token: token.accessToken,
     });
     await updateAvatarIfMissing(existingUser.id as string, userInfo.avatar_url);
-    const [updated] = await db
-      .select(userPublicColumns)
-      .from(users)
-      .where(eq(users.id, existingUser.id as string))
-      .limit(1);
-    return toUserPublic(updated);
+    await markEmailVerifiedIfMissing(existingUser.id as string);
+    return getUserPublicById(existingUser.id as string);
   }
 
   const [newUser] = await db
@@ -345,6 +362,7 @@ export async function handleCallback(opts: HandleCallbackOptions): Promise<UserP
       role: 'user',
       status: 'active',
       balance_usd: '0',
+      email_verified_at: new Date(),
     })
     .returning(userPublicColumns);
 

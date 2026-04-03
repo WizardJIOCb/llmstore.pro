@@ -4,6 +4,10 @@ import { db } from '../../config/database.js';
 import { users } from '../../db/schema/index.js';
 import { AppError, ConflictError, NotFoundError } from '../../middleware/error-handler.js';
 import type { UserPublic } from '@llmstore/shared';
+import {
+  isSignupBonusEmailVerificationRequired,
+  sendEmailVerificationEmail,
+} from './email-verification.service.js';
 import { grantSignupBonusIfEligible, normalizeIpAddress } from './signup-bonus.service.js';
 
 const userPublicColumns = {
@@ -14,6 +18,7 @@ const userPublicColumns = {
   avatar_url: users.avatar_url,
   role: users.role,
   status: users.status,
+  email_verified_at: users.email_verified_at,
   created_at: users.created_at,
 } as const;
 
@@ -25,7 +30,11 @@ export async function register(input: {
   device_fingerprint?: string;
   signup_ip?: string | null;
   signup_user_agent?: string | null;
-}): Promise<UserPublic> {
+}): Promise<{
+  user: UserPublic;
+  email_verification_sent: boolean;
+  signup_bonus_pending_email_verification: boolean;
+}> {
   const existing = await db
     .select({ id: users.id })
     .from(users)
@@ -49,6 +58,7 @@ export async function register(input: {
   }
 
   const password_hash = await argon2.hash(input.password);
+  const requiresEmailVerification = await isSignupBonusEmailVerificationRequired();
 
   const [user] = await db
     .insert(users)
@@ -63,13 +73,33 @@ export async function register(input: {
     })
     .returning(userPublicColumns);
 
-  await grantSignupBonusIfEligible(user.id, {
-    ipAddress: normalizeIpAddress(input.signup_ip),
-    deviceFingerprint: input.device_fingerprint,
-    userAgent: input.signup_user_agent,
-  });
+  let emailVerificationSent = false;
 
-  return { ...user, created_at: user.created_at.toISOString() };
+  if (requiresEmailVerification) {
+    try {
+      const emailResult = await sendEmailVerificationEmail(user.id);
+      emailVerificationSent = emailResult.sent;
+    } catch (error) {
+      await db.delete(users).where(eq(users.id, user.id));
+      throw error;
+    }
+  } else {
+    await grantSignupBonusIfEligible(user.id, {
+      ipAddress: normalizeIpAddress(input.signup_ip),
+      deviceFingerprint: input.device_fingerprint,
+      userAgent: input.signup_user_agent,
+    });
+  }
+
+  return {
+    user: {
+      ...user,
+      email_verified_at: user.email_verified_at?.toISOString() ?? null,
+      created_at: user.created_at.toISOString(),
+    },
+    email_verification_sent: emailVerificationSent,
+    signup_bonus_pending_email_verification: requiresEmailVerification,
+  };
 }
 
 export async function login(input: { email: string; password: string }): Promise<UserPublic> {
@@ -100,7 +130,11 @@ export async function login(input: { email: string; password: string }): Promise
   }
 
   const { password_hash: _, ...publicUser } = user;
-  return { ...publicUser, created_at: publicUser.created_at.toISOString() };
+  return {
+    ...publicUser,
+    email_verified_at: publicUser.email_verified_at?.toISOString() ?? null,
+    created_at: publicUser.created_at.toISOString(),
+  };
 }
 
 export async function getById(userId: string): Promise<UserPublic> {
@@ -114,5 +148,9 @@ export async function getById(userId: string): Promise<UserPublic> {
     throw new NotFoundError('Пользователь не найден');
   }
 
-  return { ...user, created_at: user.created_at.toISOString() };
+  return {
+    ...user,
+    email_verified_at: user.email_verified_at?.toISOString() ?? null,
+    created_at: user.created_at.toISOString(),
+  };
 }

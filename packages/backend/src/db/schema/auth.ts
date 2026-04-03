@@ -11,6 +11,7 @@ export const users = pgTable('users', {
   status: userStatusEnum('status').notNull().default('active'),
   password_hash: text('password_hash'),
   balance_usd: numeric('balance_usd', { precision: 12, scale: 4 }).notNull().default('0'),
+  email_verified_at: timestamp('email_verified_at', { withTimezone: true }),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
@@ -51,4 +52,17 @@ export const signupBonusGrants = pgTable('signup_bonus_grants', {
   uniqueIndex('signup_bonus_grants_ip_idx').on(table.ip_address),
   uniqueIndex('signup_bonus_grants_fingerprint_idx').on(table.device_fingerprint),
   index('signup_bonus_grants_created_at_idx').on(table.created_at),
+]);
+
+export const emailVerificationTokens = pgTable('email_verification_tokens', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  user_id: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  token_hash: varchar('token_hash', { length: 128 }).notNull(),
+  expires_at: timestamp('expires_at', { withTimezone: true }).notNull(),
+  used_at: timestamp('used_at', { withTimezone: true }),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex('email_verification_tokens_hash_idx').on(table.token_hash),
+  index('email_verification_tokens_user_id_idx').on(table.user_id),
+  index('email_verification_tokens_expires_at_idx').on(table.expires_at),
 ]);

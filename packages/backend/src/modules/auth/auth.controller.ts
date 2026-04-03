@@ -1,5 +1,9 @@
 import type { Request, Response, NextFunction } from 'express';
 import * as authService from './auth.service.js';
+import {
+  sendEmailVerificationEmail,
+  verifyEmailToken,
+} from './email-verification.service.js';
 import { normalizeIpAddress } from './signup-bonus.service.js';
 import { verifyTurnstileToken } from './turnstile.service.js';
 
@@ -16,8 +20,8 @@ export async function register(req: Request, res: Response, next: NextFunction) 
       signup_ip: requestIp,
       signup_user_agent: req.get('user-agent') ?? null,
     });
-    req.session.userId = user.id;
-    req.session.userRole = user.role;
+    req.session.userId = user.user.id;
+    req.session.userRole = user.user.role;
     res.status(201).json({ data: user });
   } catch (err) {
     next(err);
@@ -59,6 +63,33 @@ export async function me(req: Request, res: Response, next: NextFunction) {
       req.session.userRole = user.role;
     }
     res.json({ data: user });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function resendEmailVerification(req: Request, res: Response, next: NextFunction) {
+  try {
+    const result = await sendEmailVerificationEmail(req.session.userId!);
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function confirmEmailVerification(req: Request, res: Response, next: NextFunction) {
+  try {
+    const result = await verifyEmailToken({
+      token: req.body.token,
+      ipAddress: normalizeIpAddress(req.ip),
+      userAgent: req.get('user-agent') ?? null,
+      deviceFingerprint: req.body.device_fingerprint,
+    });
+
+    req.session.userId = result.user.id;
+    req.session.userRole = result.user.role;
+
+    res.json({ data: result });
   } catch (err) {
     next(err);
   }
