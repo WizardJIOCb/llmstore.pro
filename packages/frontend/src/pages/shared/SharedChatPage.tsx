@@ -162,6 +162,15 @@ export function SharedChatPage() {
       queryClient.invalidateQueries({ queryKey: ['shared-chat-any', token] });
     },
   });
+  const sendFixMessageMutation = useMutation({
+    mutationFn: ({ chatId, content }: { chatId: string; content: string }) =>
+      chatsApi.sendMessage(chatId, content),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['shared-chat-any', token] });
+      queryClient.invalidateQueries({ queryKey: ['chats'] });
+      queryClient.invalidateQueries({ queryKey: ['profile'] });
+    },
+  });
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['shared-chat-any', token],
@@ -265,6 +274,19 @@ export function SharedChatPage() {
 	            canRunProject={Boolean(profile) && Boolean(data.chatId) && msg.role === 'assistant' && Boolean(msg.id)}
 	            onRunProject={profile && data.chatId && msg.role === 'assistant' && msg.id
 	              ? async () => chatsApi.runProject(data.chatId!, msg.id!)
+	              : undefined}
+	            onFixProjectError={profile && data.chatId && msg.role === 'assistant'
+	              ? async (prompt) => {
+	                  try {
+	                    await sendFixMessageMutation.mutateAsync({
+	                      chatId: data.chatId!,
+	                      content: prompt,
+	                    });
+	                  } catch (error) {
+	                    const maybe = error as { response?: { data?: { error?: { message?: string } } } };
+	                    throw new Error(maybe?.response?.data?.error?.message ?? 'Не удалось отправить запрос на исправление');
+	                  }
+	                }
 	              : undefined}
 	            canDeleteMessage={Boolean(profile) && Boolean(data.chatId) && Boolean(msg.id)}
 		            onDeleteMessage={profile && data.chatId && msg.id

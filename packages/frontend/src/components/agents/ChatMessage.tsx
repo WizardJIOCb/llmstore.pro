@@ -32,11 +32,49 @@ interface ChatMessageProps {
   onSavePreview?: (payload: { title?: string | null; html: string }) => Promise<void>;
   canRunProject?: boolean;
   onRunProject?: () => Promise<ProjectRunResult>;
+  onFixProjectError?: (prompt: string) => Promise<void>;
   canEditMessage?: boolean;
   onEditMessage?: () => Promise<void> | void;
   canDeleteMessage?: boolean;
   onDeleteMessage?: () => Promise<void>;
   bubbleStyle?: CSSProperties;
+}
+
+function trimFixPayload(value: string, limit = 12_000): string {
+  if (value.length <= limit) return value;
+  return `${value.slice(0, limit)}\n...[truncated]`;
+}
+
+function buildFixProjectPrompt(project: CodingReportProject, result: ProjectRunResult): string {
+  const lines = [
+    'Исправь ошибку в последнем runnable project bundle.',
+    '',
+    'Контекст запуска:',
+    `- Runtime: ${project.runtime}`,
+    `- Entrypoint: ${result.entrypoint ?? project.entrypoint ?? 'unknown'}`,
+    `- Command: ${result.command.join(' ')}`,
+    `- Status: ${result.status}`,
+    `- Duration: ${result.duration_ms} ms`,
+    `- Verification: ${result.verification.message}`,
+    '',
+    'stderr:',
+    '```text',
+    trimFixPayload(result.stderr || '(empty)'),
+    '```',
+    '',
+    'stdout:',
+    '```text',
+    trimFixPayload(result.stdout || '(empty)'),
+    '```',
+    '',
+    'Что нужно:',
+    '1. Найди и исправь причину ошибки.',
+    '2. Верни полный обновлённый runnable Project Bundle, а не только diff.',
+    '3. Сохрани текущий runtime, если нет веской причины его менять.',
+    '4. Убедись, что новый bundle проходит Run без этой ошибки.',
+  ];
+
+  return lines.join('\n');
 }
 
 function stripDevReportEnvelope(content: string): string {
@@ -1412,6 +1450,7 @@ export function ChatMessage({
   onSavePreview,
   canRunProject = false,
   onRunProject,
+  onFixProjectError,
   canEditMessage = false,
   onEditMessage,
   canDeleteMessage = false,
@@ -1426,12 +1465,14 @@ export function ChatMessage({
   const [previewExporting, setPreviewExporting] = useState(false);
   const [projectExporting, setProjectExporting] = useState(false);
   const [projectRunning, setProjectRunning] = useState(false);
+  const [projectFixing, setProjectFixing] = useState(false);
   const [projectRunResult, setProjectRunResult] = useState<ProjectRunResult | null>(null);
   const [editorSaving, setEditorSaving] = useState(false);
   const [editorExporting, setEditorExporting] = useState(false);
   const [editorError, setEditorError] = useState<string | null>(null);
   const [editorStatus, setEditorStatus] = useState<string | null>(null);
   const [messageActionError, setMessageActionError] = useState<string | null>(null);
+  const [messageActionStatus, setMessageActionStatus] = useState<string | null>(null);
   const [deletingMessage, setDeletingMessage] = useState(false);
   const [editingMessage, setEditingMessage] = useState(false);
   const editorTextareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -1559,6 +1600,7 @@ export function ChatMessage({
 
     setPreviewExporting(true);
     setMessageActionError(null);
+    setMessageActionStatus(null);
 
     try {
       downloadPreviewProjectArchive(resolvedHtmlPreview);
@@ -1571,6 +1613,7 @@ export function ChatMessage({
 
   const exportStandalonePreviewProject = async (preview: { title: string; html: string }) => {
     setMessageActionError(null);
+    setMessageActionStatus(null);
 
     try {
       await downloadPreviewProjectArchive(preview);
@@ -1613,6 +1656,7 @@ export function ChatMessage({
 
     setProjectExporting(true);
     setMessageActionError(null);
+    setMessageActionStatus(null);
 
     try {
       const zip = buildProjectBundleArchive(projectBundle, projectBundle.title || 'project-bundle');
@@ -1630,6 +1674,7 @@ export function ChatMessage({
 
     setProjectRunning(true);
     setMessageActionError(null);
+    setMessageActionStatus(null);
     setProjectRunResult(null);
 
     try {
@@ -1639,6 +1684,23 @@ export function ChatMessage({
       setMessageActionError(error instanceof Error ? error.message : 'Не удалось выполнить проект на сервере');
     } finally {
       setProjectRunning(false);
+    }
+  };
+
+  const requestProjectFixFromError = async () => {
+    if (!onFixProjectError || !projectBundle || !projectRunResult) return;
+
+    setProjectFixing(true);
+    setMessageActionError(null);
+    setMessageActionStatus(null);
+
+    try {
+      await onFixProjectError(buildFixProjectPrompt(projectBundle, projectRunResult));
+      setMessageActionStatus('Запрос на исправление отправлен в чат');
+    } catch (error) {
+      setMessageActionError(error instanceof Error ? error.message : 'Не удалось отправить запрос на исправление');
+    } finally {
+      setProjectFixing(false);
     }
   };
 
@@ -1830,6 +1892,7 @@ export function ChatMessage({
 
     setDeletingMessage(true);
     setMessageActionError(null);
+    setMessageActionStatus(null);
     try {
       await onDeleteMessage();
     } catch (error) {
@@ -1844,6 +1907,7 @@ export function ChatMessage({
 
     setEditingMessage(true);
     setMessageActionError(null);
+    setMessageActionStatus(null);
     try {
       await onEditMessage();
     } catch (error) {
@@ -1932,6 +1996,9 @@ export function ChatMessage({
           )}
           {messageActionError && (
             <p className={cn('mb-2 text-xs', isUser ? 'text-rose-700' : 'text-destructive')}>{messageActionError}</p>
+          )}
+          {messageActionStatus && (
+            <p className="mb-2 text-xs text-emerald-700">{messageActionStatus}</p>
           )}
           {isUser ? (
             content
@@ -2092,6 +2159,20 @@ export function ChatMessage({
                           {projectRunResult.verification.message}
                           {projectRunResult.verification.url ? ` (${projectRunResult.verification.url})` : ''}
                         </p>
+                        {onFixProjectError && projectRunResult.status !== 'passed' && (
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="whitespace-nowrap"
+                              onClick={() => { void requestProjectFixFromError(); }}
+                              disabled={projectFixing}
+                            >
+                              {projectFixing ? 'Отправляю...' : 'Fix from error'}
+                            </Button>
+                          </div>
+                        )}
                         {projectRunResult.stdout && (
                           <pre className="mt-3 max-h-48 overflow-auto rounded bg-slate-950 p-3 text-xs text-slate-100">
                             {projectRunResult.stdout}

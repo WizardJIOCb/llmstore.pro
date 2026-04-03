@@ -1821,6 +1821,9 @@ export function ChatsPage() {
                   onRunProject={msg.role === 'assistant' && activeChat
                     ? async () => chatsApi.runProject(activeChat.id, msg.id)
                     : undefined}
+                  onFixProjectError={msg.role === 'assistant' && activeChat
+                    ? async (prompt) => sendMessage(prompt)
+                    : undefined}
                   canEditMessage={canEditUserMessage}
                   onEditMessage={canEditUserMessage
                     ? async () => {
@@ -1896,6 +1899,9 @@ export function ChatsPage() {
                       canRunProject={Boolean(activeChat)}
                       onRunProject={activeChat
                         ? async () => chatsApi.runProject(activeChat.id, assistantSlotResolvedMessage.id)
+                        : undefined}
+                      onFixProjectError={activeChat
+                        ? async (prompt) => sendMessage(prompt)
                         : undefined}
                       canDeleteMessage={Boolean(activeChat)}
                       onDeleteMessage={activeChat
