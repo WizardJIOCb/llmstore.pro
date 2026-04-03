@@ -11,6 +11,15 @@ import type {
 
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1';
 const DEFAULT_TIMEOUT = 60_000;
+const MAX_TIMEOUT = 180_000;
+
+function normalizeTimeoutMs(timeoutMs?: number): number {
+  if (!Number.isFinite(timeoutMs) || (timeoutMs ?? 0) <= 0) {
+    return DEFAULT_TIMEOUT;
+  }
+
+  return Math.min(Math.round(timeoutMs as number), MAX_TIMEOUT);
+}
 
 export class OpenRouterClient {
   private http: AxiosInstance;
@@ -28,14 +37,19 @@ export class OpenRouterClient {
     });
   }
 
-  async chatCompletion(params: ChatCompletionParams): Promise<ChatCompletionResponse> {
+  async chatCompletion(
+    params: ChatCompletionParams,
+    options?: { timeoutMs?: number },
+  ): Promise<ChatCompletionResponse> {
+    const timeoutMs = normalizeTimeoutMs(options?.timeoutMs);
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT);
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     try {
       logger.debug({ model: params.model, messageCount: params.messages.length }, 'OpenRouter chat completion request');
 
       const { data } = await this.http.post<ChatCompletionResponse>('/chat/completions', params, {
         signal: controller.signal,
+        timeout: timeoutMs,
       });
 
       logger.debug({
@@ -47,8 +61,8 @@ export class OpenRouterClient {
       return data;
     } catch (err) {
       if (err instanceof AxiosError && err.code === 'ERR_CANCELED') {
-        const message = `OpenRouter request timed out after ${Math.round(DEFAULT_TIMEOUT / 1000)}s`;
-        logger.error({ model: params.model, timeout_ms: DEFAULT_TIMEOUT }, 'OpenRouter request timeout');
+        const message = `OpenRouter request timed out after ${Math.round(timeoutMs / 1000)}s`;
+        logger.error({ model: params.model, timeout_ms: timeoutMs }, 'OpenRouter request timeout');
         throw new AppError(504, 'LLM_TIMEOUT', message);
       }
 

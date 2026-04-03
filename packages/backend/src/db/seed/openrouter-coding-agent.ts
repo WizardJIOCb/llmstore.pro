@@ -309,10 +309,10 @@ const CODING_PRESETS: CodingPreset[] = [
   {
     slug: 'openrouter-coding-agent-qwen3-coder-next',
     name: 'Coding Agent: Qwen3 Coder Next',
-    description: 'Суперэкономичный coding-agent на Qwen3 Coder Next для always-on сценариев.',
+    description: 'Суперэкономичный coding-agent на Qwen3 Coder Next для always-on сценариев. Подходит для дешёвых итераций, но не лучший выбор для длинных runnable bundle задач.',
     model_external_id: 'qwen/qwen3-coder-next',
     version_number: 1,
-    chat_intro: 'Суперэкономичный coding-agent на Qwen3 Coder Next. Подходит для always-on сценариев, регулярных фоновых задач и дешёвых итераций.',
+    chat_intro: 'Суперэкономичный coding-agent на Qwen3 Coder Next. Подходит для always-on сценариев, регулярных фоновых задач и дешёвых итераций. Для длинных runnable bundle задач и больших ответов лучше выбирать GPT-5.4, Claude Sonnet 4.6 или хотя бы более быстрый Qwen3 Coder Flash.',
     starter_prompts: CLEAN_FAST_CODING_STARTER_PROMPTS,
     max_iterations: 4,
     temperature: 0.2,

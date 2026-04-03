@@ -54,6 +54,10 @@ interface GeneralModelOption {
 }
 
 type PropertiesModeView = 'general' | 'coding' | 'other';
+type LocalNoticeAction = {
+  label: string;
+  onClick: () => void;
+};
 
 const GENERAL_MODELS: GeneralModelOption[] = [
   {
@@ -419,6 +423,7 @@ export function ChatsPage() {
   const [openMenu, setOpenMenu] = useState<MenuItem>(null);
   const [localError, setLocalError] = useState<string | null>(null);
   const [localNoticeTone, setLocalNoticeTone] = useState<'error' | 'warning'>('error');
+  const [localNoticeAction, setLocalNoticeAction] = useState<LocalNoticeAction | null>(null);
   const [shareToastVisible, setShareToastVisible] = useState(false);
   const [isPropertiesOpen, setIsPropertiesOpen] = useState(false);
   const [isTopUpOpen, setIsTopUpOpen] = useState(false);
@@ -541,15 +546,22 @@ export function ChatsPage() {
     [messages, debugThinkingForActiveChat, optimisticMessageForActiveChat],
   );
 
-  const showLocalError = (message: string) => {
+  const showLocalError = (message: string, action: LocalNoticeAction | null = null) => {
     setLocalNoticeTone('error');
+    setLocalNoticeAction(action);
     setLocalError(message);
   };
 
-  const showLocalWarning = (message: string) => {
+  const showLocalWarning = (message: string, action: LocalNoticeAction | null = null) => {
     setLocalNoticeTone('warning');
+    setLocalNoticeAction(action);
     setLocalError(message);
   };
+
+  useEffect(() => {
+    if (localError) return;
+    setLocalNoticeAction(null);
+  }, [localError]);
 
   useEffect(() => {
     if (!safeActiveChatId || !activeChatError) return;
@@ -1405,15 +1417,15 @@ export function ChatsPage() {
     return false;
   };
 
-  const sendMessage = async (content: string, files: File[] = []) => {
-    if (!activeChat) return;
+  async function performSendMessage(input: { chatId: string; content: string; files?: File[] }) {
     if (!hasAvailableBalance) {
       setIsTopUpOpen(true);
       showLocalError('У вас не осталось баланса. Скоро вы сможете пополнить его на сайте, а пока можете написать Родиону.');
       return;
     }
 
-    const chatId = activeChat.id;
+    const { chatId, content } = input;
+    const files = [...(input.files ?? [])];
     const optimisticAttachments = files.map((file) => ({
       filename: file.name,
       original_name: file.name,
@@ -1496,13 +1508,29 @@ export function ChatsPage() {
         const recovered = await recoverLateAssistantReply(chatId, startedAt);
         if (!recovered) {
           setAssistantResponseSlot((prev) => (prev?.chatId === chatId ? null : prev));
-          showLocalError('Провайдер слишком долго отвечал, и запрос оборвался по таймауту. Попробуйте ещё раз или выберите более быстрый агент.');
+          showLocalError(
+            'Провайдер слишком долго отвечал, и запрос оборвался по таймауту. Попробуйте ещё раз или выберите более быстрый агент.',
+            {
+              label: 'Повторить',
+              onClick: () => {
+                if (safeActiveChatId !== chatId) {
+                  setActiveChatId(chatId);
+                }
+                void performSendMessage({ chatId, content, files });
+              },
+            },
+          );
         }
         return;
       }
       setAssistantResponseSlot((prev) => (prev?.chatId === chatId ? null : prev));
       showLocalError(err instanceof Error ? err.message : 'Не удалось отправить сообщение');
     }
+  }
+
+  const sendMessage = async (content: string, files: File[] = []) => {
+    if (!activeChat) return;
+    await performSendMessage({ chatId: activeChat.id, content, files });
   };
 
   const editMessage = async (messageId: string, content: string) => {
@@ -1948,7 +1976,25 @@ export function ChatsPage() {
                   : 'bg-destructive/10 text-destructive',
               )}
             >
-              {localError}
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>{localError}</div>
+                {localNoticeAction ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className={cn(
+                      'h-8 shrink-0',
+                      localNoticeTone === 'warning'
+                        ? 'border-amber-300 bg-white/70 text-amber-900 hover:bg-white'
+                        : 'border-destructive/20 bg-background text-destructive hover:bg-background',
+                    )}
+                    onClick={localNoticeAction.onClick}
+                  >
+                    {localNoticeAction.label}
+                  </Button>
+                ) : null}
+              </div>
             </div>
           )}
 

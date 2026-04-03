@@ -1723,6 +1723,7 @@ export async function startRun(
   const modelId = normalizeOpenRouterModelId(
     input.model_external_id ?? runtimeConfig.model_external_id ?? DEFAULT_MODEL,
   );
+  const llmTimeoutMs = isCodingModel(modelId) ? CODING_AGENT_OPENROUTER_TIMEOUT_MS : undefined;
   const maxIterations = runtimeConfig.max_iterations ?? DEFAULT_MAX_ITERATIONS;
   const effectiveTemperature = strictPreviewEdit
     ? Math.min(runtimeConfig.temperature ?? 0.3, 0.05)
@@ -1873,6 +1874,8 @@ export async function startRun(
         tool_choice: toolParams.length > 0 ? 'auto' : undefined,
         temperature: effectiveTemperature,
         max_tokens: runtimeConfig.max_tokens ?? 4096,
+      }, {
+        timeoutMs: llmTimeoutMs,
       });
 
       // Accumulate usage
@@ -2503,6 +2506,7 @@ const DEFAULT_GENERAL_MODEL = 'openai/gpt-4o-mini';
 const CHAT_TOOL_RUNTIME_AGENT_SLUG_PREFIX = 'chat-tool-runtime-';
 const MAX_CHAT_TOOL_IDS = 64;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const CODING_AGENT_OPENROUTER_TIMEOUT_MS = 120_000;
 
 type ChatMode = 'general' | 'agent';
 
