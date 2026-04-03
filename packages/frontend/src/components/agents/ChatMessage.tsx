@@ -126,6 +126,48 @@ function looksLikeErrorLog(value: string): boolean {
   );
 }
 
+function getLogLineClassName(line: string): string {
+  const text = line.trim();
+  if (!text) return 'text-slate-500';
+
+  const lower = text.toLowerCase();
+  const statusMatch = text.match(/\b([1-5]\d{2})\b/);
+  const statusCode = statusMatch ? Number(statusMatch[1]) : null;
+
+  if (statusCode !== null) {
+    if (statusCode >= 200 && statusCode < 300) return 'text-emerald-300';
+    if (statusCode >= 300 && statusCode < 400) return 'text-sky-300';
+    if (statusCode >= 400 && statusCode < 500) return 'text-amber-300';
+    if (statusCode >= 500) return 'text-rose-300';
+  }
+
+  if (lower.includes('traceback') || lower.includes('exception') || lower.includes('fatal')) {
+    return 'text-rose-300';
+  }
+
+  if (/\berror\b/i.test(text) || /\bfailed\b/i.test(text)) {
+    return 'text-rose-300';
+  }
+
+  if (/\bwarn(?:ing)?\b/i.test(text)) {
+    return 'text-amber-300';
+  }
+
+  if (/\binfo\b/i.test(text) || /\bstarted\b/i.test(text) || /\bstarting\b/i.test(text)) {
+    return 'text-sky-200';
+  }
+
+  return 'text-slate-100';
+}
+
+function splitDeploymentLogLines(stdout: string, stderr: string): string[] {
+  return [stdout, stderr]
+    .filter((chunk) => chunk && chunk.trim())
+    .join('\n')
+    .replace(/\r\n/g, '\n')
+    .split('\n');
+}
+
 function stripDevReportEnvelope(content: string): string {
   return content.replace(/<dev-report>\s*[\s\S]*?(?:\s*<\/dev-report>|$)/gi, '').trim();
 }
@@ -1602,6 +1644,10 @@ export function ChatMessage({
   const resolvedPreviewRevision = resolvedHtmlPreview ? getStringHash(resolvedHtmlPreview.html) : undefined;
   const editorBusy = editorSaving || editorExporting;
   const messageActionBusy = deletingMessage || editingMessage;
+  const onLoadProjectDeploymentRef = useRef(onLoadProjectDeployment);
+  const deploymentPollingTimerRef = useRef<number | null>(null);
+
+  onLoadProjectDeploymentRef.current = onLoadProjectDeployment;
 
   useEffect(() => {
     if (!isEditorOpen || !previewEditor) return;
@@ -1622,33 +1668,83 @@ export function ChatMessage({
   }, [propHtmlPreview?.title, propHtmlPreview?.html]);
 
   useEffect(() => {
-    if (!canDeployProject || !onLoadProjectDeployment) return;
+    if (!canDeployProject || !onLoadProjectDeploymentRef.current) return;
 
     let cancelled = false;
-    setProjectDeploymentLoading(true);
-    setProjectDeploymentError(null);
-    void onLoadProjectDeployment()
-      .then((deployment) => {
+
+    const loadDeployment = async (options?: { silent?: boolean }) => {
+      if (!options?.silent) {
+        setProjectDeploymentLoading(true);
+      }
+      setProjectDeploymentError(null);
+      try {
+        const deployment = await onLoadProjectDeploymentRef.current?.();
         if (cancelled) return;
-        setProjectDeployment(deployment);
-        setProjectDeploymentEnvText(formatEnvText(deployment?.env));
-        setProjectDeploymentLinkedAgentId(deployment?.linked_agent_id ?? '');
+        setProjectDeployment(deployment ?? null);
+        setProjectDeploymentEnvText((current) => (current ? current : formatEnvText(deployment?.env)));
+        setProjectDeploymentLinkedAgentId((current) => (current ? current : (deployment?.linked_agent_id ?? '')));
         setProjectDeploymentSetTelegramWebhook(false);
-      })
-      .catch((error) => {
+      } catch (error) {
         if (cancelled) return;
         setProjectDeploymentError(error instanceof Error ? error.message : 'Не удалось загрузить deployment');
-      })
-      .finally(() => {
-        if (!cancelled) {
+      } finally {
+        if (!cancelled && !options?.silent) {
           setProjectDeploymentLoading(false);
         }
-      });
+      }
+    };
+
+    void loadDeployment();
 
     return () => {
       cancelled = true;
     };
-  }, [canDeployProject, onLoadProjectDeployment, content]);
+  }, [canDeployProject, content]);
+
+  useEffect(() => {
+    if (deploymentPollingTimerRef.current) {
+      window.clearInterval(deploymentPollingTimerRef.current);
+      deploymentPollingTimerRef.current = null;
+    }
+
+    if (
+      !canDeployProject
+      || !projectDeployment
+      || !onLoadProjectDeploymentRef.current
+      || (projectDeployment.status !== 'running' && projectDeployment.status !== 'deploying')
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const pollDeployment = async () => {
+      try {
+        const deployment = await onLoadProjectDeploymentRef.current?.();
+        if (cancelled || !deployment) return;
+        setProjectDeployment(deployment);
+      } catch {
+        // Preserve the previous deployment snapshot if background refresh fails.
+      }
+    };
+
+    deploymentPollingTimerRef.current = window.setInterval(() => {
+      void pollDeployment();
+    }, document.visibilityState === 'visible' ? 2000 : 5000);
+
+    return () => {
+      cancelled = true;
+      if (deploymentPollingTimerRef.current) {
+        window.clearInterval(deploymentPollingTimerRef.current);
+        deploymentPollingTimerRef.current = null;
+      }
+    };
+  }, [canDeployProject, projectDeployment?.id, projectDeployment?.status]);
+
+  const deploymentLogLines = useMemo(
+    () => splitDeploymentLogLines(projectDeployment?.live_stdout ?? '', projectDeployment?.live_stderr ?? ''),
+    [projectDeployment?.live_stdout, projectDeployment?.live_stderr],
+  );
 
   const setEditorTransientStatus = (message: string | null) => {
     if (editorStatusTimeoutRef.current) {
@@ -2447,18 +2543,23 @@ export function ChatMessage({
                             )}
                           </div>
                         </div>
-                        {(projectDeployment.live_stdout || projectDeployment.live_stderr) && (
+                        {deploymentLogLines.length > 0 && (
                           <div className="mt-3 space-y-1">
                             <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Логи</p>
                             <pre className={cn(
                               'max-h-[32rem] min-h-[18rem] w-full overflow-auto rounded bg-slate-950 p-3 text-xs',
-                              looksLikeErrorLog([projectDeployment.live_stderr, projectDeployment.live_stdout].filter(Boolean).join('\n'))
+                              looksLikeErrorLog(deploymentLogLines.join('\n'))
                                 ? 'text-rose-200'
                                 : 'text-slate-100',
                             )}>
-                              {[projectDeployment.live_stdout, projectDeployment.live_stderr]
-                                .filter((chunk) => chunk && chunk.trim())
-                                .join('\n')}
+                              {deploymentLogLines.map((line, index) => (
+                                <span
+                                  key={`${index}-${line}`}
+                                  className={cn('block whitespace-pre-wrap break-all', getLogLineClassName(line))}
+                                >
+                                  {line || ' '}
+                                </span>
+                              ))}
                             </pre>
                           </div>
                         )}
