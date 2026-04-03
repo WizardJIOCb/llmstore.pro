@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { AdminLayout } from '../../components/admin/AdminLayout';
 import { useAdminAgents } from '../../hooks/useAdmin';
 import { Button, Badge, Spinner } from '../../components/ui';
+import { formatUsd } from '../../lib/utils';
 
 const agentStatusLabels: Record<string, string> = {
   draft: 'Черновик',
@@ -101,7 +102,9 @@ export function AdminAgentsPage() {
                     <td className="px-4 py-3 text-xs text-muted-foreground">{new Date(agent.updated_at).toLocaleDateString('ru-RU')}</td>
                     <td className="px-4 py-3 text-xs">
                       <div>{Number(agent.total_tokens ?? 0).toLocaleString('ru-RU')} ток.</div>
-                      <div className="text-muted-foreground">${Number(agent.total_cost_usd ?? 0).toFixed(4)}</div>
+                      <div className="text-muted-foreground">
+                        {formatUsd(agent.total_cost_usd ?? 0, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-right">
                       <Link to={`/builder/agent/${agent.id}`}>

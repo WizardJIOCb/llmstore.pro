@@ -5,6 +5,7 @@ import { Button, Input, Spinner, Textarea } from '../../components/ui';
 import { UserLink } from '../../components/users/UserLink';
 import { adminApi } from '../../lib/api/admin';
 import { useAdminSettings, useAdjustUserBalance, useUpdateAdminSettings } from '../../hooks/useAdmin';
+import { formatUsd } from '../../lib/utils';
 
 interface BalanceTargetUser {
   id: string;
@@ -15,7 +16,7 @@ interface BalanceTargetUser {
 }
 
 function formatBalanceUsd(value: string | number): string {
-  return `$${Number(value ?? 0).toFixed(2)}`;
+  return formatUsd(value);
 }
 
 function promptsToText(value: string[]): string {
@@ -171,7 +172,7 @@ export function AdminSettingsPage() {
           ) : (
             <div className="space-y-5">
               <div className="max-w-xs">
-                <label className="mb-1 block text-sm font-medium">Курс USD к RUB</label>
+                <label className="mb-1 block text-sm font-medium">Курс $ к ₽</label>
                 <Input
                   type="number"
                   min="0.01"

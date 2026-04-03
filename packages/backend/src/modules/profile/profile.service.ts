@@ -280,7 +280,10 @@ export async function getPublicProfileByUsername(username: string): Promise<Publ
     throw new NotFoundError('Пользователь не найден');
   }
 
-  const usage = await getUserUsageSummary(user.id);
+  const [usage, usdToRubRate] = await Promise.all([
+    getUserUsageSummary(user.id),
+    getUsdToRubRate(),
+  ]);
 
   return {
     id: user.id,
@@ -289,6 +292,7 @@ export async function getPublicProfileByUsername(username: string): Promise<Publ
     avatar_url: user.avatar_url,
     role: user.role as UserRole,
     created_at: user.created_at.toISOString(),
+    usd_to_rub_rate: usdToRubRate,
     usage,
   };
 }

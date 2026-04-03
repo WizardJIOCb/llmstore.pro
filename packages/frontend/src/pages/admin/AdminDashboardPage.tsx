@@ -1,9 +1,10 @@
 import { AdminLayout } from '../../components/admin/AdminLayout';
 import { Spinner } from '../../components/ui/Spinner';
 import { useAdminDashboardStats } from '../../hooks/useAdmin';
+import { formatUsd as formatUsdValue } from '../../lib/utils';
 
 function formatUsd(value: number, digits = 4) {
-  return `$${value.toFixed(digits)}`;
+  return formatUsdValue(value, { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }
 
 function formatInt(value: number) {
@@ -187,7 +188,7 @@ export function AdminDashboardPage() {
                   <th className="px-4 py-2 text-left font-medium">Модель</th>
                   <th className="px-4 py-2 text-right font-medium">Сообщений</th>
                   <th className="px-4 py-2 text-right font-medium">Токенов</th>
-                  <th className="px-4 py-2 text-right font-medium">USD</th>
+                  <th className="px-4 py-2 text-right font-medium">$</th>
                 </tr>
               </thead>
               <tbody>
@@ -222,7 +223,7 @@ export function AdminDashboardPage() {
                   <th className="px-4 py-2 text-left font-medium">Чат</th>
                   <th className="px-4 py-2 text-left font-medium">Режим</th>
                   <th className="px-4 py-2 text-right font-medium">Сообщений</th>
-                  <th className="px-4 py-2 text-right font-medium">USD</th>
+                  <th className="px-4 py-2 text-right font-medium">$</th>
                 </tr>
               </thead>
               <tbody>

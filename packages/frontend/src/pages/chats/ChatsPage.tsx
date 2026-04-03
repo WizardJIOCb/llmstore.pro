@@ -42,7 +42,7 @@ import type {
   CodingReport,
   ToolTrace,
 } from '../../lib/api/chats';
-import { cn } from '../../lib/utils';
+import { cn, formatRub, formatUsd } from '../../lib/utils';
 import { TopUpHelp } from '../../components/billing/TopUpHelp';
 
 interface GeneralModelOption {
@@ -135,12 +135,9 @@ function formatInt(value: number): string {
 }
 
 function formatMoney(value: number, currency: 'USD' | 'RUB'): string {
-  return new Intl.NumberFormat('ru-RU', {
-    style: 'currency',
-    currency,
-    minimumFractionDigits: 4,
-    maximumFractionDigits: 4,
-  }).format(value);
+  return currency === 'USD'
+    ? formatUsd(value, { minimumFractionDigits: 4, maximumFractionDigits: 4 })
+    : formatRub(value, { minimumFractionDigits: 4, maximumFractionDigits: 4 });
 }
 
 function formatUsdCompact(value: number): string {
@@ -2397,8 +2394,8 @@ export function ChatsPage() {
                       <div className="rounded-lg border bg-muted/20 p-3"><p className="text-xs text-muted-foreground">Токены prompt</p><p className="text-base font-semibold">{formatInt(activeChatStats.totals.prompt_tokens)}</p></div>
                       <div className="rounded-lg border bg-muted/20 p-3"><p className="text-xs text-muted-foreground">Токены completion</p><p className="text-base font-semibold">{formatInt(activeChatStats.totals.completion_tokens)}</p></div>
                       <div className="rounded-lg border bg-muted/20 p-3"><p className="text-xs text-muted-foreground">Время ответов</p><p className="text-base font-semibold">{formatDuration(activeChatStats.totals.total_latency_ms)}</p></div>
-                      <div className="rounded-lg border bg-muted/20 p-3"><p className="text-xs text-muted-foreground">Стоимость (USD)</p><p className="text-base font-semibold">{formatMoney(activeChatStats.totals.usd_cost, 'USD')}</p></div>
-                      <div className="rounded-lg border bg-muted/20 p-3"><p className="text-xs text-muted-foreground">Стоимость (RUB)</p><p className="text-base font-semibold">{formatMoney(activeChatStats.totals.rub_cost, 'RUB')}</p></div>
+                      <div className="rounded-lg border bg-muted/20 p-3"><p className="text-xs text-muted-foreground">Стоимость ($)</p><p className="text-base font-semibold">{formatMoney(activeChatStats.totals.usd_cost, 'USD')}</p></div>
+                      <div className="rounded-lg border bg-muted/20 p-3"><p className="text-xs text-muted-foreground">Стоимость (₽)</p><p className="text-base font-semibold">{formatMoney(activeChatStats.totals.rub_cost, 'RUB')}</p></div>
                     </div>
                   </div>
 
@@ -2416,8 +2413,8 @@ export function ChatsPage() {
                               <th className="px-3 py-2 font-medium">Модель</th>
                               <th className="px-3 py-2 font-medium">Сообщений</th>
                               <th className="px-3 py-2 font-medium">Токены</th>
-                              <th className="px-3 py-2 font-medium">USD</th>
-                              <th className="px-3 py-2 font-medium">RUB</th>
+                              <th className="px-3 py-2 font-medium">$</th>
+                              <th className="px-3 py-2 font-medium">₽</th>
                             </tr>
                           </thead>
                           <tbody>

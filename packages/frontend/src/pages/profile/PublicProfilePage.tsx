@@ -4,6 +4,7 @@ import { Badge } from '../../components/ui/Badge';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Spinner } from '../../components/ui/Spinner';
 import { profileApi } from '../../lib/api/profile';
+import { formatUsdRubPair } from '../../lib/utils';
 
 const ROLE_LABELS: Record<string, string> = {
   user: 'Пользователь',
@@ -95,7 +96,9 @@ export function PublicProfilePage() {
               <p className="text-xs text-muted-foreground">Токенов</p>
             </div>
             <div className="rounded-lg bg-muted/50 p-4 text-center">
-              <p className="text-2xl font-bold">${Number(profile.usage.total_cost_usd).toFixed(4)}</p>
+              <p className="text-xl font-bold break-words">
+                {formatUsdRubPair(profile.usage.total_cost_usd, profile.usd_to_rub_rate)}
+              </p>
               <p className="text-xs text-muted-foreground">Потрачено</p>
             </div>
           </div>
@@ -108,7 +111,7 @@ export function PublicProfilePage() {
                     <th className="pb-2 font-medium">Агент</th>
                     <th className="pb-2 text-right font-medium">Запуски</th>
                     <th className="pb-2 text-right font-medium">Токены</th>
-                    <th className="pb-2 text-right font-medium">Стоимость</th>
+                    <th className="pb-2 text-right font-medium">Стоимость ($/₽)</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -117,7 +120,9 @@ export function PublicProfilePage() {
                       <td className="py-2">{agent.agent_name}</td>
                       <td className="py-2 text-right">{agent.total_runs}</td>
                       <td className="py-2 text-right">{formatTokens(agent.total_tokens)}</td>
-                      <td className="py-2 text-right">${Number(agent.total_cost).toFixed(4)}</td>
+                      <td className="py-2 text-right">
+                        {formatUsdRubPair(agent.total_cost, profile.usd_to_rub_rate)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

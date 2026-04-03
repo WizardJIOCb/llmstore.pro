@@ -95,5 +95,6 @@ export interface UserProfile extends UserPublic {
 export interface PublicUserProfile extends UserSlim {
   role: UserRole;
   created_at: string;
+  usd_to_rub_rate: number;
   usage: UserUsageSummary;
 }

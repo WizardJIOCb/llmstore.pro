@@ -3,6 +3,7 @@ import { AdminLayout } from '../../components/admin/AdminLayout';
 import { useAdminUsers, useUpdateUserRole, useUpdateUserStatus, useAdjustUserBalance } from '../../hooks/useAdmin';
 import { Button, Badge, Spinner } from '../../components/ui';
 import { UserLink } from '../../components/users/UserLink';
+import { formatUsd } from '../../lib/utils';
 
 const roleLabels: Record<string, string> = {
   user: 'Пользователь',
@@ -167,7 +168,7 @@ export function AdminUsersPage() {
                       {Number(user.spent_tokens ?? 0).toLocaleString('ru-RU')}
                     </td>
                     <td className="px-4 py-3 text-right font-mono">
-                      ${Number(user.spent_usd ?? 0).toFixed(4)}
+                      {formatUsd(user.spent_usd ?? 0, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
                     </td>
                     <td className="px-4 py-3">
                       <Badge variant={roleVariants[user.role] ?? 'secondary'}>
@@ -180,7 +181,7 @@ export function AdminUsersPage() {
                       </Badge>
                     </td>
                     <td className="px-4 py-3 text-right font-mono">
-                      ${Number(user.balance_usd).toFixed(2)}
+                      {formatUsd(user.balance_usd)}
                     </td>
                     <td className="px-4 py-3 text-xs text-muted-foreground">
                       {new Date(user.created_at).toLocaleDateString('ru-RU')}

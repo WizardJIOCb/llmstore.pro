@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Ca
 import { Input } from '../../components/ui/Input';
 import { Spinner } from '../../components/ui/Spinner';
 import { UserLink } from '../../components/users/UserLink';
+import { formatRub, formatUsd, formatUsdRubPair } from '../../lib/utils';
 
 const ROLE_LABELS: Record<string, string> = {
   user: 'Пользователь',
@@ -216,7 +217,7 @@ export function ProfilePage() {
                   {returnedTopUpIsProcessing && 'Платёж создан и ещё обрабатывается YooKassa.'}
                 </p>
                 <p className="text-xs opacity-80">
-                  {Number(returnedTopUp.amount_rub).toLocaleString('ru-RU')} ₽ → ${Number(returnedTopUp.amount_usd).toFixed(4)}
+                  {formatRub(returnedTopUp.amount_rub, { minimumFractionDigits: 0, maximumFractionDigits: 0 })} → {formatUsd(returnedTopUp.amount_usd, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
                 </p>
               </div>
               {returnedTopUpIsProcessing && returnedTopUp.confirmation_url && (
@@ -322,13 +323,13 @@ export function ProfilePage() {
         </CardHeader>
         <CardContent>
           <div className="flex items-baseline gap-4">
-            <span className="text-3xl font-bold">${Number(profile.balance_usd).toFixed(2)}</span>
+            <span className="text-3xl font-bold">{formatUsd(profile.balance_usd)}</span>
             <span className="text-lg text-muted-foreground">
-              ~ {Number(profile.balance_rub).toLocaleString('ru-RU')} руб.
+              ~ {formatRub(profile.balance_rub)}
             </span>
           </div>
           <p className="mt-2 text-xs text-muted-foreground">
-            Курс: 1 USD = {usdToRubRate} руб.
+            Курс: $1 = {formatRub(usdToRubRate, { minimumFractionDigits: 0, maximumFractionDigits: 4 })}.
           </p>
           <BalanceTopUpPanel settings={appSettings} />
         </CardContent>
@@ -393,10 +394,10 @@ export function ProfilePage() {
                       </div>
                       <div className="text-right shrink-0">
                         <p className={`font-semibold ${item.direction === 'credit' ? 'text-green-700' : 'text-red-600'}`}>
-                          {sign}${amount.toFixed(4)}
+                          {sign}{formatUsd(amount, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          {sign}{amountRub.toFixed(2)} руб.
+                          {sign}{formatRub(amountRub)}
                         </p>
                       </div>
                     </div>
@@ -448,7 +449,7 @@ export function ProfilePage() {
               <p className="text-xs text-muted-foreground">Токенов</p>
             </div>
             <div className="text-center p-3 rounded-lg bg-muted/50">
-              <p className="text-2xl font-bold">${Number(profile.usage.total_cost_usd).toFixed(4)}</p>
+              <p className="text-xl font-bold break-words">{formatUsdRubPair(profile.usage.total_cost_usd, usdToRubRate)}</p>
               <p className="text-xs text-muted-foreground">Потрачено</p>
             </div>
           </div>
@@ -463,7 +464,7 @@ export function ProfilePage() {
                       <th className="pb-2 font-medium">Агент</th>
                       <th className="pb-2 font-medium text-right">Запуски</th>
                       <th className="pb-2 font-medium text-right">Токены</th>
-                      <th className="pb-2 font-medium text-right">Стоимость</th>
+                      <th className="pb-2 font-medium text-right">Стоимость ($/₽)</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -472,7 +473,7 @@ export function ProfilePage() {
                         <td className="py-2">{agent.agent_name}</td>
                         <td className="py-2 text-right">{agent.total_runs}</td>
                         <td className="py-2 text-right">{formatTokens(agent.total_tokens)}</td>
-                        <td className="py-2 text-right">${Number(agent.total_cost).toFixed(4)}</td>
+                        <td className="py-2 text-right">{formatUsdRubPair(agent.total_cost, usdToRubRate)}</td>
                       </tr>
                     ))}
                   </tbody>

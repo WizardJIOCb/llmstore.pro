@@ -4,6 +4,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { useChatsList } from '../../hooks/useChats';
 import { useProfile } from '../../hooks/useProfile';
 import { Button } from '../../components/ui';
+import { formatRub, formatUsd } from '../../lib/utils';
 
 const navItems = [
   { label: 'Новости', href: '/news' },
@@ -88,7 +89,7 @@ export function AppLayout() {
   const activeMenuClass = 'bg-[hsl(222.2deg_53.33%_74.69%_/_10%)]';
   const profileBaseLabel = user?.name || user?.email || 'Профиль';
   const profileBalanceLabel = profile
-    ? `(₽${Math.round(Number(profile.balance_rub)).toLocaleString('ru-RU')} / $${Number(profile.balance_usd).toFixed(2)})`
+    ? `(${formatRub(profile.balance_rub, { minimumFractionDigits: 0, maximumFractionDigits: 0, symbolPosition: 'prefix' })} / ${formatUsd(profile.balance_usd)})`
     : null;
   const profileLabel = [profileBaseLabel, profileBalanceLabel].filter(Boolean).join(' ');
   const visibleNavItems = navItems.filter((item) => !item.requiresAuth || isAuthenticated);
