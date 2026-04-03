@@ -8,14 +8,14 @@ import { Button } from '../../components/ui';
 const navItems = [
   { label: 'Новости', href: '/news' },
   { label: 'Галерея', href: '/gallery' },
-  { label: 'Чаты', href: '/chats' },
-  { label: 'Агенты', href: '/my/agents' },
+  { label: 'Чаты', href: '/chats', requiresAuth: true },
+  { label: 'Агенты', href: '/my/agents', requiresAuth: true },
   { label: 'Статьи', href: '/articles' },
 ];
 
 export function AppLayout() {
   const { user, isAuthenticated, isAdmin, logout } = useAuth();
-  const { data: profile } = useProfile();
+  const { data: profile } = useProfile(isAuthenticated);
   const location = useLocation();
   const navigate = useNavigate();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -91,6 +91,7 @@ export function AppLayout() {
     ? `(₽${Math.round(Number(profile.balance_rub)).toLocaleString('ru-RU')} / $${Number(profile.balance_usd).toFixed(2)})`
     : null;
   const profileLabel = [profileBaseLabel, profileBalanceLabel].filter(Boolean).join(' ');
+  const visibleNavItems = navItems.filter((item) => !item.requiresAuth || isAuthenticated);
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -121,7 +122,7 @@ export function AppLayout() {
           </div>
           <div className="hidden md:flex items-center gap-6">
             <nav className="flex items-center gap-6">
-              {navItems.map((item) => (
+              {visibleNavItems.map((item) => (
                 item.href === '/chats' ? (
                   <button
                     key={item.href}
@@ -197,7 +198,7 @@ export function AppLayout() {
             </div>
 
             <nav className="space-y-1">
-              {navItems.map((item) => (
+              {visibleNavItems.map((item) => (
                 item.href === '/chats' ? (
                   <button
                     key={item.href}

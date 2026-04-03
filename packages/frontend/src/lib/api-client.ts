@@ -1,5 +1,21 @@
 import axios from 'axios';
 
+const PROTECTED_ROUTE_PREFIXES = [
+  '/chats',
+  '/my/agents',
+  '/builder/agent',
+  '/playground/agent',
+  '/profile',
+  '/dashboard',
+  '/admin',
+];
+
+function isProtectedUiPath(pathname: string): boolean {
+  return PROTECTED_ROUTE_PREFIXES.some((prefix) => (
+    pathname === prefix || pathname.startsWith(`${prefix}/`)
+  ));
+}
+
 export const apiClient = axios.create({
   baseURL: '/api',
   withCredentials: true,
@@ -16,11 +32,13 @@ apiClient.interceptors.response.use(
       const isAuthMeRequest = requestUrl.includes('/auth/me');
       const { pathname } = window.location;
       const isPublicSharedPage = pathname.startsWith('/shared/chat/') || pathname.startsWith('/shared/chats/');
+      const shouldForceLogin = isProtectedUiPath(pathname);
 
       // Do not force-login on expected 401s:
       // - /auth/me for guests
       // - public shared chat pages
-      if (!isAuthMeRequest && !isPublicSharedPage && pathname !== '/login' && pathname !== '/register') {
+      // - any public page where a protected request can fail in background
+      if (!isAuthMeRequest && !isPublicSharedPage && shouldForceLogin && pathname !== '/login' && pathname !== '/register') {
         window.location.href = '/login';
       }
     }

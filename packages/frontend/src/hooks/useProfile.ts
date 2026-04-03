@@ -1,11 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { profileApi } from '../lib/api/profile';
 
-export function useProfile() {
+export function useProfile(enabled = true) {
   return useQuery({
     queryKey: ['profile'],
     queryFn: () => profileApi.getProfile(),
     staleTime: 30_000,
+    enabled,
   });
 }
 

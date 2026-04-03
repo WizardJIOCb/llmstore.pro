@@ -6,6 +6,7 @@ import { Spinner } from '../../components/ui/Spinner';
 import { Button } from '../../components/ui/Button';
 import { apiClient } from '../../lib/api-client';
 import { chatsApi, type ChatAttachment, type CodingReport } from '../../lib/api/chats';
+import { useAuth } from '../../hooks/useAuth';
 import { useProfile } from '../../hooks/useProfile';
 
 interface LegacySharedChat {
@@ -151,7 +152,8 @@ function extractAttachments(value?: Record<string, unknown> | null): ChatAttachm
 export function SharedChatPage() {
   const { token } = useParams<{ token: string }>();
   const queryClient = useQueryClient();
-  const { data: profile } = useProfile();
+  const { isAuthenticated } = useAuth();
+  const { data: profile } = useProfile(isAuthenticated);
   const [isExporting, setIsExporting] = useState(false);
   const updateSharedPreviewMutation = useMutation({
     mutationFn: ({ messageId, ...payload }: { messageId: string; title?: string | null; html: string }) =>
