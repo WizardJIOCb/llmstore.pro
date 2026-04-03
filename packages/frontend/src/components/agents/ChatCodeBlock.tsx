@@ -36,6 +36,7 @@ const CODE_FONT_FAMILY = [
 
 const COLLAPSED_CODE_PREVIEW_LINES = 10;
 const COLLAPSIBLE_CODE_MIN_LINES = 24;
+const COLLAPSED_CODE_PREVIEW_MAX_HEIGHT = 264;
 
 const LANGUAGE_ALIASES: Record<string, SupportedCodeLanguage> = {
   c: 'c',
@@ -646,10 +647,8 @@ export function ChatCodeBlock({ code, className }: ChatCodeBlockProps) {
     [language, normalizedCode],
   );
   const isCollapsible = highlightedLines.length >= COLLAPSIBLE_CODE_MIN_LINES;
-  const visibleLines = expanded || !isCollapsible
-    ? highlightedLines
-    : highlightedLines.slice(0, COLLAPSED_CODE_PREVIEW_LINES);
-  const hiddenLineCount = Math.max(highlightedLines.length - visibleLines.length, 0);
+  const previewLineCount = Math.min(COLLAPSED_CODE_PREVIEW_LINES, highlightedLines.length);
+  const hiddenLineCount = Math.max(highlightedLines.length - previewLineCount, 0);
 
   useEffect(() => {
     return () => {
@@ -721,12 +720,18 @@ export function ChatCodeBlock({ code, className }: ChatCodeBlockProps) {
         </div>
       </div>
 
-      <div className="overflow-x-auto">
+      <div
+        className={cn(
+          'chat-code-block__scroller overflow-x-auto',
+          isCollapsible && !expanded ? 'overflow-y-auto' : 'overflow-y-hidden',
+        )}
+        style={isCollapsible && !expanded ? { maxHeight: `${COLLAPSED_CODE_PREVIEW_MAX_HEIGHT}px` } : undefined}
+      >
         <pre
           className="m-0 min-w-full bg-transparent py-3 text-[13px] leading-6"
           style={{ fontFamily: CODE_FONT_FAMILY }}
         >
-          {visibleLines.map((line, index) => (
+          {highlightedLines.map((line, index) => (
             <div
               key={`${language}-${index}`}
               className="grid grid-cols-[3.5rem_minmax(0,1fr)] items-start hover:bg-white/[0.03]"

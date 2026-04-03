@@ -36,6 +36,30 @@
 }
 
 @layer components {
+  .chat-code-block__scroller {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(125, 211, 252, 0.35) rgba(15, 23, 42, 0.16);
+  }
+
+  .chat-code-block__scroller::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .chat-code-block__scroller::-webkit-scrollbar-track {
+    background: rgba(15, 23, 42, 0.16);
+  }
+
+  .chat-code-block__scroller::-webkit-scrollbar-thumb {
+    border-radius: 9999px;
+    background: linear-gradient(180deg, rgba(125, 211, 252, 0.55), rgba(56, 189, 248, 0.38));
+    border: 1px solid rgba(255, 255, 255, 0.04);
+  }
+
+  .chat-code-block__scroller::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, rgba(125, 211, 252, 0.72), rgba(56, 189, 248, 0.5));
+  }
+
   .chat-thinking-bubble {
     transform-origin: left bottom;
     will-change: opacity, transform;
