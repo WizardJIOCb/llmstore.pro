@@ -1737,8 +1737,8 @@ export function ChatsPage() {
 
         {showChatPane && (
         <section className="flex min-w-0 flex-1 flex-col">
-          <div className="border-b px-4 py-3 flex items-center justify-between gap-3">
-            <div className="min-w-0">
+          <div className="flex flex-col gap-3 border-b px-4 py-3 xl:flex-row xl:items-center xl:justify-between">
+            <div className="min-w-0 flex-1">
               <h1 className="truncate font-semibold">{activeChat?.title ?? 'Чаты'}</h1>
               <p className="truncate text-xs text-muted-foreground">
                 {activeChat?.mode === 'general'
@@ -1749,7 +1749,7 @@ export function ChatsPage() {
               </p>
             </div>
             {activeChat && (
-              <div className="flex items-center gap-2">
+              <div className="flex w-full flex-wrap items-center gap-2 xl:w-auto xl:justify-end">
                 <Button
                   variant="outline"
                   size="sm"
@@ -1765,7 +1765,12 @@ export function ChatsPage() {
                 >
                   Поделиться
                 </Button>
-                <Select options={modeOptions} value={activeModeValue} onChange={(e) => handleModeChange(e.target.value)} className="w-64" />
+                <Select
+                  options={modeOptions}
+                  value={activeModeValue}
+                  onChange={(e) => handleModeChange(e.target.value)}
+                  className="min-w-0 flex-1 sm:flex-none xl:w-64"
+                />
               </div>
             )}
           </div>

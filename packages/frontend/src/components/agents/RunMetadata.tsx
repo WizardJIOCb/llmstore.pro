@@ -46,7 +46,7 @@ export function RunMetadata({ usage, latencyMs, createdAt, agentName, toolNames 
   if (!usage && !latencyMs && !createdAt && !agentName && (!toolNames || toolNames.length === 0)) return null;
 
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+    <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 break-words text-xs text-muted-foreground">
       {createdAt && <span>Дата: {formatTimestamp(createdAt)}</span>}
       {latencyMs != null && <span>Время: {(latencyMs / 1000).toFixed(1)}s</span>}
       {agentName && <span>Агент: {agentName}</span>}
