@@ -387,6 +387,7 @@ interface StartRunOptions {
   sync_to_chats?: boolean;
   on_event?: (event: string, payload: Record<string, unknown>) => void;
   strict_preview_edit?: StrictPreviewEditOptions | null;
+  charge_usage?: boolean;
 }
 
 interface RunResult {
@@ -1102,6 +1103,7 @@ export async function startRun(
   const startTime = Date.now();
   await ensureSufficientBalance(userId);
   const syncToChats = options.sync_to_chats ?? false;
+  const chargeUsage = options.charge_usage ?? true;
   const emitEvent = options.on_event ?? (() => undefined);
   const latestUserMessage = [...input.messages]
     .reverse()
@@ -1560,7 +1562,7 @@ export async function startRun(
     }).where(eq(chatConversations.id, syncedConversationId));
   }
 
-  if (totalUsage.total_tokens > 0) {
+  if (chargeUsage && runStatus === 'completed' && totalUsage.total_tokens > 0) {
     await chargeUserBalanceForUsage({
       user_id: userId,
       amount_usd: Number(estCost),
@@ -3784,6 +3786,7 @@ export async function sendChatMessage(
       model_external_id: null,
     }, {
       sync_to_chats: false,
+      charge_usage: false,
       on_event: emitChatEvent,
       strict_preview_edit: strictPreviewEdit && latestPreviewSnapshot
         ? {
@@ -3866,6 +3869,7 @@ export async function sendChatMessage(
       model_external_id: chat.model_external_id ?? DEFAULT_GENERAL_MODEL,
     }, {
       sync_to_chats: false,
+      charge_usage: false,
       on_event: emitChatEvent,
       strict_preview_edit: strictPreviewEdit && latestPreviewSnapshot
         ? {
@@ -3992,12 +3996,14 @@ export async function sendChatMessage(
       ? usagePayload.estimated_cost
       : (typeof usagePayload?.estimated_cost === 'number' ? usagePayload.estimated_cost : 0),
   );
-  if (chat.mode === 'general' && chargedCost > 0) {
+  if (chargedCost > 0) {
     await chargeUserBalanceForUsage({
       user_id: userId,
       amount_usd: chargedCost,
-      type: 'chat_usage',
-      description: `Списание за чат ${nextTitle}`,
+      type: chat.mode === 'agent' ? 'agent_run_usage' : 'chat_usage',
+      description: chat.mode === 'agent'
+        ? `Списание за агентный чат ${nextTitle}`
+        : `Списание за чат ${nextTitle}`,
     });
   }
 
