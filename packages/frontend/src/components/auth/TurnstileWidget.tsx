@@ -51,6 +51,21 @@ function loadTurnstileScript(): Promise<void> {
 export function TurnstileWidget({ siteKey, onVerify, onExpire, onError }: TurnstileWidgetProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const widgetIdRef = useRef<string | null>(null);
+  const onVerifyRef = useRef(onVerify);
+  const onExpireRef = useRef(onExpire);
+  const onErrorRef = useRef(onError);
+
+  useEffect(() => {
+    onVerifyRef.current = onVerify;
+  }, [onVerify]);
+
+  useEffect(() => {
+    onExpireRef.current = onExpire;
+  }, [onExpire]);
+
+  useEffect(() => {
+    onErrorRef.current = onError;
+  }, [onError]);
 
   useEffect(() => {
     let cancelled = false;
@@ -61,13 +76,13 @@ export function TurnstileWidget({ siteKey, onVerify, onExpire, onError }: Turnst
 
         widgetIdRef.current = window.turnstile.render(containerRef.current, {
           sitekey: siteKey,
-          callback: (token) => onVerify(token),
-          'expired-callback': () => onExpire?.(),
-          'error-callback': () => onError?.(),
+          callback: (token) => onVerifyRef.current(token),
+          'expired-callback': () => onExpireRef.current?.(),
+          'error-callback': () => onErrorRef.current?.(),
         });
       })
       .catch(() => {
-        if (!cancelled) onError?.();
+        if (!cancelled) onErrorRef.current?.();
       });
 
     return () => {
@@ -77,7 +92,7 @@ export function TurnstileWidget({ siteKey, onVerify, onExpire, onError }: Turnst
         widgetIdRef.current = null;
       }
     };
-  }, [onError, onExpire, onVerify, siteKey]);
+  }, [siteKey]);
 
   return <div ref={containerRef} className="min-h-[65px]" />;
 }
