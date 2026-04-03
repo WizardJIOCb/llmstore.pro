@@ -1932,14 +1932,14 @@ export function ChatMessage({
     <>
       <div
         className={cn(
-          'group flex',
+          'group flex min-w-0 max-w-full',
           isUser ? 'justify-end' : 'justify-start',
           animateOnMount && 'chat-message-enter',
           animateOnMount && isUser && 'chat-message-enter--user',
           animateOnMount && !isUser && 'chat-message-enter--assistant',
         )}
       >
-        <div className={cn(isUser ? 'max-w-[80%]' : 'w-full')}>
+        <div className={cn('min-w-0 max-w-full', isUser ? 'max-w-[80%]' : 'w-full')}>
           {authorLabel && (
             <p
               className={cn(
@@ -2234,7 +2234,7 @@ export function ChatMessage({
               )}
 
               {resolvedHtmlPreview && (
-                <div className="rounded-lg border border-border/70 bg-background/70 p-3">
+                <div className="min-w-0 max-w-full overflow-hidden rounded-lg border border-border/70 bg-background/70 p-3">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-semibold text-slate-900">
@@ -2318,13 +2318,13 @@ export function ChatMessage({
                       Preview
                     </p>
                   </div>
-                  <div className="mt-3">
+                  <div className="mt-3 min-w-0 max-w-full overflow-hidden">
                     <HtmlPreviewBrowser
-                    title={resolvedHtmlPreview.title}
-                    html={resolvedHtmlPreview.html}
-                    previewPageUrl={absolutePreviewPageUrl}
-                    revisionKey={resolvedPreviewRevision}
-                    className="h-80 w-full"
+                      title={resolvedHtmlPreview.title}
+                      html={resolvedHtmlPreview.html}
+                      previewPageUrl={absolutePreviewPageUrl}
+                      revisionKey={resolvedPreviewRevision}
+                      className="h-80 w-full max-w-full overflow-hidden"
                     />
                   </div>
                 </div>
