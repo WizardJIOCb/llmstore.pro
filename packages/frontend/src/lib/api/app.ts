@@ -8,6 +8,16 @@ export interface AppSettings {
     email: string;
     phone: string;
   };
+  legal: {
+    business_name: string;
+    business_status: string;
+    inn: string;
+    ogrn: string;
+    address: string;
+    support_email: string;
+    support_phone: string;
+    support_telegram: string;
+  };
   starter_prompts: {
     openrouter_coding_agent: string[];
     openrouter_coding_agent_fast: string[];

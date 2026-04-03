@@ -20,7 +20,7 @@ interface TopUpHelpProps {
 export function TopUpHelp({ settings, className }: TopUpHelpProps) {
   const topup = settings?.topup;
 
-  const message = topup?.message || 'У вас не осталось баланса. Скоро вы сможете пополнить его на сайте, а пока можете написать Родиону:';
+  const message = topup?.message || 'Нужна помощь с пополнением или оплатой? Напишите Родиону:';
   const telegram = topup?.telegram || '@WizardJIOCb';
   const email = topup?.email || 'rodion89@list.ru';
   const phone = topup?.phone || '89264769929';

@@ -76,6 +76,40 @@ export function HomePage() {
         </div>
       </section>
 
+      <section className="container mx-auto px-4 py-12">
+        <div className="rounded-2xl border bg-white p-8">
+          <div className="max-w-3xl">
+            <p className="text-sm uppercase tracking-[0.22em] text-muted-foreground">Как это работает</p>
+            <h2 className="mt-3 text-3xl font-bold tracking-tight">Цифровой сервис без физической доставки</h2>
+            <p className="mt-4 text-base leading-7 text-muted-foreground">
+              Пользователь регистрируется в LLMStore.pro, пополняет внутренний баланс и использует
+              его для чатов с AI-моделями, запусков AI-агентов и других функций платформы.
+              После успешной оплаты баланс зачисляется автоматически и сразу доступен в аккаунте.
+            </p>
+          </div>
+          <div className="mt-6 flex flex-wrap gap-3">
+            <Link
+              to="/pricing"
+              className="inline-flex items-center justify-center rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            >
+              Оплата и тарифы
+            </Link>
+            <Link
+              to="/offer"
+              className="inline-flex items-center justify-center rounded-md border border-input bg-background px-5 py-2.5 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
+            >
+              Публичная оферта
+            </Link>
+            <Link
+              to="/contacts"
+              className="inline-flex items-center justify-center rounded-md border border-input bg-background px-5 py-2.5 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
+            >
+              Контакты и реквизиты
+            </Link>
+          </div>
+        </div>
+      </section>
+
       {newsItems.length > 0 && (
         <section className="container mx-auto px-4 py-12">
           <div className="mb-6 flex items-center justify-between">

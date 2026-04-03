@@ -11,6 +11,14 @@ const SETTINGS_KEYS = {
   topup_telegram: 'topup_telegram',
   topup_email: 'topup_email',
   topup_phone: 'topup_phone',
+  legal_business_name: 'legal_business_name',
+  legal_business_status: 'legal_business_status',
+  legal_inn: 'legal_inn',
+  legal_ogrn: 'legal_ogrn',
+  legal_address: 'legal_address',
+  legal_support_email: 'legal_support_email',
+  legal_support_phone: 'legal_support_phone',
+  legal_support_telegram: 'legal_support_telegram',
   starter_prompts_openrouter_coding_agent: 'starter_prompts_openrouter_coding_agent',
   starter_prompts_openrouter_coding_agent_fast: 'starter_prompts_openrouter_coding_agent_fast',
   starter_prompts_openrouter_coding_agent_heavy_planning: 'starter_prompts_openrouter_coding_agent_heavy_planning',
@@ -18,10 +26,18 @@ const SETTINGS_KEYS = {
   starter_prompts_dtf_news_agent: 'starter_prompts_dtf_news_agent',
 } as const;
 
-const DEFAULT_TOPUP_MESSAGE = 'У вас не осталось баланса. Скоро вы сможете пополнить его на сайте, а пока можете написать Родиону:';
+const DEFAULT_TOPUP_MESSAGE = 'Нужна помощь с пополнением или оплатой? Напишите Родиону:';
 const DEFAULT_TOPUP_TELEGRAM = '@WizardJIOCb';
 const DEFAULT_TOPUP_EMAIL = 'rodion89@list.ru';
 const DEFAULT_TOPUP_PHONE = '89264769929';
+const DEFAULT_LEGAL_BUSINESS_NAME = 'LLMStore.pro';
+const DEFAULT_LEGAL_BUSINESS_STATUS = 'самозанятый';
+const DEFAULT_LEGAL_INN = '';
+const DEFAULT_LEGAL_OGRN = '';
+const DEFAULT_LEGAL_ADDRESS = '';
+const DEFAULT_LEGAL_SUPPORT_EMAIL = DEFAULT_TOPUP_EMAIL;
+const DEFAULT_LEGAL_SUPPORT_PHONE = DEFAULT_TOPUP_PHONE;
+const DEFAULT_LEGAL_SUPPORT_TELEGRAM = DEFAULT_TOPUP_TELEGRAM;
 const DEFAULT_STARTER_PROMPTS = {
   openrouter_coding_agent: [
     'Сделай одностраничный лендинг и покажи preview',
@@ -242,6 +258,81 @@ export async function updateTopUpSettings(input: {
   };
 }
 
+export async function getLegalSettings() {
+  const [
+    businessName,
+    businessStatus,
+    inn,
+    ogrn,
+    address,
+    supportEmail,
+    supportPhone,
+    supportTelegram,
+  ] = await Promise.all([
+    getSettingValue(SETTINGS_KEYS.legal_business_name, DEFAULT_LEGAL_BUSINESS_NAME),
+    getSettingValue(SETTINGS_KEYS.legal_business_status, DEFAULT_LEGAL_BUSINESS_STATUS),
+    getSettingValue(SETTINGS_KEYS.legal_inn, DEFAULT_LEGAL_INN),
+    getSettingValue(SETTINGS_KEYS.legal_ogrn, DEFAULT_LEGAL_OGRN),
+    getSettingValue(SETTINGS_KEYS.legal_address, DEFAULT_LEGAL_ADDRESS),
+    getSettingValue(SETTINGS_KEYS.legal_support_email, DEFAULT_LEGAL_SUPPORT_EMAIL),
+    getSettingValue(SETTINGS_KEYS.legal_support_phone, DEFAULT_LEGAL_SUPPORT_PHONE),
+    getSettingValue(SETTINGS_KEYS.legal_support_telegram, DEFAULT_LEGAL_SUPPORT_TELEGRAM),
+  ]);
+
+  return {
+    business_name: businessName,
+    business_status: businessStatus,
+    inn,
+    ogrn,
+    address,
+    support_email: supportEmail,
+    support_phone: supportPhone,
+    support_telegram: supportTelegram,
+  };
+}
+
+export async function updateLegalSettings(input: {
+  legal_business_name?: string;
+  legal_business_status?: string;
+  legal_inn?: string;
+  legal_ogrn?: string;
+  legal_address?: string;
+  legal_support_email?: string;
+  legal_support_phone?: string;
+  legal_support_telegram?: string;
+}, updatedBy?: string | null) {
+  const businessName = normalizeText(input.legal_business_name, 255) ?? DEFAULT_LEGAL_BUSINESS_NAME;
+  const businessStatus = normalizeText(input.legal_business_status, 100) ?? DEFAULT_LEGAL_BUSINESS_STATUS;
+  const inn = normalizeText(input.legal_inn, 50) ?? DEFAULT_LEGAL_INN;
+  const ogrn = normalizeText(input.legal_ogrn, 50) ?? DEFAULT_LEGAL_OGRN;
+  const address = normalizeText(input.legal_address, 500) ?? DEFAULT_LEGAL_ADDRESS;
+  const supportEmail = normalizeText(input.legal_support_email, 255) ?? DEFAULT_LEGAL_SUPPORT_EMAIL;
+  const supportPhone = normalizeText(input.legal_support_phone, 50) ?? DEFAULT_LEGAL_SUPPORT_PHONE;
+  const supportTelegram = normalizeText(input.legal_support_telegram, 100) ?? DEFAULT_LEGAL_SUPPORT_TELEGRAM;
+
+  await Promise.all([
+    setSettingValue(SETTINGS_KEYS.legal_business_name, businessName, updatedBy),
+    setSettingValue(SETTINGS_KEYS.legal_business_status, businessStatus, updatedBy),
+    setSettingValue(SETTINGS_KEYS.legal_inn, inn, updatedBy),
+    setSettingValue(SETTINGS_KEYS.legal_ogrn, ogrn, updatedBy),
+    setSettingValue(SETTINGS_KEYS.legal_address, address, updatedBy),
+    setSettingValue(SETTINGS_KEYS.legal_support_email, supportEmail, updatedBy),
+    setSettingValue(SETTINGS_KEYS.legal_support_phone, supportPhone, updatedBy),
+    setSettingValue(SETTINGS_KEYS.legal_support_telegram, supportTelegram, updatedBy),
+  ]);
+
+  return {
+    business_name: businessName,
+    business_status: businessStatus,
+    inn,
+    ogrn,
+    address,
+    support_email: supportEmail,
+    support_phone: supportPhone,
+    support_telegram: supportTelegram,
+  };
+}
+
 export async function getStarterPromptSettings(): Promise<StarterPromptSettings> {
   const [
     openrouterCodingAgent,
@@ -370,9 +461,10 @@ export function resolveStarterPromptsForAgentSlug(
 }
 
 export async function getAdminSettings() {
-  const [usd_to_rub_rate, topUp, starterPrompts] = await Promise.all([
+  const [usd_to_rub_rate, topUp, legal, starterPrompts] = await Promise.all([
     getUsdToRubRate(),
     getTopUpSettings(),
+    getLegalSettings(),
     getStarterPromptSettings(),
   ]);
 
@@ -382,6 +474,14 @@ export async function getAdminSettings() {
     topup_telegram: topUp.telegram,
     topup_email: topUp.email,
     topup_phone: topUp.phone,
+    legal_business_name: legal.business_name,
+    legal_business_status: legal.business_status,
+    legal_inn: legal.inn,
+    legal_ogrn: legal.ogrn,
+    legal_address: legal.address,
+    legal_support_email: legal.support_email,
+    legal_support_phone: legal.support_phone,
+    legal_support_telegram: legal.support_telegram,
     starter_prompts_openrouter_coding_agent: starterPrompts.openrouter_coding_agent,
     starter_prompts_openrouter_coding_agent_fast: starterPrompts.openrouter_coding_agent_fast,
     starter_prompts_openrouter_coding_agent_heavy_planning: starterPrompts.openrouter_coding_agent_heavy_planning,
@@ -391,8 +491,9 @@ export async function getAdminSettings() {
 }
 
 export async function getPublicAppSettings() {
-  const [topUp, starterPrompts, usdToRubRate] = await Promise.all([
+  const [topUp, legal, starterPrompts, usdToRubRate] = await Promise.all([
     getTopUpSettings(),
+    getLegalSettings(),
     getStarterPromptSettings(),
     getUsdToRubRate(),
   ]);
@@ -404,6 +505,16 @@ export async function getPublicAppSettings() {
       telegram: topUp.telegram,
       email: topUp.email,
       phone: topUp.phone,
+    },
+    legal: {
+      business_name: legal.business_name,
+      business_status: legal.business_status,
+      inn: legal.inn,
+      ogrn: legal.ogrn,
+      address: legal.address,
+      support_email: legal.support_email,
+      support_phone: legal.support_phone,
+      support_telegram: legal.support_telegram,
     },
     starter_prompts: starterPrompts,
   };

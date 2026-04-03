@@ -17,6 +17,7 @@ import { profileRoutes } from './modules/profile/index.js';
 import { newsRoutes } from './modules/news/index.js';
 import { aliceRoutes } from './modules/alice/index.js';
 import { appSettingsRoutes } from './modules/app-settings/index.js';
+import { paymentsRoutes } from './modules/payments/index.js';
 import { UPLOADS_DIR } from './config/upload.js';
 
 export function createApp() {
@@ -79,6 +80,7 @@ export function createApp() {
   app.use('/api/profile', profileRoutes);
   app.use('/api/news', newsRoutes);
   app.use('/api/catalog', catalogRoutes);
+  app.use('/api/payments', paymentsRoutes);
   app.use('/api/admin', adminRoutes);
   app.use('/api/builder/stack', stackBuilderRoutes);
   app.use('/api/agents', agentBuilderRoutes);

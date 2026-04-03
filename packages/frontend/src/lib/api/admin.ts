@@ -35,6 +35,14 @@ export interface AdminSettings {
   topup_telegram: string;
   topup_email: string;
   topup_phone: string;
+  legal_business_name: string;
+  legal_business_status: string;
+  legal_inn: string;
+  legal_ogrn: string;
+  legal_address: string;
+  legal_support_email: string;
+  legal_support_phone: string;
+  legal_support_telegram: string;
   starter_prompts_openrouter_coding_agent: string[];
   starter_prompts_openrouter_coding_agent_fast: string[];
   starter_prompts_openrouter_coding_agent_heavy_planning: string[];

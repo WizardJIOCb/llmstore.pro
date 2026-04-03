@@ -35,6 +35,9 @@ import { ProfilePage } from './pages/profile/ProfilePage';
 import { PublicProfilePage } from './pages/profile/PublicProfilePage';
 import { ChatsPage } from './pages/chats/ChatsPage';
 import { GalleryPage } from './pages/gallery/GalleryPage';
+import { PricingPage } from './pages/legal/PricingPage';
+import { OfferPage } from './pages/legal/OfferPage';
+import { ContactsPage } from './pages/legal/ContactsPage';
 
 declare global {
   interface Window {
@@ -77,6 +80,9 @@ export function App() {
         <Route path="/news" element={<NewsListPage />} />
         <Route path="/news/:slug" element={<NewsDetailPage />} />
         <Route path="/gallery" element={<GalleryPage />} />
+        <Route path="/pricing" element={<PricingPage />} />
+        <Route path="/offer" element={<OfferPage />} />
+        <Route path="/contacts" element={<ContactsPage />} />
 
         {/* Builder routes */}
         <Route path="/builder/stack" element={<StackBuilderPage />} />

@@ -40,6 +40,14 @@ export function AdminSettingsPage() {
   const [topupTelegram, setTopupTelegram] = useState('');
   const [topupEmail, setTopupEmail] = useState('');
   const [topupPhone, setTopupPhone] = useState('');
+  const [legalBusinessName, setLegalBusinessName] = useState('');
+  const [legalBusinessStatus, setLegalBusinessStatus] = useState('');
+  const [legalInn, setLegalInn] = useState('');
+  const [legalOgrn, setLegalOgrn] = useState('');
+  const [legalAddress, setLegalAddress] = useState('');
+  const [legalSupportEmail, setLegalSupportEmail] = useState('');
+  const [legalSupportPhone, setLegalSupportPhone] = useState('');
+  const [legalSupportTelegram, setLegalSupportTelegram] = useState('');
   const [codingPrompts, setCodingPrompts] = useState('');
   const [codingFastPrompts, setCodingFastPrompts] = useState('');
   const [codingHeavyPrompts, setCodingHeavyPrompts] = useState('');
@@ -59,6 +67,14 @@ export function AdminSettingsPage() {
     setTopupTelegram(settings.topup_telegram);
     setTopupEmail(settings.topup_email);
     setTopupPhone(settings.topup_phone);
+    setLegalBusinessName(settings.legal_business_name);
+    setLegalBusinessStatus(settings.legal_business_status);
+    setLegalInn(settings.legal_inn);
+    setLegalOgrn(settings.legal_ogrn);
+    setLegalAddress(settings.legal_address);
+    setLegalSupportEmail(settings.legal_support_email);
+    setLegalSupportPhone(settings.legal_support_phone);
+    setLegalSupportTelegram(settings.legal_support_telegram);
     setCodingPrompts(promptsToText(settings.starter_prompts_openrouter_coding_agent));
     setCodingFastPrompts(promptsToText(settings.starter_prompts_openrouter_coding_agent_fast));
     setCodingHeavyPrompts(promptsToText(settings.starter_prompts_openrouter_coding_agent_heavy_planning));
@@ -89,6 +105,14 @@ export function AdminSettingsPage() {
         topup_telegram: topupTelegram,
         topup_email: topupEmail,
         topup_phone: topupPhone,
+        legal_business_name: legalBusinessName,
+        legal_business_status: legalBusinessStatus,
+        legal_inn: legalInn,
+        legal_ogrn: legalOgrn,
+        legal_address: legalAddress,
+        legal_support_email: legalSupportEmail,
+        legal_support_phone: legalSupportPhone,
+        legal_support_telegram: legalSupportTelegram,
         starter_prompts_openrouter_coding_agent: textToPrompts(codingPrompts),
         starter_prompts_openrouter_coding_agent_fast: textToPrompts(codingFastPrompts),
         starter_prompts_openrouter_coding_agent_heavy_planning: textToPrompts(codingHeavyPrompts),
@@ -192,6 +216,87 @@ export function AdminSettingsPage() {
                       onChange={(e) => setTopupPhone(e.target.value)}
                       placeholder="89264769929"
                     />
+                  </div>
+                </div>
+
+                <div className="rounded-xl border bg-muted/20 p-4 space-y-4">
+                  <div>
+                    <p className="text-sm font-medium">Юридическая информация для публичных страниц и YooKassa</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Эти данные выводятся на страницах оферты, контактов и пополнения. Заполните их реальными реквизитами продавца.
+                    </p>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div>
+                      <label className="mb-1 block text-sm font-medium">Продавец / ФИО / название</label>
+                      <Input
+                        value={legalBusinessName}
+                        onChange={(e) => setLegalBusinessName(e.target.value)}
+                        placeholder="Иван Иванов"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-sm font-medium">Статус</label>
+                      <Input
+                        value={legalBusinessStatus}
+                        onChange={(e) => setLegalBusinessStatus(e.target.value)}
+                        placeholder="самозанятый / ИП / ООО"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-sm font-medium">ИНН</label>
+                      <Input
+                        value={legalInn}
+                        onChange={(e) => setLegalInn(e.target.value)}
+                        placeholder="123456789012"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-sm font-medium">ОГРН / ОГРНИП</label>
+                      <Input
+                        value={legalOgrn}
+                        onChange={(e) => setLegalOgrn(e.target.value)}
+                        placeholder="если есть"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-sm font-medium">Адрес / место ведения деятельности</label>
+                    <Textarea
+                      value={legalAddress}
+                      onChange={(e) => setLegalAddress(e.target.value)}
+                      rows={3}
+                      placeholder="Город, страна, почтовый адрес или адрес для связи"
+                    />
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div>
+                      <label className="mb-1 block text-sm font-medium">Email поддержки</label>
+                      <Input
+                        value={legalSupportEmail}
+                        onChange={(e) => setLegalSupportEmail(e.target.value)}
+                        placeholder="support@llmstore.pro"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-sm font-medium">Телефон поддержки</label>
+                      <Input
+                        value={legalSupportPhone}
+                        onChange={(e) => setLegalSupportPhone(e.target.value)}
+                        placeholder="+7 900 000-00-00"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-sm font-medium">Telegram поддержки</label>
+                      <Input
+                        value={legalSupportTelegram}
+                        onChange={(e) => setLegalSupportTelegram(e.target.value)}
+                        placeholder="@llmstore"
+                      />
+                    </div>
                   </div>
                 </div>
 

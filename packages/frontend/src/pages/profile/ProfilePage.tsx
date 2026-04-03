@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { useProfile, useUnlinkAccount, useUpdateProfile } from '../../hooks/useProfile';
 import { useAppSettings } from '../../hooks/useAppSettings';
+import { useTopUpStatus } from '../../hooks/usePayments';
 import { getOAuthLinkUrl } from '../../lib/api/profile';
+import { BalanceTopUpPanel } from '../../components/billing/BalanceTopUpPanel';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
 import { Spinner } from '../../components/ui/Spinner';
-import { TopUpHelp } from '../../components/billing/TopUpHelp';
 import { UserLink } from '../../components/users/UserLink';
 
 const ROLE_LABELS: Record<string, string> = {
@@ -49,11 +51,14 @@ function eventTypeLabel(type: string): string {
 }
 
 export function ProfilePage() {
+  const queryClient = useQueryClient();
   const { data: profile, isLoading, error } = useProfile();
   const { data: appSettings } = useAppSettings();
   const updateMutation = useUpdateProfile();
   const unlinkMutation = useUnlinkAccount();
   const [searchParams, setSearchParams] = useSearchParams();
+  const returnedTopUpId = searchParams.get('topup_id');
+  const topUpStatusQuery = useTopUpStatus(returnedTopUpId);
 
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState('');
@@ -90,6 +95,12 @@ export function ProfilePage() {
     const timer = setTimeout(() => setOauthMessage(null), 5000);
     return () => clearTimeout(timer);
   }, [oauthMessage]);
+
+  useEffect(() => {
+    if (topUpStatusQuery.data?.status === 'succeeded') {
+      queryClient.invalidateQueries({ queryKey: ['profile'] });
+    }
+  }, [queryClient, topUpStatusQuery.data?.status]);
 
   const handleStartEdit = () => {
     if (!profile) return;
@@ -162,7 +173,11 @@ export function ProfilePage() {
 
   const linkedProviders = new Set(profile.linked_accounts.map((a) => a.provider));
   const usdToRubRate = profile.usd_to_rub_rate;
-  const hasAvailableBalance = Number(profile.balance_usd) > 0;
+  const returnedTopUp = topUpStatusQuery.data;
+  const returnedTopUpStatus = returnedTopUp?.status;
+  const returnedTopUpIsProcessing = returnedTopUpStatus === 'pending' || returnedTopUpStatus === 'waiting_for_capture';
+  const returnedTopUpIsSucceeded = returnedTopUpStatus === 'succeeded';
+  const returnedTopUpIsCanceled = returnedTopUpStatus === 'canceled';
 
   return (
     <div className="container mx-auto max-w-4xl px-4 py-8 space-y-6">
@@ -177,6 +192,44 @@ export function ProfilePage() {
           }`}
         >
           {oauthMessage.text}
+        </div>
+      )}
+
+      {returnedTopUpId && (
+        <div
+          className={`rounded-lg border p-3 text-sm ${
+            returnedTopUpIsSucceeded
+              ? 'border-green-200 bg-green-50 text-green-800'
+              : returnedTopUpIsCanceled
+                ? 'border-red-200 bg-red-50 text-red-800'
+                : 'border-blue-200 bg-blue-50 text-blue-800'
+          }`}
+        >
+          {topUpStatusQuery.isLoading && 'Проверяем статус платежа...'}
+          {topUpStatusQuery.isError && 'Не удалось проверить статус пополнения. Обновите страницу чуть позже.'}
+          {!topUpStatusQuery.isLoading && !topUpStatusQuery.isError && returnedTopUp && (
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="font-medium">
+                  {returnedTopUpIsSucceeded && 'Платёж подтверждён, баланс уже пополнен.'}
+                  {returnedTopUpIsCanceled && 'Платёж отменён или не был завершён.'}
+                  {returnedTopUpIsProcessing && 'Платёж создан и ещё обрабатывается YooKassa.'}
+                </p>
+                <p className="text-xs opacity-80">
+                  {Number(returnedTopUp.amount_rub).toLocaleString('ru-RU')} ₽ → ${Number(returnedTopUp.amount_usd).toFixed(4)}
+                </p>
+              </div>
+              {returnedTopUpIsProcessing && returnedTopUp.confirmation_url && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => { window.location.href = returnedTopUp.confirmation_url!; }}
+                >
+                  Продолжить оплату
+                </Button>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -277,11 +330,7 @@ export function ProfilePage() {
           <p className="mt-2 text-xs text-muted-foreground">
             Курс: 1 USD = {usdToRubRate} руб.
           </p>
-          {!hasAvailableBalance && (
-            <div className="mt-3">
-              <TopUpHelp settings={appSettings} />
-            </div>
-          )}
+          <BalanceTopUpPanel settings={appSettings} />
         </CardContent>
       </Card>
 

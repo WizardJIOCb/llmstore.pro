@@ -39,3 +39,6 @@ export * from './alice';
 
 // App settings
 export * from './app-settings';
+
+// Payments
+export * from './payments';

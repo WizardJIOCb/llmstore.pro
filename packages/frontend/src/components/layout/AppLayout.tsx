@@ -293,8 +293,15 @@ export function AppLayout() {
       </main>
 
       <footer className="border-t bg-white py-8">
-        <div className="container mx-auto px-4 text-center text-sm text-muted-foreground">
-          &copy; {new Date().getFullYear()} LLMStore.pro - Каталог и конструктор LLM-решений
+        <div className="container mx-auto px-4 space-y-4 text-center text-sm text-muted-foreground">
+          <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
+            <Link to="/pricing" className="hover:text-foreground hover:underline">Оплата и тарифы</Link>
+            <Link to="/offer" className="hover:text-foreground hover:underline">Оферта</Link>
+            <Link to="/contacts" className="hover:text-foreground hover:underline">Контакты и реквизиты</Link>
+          </div>
+          <div>
+            &copy; {new Date().getFullYear()} LLMStore.pro - Каталог и конструктор LLM-решений
+          </div>
         </div>
       </footer>
     </div>

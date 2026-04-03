@@ -17,6 +17,7 @@ import {
   getAdminSettings as getGlobalAdminSettings,
   setUsdToRubRate,
   updateTopUpSettings,
+  updateLegalSettings,
   updateStarterPromptSettings,
 } from '../../lib/app-settings.js';
 import { openRouterClient } from '../openrouter/index.js';
@@ -44,6 +45,14 @@ export async function updateAdminSettings(
     topup_telegram: string;
     topup_email: string;
     topup_phone: string;
+    legal_business_name: string;
+    legal_business_status: string;
+    legal_inn: string;
+    legal_ogrn: string;
+    legal_address: string;
+    legal_support_email: string;
+    legal_support_phone: string;
+    legal_support_telegram: string;
     starter_prompts_openrouter_coding_agent: string[];
     starter_prompts_openrouter_coding_agent_fast: string[];
     starter_prompts_openrouter_coding_agent_heavy_planning: string[];
@@ -52,9 +61,10 @@ export async function updateAdminSettings(
   },
   adminUserId: string,
 ) {
-  const [usdToRubRate, topUp, starterPrompts] = await Promise.all([
+  const [usdToRubRate, topUp, legal, starterPrompts] = await Promise.all([
     setUsdToRubRate(input.usd_to_rub_rate, adminUserId),
     updateTopUpSettings(input, adminUserId),
+    updateLegalSettings(input, adminUserId),
     updateStarterPromptSettings({
       openrouter_coding_agent: input.starter_prompts_openrouter_coding_agent,
       openrouter_coding_agent_fast: input.starter_prompts_openrouter_coding_agent_fast,
@@ -70,6 +80,14 @@ export async function updateAdminSettings(
     topup_telegram: topUp.telegram,
     topup_email: topUp.email,
     topup_phone: topUp.phone,
+    legal_business_name: legal.business_name,
+    legal_business_status: legal.business_status,
+    legal_inn: legal.inn,
+    legal_ogrn: legal.ogrn,
+    legal_address: legal.address,
+    legal_support_email: legal.support_email,
+    legal_support_phone: legal.support_phone,
+    legal_support_telegram: legal.support_telegram,
     starter_prompts_openrouter_coding_agent: starterPrompts.openrouter_coding_agent,
     starter_prompts_openrouter_coding_agent_fast: starterPrompts.openrouter_coding_agent_fast,
     starter_prompts_openrouter_coding_agent_heavy_planning: starterPrompts.openrouter_coding_agent_heavy_planning,

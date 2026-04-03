@@ -51,6 +51,10 @@ const envSchema = z.object({
   BACKEND_URL: z.string().default('http://localhost:3001'),
   PORT: z.coerce.number().default(3001),
   FRONTEND_URL: z.string().url().default('http://localhost:5173'),
+  YOOKASSA_SHOP_ID: z.string().default(''),
+  YOOKASSA_SECRET_KEY: z.string().default(''),
+  YOOKASSA_TOPUP_MIN_RUB: z.coerce.number().positive().default(100),
+  YOOKASSA_TOPUP_MAX_RUB: z.coerce.number().positive().default(500000),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
 });
 
