@@ -5,6 +5,8 @@ export interface PublicComment {
   content: string;
   created_at: string;
   updated_at: string;
+  likes_count?: number;
+  liked_by_me?: boolean;
   user: {
     id: string;
     name: string | null;
@@ -22,6 +24,12 @@ export const commentsApi = {
 
   deleteNewsComment: (slug: string, commentId: string) =>
     apiClient.delete(`/news/${slug}/comments/${commentId}`).then((r) => r.data),
+
+  likeNewsComment: (slug: string, commentId: string) =>
+    apiClient.post<{ data: { likes_count: number; liked_by_me: boolean } }>(`/news/${slug}/comments/${commentId}/reaction`).then((r) => r.data.data),
+
+  unlikeNewsComment: (slug: string, commentId: string) =>
+    apiClient.delete<{ data: { likes_count: number; liked_by_me: boolean } }>(`/news/${slug}/comments/${commentId}/reaction`).then((r) => r.data.data),
 
   listArticleComments: (slug: string) =>
     apiClient.get<{ data: PublicComment[] }>(`/catalog/article/${slug}/comments`).then((r) => r.data.data),

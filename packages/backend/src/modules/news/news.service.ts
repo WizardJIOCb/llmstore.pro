@@ -1,9 +1,9 @@
-import { eq, sql, desc, and, ilike, asc } from 'drizzle-orm';
+import { eq, sql, desc, and, ilike } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import { unlink } from 'fs/promises';
 import path from 'path';
 import { db } from '../../config/database.js';
-import { news, newsImages, newsComments, users } from '../../db/schema/index.js';
+import { news, newsImages, newsComments, newsCommentReactions, users } from '../../db/schema/index.js';
 import { UPLOADS_DIR } from '../../config/upload.js';
 import { AppError, NotFoundError } from '../../middleware/error-handler.js';
 import type { CreateNewsInput, UpdateNewsInput } from './news.validators.js';
@@ -69,12 +69,19 @@ export interface PublicComment {
   content: string;
   created_at: string;
   updated_at: string;
+  likes_count: number;
+  liked_by_me: boolean;
   user: {
     id: string;
     name: string | null;
     username: string | null;
     avatar_url: string | null;
   };
+}
+
+export interface CommentReactionState {
+  likes_count: number;
+  liked_by_me: boolean;
 }
 
 async function resolvePublishedNewsIdBySlug(slug: string): Promise<string> {
@@ -185,7 +192,7 @@ export async function getBySlug(slug: string) {
   };
 }
 
-export async function listCommentsBySlug(slug: string): Promise<PublicComment[]> {
+export async function listCommentsBySlug(slug: string, viewerUserId?: string | null): Promise<PublicComment[]> {
   const newsId = await resolvePublishedNewsIdBySlug(slug);
   const rows = await db
     .select({
@@ -193,6 +200,19 @@ export async function listCommentsBySlug(slug: string): Promise<PublicComment[]>
       content: newsComments.content,
       created_at: newsComments.created_at,
       updated_at: newsComments.updated_at,
+      likes_count: sql<number>`(
+        select count(*)::int
+        from ${newsCommentReactions}
+        where ${newsCommentReactions.comment_id} = ${newsComments.id}
+      )`,
+      liked_by_me: viewerUserId
+        ? sql<boolean>`exists(
+            select 1
+            from ${newsCommentReactions}
+            where ${newsCommentReactions.comment_id} = ${newsComments.id}
+              and ${newsCommentReactions.user_id} = ${viewerUserId}
+          )`
+        : sql<boolean>`false`,
       user_id: users.id,
       name: users.name,
       username: users.username,
@@ -201,13 +221,15 @@ export async function listCommentsBySlug(slug: string): Promise<PublicComment[]>
     .from(newsComments)
     .innerJoin(users, eq(users.id, newsComments.user_id))
     .where(eq(newsComments.news_id, newsId))
-    .orderBy(asc(newsComments.created_at));
+    .orderBy(desc(newsComments.created_at));
 
   return rows.map((row) => ({
     id: row.id,
     content: row.content,
     created_at: row.created_at.toISOString(),
     updated_at: row.updated_at.toISOString(),
+    likes_count: row.likes_count ?? 0,
+    liked_by_me: Boolean(row.liked_by_me),
     user: {
       id: row.user_id,
       name: row.name,
@@ -249,6 +271,8 @@ export async function createCommentBySlug(slug: string, userId: string, content:
     content: inserted.content,
     created_at: inserted.created_at.toISOString(),
     updated_at: inserted.updated_at.toISOString(),
+    likes_count: 0,
+    liked_by_me: false,
     user: {
       id: user?.id ?? userId,
       name: user?.name ?? null,
@@ -288,6 +312,69 @@ export async function deleteCommentBySlug(
 
   await db.delete(newsComments).where(eq(newsComments.id, commentId));
   return { success: true };
+}
+
+async function resolveCommentBySlug(slug: string, commentId: string) {
+  const newsId = await resolvePublishedNewsIdBySlug(slug);
+  const [comment] = await db
+    .select({
+      id: newsComments.id,
+    })
+    .from(newsComments)
+    .where(and(eq(newsComments.id, commentId), eq(newsComments.news_id, newsId)))
+    .limit(1);
+
+  if (!comment) {
+    throw new NotFoundError('Комментарий не найден');
+  }
+
+  return comment.id;
+}
+
+async function getNewsCommentReactionState(commentId: string, userId: string): Promise<CommentReactionState> {
+  const [countRow] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(newsCommentReactions)
+    .where(eq(newsCommentReactions.comment_id, commentId));
+
+  const [likedRow] = await db
+    .select({ id: newsCommentReactions.id })
+    .from(newsCommentReactions)
+    .where(and(
+      eq(newsCommentReactions.comment_id, commentId),
+      eq(newsCommentReactions.user_id, userId),
+    ))
+    .limit(1);
+
+  return {
+    likes_count: countRow?.count ?? 0,
+    liked_by_me: Boolean(likedRow?.id),
+  };
+}
+
+export async function likeCommentBySlug(slug: string, commentId: string, userId: string): Promise<CommentReactionState> {
+  const resolvedCommentId = await resolveCommentBySlug(slug, commentId);
+
+  await db.insert(newsCommentReactions)
+    .values({
+      comment_id: resolvedCommentId,
+      user_id: userId,
+    })
+    .onConflictDoNothing();
+
+  return getNewsCommentReactionState(resolvedCommentId, userId);
+}
+
+export async function unlikeCommentBySlug(slug: string, commentId: string, userId: string): Promise<CommentReactionState> {
+  const resolvedCommentId = await resolveCommentBySlug(slug, commentId);
+
+  await db.delete(newsCommentReactions)
+    .where(and(
+      eq(newsCommentReactions.comment_id, resolvedCommentId),
+      eq(newsCommentReactions.user_id, userId),
+    ));
+
+  return getNewsCommentReactionState(resolvedCommentId, userId);
 }
 
 // ─── Admin ──────────────────────────────────────────────────

@@ -23,7 +23,7 @@ export async function getBySlug(req: Request<{ slug: string }>, res: Response, n
 
 export async function listComments(req: Request<{ slug: string }>, res: Response, next: NextFunction) {
   try {
-    const comments = await newsService.listCommentsBySlug(req.params.slug);
+    const comments = await newsService.listCommentsBySlug(req.params.slug, req.session?.userId ?? null);
     res.json({ data: comments });
   } catch (err) {
     next(err);
@@ -52,6 +52,40 @@ export async function deleteComment(
       req.session.userRole,
     );
     res.json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function likeComment(
+  req: Request<{ slug: string; commentId: string }>,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const result = await newsService.likeCommentBySlug(
+      req.params.slug,
+      req.params.commentId,
+      req.session.userId!,
+    );
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function unlikeComment(
+  req: Request<{ slug: string; commentId: string }>,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const result = await newsService.unlikeCommentBySlug(
+      req.params.slug,
+      req.params.commentId,
+      req.session.userId!,
+    );
+    res.json({ data: result });
   } catch (err) {
     next(err);
   }

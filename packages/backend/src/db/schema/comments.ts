@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core';
 import { users } from './auth';
 import { news } from './news';
 import { catalogItems } from './catalog';
@@ -25,4 +25,15 @@ export const catalogComments = pgTable('catalog_comments', {
 }, (table) => [
   index('catalog_comments_item_created_idx').on(table.item_id, table.created_at),
   index('catalog_comments_user_idx').on(table.user_id),
+]);
+
+export const newsCommentReactions = pgTable('news_comment_reactions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  comment_id: uuid('comment_id').notNull().references(() => newsComments.id, { onDelete: 'cascade' }),
+  user_id: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex('news_comment_reactions_comment_user_idx').on(table.comment_id, table.user_id),
+  index('news_comment_reactions_comment_idx').on(table.comment_id),
+  index('news_comment_reactions_user_idx').on(table.user_id),
 ]);

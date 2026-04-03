@@ -31,6 +31,28 @@ export function useDeleteNewsComment(slug: string) {
   });
 }
 
+export function useLikeNewsComment(slug: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (commentId: string) => commentsApi.likeNewsComment(slug, commentId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['comments', 'news', slug] });
+      queryClient.invalidateQueries({ queryKey: ['news'] });
+    },
+  });
+}
+
+export function useUnlikeNewsComment(slug: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (commentId: string) => commentsApi.unlikeNewsComment(slug, commentId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['comments', 'news', slug] });
+      queryClient.invalidateQueries({ queryKey: ['news'] });
+    },
+  });
+}
+
 export function useArticleComments(slug: string) {
   return useQuery({
     queryKey: ['comments', 'article', slug],
