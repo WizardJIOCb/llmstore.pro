@@ -20,6 +20,7 @@ import { AdminToolsPage } from './pages/admin/AdminToolsPage';
 import { AdminSettingsPage } from './pages/admin/AdminSettingsPage';
 import { NewsListPage } from './pages/news/NewsListPage';
 import { NewsDetailPage } from './pages/news/NewsDetailPage';
+import { MilestonesPage } from './pages/milestones/MilestonesPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { StackBuilderPage } from './pages/builder/StackBuilderPage';
 import { SavedStacksPage } from './pages/builder/SavedStacksPage';
@@ -79,6 +80,7 @@ export function App() {
         {/* News routes */}
         <Route path="/news" element={<NewsListPage />} />
         <Route path="/news/:slug" element={<NewsDetailPage />} />
+        <Route path="/milestones" element={<MilestonesPage />} />
         <Route path="/gallery" element={<GalleryPage />} />
         <Route path="/pricing" element={<PricingPage />} />
         <Route path="/offer" element={<OfferPage />} />

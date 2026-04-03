@@ -8,6 +8,7 @@ import { formatRub, formatUsd } from '../../lib/utils';
 
 const navItems = [
   { label: 'Новости', href: '/news' },
+  { label: 'Планы', href: '/milestones' },
   { label: 'Галерея', href: '/gallery' },
   { label: 'Чаты', href: '/chats', requiresAuth: true },
   { label: 'Агенты', href: '/my/agents', requiresAuth: true },
@@ -64,6 +65,7 @@ export function AppLayout() {
 
   const isNavItemActive = (href: string) => {
     if (href === '/news') return location.pathname === '/news' || location.pathname.startsWith('/news/');
+    if (href === '/milestones') return location.pathname === '/milestones' || location.pathname.startsWith('/milestones/');
     if (href === '/gallery') return location.pathname === '/gallery' || location.pathname.startsWith('/gallery/');
     if (href === '/chats') return location.pathname.startsWith('/chats');
     if (href === '/articles') {
