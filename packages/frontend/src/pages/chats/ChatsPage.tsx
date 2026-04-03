@@ -1701,7 +1701,7 @@ export function ChatsPage() {
   );
 
   return (
-    <div className="px-4 py-6">
+    <div className="flex h-full min-h-0 flex-col px-4 py-4">
       <input
         ref={importFileInputRef}
         type="file"
@@ -1714,7 +1714,7 @@ export function ChatsPage() {
         Ссылка скопирована
       </div>
 
-      <div className="mx-auto flex h-[calc(100vh-12rem)] max-w-7xl overflow-hidden rounded-xl border bg-white">
+      <div className="mx-auto flex min-h-0 flex-1 max-w-7xl overflow-hidden rounded-xl border bg-white">
         {showSidebar && (
         <aside className={cn('flex w-full shrink-0 flex-col', isDesktop ? 'max-w-xs border-r' : 'max-w-none')}>
           <div className="border-b p-3 space-y-3">

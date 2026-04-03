@@ -4,7 +4,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { useChatsList } from '../../hooks/useChats';
 import { useProfile } from '../../hooks/useProfile';
 import { Button } from '../../components/ui';
-import { formatRub, formatUsd } from '../../lib/utils';
+import { cn, formatRub, formatUsd } from '../../lib/utils';
 
 const navItems = [
   { label: 'Новости', href: '/news' },
@@ -90,7 +90,7 @@ export function AppLayout() {
   const visibleNavItems = navItems.filter((item) => !item.requiresAuth || isAuthenticated);
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className={cn('min-h-screen flex flex-col', isChatsPage && 'h-screen overflow-hidden')}>
       <header className="border-b bg-white sticky top-0 z-50">
         <div className="container mx-auto px-4 flex items-center justify-between h-16">
           <Link to="/" className="text-xl font-bold text-primary">
@@ -284,22 +284,24 @@ export function AppLayout() {
         </div>
       )}
 
-      <main className="flex-1">
+      <main className={cn('flex-1', isChatsPage && 'min-h-0 overflow-hidden')}>
         <Outlet />
       </main>
 
-      <footer className="border-t bg-white py-8">
-        <div className="container mx-auto px-4 space-y-4 text-center text-sm text-muted-foreground">
-          <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
-            <Link to="/pricing" className="hover:text-foreground hover:underline">Оплата и тарифы</Link>
-            <Link to="/offer" className="hover:text-foreground hover:underline">Оферта</Link>
-            <Link to="/contacts" className="hover:text-foreground hover:underline">Контакты и реквизиты</Link>
+      {!isChatsPage && (
+        <footer className="border-t bg-white py-8">
+          <div className="container mx-auto px-4 space-y-4 text-center text-sm text-muted-foreground">
+            <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
+              <Link to="/pricing" className="hover:text-foreground hover:underline">Оплата и тарифы</Link>
+              <Link to="/offer" className="hover:text-foreground hover:underline">Оферта</Link>
+              <Link to="/contacts" className="hover:text-foreground hover:underline">Контакты и реквизиты</Link>
+            </div>
+            <div>
+              &copy; {new Date().getFullYear()} LLMStore.pro - Каталог и конструктор LLM-решений
+            </div>
           </div>
-          <div>
-            &copy; {new Date().getFullYear()} LLMStore.pro - Каталог и конструктор LLM-решений
-          </div>
-        </div>
-      </footer>
+        </footer>
+      )}
     </div>
   );
 }
