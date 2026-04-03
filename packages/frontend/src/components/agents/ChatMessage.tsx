@@ -1674,6 +1674,7 @@ export function ChatMessage({
   const runProjectBundleOnServer = async () => {
     if (!onRunProject) return;
 
+    const shouldRefreshFullscreen = Boolean(projectRunResultFullscreen);
     setProjectRunning(true);
     setMessageActionError(null);
     setMessageActionStatus(null);
@@ -1682,6 +1683,9 @@ export function ChatMessage({
     try {
       const result = await onRunProject();
       setProjectRunResult(result);
+      if (shouldRefreshFullscreen) {
+        setProjectRunResultFullscreen(result);
+      }
     } catch (error) {
       setMessageActionError(error instanceof Error ? error.message : 'Не удалось выполнить проект на сервере');
     } finally {
@@ -2429,6 +2433,17 @@ export function ChatMessage({
                 </p>
               </div>
               <div className="flex items-center gap-2">
+                {canRunProject && onRunProject && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => { void runProjectBundleOnServer(); }}
+                    disabled={projectRunning}
+                  >
+                    {projectRunning ? 'Запускаю...' : 'Run'}
+                  </Button>
+                )}
                 <Button type="button" variant="outline" size="sm" onClick={() => setProjectRunResultFullscreen(null)}>
                   Закрыть
                 </Button>
