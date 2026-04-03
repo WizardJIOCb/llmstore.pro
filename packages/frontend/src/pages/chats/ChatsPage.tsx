@@ -5,6 +5,7 @@ import { ChatInput } from '../../components/agents/ChatInput';
 import { ChatMessage } from '../../components/agents/ChatMessage';
 import { ChatThinkingBubble } from '../../components/agents/ChatThinkingBubble';
 import { RunMetadata } from '../../components/agents/RunMetadata';
+import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
@@ -25,6 +26,7 @@ import {
   useUpdateChat,
   useImportChatBundle,
 } from '../../hooks/useChats';
+import { useBuiltinTools } from '../../hooks/useAgents';
 import { useAppSettings } from '../../hooks/useAppSettings';
 import { useProfile } from '../../hooks/useProfile';
 import { chatsApi } from '../../lib/api/chats';
@@ -385,6 +387,7 @@ export function ChatsPage() {
   const queryClient = useQueryClient();
   const { data: chats, isLoading: chatsLoading } = useChatsList();
   const { data: agents, isLoading: agentsLoading } = useChatAgents();
+  const { data: availableTools } = useBuiltinTools();
   const { data: appSettings } = useAppSettings();
   const { data: profile } = useProfile();
   const createChatMutation = useCreateChat();
@@ -414,6 +417,7 @@ export function ChatsPage() {
   const [propertiesModeView, setPropertiesModeView] = useState<PropertiesModeView>('general');
   const [propertiesAgentId, setPropertiesAgentId] = useState('');
   const [propertiesModel, setPropertiesModel] = useState('openai/gpt-4o-mini');
+  const [propertiesToolIds, setPropertiesToolIds] = useState<string[]>([]);
   const [propertiesAccess, setPropertiesAccess] = useState<ChatAccess>('public');
   const [propertiesAllowedText, setPropertiesAllowedText] = useState('');
   const [propertiesSaving, setPropertiesSaving] = useState(false);
@@ -621,7 +625,12 @@ export function ChatsPage() {
     setStreamEvents([]);
     setStreamConnected(false);
 
-    if (!safeActiveChatId || !isActiveChatResolved || !activeChat || activeChat.mode !== 'agent') {
+    if (
+      !safeActiveChatId
+      || !isActiveChatResolved
+      || !activeChat
+      || (activeChat.mode !== 'agent' && (activeChat.tool_ids?.length ?? 0) === 0)
+    ) {
       eventSourceRef.current?.close();
       eventSourceRef.current = null;
       return;
@@ -699,7 +708,7 @@ export function ChatsPage() {
         eventSourceRef.current = null;
       }
     };
-  }, [activeChat?.id, activeChat?.mode, isActiveChatResolved, safeActiveChatId]);
+  }, [activeChat?.id, activeChat?.mode, activeChat?.tool_ids?.length, isActiveChatResolved, safeActiveChatId]);
 
   useEffect(() => {
     const handler = () => setActiveChatId(null);
@@ -930,6 +939,7 @@ export function ChatsPage() {
     );
     setPropertiesAgentId(activeChat.agent_id ?? '');
     setPropertiesModel(activeChat.model_external_id ?? 'openai/gpt-4o-mini');
+    setPropertiesToolIds(activeChat.tool_ids ?? []);
     setPropertiesAccess(activeChat.access ?? 'public');
     setPropertiesAllowedText((activeChat.access_identifiers ?? []).join('\n'));
   }, [isPropertiesOpen, activeChat, agents]);
@@ -1030,6 +1040,20 @@ export function ChatsPage() {
   const propertiesSelectedGeneralModel = useMemo(
     () => GENERAL_MODELS.find((model) => model.value === propertiesModel) ?? null,
     [propertiesModel],
+  );
+  const propertiesAvailableTools = useMemo(
+    () => availableTools ?? [],
+    [availableTools],
+  );
+  const propertiesSelectedTools = useMemo(
+    () => propertiesAvailableTools.filter((tool) => propertiesToolIds.includes(tool.id)),
+    [propertiesAvailableTools, propertiesToolIds],
+  );
+  const quickConnectTools = useMemo(
+    () => propertiesAvailableTools.filter((tool) => (
+      tool.slug === 'http-request' || tool.slug === 'web-search-cascade'
+    )),
+    [propertiesAvailableTools],
   );
   const isPropertiesAgentMode = propertiesModeView !== 'general';
 
@@ -1224,6 +1248,14 @@ export function ChatsPage() {
     setIsPropertiesOpen(true);
   };
 
+  const togglePropertiesTool = (toolId: string) => {
+    setPropertiesToolIds((prev) => (
+      prev.includes(toolId)
+        ? prev.filter((id) => id !== toolId)
+        : [...prev, toolId]
+    ));
+  };
+
   const saveProperties = async () => {
     if (!activeChat) return;
     setLocalError(null);
@@ -1247,6 +1279,7 @@ export function ChatsPage() {
         mode: isPropertiesAgentMode ? 'agent' : 'general',
         agent_id: isPropertiesAgentMode ? propertiesAgentId : null,
         model_external_id: isPropertiesAgentMode ? null : propertiesModel,
+        tool_ids: propertiesToolIds,
         access: propertiesAccess,
         access_identifiers: accessIdentifiers,
       });
@@ -2039,7 +2072,7 @@ export function ChatsPage() {
               <Button variant="ghost" size="sm" onClick={() => setIsPropertiesOpen(false)}>Закрыть</Button>
             </div>
             <div className="p-5 space-y-5 max-h-[70vh] overflow-y-auto">
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
                 <div className="rounded-xl border bg-muted/10 p-3 space-y-1">
                   <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Текущий режим</p>
                   <p className="text-sm font-medium">{activeChat.mode === 'general' ? 'Общение' : 'Агент'}</p>
@@ -2055,6 +2088,10 @@ export function ChatsPage() {
                 <div className="rounded-xl border bg-muted/10 p-3 space-y-1">
                   <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Обновлен</p>
                   <p className="text-sm font-medium">{formatDate(activeChat.updated_at)}</p>
+                </div>
+                <div className="rounded-xl border bg-muted/10 p-3 space-y-1">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Инструменты</p>
+                  <p className="text-sm font-medium">{activeChat.tools.length}</p>
                 </div>
               </div>
 
@@ -2232,6 +2269,120 @@ export function ChatsPage() {
                     </div>
                   </div>
                 )}
+
+                <div className="rounded-xl border bg-background/80 p-4 space-y-4">
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium">Инструменты чата</p>
+                    <p className="text-xs text-muted-foreground">
+                      В обычном режиме можно быстро подключить инструменты, чтобы чат умел ходить в интернет,
+                      делать HTTP-запросы и вызывать другие встроенные функции.
+                    </p>
+                  </div>
+
+                  {propertiesModeView !== 'general' ? (
+                    <div className="rounded-lg border bg-muted/20 px-3 py-3 text-sm text-muted-foreground">
+                      Сейчас выбран режим агента. Инструменты будут браться из самого агента, а выбранные здесь
+                      chat-tools снова заработают после возврата в режим “Общение”.
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <p className="text-xs uppercase tracking-wide text-muted-foreground">Подключено сейчас</p>
+                        {propertiesSelectedTools.length > 0 ? (
+                          <div className="flex flex-wrap gap-2">
+                            {propertiesSelectedTools.map((tool) => (
+                              <Badge key={tool.id} variant="outline" className="gap-1 rounded-full px-3 py-1">
+                                <span>{tool.name}</span>
+                                <button
+                                  type="button"
+                                  className="text-muted-foreground transition hover:text-foreground"
+                                  onClick={() => togglePropertiesTool(tool.id)}
+                                >
+                                  ×
+                                </button>
+                              </Badge>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-muted-foreground">
+                            Пока ничего не подключено. Чат будет отвечать как обычная модель без tool calling.
+                          </p>
+                        )}
+                      </div>
+
+                      {quickConnectTools.length > 0 && (
+                        <div className="space-y-2">
+                          <p className="text-xs uppercase tracking-wide text-muted-foreground">Быстро подключить</p>
+                          <div className="flex flex-wrap gap-2">
+                            {quickConnectTools.map((tool) => {
+                              const isSelected = propertiesToolIds.includes(tool.id);
+                              return (
+                                <Button
+                                  key={tool.id}
+                                  type="button"
+                                  size="sm"
+                                  variant={isSelected ? 'primary' : 'outline'}
+                                  onClick={() => togglePropertiesTool(tool.id)}
+                                >
+                                  {isSelected ? 'Отключить' : 'Подключить'} {tool.name}
+                                </Button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-xs uppercase tracking-wide text-muted-foreground">Все доступные инструменты</p>
+                          <p className="text-xs text-muted-foreground">{propertiesToolIds.length} выбрано</p>
+                        </div>
+                        {propertiesAvailableTools.length > 0 ? (
+                          <div className="max-h-64 space-y-2 overflow-y-auto rounded-xl border bg-background p-2">
+                            {propertiesAvailableTools.map((tool) => {
+                              const isSelected = propertiesToolIds.includes(tool.id);
+                              return (
+                                <button
+                                  key={tool.id}
+                                  type="button"
+                                  onClick={() => togglePropertiesTool(tool.id)}
+                                  className={cn(
+                                    'w-full rounded-lg border px-3 py-3 text-left transition-colors',
+                                    isSelected
+                                      ? 'border-primary bg-primary/8 shadow-sm'
+                                      : 'border-border bg-background hover:border-primary/30 hover:bg-accent/40',
+                                  )}
+                                >
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <p className="text-sm font-medium text-foreground">{tool.name}</p>
+                                      <p className="mt-1 break-all text-xs text-muted-foreground">{tool.slug}</p>
+                                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                                        {tool.description || 'Без дополнительного описания'}
+                                      </p>
+                                    </div>
+                                    <Badge variant={isSelected ? 'success' : 'secondary'}>
+                                      {isSelected ? 'Подключен' : 'Выключен'}
+                                    </Badge>
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div className="rounded-lg border bg-background px-3 py-4 text-sm text-muted-foreground">
+                            Сейчас нет доступных инструментов.
+                          </div>
+                        )}
+                      </div>
+
+                      <p className="text-xs text-muted-foreground">
+                        Например, если включить <span className="font-mono">http-request</span>, чат сможет сам
+                        сходить по URL и принести ответ в диалог.
+                      </p>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {chatStatsLoading ? <div className="flex justify-center py-6"><Spinner /></div> : null}

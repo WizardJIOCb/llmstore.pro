@@ -13,6 +13,8 @@ import {
   resolveStarterPromptsForAgentSlug,
 } from '../../lib/app-settings.js';
 
+const CHAT_TOOL_RUNTIME_AGENT_SLUG_PREFIX = 'chat-tool-runtime-';
+
 // --- Types ---
 
 interface CreateAgentInput {
@@ -201,7 +203,13 @@ export async function listAgents(userId: string) {
   const result = await db
     .select()
     .from(agents)
-    .where(eq(agents.owner_user_id, userId))
+    .where(and(
+      eq(agents.owner_user_id, userId),
+      or(
+        sql`${agents.slug} is null`,
+        sql`${agents.slug} not like ${`${CHAT_TOOL_RUNTIME_AGENT_SLUG_PREFIX}%`}`,
+      ),
+    ))
     .orderBy(desc(agents.created_at));
 
   const agentIds = result.map((row) => row.id);

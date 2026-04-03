@@ -62,6 +62,7 @@ export function useCreateChat() {
       agent_id?: string | null;
       model_external_id?: string | null;
       system_prompt?: string | null;
+      tool_ids?: string[];
       access?: ChatAccess;
       access_identifiers?: string[];
     }) => chatsApi.create(payload),
@@ -86,6 +87,7 @@ export function useUpdateChat() {
       agent_id?: string | null;
       model_external_id?: string | null;
       system_prompt?: string | null;
+      tool_ids?: string[];
       access?: ChatAccess;
       access_identifiers?: string[];
     }) => chatsApi.update(chatId, payload),

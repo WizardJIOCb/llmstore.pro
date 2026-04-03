@@ -72,11 +72,23 @@ export interface ChatAttachment {
   text_preview?: string;
 }
 
+export interface ChatToolDefinition {
+  id: string;
+  name: string;
+  slug: string;
+  tool_type: string;
+  description: string | null;
+  is_builtin: boolean;
+  is_active: boolean;
+}
+
 export interface ChatDetails {
   chat: Omit<ChatListItem, 'last_message_preview'> & {
     agent_name: string | null;
     agent_chat_description: string | null;
     agent_starter_prompts: string[];
+    tool_ids: string[];
+    tools: ChatToolDefinition[];
   };
   messages: ChatMessage[];
 }
@@ -222,6 +234,7 @@ export const chatsApi = {
       agent_id?: string | null;
       model_external_id?: string | null;
       system_prompt?: string | null;
+      tool_ids?: string[];
       access?: ChatAccess;
       access_identifiers?: string[];
     }) => apiClient.post<{ data: ChatListItem }>('/chats', payload ?? {}).then((r) => r.data.data),
@@ -234,6 +247,7 @@ export const chatsApi = {
       agent_id?: string | null;
       model_external_id?: string | null;
       system_prompt?: string | null;
+      tool_ids?: string[];
       access?: ChatAccess;
       access_identifiers?: string[];
     },

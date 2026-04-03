@@ -1300,30 +1300,36 @@ export function ChatMessage({
               )}
 
               {codingReport.preview?.type === 'url' && codingReport.preview.url && (
-                <SectionCard title="Preview">
-                  <a
-                    href={codingReport.preview.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-sm text-primary underline"
-                  >
-                    {codingReport.preview.title || codingReport.preview.url}
-                  </a>
-                </SectionCard>
+                <div className="rounded-lg border border-border/70 bg-background/70 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <a
+                      href={codingReport.preview.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="min-w-0 truncate text-sm font-semibold text-primary underline"
+                    >
+                      {codingReport.preview.title || codingReport.preview.url}
+                    </a>
+                    <p className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      Preview
+                    </p>
+                  </div>
+                </div>
               )}
 
               {resolvedHtmlPreview && (
-                <SectionCard title="Preview">
-                  <div className="mb-2 flex items-center justify-between gap-3">
-                    <p className="text-sm text-muted-foreground">
-                      {resolvedHtmlPreview.title}
-                    </p>
-                    <div className="flex items-center gap-2">
+                <div className="rounded-lg border border-border/70 bg-background/70 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-slate-900">
+                        {resolvedHtmlPreview.title || 'Preview'}
+                      </p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
                       <Button
                         type="button"
                         variant="outline"
                         size="sm"
-                        className="order-1 whitespace-nowrap"
+                        className="whitespace-nowrap"
                         onClick={() => { void exportResolvedPreviewProject(); }}
                         disabled={previewExporting}
                       >
@@ -1333,7 +1339,7 @@ export function ChatMessage({
                         type="button"
                         variant="outline"
                         size="sm"
-                        className="order-2 whitespace-nowrap"
+                        className="whitespace-nowrap"
                         onClick={() => {
                           if (absolutePreviewPageUrl) {
                             window.open(
@@ -1378,16 +1384,22 @@ export function ChatMessage({
                       >
                         На весь экран
                       </Button>
+                      </div>
                     </div>
+                    <p className="shrink-0 pt-0.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      Preview
+                    </p>
                   </div>
-                  <HtmlPreviewBrowser
+                  <div className="mt-3">
+                    <HtmlPreviewBrowser
                     title={resolvedHtmlPreview.title}
                     html={resolvedHtmlPreview.html}
                     previewPageUrl={absolutePreviewPageUrl}
                     revisionKey={resolvedPreviewRevision}
                     className="h-80 w-full"
-                  />
-                </SectionCard>
+                    />
+                  </div>
+                </div>
               )}
             </div>
           )}

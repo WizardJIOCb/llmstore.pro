@@ -1917,6 +1917,9 @@ export async function clearChatHistory(agentId: string, userId: string) {
 }
 
 const DEFAULT_GENERAL_MODEL = 'openai/gpt-4o-mini';
+const CHAT_TOOL_RUNTIME_AGENT_SLUG_PREFIX = 'chat-tool-runtime-';
+const MAX_CHAT_TOOL_IDS = 64;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type ChatMode = 'general' | 'agent';
 
@@ -1984,8 +1987,20 @@ interface ConversationDetails {
     agent_name: string | null;
     agent_chat_description: string | null;
     agent_starter_prompts: string[];
+    tool_ids: string[];
+    tools: ChatToolSummary[];
   };
   messages: ConversationMessage[];
+}
+
+interface ChatToolSummary {
+  id: string;
+  name: string;
+  slug: string;
+  tool_type: typeof toolDefinitions.$inferSelect.tool_type;
+  description: string | null;
+  is_builtin: boolean;
+  is_active: boolean;
 }
 
 interface ChatTransferAttachment {
@@ -2108,6 +2123,206 @@ function extractStarterPrompts(value: unknown): string[] {
     .map((v) => (typeof v === 'string' ? v.trim() : ''))
     .filter((v) => v.length > 0)
     .slice(0, 12);
+}
+
+function normalizeChatToolIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const item of value) {
+    if (typeof item !== 'string') continue;
+    const toolId = item.trim();
+    if (!UUID_PATTERN.test(toolId) || seen.has(toolId)) continue;
+    seen.add(toolId);
+    normalized.push(toolId);
+    if (normalized.length >= MAX_CHAT_TOOL_IDS) break;
+  }
+
+  return normalized;
+}
+
+function extractChatToolSettings(settings: Record<string, unknown> | null | undefined): {
+  tool_ids: string[];
+  tool_agent_id: string | null;
+} {
+  if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
+    return { tool_ids: [], tool_agent_id: null };
+  }
+
+  const maybeAgentId = typeof settings.tool_agent_id === 'string' ? settings.tool_agent_id.trim() : '';
+  return {
+    tool_ids: normalizeChatToolIds(settings.tool_ids),
+    tool_agent_id: UUID_PATTERN.test(maybeAgentId) ? maybeAgentId : null,
+  };
+}
+
+function buildChatSettingsJson(
+  existing: Record<string, unknown> | null | undefined,
+  overrides: { tool_ids?: string[]; tool_agent_id?: string | null },
+): Record<string, unknown> | null {
+  const base = (existing && typeof existing === 'object' && !Array.isArray(existing))
+    ? { ...existing }
+    : {};
+
+  if (overrides.tool_ids !== undefined) {
+    base.tool_ids = normalizeChatToolIds(overrides.tool_ids);
+  }
+
+  if (overrides.tool_agent_id !== undefined) {
+    if (overrides.tool_agent_id) {
+      base.tool_agent_id = overrides.tool_agent_id;
+    } else {
+      delete base.tool_agent_id;
+    }
+  }
+
+  return Object.keys(base).length > 0 ? base : null;
+}
+
+async function getActiveToolSummariesByIds(toolIds: string[]): Promise<ChatToolSummary[]> {
+  const normalizedToolIds = normalizeChatToolIds(toolIds);
+  if (normalizedToolIds.length === 0) return [];
+
+  const rows = await db
+    .select({
+      id: toolDefinitions.id,
+      name: toolDefinitions.name,
+      slug: toolDefinitions.slug,
+      tool_type: toolDefinitions.tool_type,
+      description: toolDefinitions.description,
+      is_builtin: toolDefinitions.is_builtin,
+      is_active: toolDefinitions.is_active,
+    })
+    .from(toolDefinitions)
+    .where(and(
+      inArray(toolDefinitions.id, normalizedToolIds),
+      eq(toolDefinitions.is_active, true),
+    ));
+
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  const orderedTools: ChatToolSummary[] = [];
+  for (const toolId of normalizedToolIds) {
+    const tool = byId.get(toolId);
+    if (tool) {
+      orderedTools.push(tool);
+    }
+  }
+
+  return orderedTools;
+}
+
+async function validateChatToolSelection(toolIds: string[]): Promise<ChatToolSummary[]> {
+  const normalizedToolIds = normalizeChatToolIds(toolIds);
+  const tools = await getActiveToolSummariesByIds(normalizedToolIds);
+
+  if (tools.length !== normalizedToolIds.length) {
+    throw new AppError(400, 'CHAT_TOOL_NOT_FOUND', 'Один или несколько выбранных инструментов недоступны');
+  }
+
+  return tools;
+}
+
+function buildChatToolRuntimeConfig(chatId: string, modelExternalId?: string | null): Record<string, unknown> {
+  return {
+    max_iterations: 4,
+    temperature: 0.3,
+    max_tokens: 4096,
+    model_external_id: normalizeOpenRouterModelId(modelExternalId ?? DEFAULT_GENERAL_MODEL),
+    internal_chat_tools: true,
+    internal_chat_id: chatId,
+  };
+}
+
+async function ensureChatToolRuntimeAgent(
+  chat: Pick<ChatConversationRow, 'id' | 'title'>,
+  userId: string,
+  toolIds: string[],
+  modelExternalId?: string | null,
+  systemPrompt?: string | null,
+): Promise<string> {
+  const normalizedToolIds = normalizeChatToolIds(toolIds);
+  if (normalizedToolIds.length === 0) {
+    throw new AppError(400, 'CHAT_TOOLS_REQUIRED', 'Для tool-runtime чата нужен хотя бы один инструмент');
+  }
+
+  const slug = `${CHAT_TOOL_RUNTIME_AGENT_SLUG_PREFIX}${chat.id}`;
+  const runtimeConfig = buildChatToolRuntimeConfig(chat.id, modelExternalId);
+  const safeName = `Chat Tools: ${chat.title.slice(0, 80) || chat.id.slice(0, 8)}`;
+
+  let [agent] = await db
+    .select()
+    .from(agents)
+    .where(and(
+      eq(agents.owner_user_id, userId),
+      eq(agents.slug, slug),
+    ))
+    .limit(1);
+
+  if (!agent) {
+    [agent] = await db.insert(agents).values({
+      owner_user_id: userId,
+      name: safeName,
+      slug,
+      description: 'Internal chat tool runtime agent',
+      visibility: 'private',
+      status: 'draft',
+    }).returning();
+  } else {
+    [agent] = await db.update(agents)
+      .set({
+        name: safeName,
+        description: 'Internal chat tool runtime agent',
+      })
+      .where(eq(agents.id, agent.id))
+      .returning();
+  }
+
+  let versionId = agent.current_version_id ?? null;
+  if (!versionId) {
+    const [createdVersion] = await db.insert(agentVersions).values({
+      agent_id: agent.id,
+      version_number: 1,
+      runtime_engine: 'openrouter_chat',
+      system_prompt: systemPrompt?.trim() || null,
+      response_mode: 'text',
+      runtime_config: runtimeConfig,
+    }).returning();
+
+    versionId = createdVersion.id;
+    await db.update(agents).set({ current_version_id: versionId }).where(eq(agents.id, agent.id));
+  } else {
+    await db.update(agentVersions)
+      .set({
+        runtime_engine: 'openrouter_chat',
+        system_prompt: systemPrompt?.trim() || null,
+        response_mode: 'text',
+        runtime_config: runtimeConfig,
+      })
+      .where(eq(agentVersions.id, versionId));
+  }
+
+  await db.delete(agentVersionTools).where(eq(agentVersionTools.agent_version_id, versionId));
+  await db.insert(agentVersionTools).values(
+    normalizedToolIds.map((toolId, index) => ({
+      agent_version_id: versionId!,
+      tool_definition_id: toolId,
+      is_required: false,
+      order_index: index,
+    })),
+  );
+
+  return agent.id;
+}
+
+async function deleteChatToolRuntimeAgent(userId: string, toolAgentId?: string | null) {
+  if (!toolAgentId || !UUID_PATTERN.test(toolAgentId)) return;
+
+  await db.delete(agents).where(and(
+    eq(agents.id, toolAgentId),
+    eq(agents.owner_user_id, userId),
+    sql`${agents.slug} like ${`${CHAT_TOOL_RUNTIME_AGENT_SLUG_PREFIX}%`}`,
+  ));
 }
 
 async function getConversationForUser(chatId: string, userId: string): Promise<ChatConversationRow> {
@@ -2699,12 +2914,14 @@ export async function createChat(userId: string, input: {
   agent_id?: string | null;
   model_external_id?: string | null;
   system_prompt?: string | null;
+  tool_ids?: string[];
   access?: ChatAccess;
   access_identifiers?: string[];
 }, userRole?: string) {
   const mode = input.mode ?? 'general';
   const access = normalizeChatAccess(input.access);
   const accessIdentifiers = normalizeAccessIdentifiers(input.access_identifiers);
+  const normalizedToolIds = normalizeChatToolIds(input.tool_ids);
   if (mode === 'agent' && !input.agent_id) {
     throw new AppError(400, 'VALIDATION_ERROR', 'Р”Р»СЏ СЂРµР¶РёРјР° С‡Р°С‚Р° СЃ Р°РіРµРЅС‚РѕРј С‚СЂРµР±СѓРµС‚СЃСЏ agent_id');
   }
@@ -2717,7 +2934,12 @@ export async function createChat(userId: string, input: {
     throw new AppError(400, 'VALIDATION_ERROR', 'Для ограниченного доступа укажите email или логины');
   }
 
+  if (normalizedToolIds.length > 0) {
+    await validateChatToolSelection(normalizedToolIds);
+  }
+
   const shareToken = uuidv4().replace(/-/g, '').slice(0, 16);
+  const initialSettings = buildChatSettingsJson(null, { tool_ids: normalizedToolIds, tool_agent_id: null });
 
   const [chat] = await db.insert(chatConversations).values({
     user_id: userId,
@@ -2729,8 +2951,30 @@ export async function createChat(userId: string, input: {
     access,
     access_identifiers: accessIdentifiers,
     share_token: shareToken,
+    settings_json: initialSettings,
     last_message_at: new Date(),
   }).returning();
+
+  let toolAgentId: string | null = null;
+  if (mode === 'general' && normalizedToolIds.length > 0) {
+    toolAgentId = await ensureChatToolRuntimeAgent(
+      { id: chat.id, title: chat.title },
+      userId,
+      normalizedToolIds,
+      chat.model_external_id ?? DEFAULT_GENERAL_MODEL,
+      chat.system_prompt,
+    );
+
+    await db.update(chatConversations)
+      .set({
+        settings_json: buildChatSettingsJson(chat.settings_json, {
+          tool_ids: normalizedToolIds,
+          tool_agent_id: toolAgentId,
+        }),
+        updated_at: new Date(),
+      })
+      .where(eq(chatConversations.id, chat.id));
+  }
 
   return {
     id: chat.id,
@@ -2752,10 +2996,12 @@ export async function createChat(userId: string, input: {
 export async function getChatById(chatId: string, userId: string): Promise<ConversationDetails> {
   const chat = await getConversationForUser(chatId, userId);
   const shareToken = await ensureChatShareToken(chat.id, chat.share_token);
+  const chatToolSettings = extractChatToolSettings(chat.settings_json);
   const [messages, agentMeta] = await Promise.all([
     getConversationMessages(chatId),
     getAgentChatMeta(chat.agent_id ?? null),
   ]);
+  const tools = await getActiveToolSummariesByIds(chatToolSettings.tool_ids);
 
   return {
     chat: {
@@ -2771,6 +3017,8 @@ export async function getChatById(chatId: string, userId: string): Promise<Conve
       agent_name: agentMeta.agent_name,
       agent_chat_description: agentMeta.agent_chat_description,
       agent_starter_prompts: agentMeta.agent_starter_prompts,
+      tool_ids: tools.map((tool) => tool.id),
+      tools,
       last_message_at: toIso(chat.last_message_at),
       created_at: toIso(chat.created_at),
       updated_at: toIso(chat.updated_at),
@@ -3084,6 +3332,7 @@ export async function updateChat(chatId: string, userId: string, input: {
   agent_id?: string | null;
   model_external_id?: string | null;
   system_prompt?: string | null;
+  tool_ids?: string[];
   access?: ChatAccess;
   access_identifiers?: string[];
 }, userRole?: string) {
@@ -3094,6 +3343,10 @@ export async function updateChat(chatId: string, userId: string, input: {
   const nextAccessIdentifiers = input.access_identifiers === undefined
     ? normalizeAccessIdentifiers(existing.access_identifiers)
     : normalizeAccessIdentifiers(input.access_identifiers);
+  const existingToolSettings = extractChatToolSettings(existing.settings_json);
+  const nextToolIds = input.tool_ids === undefined
+    ? existingToolSettings.tool_ids
+    : normalizeChatToolIds(input.tool_ids);
 
   if (nextMode === 'agent' && !nextAgentId) {
     throw new AppError(400, 'VALIDATION_ERROR', 'Р”Р»СЏ СЂРµР¶РёРјР° С‡Р°С‚Р° СЃ Р°РіРµРЅС‚РѕРј С‚СЂРµР±СѓРµС‚СЃСЏ agent_id');
@@ -3108,24 +3361,51 @@ export async function updateChat(chatId: string, userId: string, input: {
     throw new AppError(400, 'VALIDATION_ERROR', 'Для ограниченного доступа укажите email или логины');
   }
 
+  if (input.tool_ids !== undefined && nextToolIds.length > 0) {
+    await validateChatToolSelection(nextToolIds);
+  }
+
   const ensuredShareToken = await ensureChatShareToken(existing.id, existing.share_token);
+  const nextModelExternalId = nextMode === 'agent'
+    ? null
+    : (
+      input.model_external_id === undefined
+        ? existing.model_external_id
+        : (input.model_external_id ?? null)
+    );
+  const nextSystemPrompt = input.system_prompt === undefined ? existing.system_prompt : (input.system_prompt ?? null);
+
+  let toolAgentId = existingToolSettings.tool_agent_id;
+  if (nextMode === 'general' && nextToolIds.length > 0) {
+    toolAgentId = await ensureChatToolRuntimeAgent(
+      {
+        id: existing.id,
+        title: input.title ? input.title.trim().slice(0, 500) : existing.title,
+      },
+      userId,
+      nextToolIds,
+      nextModelExternalId ?? DEFAULT_GENERAL_MODEL,
+      nextSystemPrompt,
+    );
+  } else if (existingToolSettings.tool_agent_id) {
+    await deleteChatToolRuntimeAgent(userId, existingToolSettings.tool_agent_id);
+    toolAgentId = null;
+  }
 
   const [chat] = await db.update(chatConversations)
     .set({
       title: input.title ? input.title.trim().slice(0, 500) : existing.title,
       mode: nextMode,
       agent_id: nextAgentId ?? null,
-      model_external_id: nextMode === 'agent'
-        ? null
-        : (
-          input.model_external_id === undefined
-            ? existing.model_external_id
-            : (input.model_external_id ?? null)
-        ),
-      system_prompt: input.system_prompt === undefined ? existing.system_prompt : (input.system_prompt ?? null),
+      model_external_id: nextModelExternalId,
+      system_prompt: nextSystemPrompt,
       access: nextAccess,
       access_identifiers: nextAccessIdentifiers,
       share_token: ensuredShareToken,
+      settings_json: buildChatSettingsJson(existing.settings_json, {
+        tool_ids: nextToolIds,
+        tool_agent_id: toolAgentId,
+      }),
       updated_at: new Date(),
     })
     .where(eq(chatConversations.id, chatId))
@@ -3247,7 +3527,9 @@ export async function truncateChatFromMessage(chatId: string, messageId: string,
 }
 
 export async function deleteChat(chatId: string, userId: string) {
-  await getConversationForUser(chatId, userId);
+  const chat = await getConversationForUser(chatId, userId);
+  const toolSettings = extractChatToolSettings(chat.settings_json);
+  await deleteChatToolRuntimeAgent(userId, toolSettings.tool_agent_id);
   await db.delete(chatConversations).where(and(eq(chatConversations.id, chatId), eq(chatConversations.user_id, userId)));
 }
 
@@ -3264,6 +3546,7 @@ export async function sendChatMessage(
   userRole?: string,
 ) {
   const chat = await getConversationForUser(chatId, userId);
+  const chatToolSettings = extractChatToolSettings(chat.settings_json);
   await ensureSufficientBalance(userId);
   const usdToRubRate = await getUsdToRubRate();
   const emitChatEvent = (event: string, payload: Record<string, unknown>) => {
@@ -3376,6 +3659,7 @@ export async function sendChatMessage(
   let runId: string | null = null;
   let usagePayload: Record<string, unknown> | null = null;
   let latencyMs: number | null = null;
+  const canUseChatTools = chat.mode === 'general' && chatToolSettings.tool_ids.length > 0;
 
   if (chat.mode === 'agent') {
     if (!chat.agent_id) {
@@ -3417,6 +3701,88 @@ export async function sendChatMessage(
     );
 
     assistantText = result.output || '(РїСѓСЃС‚РѕР№ РѕС‚РІРµС‚)';
+    runId = result.run_id;
+    latencyMs = result.latency_ms;
+    if (result.usage) {
+      usagePayload = {
+        ...(result.usage as unknown as Record<string, unknown>),
+        tool_names: toolNames,
+        tool_traces: result.tool_traces,
+        coding_report: result.coding_report ?? null,
+      };
+    } else {
+      usagePayload = (
+        toolNames.length > 0
+        || (result.tool_traces?.length ?? 0) > 0
+        || result.coding_report
+      )
+        ? {
+          tool_names: toolNames,
+          tool_traces: result.tool_traces,
+          coding_report: result.coding_report ?? null,
+        }
+        : null;
+    }
+  } else if (canUseChatTools) {
+    const selectedTools = await getActiveToolSummariesByIds(chatToolSettings.tool_ids);
+    if (selectedTools.length === 0) {
+      throw new AppError(400, 'CHAT_TOOLS_UNAVAILABLE', 'Подключённые инструменты чата сейчас недоступны');
+    }
+
+    const toolAgentId = await ensureChatToolRuntimeAgent(
+      { id: chat.id, title: chat.title },
+      userId,
+      selectedTools.map((tool) => tool.id),
+      chat.model_external_id ?? DEFAULT_GENERAL_MODEL,
+      chat.system_prompt,
+    );
+
+    if (toolAgentId !== chatToolSettings.tool_agent_id) {
+      await db.update(chatConversations)
+        .set({
+          settings_json: buildChatSettingsJson(chat.settings_json, {
+            tool_ids: selectedTools.map((tool) => tool.id),
+            tool_agent_id: toolAgentId,
+          }),
+          updated_at: new Date(),
+        })
+        .where(eq(chatConversations.id, chat.id));
+    }
+
+    const result = await startRun(toolAgentId, userId, {
+      messages: historyForModel
+        .filter((m) => m.role === 'user' || m.role === 'assistant')
+        .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+      model_external_id: chat.model_external_id ?? DEFAULT_GENERAL_MODEL,
+    }, {
+      sync_to_chats: false,
+      on_event: emitChatEvent,
+      strict_preview_edit: strictPreviewEdit && latestPreviewSnapshot
+        ? {
+          user_request: trimmedContent,
+          original_html: latestPreviewSnapshot.html,
+          preview_title: latestPreviewSnapshot.title ?? null,
+        }
+        : null,
+    });
+
+    if (result.status !== 'completed') {
+      throw new AppError(
+        502,
+        'CHAT_TOOL_RUNTIME_FAILED',
+        result.error_message ?? 'Чат с инструментами не смог сформировать ответ. Попробуйте уточнить запрос.',
+      );
+    }
+
+    const toolNames = Array.from(
+      new Set(
+        (result.tool_traces ?? [])
+          .map((trace) => (typeof trace.tool_name === 'string' ? trace.tool_name.trim() : ''))
+          .filter((name) => name.length > 0),
+      ),
+    );
+
+    assistantText = result.output || '(пустой ответ)';
     runId = result.run_id;
     latencyMs = result.latency_ms;
     if (result.usage) {

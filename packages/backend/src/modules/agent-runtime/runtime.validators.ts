@@ -17,6 +17,7 @@ const createChatSchema = z.object({
   agent_id: z.string().uuid().optional().nullable(),
   model_external_id: z.string().min(1).max(255).optional().nullable(),
   system_prompt: z.string().max(8000).optional().nullable(),
+  tool_ids: z.array(z.string().uuid()).max(64).optional(),
   access: z.enum(['public', 'private', 'restricted']).optional(),
   access_identifiers: z.array(z.string().min(1).max(255)).max(200).optional(),
 });
@@ -27,6 +28,7 @@ const updateChatSchema = z.object({
   agent_id: z.string().uuid().optional().nullable(),
   model_external_id: z.string().min(1).max(255).optional().nullable(),
   system_prompt: z.string().max(8000).optional().nullable(),
+  tool_ids: z.array(z.string().uuid()).max(64).optional(),
   access: z.enum(['public', 'private', 'restricted']).optional(),
   access_identifiers: z.array(z.string().min(1).max(255)).max(200).optional(),
 });
