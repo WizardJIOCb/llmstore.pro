@@ -9,6 +9,26 @@ export interface CodingReportChangedFile {
   summary?: string;
 }
 
+export interface CodingReportProjectFile {
+  path: string;
+  content: string;
+  summary?: string;
+  language?: string;
+  entrypoint?: boolean;
+}
+
+export interface CodingReportProject {
+  title?: string;
+  runtime: 'node' | 'python' | 'static' | 'generic';
+  root_dir?: string;
+  entrypoint?: string;
+  install?: string[];
+  run?: string[];
+  test?: string[];
+  notes?: string[];
+  files: CodingReportProjectFile[];
+}
+
 export interface CodingReportPreview {
   type: 'html' | 'url';
   title?: string;
@@ -22,6 +42,7 @@ export interface CodingReport {
   changed_files?: CodingReportChangedFile[];
   how_to_run?: string[];
   notes?: string[];
+  project?: CodingReportProject | null;
   preview?: CodingReportPreview | null;
 }
 

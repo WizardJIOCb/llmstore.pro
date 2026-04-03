@@ -63,6 +63,26 @@ interface CodingReportChangedFile {
   summary?: string;
 }
 
+interface CodingReportProjectFile {
+  path: string;
+  content: string;
+  summary?: string;
+  language?: string;
+  entrypoint?: boolean;
+}
+
+interface CodingReportProject {
+  title?: string;
+  runtime: 'node' | 'python' | 'static' | 'generic';
+  root_dir?: string;
+  entrypoint?: string;
+  install?: string[];
+  run?: string[];
+  test?: string[];
+  notes?: string[];
+  files: CodingReportProjectFile[];
+}
+
 interface CodingReportPreview {
   type: 'html' | 'url';
   title?: string;
@@ -76,6 +96,7 @@ interface CodingReport {
   changed_files?: CodingReportChangedFile[];
   how_to_run?: string[];
   notes?: string[];
+  project?: CodingReportProject | null;
   preview?: CodingReportPreview | null;
 }
 
@@ -633,6 +654,92 @@ function normalizeChangedFiles(value: unknown): CodingReportChangedFile[] | unde
   return normalized.length > 0 ? normalized : undefined;
 }
 
+function clampFileContent(value: unknown, max = 80_000): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.replace(/\r\n/g, '\n');
+  if (!normalized.trim()) return undefined;
+  return normalized.slice(0, max);
+}
+
+function normalizeProjectFiles(value: unknown): CodingReportProjectFile[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+
+  let totalContentLength = 0;
+  const normalized: CodingReportProjectFile[] = [];
+
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue;
+
+    const row = item as {
+      path?: unknown;
+      content?: unknown;
+      summary?: unknown;
+      language?: unknown;
+      entrypoint?: unknown;
+    };
+    const filePath = clampText(row.path, 500);
+    const content = clampFileContent(row.content, 100_000);
+    if (!filePath || !content) continue;
+
+    if (totalContentLength + content.length > 400_000) {
+      break;
+    }
+
+    totalContentLength += content.length;
+    normalized.push({
+      path: filePath,
+      content,
+      summary: clampText(row.summary, 500),
+      language: clampText(row.language, 80),
+      entrypoint: row.entrypoint === true,
+    });
+
+    if (normalized.length >= 40) {
+      break;
+    }
+  }
+
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function normalizeProject(value: unknown): CodingReportProject | null | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+
+  const project = value as {
+    title?: unknown;
+    runtime?: unknown;
+    root_dir?: unknown;
+    entrypoint?: unknown;
+    install?: unknown;
+    run?: unknown;
+    test?: unknown;
+    notes?: unknown;
+    files?: unknown;
+  };
+
+  const files = normalizeProjectFiles(project.files);
+  if (!files) return null;
+
+  const runtime = project.runtime === 'node'
+    || project.runtime === 'python'
+    || project.runtime === 'static'
+    || project.runtime === 'generic'
+    ? project.runtime
+    : 'generic';
+
+  return {
+    title: clampText(project.title, 200),
+    runtime,
+    root_dir: clampText(project.root_dir, 300),
+    entrypoint: clampText(project.entrypoint, 500),
+    install: normalizeStringArray(project.install, 12, 500),
+    run: normalizeStringArray(project.run, 12, 500),
+    test: normalizeStringArray(project.test, 12, 500),
+    notes: normalizeStringArray(project.notes, 12, 1000),
+    files,
+  };
+}
+
 function normalizePreview(value: unknown): CodingReportPreview | null | undefined {
   if (!value || typeof value !== 'object') return undefined;
   const preview = value as { type?: unknown; title?: unknown; html?: unknown; url?: unknown };
@@ -667,6 +774,7 @@ function sanitizeCodingReport(value: unknown): CodingReport | null {
     changed_files: normalizeChangedFiles(report.changed_files),
     how_to_run: normalizeStringArray(report.how_to_run, 12, 1200),
     notes: normalizeStringArray(report.notes, 12, 1200),
+    project: normalizeProject(report.project) ?? null,
     preview: normalizePreview(report.preview) ?? null,
   };
 
@@ -676,6 +784,7 @@ function sanitizeCodingReport(value: unknown): CodingReport | null {
     && !normalized.changed_files
     && !normalized.how_to_run
     && !normalized.notes
+    && !normalized.project
     && !normalized.preview
   ) {
     return null;

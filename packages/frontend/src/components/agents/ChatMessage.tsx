@@ -3,7 +3,7 @@ import type { ComponentPropsWithoutRef, CSSProperties, KeyboardEvent, ReactNode 
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Pencil, Trash2 } from 'lucide-react';
-import type { CodingReport, ToolTrace } from '../../lib/api/agents';
+import type { CodingReport, CodingReportProject, ToolTrace } from '../../lib/api/agents';
 import { cn } from '../../lib/utils';
 import { ToolTracePanel } from './ToolTracePanel';
 import { ChatCodeBlock, ChatInlineCode } from './ChatCodeBlock';
@@ -240,7 +240,7 @@ function writeUint32(view: DataView, offset: number, value: number) {
   view.setUint32(offset, value >>> 0, true);
 }
 
-function buildZipArchive(files: Array<{ name: string; content: string }>): Blob {
+function buildZipArchiveTextOnly(files: Array<{ name: string; content: string }>): Blob {
   const encoder = new TextEncoder();
   const localParts: Uint8Array[] = [];
   const centralParts: Uint8Array[] = [];
@@ -323,7 +323,7 @@ function downloadBlob(filename: string, blob: Blob) {
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
-function downloadPreviewProjectArchive(preview: { title: string; html: string }) {
+function downloadPreviewProjectArchiveLegacy(preview: { title: string; html: string }) {
   const projectSlug = slugifyFilename(preview.title || 'preview-project');
   const readme = [
     `# ${preview.title || 'Preview project'}`,
@@ -342,6 +342,654 @@ function downloadPreviewProjectArchive(preview: { title: string; html: string })
   const zip = buildZipArchive([
     { name: `${projectSlug}/index.html`, content: preview.html },
     { name: `${projectSlug}/README.md`, content: readme },
+  ]);
+
+  downloadBlob(`${projectSlug}.zip`, zip);
+}
+
+type ZipArchiveFile = {
+  name: string;
+  content: string | Uint8Array;
+};
+
+type OfflineAssetStore = {
+  files: ZipArchiveFile[];
+  pathBySource: Map<string, string>;
+  usedPaths: Set<string>;
+};
+
+const ZIP_ENCODER = new TextEncoder();
+const EMOJI_REGEX = /\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?/gu;
+
+function toZipContentBytes(content: string | Uint8Array): Uint8Array {
+  return typeof content === 'string' ? ZIP_ENCODER.encode(content) : content;
+}
+
+function sanitizeArchivePathSegment(value: string, fallback: string): string {
+  const normalized = value
+    .replace(/\\/g, '/')
+    .split('/')
+    .filter(Boolean)
+    .map((segment) => segment
+      .replace(/[^a-zA-Z0-9._-]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-+|-+$/g, ''))
+    .filter(Boolean)
+    .join('/');
+
+  return normalized || fallback;
+}
+
+function getFileExtensionFromUrl(url: string): string {
+  try {
+    const pathname = new URL(url).pathname;
+    const match = pathname.match(/(\.[a-z0-9]+)$/i);
+    return match?.[1]?.toLowerCase() ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function createOfflineAssetStore(): OfflineAssetStore {
+  return {
+    files: [],
+    pathBySource: new Map<string, string>(),
+    usedPaths: new Set<string>(),
+  };
+}
+
+function allocateAssetPath(store: OfflineAssetStore, preferredPath: string): string {
+  const normalized = sanitizeArchivePathSegment(preferredPath, `assets/file-${store.files.length + 1}`);
+  if (!store.usedPaths.has(normalized)) {
+    store.usedPaths.add(normalized);
+    return normalized;
+  }
+
+  const extMatch = normalized.match(/(\.[a-z0-9]+)$/i);
+  const ext = extMatch?.[1] ?? '';
+  const base = ext ? normalized.slice(0, -ext.length) : normalized;
+
+  for (let index = 2; index < 5000; index += 1) {
+    const candidate = `${base}-${index}${ext}`;
+    if (!store.usedPaths.has(candidate)) {
+      store.usedPaths.add(candidate);
+      return candidate;
+    }
+  }
+
+  const fallback = `${base}-${Date.now()}${ext}`;
+  store.usedPaths.add(fallback);
+  return fallback;
+}
+
+async function fetchBinary(url: string): Promise<Uint8Array> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Не удалось скачать ассет: ${url}`);
+  }
+
+  return new Uint8Array(await response.arrayBuffer());
+}
+
+async function fetchText(url: string): Promise<string> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Не удалось скачать ресурс: ${url}`);
+  }
+
+  return response.text();
+}
+
+async function registerBinaryAsset(
+  store: OfflineAssetStore,
+  sourceUrl: string,
+  preferredPath: string,
+): Promise<string> {
+  const existingPath = store.pathBySource.get(sourceUrl);
+  if (existingPath) {
+    return existingPath;
+  }
+
+  const assetPath = allocateAssetPath(store, preferredPath);
+  const content = await fetchBinary(sourceUrl);
+  store.files.push({ name: assetPath, content });
+  store.pathBySource.set(sourceUrl, assetPath);
+  return assetPath;
+}
+
+async function localizeFontUrlsInCss(
+  cssText: string,
+  baseUrl: string,
+  store: OfflineAssetStore,
+): Promise<string> {
+  const matches = Array.from(cssText.matchAll(/url\(([^)]+)\)/gi));
+  let nextCss = cssText;
+
+  for (const match of matches) {
+    const rawUrl = match[1]?.trim().replace(/^['"]|['"]$/g, '');
+    if (!rawUrl || rawUrl.startsWith('data:') || rawUrl.startsWith('#')) {
+      continue;
+    }
+
+    let resolvedUrl: string;
+    try {
+      resolvedUrl = new URL(rawUrl, baseUrl).toString();
+    } catch {
+      continue;
+    }
+
+    const ext = getFileExtensionFromUrl(resolvedUrl);
+    if (!['.woff', '.woff2', '.ttf', '.otf'].includes(ext)) {
+      continue;
+    }
+
+    const localPath = await registerBinaryAsset(
+      store,
+      resolvedUrl,
+      `assets/fonts/font-${getStringHash(resolvedUrl)}${ext || '.woff2'}`,
+    );
+    nextCss = nextCss.replace(
+      new RegExp(escapeRegExp(match[0]), 'g'),
+      `url('${localPath}')`,
+    );
+  }
+
+  return nextCss;
+}
+
+async function loadGoogleFontsCss(url: string, store: OfflineAssetStore): Promise<string> {
+  const cssText = await fetchText(url);
+  return localizeFontUrlsInCss(cssText, url, store);
+}
+
+async function inlineGoogleFontImports(cssText: string, store: OfflineAssetStore): Promise<string> {
+  const matches = Array.from(cssText.matchAll(/@import\s+url\(([^)]+)\)\s*;?/gi));
+  let nextCss = cssText;
+
+  for (const match of matches) {
+    const rawUrl = match[1]?.trim().replace(/^['"]|['"]$/g, '');
+    if (!rawUrl) {
+      continue;
+    }
+
+    let resolvedUrl: string;
+    try {
+      resolvedUrl = new URL(rawUrl, window.location.origin).toString();
+    } catch {
+      continue;
+    }
+
+    if (!/fonts\.googleapis\.com/i.test(resolvedUrl)) {
+      continue;
+    }
+
+    const inlinedCss = await loadGoogleFontsCss(resolvedUrl, store);
+    nextCss = nextCss.replace(match[0], `${inlinedCss}\n`);
+  }
+
+  return nextCss;
+}
+
+function toEmojiCodePoint(value: string): string {
+  return Array.from(value)
+    .map((symbol) => symbol.codePointAt(0)?.toString(16))
+    .filter((code): code is string => Boolean(code) && code !== 'fe0f')
+    .join('-');
+}
+
+function collectEmojiCodes(value: string): string[] {
+  const codes = new Set<string>();
+  EMOJI_REGEX.lastIndex = 0;
+  for (const match of value.matchAll(EMOJI_REGEX)) {
+    const code = toEmojiCodePoint(match[0] ?? '');
+    if (code) {
+      codes.add(code);
+    }
+  }
+  return [...codes];
+}
+
+async function addEmojiAssets(store: OfflineAssetStore, html: string): Promise<string[]> {
+  const codes = collectEmojiCodes(html);
+  const downloadedCodes: string[] = [];
+
+  for (const code of codes) {
+    try {
+      await registerBinaryAsset(
+        store,
+        new URL(`/api/emoji/${code}.svg`, window.location.origin).toString(),
+        `assets/emoji/${code}.svg`,
+      );
+      downloadedCodes.push(code);
+    } catch {
+      // Keep native emoji as fallback when a local asset cannot be fetched.
+    }
+  }
+
+  return downloadedCodes;
+}
+
+function injectOfflineEmojiBridge(html: string, assetBase = './assets/emoji/'): string {
+  const bridgeStyles = `
+<style id="llmstore-offline-emoji-support">
+.llmstore-emoji-fallback {
+  display: inline-block !important;
+  width: 1em !important;
+  height: 1em !important;
+  vertical-align: -0.12em !important;
+  object-fit: contain !important;
+}
+.llmstore-emoji-native {
+  display: inline !important;
+}
+.llmstore-emoji-attr::before {
+  content: '' !important;
+  background-image: var(--llmstore-emoji-url) !important;
+  background-repeat: no-repeat !important;
+  background-size: contain !important;
+  background-position: center !important;
+}
+</style>`;
+
+  const bridgeScript = `
+<script>
+(() => {
+  const emojiRegex = /\\p{Extended_Pictographic}(?:\\uFE0F|\\uFE0E)?/gu;
+  const emojiAssetBase = ${JSON.stringify(assetBase)};
+  const unsupportedEmojiCodes = new Set();
+
+  const shouldSkipEmojiWrap = (node) => {
+    const parent = node.parentElement;
+    if (!parent) return true;
+    return !!parent.closest('script, style, textarea, input, option, .llmstore-emoji-native');
+  };
+
+  const toEmojiCodePoint = (value) => Array.from(value)
+    .map((symbol) => symbol.codePointAt(0)?.toString(16))
+    .filter((code) => code && code !== 'fe0f')
+    .join('-');
+
+  const createNativeEmojiSpan = (value, code) => {
+    const span = document.createElement('span');
+    span.className = 'llmstore-emoji-native';
+    span.textContent = value;
+    if (code) {
+      span.dataset.llmstoreEmojiCode = code;
+    }
+    return span;
+  };
+
+  const wrapEmojiTextNode = (node) => {
+    if (!node.nodeValue) return;
+    emojiRegex.lastIndex = 0;
+    if (!emojiRegex.test(node.nodeValue)) return;
+    emojiRegex.lastIndex = 0;
+
+    const fragment = document.createDocumentFragment();
+    let lastIndex = 0;
+    const matches = node.nodeValue.matchAll(emojiRegex);
+
+    for (const match of matches) {
+      const value = match[0];
+      const code = toEmojiCodePoint(value);
+      const index = match.index ?? 0;
+      if (index > lastIndex) {
+        fragment.appendChild(document.createTextNode(node.nodeValue.slice(lastIndex, index)));
+      }
+
+      if (!code || unsupportedEmojiCodes.has(code)) {
+        fragment.appendChild(createNativeEmojiSpan(value, code));
+        lastIndex = index + value.length;
+        continue;
+      }
+
+      const img = document.createElement('img');
+      img.className = 'llmstore-emoji-fallback';
+      img.alt = value;
+      img.src = emojiAssetBase + code + '.svg';
+      img.decoding = 'async';
+      img.loading = 'lazy';
+      img.draggable = false;
+      img.onerror = () => {
+        unsupportedEmojiCodes.add(code);
+        img.replaceWith(createNativeEmojiSpan(value, code));
+      };
+      fragment.appendChild(img);
+      lastIndex = index + value.length;
+    }
+
+    if (lastIndex < node.nodeValue.length) {
+      fragment.appendChild(document.createTextNode(node.nodeValue.slice(lastIndex)));
+    }
+
+    node.parentNode?.replaceChild(fragment, node);
+  };
+
+  const applyEmojiFallback = (root = document.body) => {
+    if (!root) return;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const textNodes = [];
+    let current;
+    while ((current = walker.nextNode())) {
+      if (!shouldSkipEmojiWrap(current)) textNodes.push(current);
+    }
+    for (const textNode of textNodes) {
+      wrapEmojiTextNode(textNode);
+    }
+  };
+
+  window.addEventListener('load', () => applyEmojiFallback());
+  window.addEventListener('DOMContentLoaded', () => applyEmojiFallback());
+  applyEmojiFallback();
+})();
+</script>`;
+
+  if (/<\/body>/i.test(html)) {
+    return html.replace(/<\/body>/i, `${bridgeStyles}${bridgeScript}</body>`);
+  }
+
+  if (/<\/head>/i.test(html)) {
+    return html.replace(/<\/head>/i, `${bridgeStyles}${bridgeScript}</head>`);
+  }
+
+  return `${bridgeStyles}${bridgeScript}${html}`;
+}
+
+async function buildStandalonePreviewHtml(previewHtml: string): Promise<{ html: string; assets: ZipArchiveFile[] }> {
+  const store = createOfflineAssetStore();
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(previewHtml, 'text/html');
+
+  doc.querySelectorAll(
+    'link[rel~="icon"], link[rel="manifest"], link[rel="apple-touch-icon"], link[rel="apple-touch-icon-precomposed"], link[rel="mask-icon"]',
+  ).forEach((node) => node.remove());
+
+  for (const link of Array.from(doc.querySelectorAll('link[rel~="stylesheet"][href]'))) {
+    const href = link.getAttribute('href');
+    if (!href) continue;
+
+    let resolvedUrl: string;
+    try {
+      resolvedUrl = new URL(href, window.location.origin).toString();
+    } catch {
+      continue;
+    }
+
+    if (!/fonts\.googleapis\.com/i.test(resolvedUrl)) {
+      continue;
+    }
+
+    try {
+      const style = doc.createElement('style');
+      style.textContent = await loadGoogleFontsCss(resolvedUrl, store);
+      link.replaceWith(style);
+    } catch {
+      // Leave the original link in place if the stylesheet cannot be localized.
+    }
+  }
+
+  for (const style of Array.from(doc.querySelectorAll('style'))) {
+    try {
+      style.textContent = await inlineGoogleFontImports(style.textContent ?? '', store);
+    } catch {
+      // Keep the original CSS when inlining fails.
+    }
+  }
+
+  const emojiCodes = await addEmojiAssets(store, doc.documentElement.outerHTML);
+  if (emojiCodes.length > 0) {
+    for (const element of Array.from(doc.querySelectorAll<HTMLElement>('[data-emoji]'))) {
+      const emojiValue = element.getAttribute('data-emoji') ?? '';
+      const code = toEmojiCodePoint(emojiValue);
+      if (!code || !emojiCodes.includes(code)) continue;
+      element.classList.add('llmstore-emoji-attr');
+      element.style.setProperty('--llmstore-emoji-url', `url('./assets/emoji/${code}.svg')`);
+    }
+  }
+
+  let html = `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+  html = injectOfflineEmojiBridge(html);
+  return {
+    html,
+    assets: store.files,
+  };
+}
+
+function buildZipArchive(files: ZipArchiveFile[]): Blob {
+  const localParts: Uint8Array[] = [];
+  const centralParts: Uint8Array[] = [];
+  let offset = 0;
+
+  for (const file of files) {
+    const nameBytes = ZIP_ENCODER.encode(file.name);
+    const contentBytes = toZipContentBytes(file.content);
+    const checksum = crc32(contentBytes);
+
+    const localHeader = new Uint8Array(30 + nameBytes.length);
+    const localView = new DataView(localHeader.buffer);
+    writeUint32(localView, 0, 0x04034b50);
+    writeUint16(localView, 4, 20);
+    writeUint16(localView, 6, 0x0800);
+    writeUint16(localView, 8, 0);
+    writeUint16(localView, 10, 0);
+    writeUint16(localView, 12, 0);
+    writeUint32(localView, 14, checksum);
+    writeUint32(localView, 18, contentBytes.length);
+    writeUint32(localView, 22, contentBytes.length);
+    writeUint16(localView, 26, nameBytes.length);
+    writeUint16(localView, 28, 0);
+    localHeader.set(nameBytes, 30);
+    localParts.push(localHeader, contentBytes);
+
+    const centralHeader = new Uint8Array(46 + nameBytes.length);
+    const centralView = new DataView(centralHeader.buffer);
+    writeUint32(centralView, 0, 0x02014b50);
+    writeUint16(centralView, 4, 20);
+    writeUint16(centralView, 6, 20);
+    writeUint16(centralView, 8, 0x0800);
+    writeUint16(centralView, 10, 0);
+    writeUint16(centralView, 12, 0);
+    writeUint16(centralView, 14, 0);
+    writeUint32(centralView, 16, checksum);
+    writeUint32(centralView, 20, contentBytes.length);
+    writeUint32(centralView, 24, contentBytes.length);
+    writeUint16(centralView, 28, nameBytes.length);
+    writeUint16(centralView, 30, 0);
+    writeUint16(centralView, 32, 0);
+    writeUint16(centralView, 34, 0);
+    writeUint16(centralView, 36, 0);
+    writeUint32(centralView, 38, 0);
+    writeUint32(centralView, 42, offset);
+    centralHeader.set(nameBytes, 46);
+    centralParts.push(centralHeader);
+
+    offset += localHeader.length + contentBytes.length;
+  }
+
+  const centralSize = centralParts.reduce((sum, part) => sum + part.length, 0);
+  const endRecord = new Uint8Array(22);
+  const endView = new DataView(endRecord.buffer);
+  writeUint32(endView, 0, 0x06054b50);
+  writeUint16(endView, 4, 0);
+  writeUint16(endView, 6, 0);
+  writeUint16(endView, 8, files.length);
+  writeUint16(endView, 10, files.length);
+  writeUint32(endView, 12, centralSize);
+  writeUint32(endView, 16, offset);
+  writeUint16(endView, 20, 0);
+
+  const toBlobPart = (part: Uint8Array) => new Uint8Array(part).buffer;
+
+  return new Blob(
+    [...localParts, ...centralParts, endRecord].map(toBlobPart),
+    { type: 'application/zip' },
+  );
+}
+
+function getProjectRuntimeLabel(runtime: CodingReportProject['runtime']): string {
+  switch (runtime) {
+    case 'node':
+      return 'Node.js';
+    case 'python':
+      return 'Python';
+    case 'static':
+      return 'Static HTML';
+    default:
+      return 'Generic';
+  }
+}
+
+function buildProjectManifest(project: CodingReportProject, fallbackTitle: string): string {
+  return JSON.stringify({
+    title: project.title || fallbackTitle,
+    runtime: project.runtime,
+    root_dir: project.root_dir ?? null,
+    entrypoint: project.entrypoint ?? null,
+    install: project.install ?? [],
+    run: project.run ?? [],
+    test: project.test ?? [],
+    notes: project.notes ?? [],
+    files: project.files.map((file) => ({
+      path: file.path,
+      summary: file.summary ?? null,
+      language: file.language ?? null,
+      entrypoint: Boolean(file.entrypoint),
+    })),
+  }, null, 2);
+}
+
+function buildProjectReadme(project: CodingReportProject, fallbackTitle: string): string {
+  const lines = [
+    `# ${project.title || fallbackTitle}`,
+    '',
+    `Runtime: ${getProjectRuntimeLabel(project.runtime)}`,
+    project.entrypoint ? `Entrypoint: \`${project.entrypoint}\`` : null,
+    project.root_dir ? `Root dir: \`${project.root_dir}\`` : null,
+    '',
+    '## Files',
+    ...project.files.map((file) => `- \`${file.path}\`${file.summary ? ` - ${file.summary}` : ''}`),
+    '',
+  ].filter((line): line is string => line !== null);
+
+  if (project.install && project.install.length > 0) {
+    lines.push('## Install');
+    lines.push(...project.install.map((command) => `- \`${command}\``));
+    lines.push('');
+  }
+
+  if (project.run && project.run.length > 0) {
+    lines.push('## Run');
+    lines.push(...project.run.map((command) => `- \`${command}\``));
+    lines.push('');
+  }
+
+  if (project.test && project.test.length > 0) {
+    lines.push('## Verify');
+    lines.push(...project.test.map((command) => `- \`${command}\``));
+    lines.push('');
+  }
+
+  if (project.notes && project.notes.length > 0) {
+    lines.push('## Notes');
+    lines.push(...project.notes.map((note) => `- ${note}`));
+    lines.push('');
+  }
+
+  lines.push('Собрано из LLMStore project bundle.');
+  return lines.join('\n');
+}
+
+function buildShellScript(commands: string[], shell: 'bash' | 'powershell'): string {
+  if (shell === 'powershell') {
+    return [
+      '$ErrorActionPreference = \'Stop\'',
+      ...commands,
+      '',
+    ].join('\n');
+  }
+
+  return [
+    '#!/usr/bin/env bash',
+    'set -euo pipefail',
+    ...commands,
+    '',
+  ].join('\n');
+}
+
+function buildProjectBundleArchive(project: CodingReportProject, fallbackTitle: string): Blob {
+  const projectSlug = slugifyFilename(project.title || fallbackTitle || 'project-bundle');
+  const files: ZipArchiveFile[] = [];
+
+  for (const file of project.files) {
+    files.push({
+      name: `${projectSlug}/${sanitizeArchivePathSegment(file.path, `file-${files.length + 1}.txt`)}`,
+      content: file.content,
+    });
+  }
+
+  files.push({
+    name: `${projectSlug}/README.md`,
+    content: buildProjectReadme(project, fallbackTitle),
+  });
+  files.push({
+    name: `${projectSlug}/llmstore.project.json`,
+    content: buildProjectManifest(project, fallbackTitle),
+  });
+
+  if (project.run && project.run.length > 0) {
+    files.push({
+      name: `${projectSlug}/run.ps1`,
+      content: buildShellScript(project.run, 'powershell'),
+    });
+    files.push({
+      name: `${projectSlug}/run.sh`,
+      content: buildShellScript(project.run, 'bash'),
+    });
+  }
+
+  if (project.test && project.test.length > 0) {
+    files.push({
+      name: `${projectSlug}/verify.ps1`,
+      content: buildShellScript(project.test, 'powershell'),
+    });
+    files.push({
+      name: `${projectSlug}/verify.sh`,
+      content: buildShellScript(project.test, 'bash'),
+    });
+  }
+
+  return buildZipArchive(files);
+}
+
+async function downloadPreviewProjectArchive(preview: { title: string; html: string }) {
+  const projectSlug = slugifyFilename(preview.title || 'preview-project');
+  const standalone = await buildStandalonePreviewHtml(preview.html);
+  const readme = [
+    `# ${preview.title || 'Preview project'}`,
+    '',
+    'Это standalone preview, экспортированный из LLMStore.',
+    '',
+    '## Файлы',
+    '- `index.html` - автономная страница preview.',
+    '- `assets/` - локальные шрифты и emoji-ассеты, если они были нужны.',
+    '',
+    '## Как запустить',
+    '1. Распакуйте архив.',
+    '2. Откройте `index.html` в браузере.',
+    '3. Если preview использует локальные запросы или модули, поднимите простой static server в этой папке.',
+  ].join('\n');
+
+  const zip = buildZipArchive([
+    { name: `${projectSlug}/index.html`, content: standalone.html },
+    { name: `${projectSlug}/README.md`, content: readme },
+    ...standalone.assets.map((asset) => ({
+      name: `${projectSlug}/${asset.name}`,
+      content: asset.content,
+    })),
   ]);
 
   downloadBlob(`${projectSlug}.zip`, zip);
@@ -772,6 +1420,7 @@ export function ChatMessage({
   const [htmlPreview, setHtmlPreview] = useState<{ title: string; html: string } | null>(null);
   const [previewEditor, setPreviewEditor] = useState<{ title: string; html: string } | null>(null);
   const [previewExporting, setPreviewExporting] = useState(false);
+  const [projectExporting, setProjectExporting] = useState(false);
   const [editorSaving, setEditorSaving] = useState(false);
   const [editorExporting, setEditorExporting] = useState(false);
   const [editorError, setEditorError] = useState<string | null>(null);
@@ -797,6 +1446,9 @@ export function ChatMessage({
     }
     : null;
   const [previewOverride, setPreviewOverride] = useState<{ title: string; html: string } | null>(propHtmlPreview);
+  const projectBundle = codingReport?.project && codingReport.project.files.length > 0
+    ? codingReport.project
+    : null;
   const resolvedHtmlPreview = previewOverride ?? propHtmlPreview;
   const highlightedEditorHtml = useMemo(
     () => (previewEditor ? highlightHtmlCode(previewEditor.html) : ''),
@@ -908,6 +1560,62 @@ export function ChatMessage({
       setMessageActionError(error instanceof Error ? error.message : 'Не удалось экспортировать архив');
     } finally {
       setPreviewExporting(false);
+    }
+  };
+
+  const exportStandalonePreviewProject = async (preview: { title: string; html: string }) => {
+    setMessageActionError(null);
+
+    try {
+      await downloadPreviewProjectArchive(preview);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Не удалось экспортировать архив';
+      setMessageActionError(message);
+      throw error;
+    }
+  };
+
+  const exportPreviewCardProject = async () => {
+    if (!resolvedHtmlPreview) return;
+
+    setPreviewExporting(true);
+    try {
+      await exportStandalonePreviewProject(resolvedHtmlPreview);
+    } finally {
+      setPreviewExporting(false);
+    }
+  };
+
+  const exportEditedPreviewProject = async () => {
+    if (!previewEditor) return;
+
+    setEditorExporting(true);
+    setEditorError(null);
+
+    try {
+      await downloadPreviewProjectArchive(previewEditor);
+      setEditorTransientStatus('Архив preview экспортирован');
+    } catch (error) {
+      setEditorError(error instanceof Error ? error.message : 'Не удалось экспортировать архив');
+    } finally {
+      setEditorExporting(false);
+    }
+  };
+
+  const exportProjectBundle = async () => {
+    if (!projectBundle) return;
+
+    setProjectExporting(true);
+    setMessageActionError(null);
+
+    try {
+      const zip = buildProjectBundleArchive(projectBundle, projectBundle.title || 'project-bundle');
+      const filename = `${slugifyFilename(projectBundle.title || 'project-bundle')}.zip`;
+      downloadBlob(filename, zip);
+    } catch (error) {
+      setMessageActionError(error instanceof Error ? error.message : 'Не удалось экспортировать проект');
+    } finally {
+      setProjectExporting(false);
     }
   };
 
@@ -1299,6 +2007,48 @@ export function ChatMessage({
                 </SectionCard>
               )}
 
+              {projectBundle && (
+                <SectionCard title="Project Bundle">
+                  <div className="space-y-3">
+                    <div className="space-y-1 text-sm">
+                      <p className="font-medium text-slate-900">
+                        {projectBundle.title || 'Runnable project'}
+                      </p>
+                      <p className="text-muted-foreground">
+                        Runtime: {getProjectRuntimeLabel(projectBundle.runtime)}. Files: {projectBundle.files.length}
+                        {projectBundle.entrypoint ? `, entrypoint: ${projectBundle.entrypoint}` : ''}
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="whitespace-nowrap"
+                        onClick={() => { void exportProjectBundle(); }}
+                        disabled={projectExporting}
+                      >
+                        {projectExporting ? 'Экспортирую...' : 'Скачать проект'}
+                      </Button>
+                    </div>
+
+                    <div className="space-y-2">
+                      {projectBundle.files.map((file) => (
+                        <div key={`${file.path}-${file.summary ?? ''}`} className="rounded-md border border-border/60 bg-muted/30 px-2 py-2">
+                          <p className="font-mono text-xs">{file.path}</p>
+                          {file.summary && (
+                            <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">
+                              {file.summary}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </SectionCard>
+              )}
+
               {codingReport.preview?.type === 'url' && codingReport.preview.url && (
                 <div className="rounded-lg border border-border/70 bg-background/70 p-3">
                   <div className="flex items-start justify-between gap-3">
@@ -1330,7 +2080,7 @@ export function ChatMessage({
                         variant="outline"
                         size="sm"
                         className="whitespace-nowrap"
-                        onClick={() => { void exportResolvedPreviewProject(); }}
+                        onClick={() => { void exportPreviewCardProject(); }}
                         disabled={previewExporting}
                       >
                         {previewExporting ? 'Экспортирую...' : 'Экспортировать'}
@@ -1521,7 +2271,7 @@ export function ChatMessage({
                   size="sm"
                   className="order-1"
                   disabled={editorBusy}
-                  onClick={() => { void exportPreviewProject(); }}
+                  onClick={() => { void exportEditedPreviewProject(); }}
                 >
                   {editorExporting ? 'Экспортирую...' : 'Экспортировать'}
                 </Button>

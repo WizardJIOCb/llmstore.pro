@@ -59,6 +59,18 @@ const OPENROUTER_CODING_TEMPLATE = {
   "changed_files": [{ "path": "src/App.tsx", "summary": "что изменилось" }],
   "how_to_run": ["что сделать дальше"],
   "notes": ["важная оговорка"],
+  "project": {
+    "title": "project name",
+    "runtime": "node" | "python" | "static" | "generic",
+    "root_dir": ".",
+    "entrypoint": "server.js",
+    "install": ["npm install"],
+    "run": ["npm start"],
+    "test": ["npm test"],
+    "files": [
+      { "path": "server.js", "summary": "entrypoint", "language": "javascript", "entrypoint": true, "content": "full file content" }
+    ]
+  },
   "preview": {
     "type": "html" | "url",
     "title": "название preview",

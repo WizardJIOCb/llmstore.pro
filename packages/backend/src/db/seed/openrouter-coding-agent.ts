@@ -99,6 +99,25 @@ const CLEAN_BASE_SYSTEM_PROMPT = `Ты — OpenRouter Coding Agent для llmsto
   ],
   "how_to_run": ["шаг запуска 1", "шаг запуска 2"],
   "notes": ["важная оговорка"],
+  "project": {
+    "title": "название проекта",
+    "runtime": "node" | "python" | "static" | "generic",
+    "root_dir": ".",
+    "entrypoint": "server.js",
+    "install": ["npm install"],
+    "run": ["npm start"],
+    "test": ["npm test"],
+    "notes": ["заметка по проекту"],
+    "files": [
+      {
+        "path": "server.js",
+        "summary": "основной сервер",
+        "language": "javascript",
+        "entrypoint": true,
+        "content": "полное содержимое файла"
+      }
+    ]
+  },
   "preview": {
     "type": "html" | "url",
     "title": "название preview",
@@ -111,6 +130,10 @@ const CLEAN_BASE_SYSTEM_PROMPT = `Ты — OpenRouter Coding Agent для llmsto
 - summary и worklog желательно заполнять всегда;
 - changed_files заполняй, если предлагаешь конкретные файлы;
 - how_to_run заполняй, если есть запуск или интеграция;
+- если пользователь просит runnable проект, сервер, скрипт или архив проекта, обязательно заполняй project;
+- в project.files передавай полное содержимое файлов, достаточное для сборки/запуска;
+- для Node.js проектов по возможности включай package.json и все нужные исходники;
+- для Python-проектов по возможности включай requirements.txt и точку входа;
 - preview.type="html" используй только для standalone preview, который реально можно отрисовать в iframe;
 - если preview не нужен, передай null или не указывай поле;
 - JSON должен быть валидным, без комментариев и markdown fences;
