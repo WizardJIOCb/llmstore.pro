@@ -2,7 +2,8 @@
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useDeleteGalleryReaction, useGalleryPreviews, useSetGalleryReaction } from '../../hooks/useChats';
-import type { ChatReactionType, GalleryPreviewItem } from '../../lib/api/chats';
+import { chatsApi } from '../../lib/api/chats';
+import type { ChatReactionType, GalleryPreviewItem, ProjectRunResult } from '../../lib/api/chats';
 import { Spinner } from '../../components/ui/Spinner';
 import { Button } from '../../components/ui/Button';
 import { Select } from '../../components/ui/Select';
@@ -208,6 +209,13 @@ export function GalleryPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [search, setSearch] = useState('');
   const [kindFilter, setKindFilter] = useState<GalleryKindFilter>('all');
+  const [runningMessageId, setRunningMessageId] = useState<string | null>(null);
+  const [runResult, setRunResult] = useState<(ProjectRunResult & {
+    title: string;
+    message_id: string;
+    chat_id: string;
+  }) | null>(null);
+  const [runError, setRunError] = useState<string | null>(null);
   const { data: currentUser } = useQuery({
     queryKey: ['gallery-auth-me'],
     queryFn: async () => {
@@ -254,6 +262,27 @@ export function GalleryPage() {
       setCurrentPage(totalPages);
     }
   }, [currentPage, totalPages]);
+
+  const runGalleryProject = async (item: GalleryPreviewItem) => {
+    if (!currentUser) return;
+
+    setRunError(null);
+    setRunningMessageId(item.message_id);
+    try {
+      const result = await chatsApi.runProject(item.chat_id, item.message_id);
+      setRunResult({
+        ...result,
+        title: item.project_title || item.preview_title || item.chat_title,
+        message_id: item.message_id,
+        chat_id: item.chat_id,
+      });
+    } catch (error) {
+      const maybe = error as { response?: { data?: { error?: { message?: string } } } };
+      setRunError(maybe?.response?.data?.error?.message ?? 'Не удалось запустить проект из галереи');
+    } finally {
+      setRunningMessageId(null);
+    }
+  };
 
   return (
     <div className="px-4 py-8">
@@ -438,6 +467,18 @@ export function GalleryPage() {
                     <Link to={item.chat_url}>
                       <Button size="sm">Перейти в чат</Button>
                     </Link>
+                    {(item.kind === 'project' || item.kind === 'hybrid') && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={!currentUser || runningMessageId === item.message_id}
+                        onClick={() => { void runGalleryProject(item); }}
+                        title={currentUser ? 'Запустить проект' : 'Нужна авторизация для запуска'}
+                      >
+                        {runningMessageId === item.message_id ? 'Запускаю...' : 'Запустить'}
+                      </Button>
+                    )}
                     {item.preview_url ? (
                       <a href={item.preview_url} target="_blank" rel="noopener noreferrer">
                         <Button variant="outline" size="sm">Открыть preview</Button>
@@ -490,7 +531,100 @@ export function GalleryPage() {
             </div>
           </div>
         )}
+
+        {runError && (
+          <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+            {runError}
+          </div>
+        )}
       </div>
+
+      {runResult && (
+        <div
+          className="fixed inset-0 z-[132] flex items-center justify-center bg-black/85 p-3"
+          onClick={() => setRunResult(null)}
+        >
+          <div
+            className="flex h-[94vh] w-[96vw] max-w-7xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-slate-900">
+                  Результат запуска: {runResult.status}
+                </p>
+                <p className="truncate text-xs text-slate-500">
+                  {runResult.title} • {runResult.command.join(' ')} • {runResult.duration_ms} ms
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const item = items.find((candidate) => candidate.message_id === runResult.message_id);
+                    if (!item) return;
+                    void runGalleryProject(item);
+                  }}
+                  disabled={runningMessageId === runResult.message_id}
+                >
+                  {runningMessageId === runResult.message_id ? 'Запускаю...' : 'Запустить'}
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => setRunResult(null)}>
+                  Закрыть
+                </Button>
+              </div>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-auto px-4 py-4">
+              <div className="flex min-h-full flex-col gap-4">
+                <div className="rounded-lg border border-border/70 bg-background/70 p-3 text-sm">
+                  <p className="font-medium text-slate-900">Проверка</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {runResult.verification.message}
+                    {runResult.verification.url ? ` (${runResult.verification.url})` : ''}
+                  </p>
+                  {runResult.entrypoint && (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Entrypoint: {runResult.entrypoint}
+                    </p>
+                  )}
+                </div>
+
+                <div className={[
+                  'grid min-h-0 flex-1 gap-4',
+                  runResult.stdout && runResult.stderr ? 'lg:grid-cols-2' : 'grid-cols-1',
+                ].join(' ')}>
+                  {runResult.stdout && (
+                    <div className="flex min-h-0 flex-col space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">stdout</p>
+                      <pre className="min-h-0 flex-1 overflow-auto rounded-lg bg-slate-950 p-4 text-xs text-slate-100">
+                        {runResult.stdout}
+                      </pre>
+                    </div>
+                  )}
+
+                  {runResult.stderr && (
+                    <div className="flex min-h-0 flex-col space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">stderr</p>
+                      <pre className="min-h-0 flex-1 overflow-auto rounded-lg bg-slate-950 p-4 text-xs text-rose-200">
+                        {runResult.stderr}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+
+                {!runResult.stdout && !runResult.stderr && (
+                  <div className="rounded-lg border border-border/70 bg-background/70 p-3 text-sm text-muted-foreground">
+                    Процесс не вернул stdout или stderr.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

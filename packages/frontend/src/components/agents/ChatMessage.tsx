@@ -2136,7 +2136,7 @@ export function ChatMessage({
                           onClick={() => { void runProjectBundleOnServer(); }}
                           disabled={projectRunning}
                         >
-                          {projectRunning ? 'Запускаю...' : 'Run'}
+                          {projectRunning ? 'Запускаю...' : 'Запустить'}
                         </Button>
                       )}
                     </div>
@@ -2249,7 +2249,7 @@ export function ChatMessage({
                           onClick={() => { void runProjectBundleOnServer(); }}
                           disabled={projectRunning}
                         >
-                          {projectRunning ? 'Запускаю...' : 'Run'}
+                          {projectRunning ? 'Запускаю...' : 'Запустить'}
                         </Button>
                       )}
                       <Button
@@ -2441,7 +2441,7 @@ export function ChatMessage({
                     onClick={() => { void runProjectBundleOnServer(); }}
                     disabled={projectRunning}
                   >
-                    {projectRunning ? 'Запускаю...' : 'Run'}
+                    {projectRunning ? 'Запускаю...' : 'Запустить'}
                   </Button>
                 )}
                 <Button type="button" variant="outline" size="sm" onClick={() => setProjectRunResultFullscreen(null)}>
