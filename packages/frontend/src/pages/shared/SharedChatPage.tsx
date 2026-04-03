@@ -309,6 +309,9 @@ export function SharedChatPage() {
 	            onStartProjectDeployment={profile && data.chatId && msg.role === 'assistant' && msg.id
 	              ? async () => chatsApi.startProjectDeployment(data.chatId!, msg.id!)
 	              : undefined}
+	            onReinstallProjectDeploymentWebhook={profile && data.chatId && msg.role === 'assistant' && msg.id
+	              ? async () => chatsApi.reinstallProjectDeploymentWebhook(data.chatId!, msg.id!)
+	              : undefined}
 	            onStopProjectDeployment={profile && data.chatId && msg.role === 'assistant' && msg.id
 	              ? async () => chatsApi.stopProjectDeployment(data.chatId!, msg.id!)
 	              : undefined}

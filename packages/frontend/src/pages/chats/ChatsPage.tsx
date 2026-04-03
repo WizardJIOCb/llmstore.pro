@@ -1944,6 +1944,9 @@ export function ChatsPage() {
                   onStartProjectDeployment={msg.role === 'assistant' && activeChat
                     ? async () => chatsApi.startProjectDeployment(activeChat.id, msg.id)
                     : undefined}
+                  onReinstallProjectDeploymentWebhook={msg.role === 'assistant' && activeChat
+                    ? async () => chatsApi.reinstallProjectDeploymentWebhook(activeChat.id, msg.id)
+                    : undefined}
                   onStopProjectDeployment={msg.role === 'assistant' && activeChat
                     ? async () => chatsApi.stopProjectDeployment(activeChat.id, msg.id)
                     : undefined}
@@ -2040,6 +2043,9 @@ export function ChatsPage() {
                         : undefined}
                       onStartProjectDeployment={activeChat
                         ? async () => chatsApi.startProjectDeployment(activeChat.id, assistantSlotResolvedMessage.id)
+                        : undefined}
+                      onReinstallProjectDeploymentWebhook={activeChat
+                        ? async () => chatsApi.reinstallProjectDeploymentWebhook(activeChat.id, assistantSlotResolvedMessage.id)
                         : undefined}
                       onStopProjectDeployment={activeChat
                         ? async () => chatsApi.stopProjectDeployment(activeChat.id, assistantSlotResolvedMessage.id)

@@ -41,6 +41,7 @@ router.post('/chats/:chatId/messages/:messageId/project-run', requireAuth, contr
 router.get('/chats/:chatId/messages/:messageId/project-deployment', requireAuth, controller.getChatMessageProjectDeployment);
 router.post('/chats/:chatId/messages/:messageId/project-deployment', requireAuth, validateUpsertProjectDeployment, controller.upsertChatMessageProjectDeployment);
 router.post('/chats/:chatId/messages/:messageId/project-deployment/start', requireAuth, controller.startChatMessageProjectDeployment);
+router.post('/chats/:chatId/messages/:messageId/project-deployment/reinstall-webhook', requireAuth, controller.reinstallTelegramWebhookForChatMessageProjectDeployment);
 router.post('/chats/:chatId/messages/:messageId/project-deployment/stop', requireAuth, controller.stopChatMessageProjectDeployment);
 router.get('/chats/:chatId', requireAuth, controller.getChatById);
 router.get('/chats/:chatId/events', requireAuth, controller.streamChatEvents);

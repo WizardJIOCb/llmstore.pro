@@ -39,6 +39,7 @@ interface ChatMessageProps {
   onLoadProjectDeployment?: () => Promise<ProjectDeployment | null>;
   onUpsertProjectDeployment?: (payload: { env?: Record<string, string>; linked_agent_id?: string | null; set_telegram_webhook?: boolean }) => Promise<ProjectDeployment>;
   onStartProjectDeployment?: () => Promise<ProjectDeployment>;
+  onReinstallProjectDeploymentWebhook?: () => Promise<ProjectDeployment>;
   onStopProjectDeployment?: () => Promise<ProjectDeployment>;
   canEditMessage?: boolean;
   onEditMessage?: () => Promise<void> | void;
@@ -1510,6 +1511,7 @@ export function ChatMessage({
   onLoadProjectDeployment,
   onUpsertProjectDeployment,
   onStartProjectDeployment,
+  onReinstallProjectDeploymentWebhook,
   onStopProjectDeployment,
   canEditMessage = false,
   onEditMessage,
@@ -1532,6 +1534,7 @@ export function ChatMessage({
   const [projectDeploymentLoading, setProjectDeploymentLoading] = useState(false);
   const [projectDeploying, setProjectDeploying] = useState(false);
   const [projectStartingDeployment, setProjectStartingDeployment] = useState(false);
+  const [projectReinstallingWebhook, setProjectReinstallingWebhook] = useState(false);
   const [projectStoppingDeployment, setProjectStoppingDeployment] = useState(false);
   const [projectDeploymentError, setProjectDeploymentError] = useState<string | null>(null);
   const [projectDeploymentStatus, setProjectDeploymentStatus] = useState<string | null>(null);
@@ -1883,6 +1886,22 @@ export function ChatMessage({
       setProjectDeploymentError(error instanceof Error ? error.message : 'Не удалось остановить deployment');
     } finally {
       setProjectStoppingDeployment(false);
+    }
+  };
+
+  const reinstallProjectDeploymentWebhook = async () => {
+    if (!onReinstallProjectDeploymentWebhook) return;
+    setProjectReinstallingWebhook(true);
+    setProjectDeploymentError(null);
+    setProjectDeploymentStatus(null);
+    try {
+      const deployment = await onReinstallProjectDeploymentWebhook();
+      setProjectDeployment(deployment);
+      setProjectDeploymentStatus('Telegram webhook переустановлен');
+    } catch (error) {
+      setProjectDeploymentError(error instanceof Error ? error.message : 'Не удалось переустановить webhook');
+    } finally {
+      setProjectReinstallingWebhook(false);
     }
   };
 
@@ -2379,6 +2398,17 @@ export function ChatMessage({
                             >
                               Копировать URL
                             </Button>
+                            {onReinstallProjectDeploymentWebhook && projectDeployment.env.TELEGRAM_BOT_TOKEN && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => { void reinstallProjectDeploymentWebhook(); }}
+                                disabled={projectReinstallingWebhook}
+                              >
+                                {projectReinstallingWebhook ? 'Переустанавливаю...' : 'Переустановить webhook'}
+                              </Button>
+                            )}
                             {projectDeployment.status !== 'running' && onStartProjectDeployment && (
                               <Button
                                 type="button"

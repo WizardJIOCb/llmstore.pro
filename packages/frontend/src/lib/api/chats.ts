@@ -404,6 +404,11 @@ export const chatsApi = {
       .post<{ data: ProjectDeployment }>(`/chats/${chatId}/messages/${messageId}/project-deployment/start`)
       .then((r) => r.data.data),
 
+  reinstallProjectDeploymentWebhook: (chatId: string, messageId: string) =>
+    apiClient
+      .post<{ data: ProjectDeployment }>(`/chats/${chatId}/messages/${messageId}/project-deployment/reinstall-webhook`)
+      .then((r) => r.data.data),
+
   stopProjectDeployment: (chatId: string, messageId: string) =>
     apiClient
       .post<{ data: ProjectDeployment }>(`/chats/${chatId}/messages/${messageId}/project-deployment/stop`)

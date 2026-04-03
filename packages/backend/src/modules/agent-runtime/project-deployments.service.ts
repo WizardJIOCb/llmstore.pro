@@ -746,6 +746,20 @@ export async function startChatMessageProjectDeployment(
   return toProjectDeploymentRecord(await getDeploymentWithAgentMeta(deployment.id, userId));
 }
 
+export async function reinstallTelegramWebhookForChatMessageProjectDeployment(
+  chatId: string,
+  messageId: string,
+  userId: string,
+): Promise<ProjectDeploymentRecord> {
+  const deployment = await getChatMessageProjectDeployment(chatId, messageId, userId);
+  if (!deployment) {
+    throw new NotFoundError('Deployment not found');
+  }
+
+  await installTelegramWebhookForDeployment(deployment.id, userId, deployment.env);
+  return toProjectDeploymentRecord(await getDeploymentWithAgentMeta(deployment.id, userId));
+}
+
 export async function stopChatMessageProjectDeployment(
   chatId: string,
   messageId: string,
