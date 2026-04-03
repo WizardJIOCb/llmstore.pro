@@ -1701,7 +1701,7 @@ export function ChatsPage() {
   );
 
   return (
-    <div className="flex h-full min-h-0 flex-col px-4 py-4">
+    <div className="flex h-full min-h-0 w-full max-w-full flex-col overflow-x-hidden px-4 py-4">
       <input
         ref={importFileInputRef}
         type="file"
@@ -1714,9 +1714,9 @@ export function ChatsPage() {
         Ссылка скопирована
       </div>
 
-      <div className="mx-auto flex min-h-0 flex-1 max-w-7xl overflow-hidden rounded-xl border bg-white">
+      <div className="mx-auto flex min-h-0 w-full max-w-full flex-1 overflow-hidden rounded-xl border bg-white">
         {showSidebar && (
-        <aside className={cn('flex w-full shrink-0 flex-col', isDesktop ? 'max-w-xs border-r' : 'max-w-none')}>
+        <aside className={cn('flex min-w-0 w-full shrink-0 flex-col', isDesktop ? 'max-w-xs border-r' : 'max-w-none')}>
           <div className="border-b p-3 space-y-3">
             <div className="grid grid-cols-2 gap-2">
               <Button className="w-full" onClick={createNewChat} disabled={createChatMutation.isPending}>Новый чат</Button>
@@ -1736,7 +1736,7 @@ export function ChatsPage() {
         )}
 
         {showChatPane && (
-        <section className="flex min-w-0 flex-1 flex-col">
+        <section className="flex min-w-0 w-full max-w-full flex-1 flex-col overflow-x-hidden">
           <div className="flex flex-col gap-3 border-b px-4 py-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="min-w-0 flex-1">
               <h1 className="truncate font-semibold">{activeChat?.title ?? 'Чаты'}</h1>
@@ -1776,7 +1776,7 @@ export function ChatsPage() {
             )}
           </div>
 
-          <div ref={messagesScrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+          <div ref={messagesScrollRef} className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 space-y-4">
             {activeChatLoading && displayedMessages.length === 0 && <div className="flex justify-center py-8"><Spinner /></div>}
             {!activeChatLoading && activeChat && displayedMessages.length === 0 && (
               <div className="py-8">
