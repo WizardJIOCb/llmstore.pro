@@ -2063,7 +2063,7 @@ export function ChatMessage({
                           onClick={() => { void runProjectBundleOnServer(); }}
                           disabled={projectRunning}
                         >
-                          {projectRunning ? 'Проверяю...' : 'Проверить на сервере'}
+                          {projectRunning ? 'Запускаю...' : 'Run'}
                         </Button>
                       )}
                     </div>
@@ -2144,6 +2144,18 @@ export function ChatMessage({
                       >
                         {previewExporting ? 'Экспортирую...' : 'Экспортировать'}
                       </Button>
+                      {projectBundle && canRunProject && onRunProject && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="whitespace-nowrap"
+                          onClick={() => { void runProjectBundleOnServer(); }}
+                          disabled={projectRunning}
+                        >
+                          {projectRunning ? 'Запускаю...' : 'Run'}
+                        </Button>
+                      )}
                       <Button
                         type="button"
                         variant="outline"

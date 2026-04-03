@@ -768,6 +768,138 @@ function normalizeProject(value: unknown): CodingReportProject | null | undefine
   };
 }
 
+function inferProjectRuntimeFromFiles(
+  files: CodingReportProjectFile[],
+  howToRun?: string[] | null,
+): CodingReportProject['runtime'] {
+  const paths = files.map((file) => file.path.toLowerCase());
+  const runText = (howToRun ?? []).join('\n').toLowerCase();
+
+  if (paths.includes('package.json') || /\.(c|m)?js$/.test(paths.join('\n')) || /\.(ts|tsx)$/.test(paths.join('\n')) || /\b(node|npm|pnpm|yarn|bun)\b/.test(runText)) {
+    return 'node';
+  }
+
+  if (paths.some((filePath) => filePath.endsWith('.py')) || /\bpython(?:3(?:\.\d+)?)?\b/.test(runText)) {
+    return 'python';
+  }
+
+  if (paths.some((filePath) => filePath.endsWith('.html'))) {
+    return 'static';
+  }
+
+  return 'generic';
+}
+
+function inferProjectEntrypointFromRunCommands(
+  runCommands: string[] | undefined,
+  runtime: CodingReportProject['runtime'],
+): string | undefined {
+  if (!runCommands || runCommands.length === 0) return undefined;
+
+  for (const command of runCommands) {
+    if (runtime === 'python') {
+      const match = command.match(/\bpython(?:3(?:\.\d+)?)?\s+([^\s]+\.py)\b/i);
+      if (match?.[1]) return clampText(match[1], 500) ?? undefined;
+    }
+
+    if (runtime === 'node') {
+      const match = command.match(/\bnode\s+([^\s]+\.(?:cjs|mjs|js|ts))\b/i);
+      if (match?.[1]) return clampText(match[1], 500) ?? undefined;
+    }
+  }
+
+  return undefined;
+}
+
+function inferProjectEntrypointFromFiles(
+  files: CodingReportProjectFile[],
+  runtime: CodingReportProject['runtime'],
+): string | undefined {
+  const candidates = runtime === 'python'
+    ? ['main.py', 'app.py', 'server.py', 'run.py']
+    : runtime === 'node'
+      ? ['server.js', 'app.js', 'index.js', 'main.js', 'server.mjs', 'app.mjs', 'index.mjs']
+      : runtime === 'static'
+        ? ['index.html']
+        : [];
+
+  for (const candidate of candidates) {
+    if (files.some((file) => file.path.toLowerCase() === candidate)) {
+      return candidate;
+    }
+  }
+
+  return undefined;
+}
+
+function extractMarkdownProjectFiles(
+  content: string,
+  changedFiles?: CodingReportChangedFile[] | null,
+): CodingReportProjectFile[] | null {
+  const summaryByPath = new Map(
+    (changedFiles ?? [])
+      .map((file) => [file.path.trim().toLowerCase(), file.summary] as const)
+      .filter(([filePath]) => filePath.length > 0),
+  );
+  const results: CodingReportProjectFile[] = [];
+  const seen = new Set<string>();
+  const fileBlockPattern = /(?:^|\n)#{1,6}\s+(?:`([^`\r\n]+)`|([./\w-]+\.[\w.+-]+))\s*\n(?:\s*\n)?```([^\n`]*)\n([\s\S]*?)\n```/g;
+
+  for (const match of content.matchAll(fileBlockPattern)) {
+    const rawPath = (match[1] ?? match[2] ?? '').trim();
+    if (!rawPath) continue;
+
+    let normalizedPath: string;
+    try {
+      normalizedPath = sanitizeProjectFilePath(rawPath);
+    } catch {
+      continue;
+    }
+
+    if (seen.has(normalizedPath)) continue;
+    seen.add(normalizedPath);
+
+    const fence = (match[3] ?? '').trim();
+    const language = clampText(fence.split(/\s+/)[0] || undefined, 40);
+    const contentBlock = match[4] ?? '';
+    results.push({
+      path: normalizedPath,
+      content: contentBlock.replace(/\r\n/g, '\n'),
+      summary: summaryByPath.get(normalizedPath.toLowerCase()),
+      language,
+    });
+  }
+
+  return results.length > 0 ? results : null;
+}
+
+function recoverProjectBundleFromMarkdown(content: string, report?: CodingReport | null): CodingReportProject | null {
+  const files = extractMarkdownProjectFiles(content, report?.changed_files);
+  if (!files) return null;
+
+  const runCommands = normalizeStringArray(report?.how_to_run, 12, 500);
+  const runtime = inferProjectRuntimeFromFiles(files, runCommands);
+  const entrypoint = inferProjectEntrypointFromRunCommands(runCommands, runtime)
+    ?? inferProjectEntrypointFromFiles(files, runtime);
+
+  const nextFiles = files.map((file) => ({
+    ...file,
+    entrypoint: entrypoint ? file.path === entrypoint : undefined,
+  }));
+
+  return {
+    title: clampText(report?.summary, 200) ?? 'Recovered project bundle',
+    runtime,
+    entrypoint,
+    run: runCommands,
+    notes: [
+      ...(report?.notes ?? []),
+      'Project bundle автоматически восстановлен из markdown-файлов в ответе агента.',
+    ].slice(0, 12),
+    files: nextFiles,
+  };
+}
+
 function normalizePreview(value: unknown): CodingReportPreview | null | undefined {
   if (!value || typeof value !== 'object') return undefined;
   const preview = value as { type?: unknown; title?: unknown; html?: unknown; url?: unknown };
@@ -1188,7 +1320,21 @@ function normalizeAssistantChatPayload(
 ): { content: string; usage: Record<string, unknown> | null; codingReport: CodingReport | null } {
   const parsed = extractCodingReport(content);
   const usageCodingReport = sanitizeCodingReport(usage?.coding_report);
-  const codingReport = parsed.report ?? usageCodingReport;
+  let codingReport = parsed.report ?? usageCodingReport;
+  const recoveredProject = codingReport?.project
+    ? null
+    : recoverProjectBundleFromMarkdown(parsed.cleanText || content, codingReport);
+
+  if (recoveredProject) {
+    codingReport = {
+      ...(codingReport ?? {}),
+      project: recoveredProject,
+      notes: [
+        ...(codingReport?.notes ?? []),
+        'Runnable bundle распознан из markdown-ответа и доступен для экспорта/запуска.',
+      ].slice(0, 12),
+    };
+  }
 
   return {
     content: parsed.cleanText || codingReport?.summary || '',
