@@ -1,7 +1,10 @@
 ﻿import { db } from '../../config/database.js';
-import { readFile, stat, writeFile } from 'fs/promises';
+import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'fs/promises';
 import path from 'path';
 import type { Response } from 'express';
+import { spawn } from 'child_process';
+import net from 'net';
+import { tmpdir } from 'os';
 import { agents, agentVersions, agentVersionTools, toolDefinitions } from '../../db/schema/agents.js';
 import {
   agentRuns,
@@ -34,6 +37,10 @@ import { chargeUserBalanceForUsage } from '../../lib/billing.js';
 const DEFAULT_MODEL = 'google/gemini-2.0-flash-001';
 const DEFAULT_MAX_ITERATIONS = 4;
 const CHAT_UPLOADS_DIR = path.join(UPLOADS_DIR, 'chat');
+const PROJECT_RUN_TIMEOUT_MS = 20_000;
+const PROJECT_HTTP_READY_TIMEOUT_MS = 8_000;
+const PROJECT_HTTP_PROBE_INTERVAL_MS = 500;
+const PROJECT_MAX_OUTPUT_CHARS = 24_000;
 
 interface ChatAttachmentInput {
   filename: string;
@@ -98,6 +105,27 @@ interface CodingReport {
   notes?: string[];
   project?: CodingReportProject | null;
   preview?: CodingReportPreview | null;
+}
+
+export interface ProjectRunVerification {
+  kind: 'http' | 'process_exit' | 'none';
+  ok: boolean;
+  message: string;
+  url?: string;
+  http_status?: number | null;
+}
+
+export interface ProjectRunResult {
+  runtime: 'node' | 'python' | 'static' | 'generic';
+  status: 'passed' | 'failed' | 'timeout' | 'unsupported';
+  command: string[];
+  entrypoint: string | null;
+  duration_ms: number;
+  exit_code: number | null;
+  signal: string | null;
+  stdout: string;
+  stderr: string;
+  verification: ProjectRunVerification;
 }
 
 // Pricing per 1M tokens (USD) - OpenRouter rates, verified on April 2, 2026.
@@ -791,6 +819,270 @@ function sanitizeCodingReport(value: unknown): CodingReport | null {
   }
 
   return normalized;
+}
+
+function sanitizeProjectFilePath(filePath: string): string {
+  const normalized = filePath.replace(/\\/g, '/').trim();
+  if (!normalized || normalized.startsWith('/') || normalized.includes('\0')) {
+    throw new AppError(400, 'PROJECT_FILE_INVALID', 'Некорректный путь файла проекта');
+  }
+
+  const parts = normalized.split('/').filter(Boolean);
+  if (parts.length === 0 || parts.some((part) => part === '.' || part === '..')) {
+    throw new AppError(400, 'PROJECT_FILE_INVALID', 'Некорректный путь файла проекта');
+  }
+
+  return parts.join('/');
+}
+
+function pickProjectEntrypoint(project: CodingReportProject): string | null {
+  const fromProject = project.entrypoint?.trim();
+  if (fromProject) return sanitizeProjectFilePath(fromProject);
+
+  const explicit = project.files.find((file) => file.entrypoint)?.path;
+  if (explicit) return sanitizeProjectFilePath(explicit);
+
+  const candidates = project.runtime === 'python'
+    ? ['main.py', 'app.py', 'server.py']
+    : ['server.js', 'app.js', 'index.js', 'main.js'];
+
+  for (const candidate of candidates) {
+    const match = project.files.find((file) => sanitizeProjectFilePath(file.path) === candidate);
+    if (match) return candidate;
+  }
+
+  return null;
+}
+
+function detectProjectCommand(project: CodingReportProject): { command: string; args: string[]; entrypoint: string | null } {
+  if (project.runtime === 'static' || project.runtime === 'generic') {
+    throw new AppError(400, 'PROJECT_RUNTIME_UNSUPPORTED', 'Server-side запуск пока поддерживает только Node.js и Python');
+  }
+
+  const entrypoint = pickProjectEntrypoint(project);
+  if (!entrypoint) {
+    throw new AppError(400, 'PROJECT_ENTRYPOINT_REQUIRED', 'Для server-side запуска нужен entrypoint проекта');
+  }
+
+  if (project.runtime === 'python') {
+    return { command: 'python3', args: [entrypoint], entrypoint };
+  }
+
+  return { command: 'node', args: [entrypoint], entrypoint };
+}
+
+function trimProcessOutput(value: string): string {
+  if (value.length <= PROJECT_MAX_OUTPUT_CHARS) {
+    return value;
+  }
+
+  return `${value.slice(0, PROJECT_MAX_OUTPUT_CHARS)}\n...[truncated]`;
+}
+
+async function reserveTcpPort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.unref();
+    server.on('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      const port = typeof address === 'object' && address ? address.port : null;
+      server.close((err) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        if (!port) {
+          reject(new Error('Failed to reserve TCP port'));
+          return;
+        }
+        resolve(port);
+      });
+    });
+  });
+}
+
+async function waitForHttpVerification(port: number, timeoutMs: number): Promise<ProjectRunVerification | null> {
+  const deadline = Date.now() + timeoutMs;
+  const candidates = ['/api/health', '/health', '/'];
+
+  while (Date.now() < deadline) {
+    for (const pathname of candidates) {
+      const url = `http://127.0.0.1:${port}${pathname}`;
+      try {
+        const response = await fetch(url, {
+          signal: AbortSignal.timeout(800),
+          redirect: 'manual',
+        });
+        if (response.status >= 200 && response.status < 500) {
+          return {
+            kind: 'http',
+            ok: response.ok || response.status < 400,
+            message: `HTTP endpoint responded with ${response.status}`,
+            url,
+            http_status: response.status,
+          };
+        }
+      } catch {
+        // Continue polling until timeout.
+      }
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, PROJECT_HTTP_PROBE_INTERVAL_MS));
+  }
+
+  return null;
+}
+
+async function stopChildProcess(child: ReturnType<typeof spawn>): Promise<void> {
+  if (child.killed || child.exitCode !== null) {
+    return;
+  }
+
+  child.kill('SIGTERM');
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  if (child.exitCode === null) {
+    child.kill('SIGKILL');
+  }
+}
+
+async function materializeProjectFiles(project: CodingReportProject, workspaceDir: string): Promise<void> {
+  for (const file of project.files) {
+    const relativePath = sanitizeProjectFilePath(file.path);
+    const targetPath = path.join(workspaceDir, relativePath);
+    const relativeFromRoot = path.relative(workspaceDir, targetPath);
+    if (relativeFromRoot.startsWith('..') || path.isAbsolute(relativeFromRoot)) {
+      throw new AppError(400, 'PROJECT_FILE_INVALID', 'Некорректный путь файла проекта');
+    }
+
+    await mkdir(path.dirname(targetPath), { recursive: true });
+    await writeFile(targetPath, file.content, 'utf8');
+  }
+}
+
+async function runProjectBundle(project: CodingReportProject): Promise<ProjectRunResult> {
+  const workspaceDir = await mkdtemp(path.join(tmpdir(), 'llmstore-run-'));
+  const startedAt = Date.now();
+
+  try {
+    await materializeProjectFiles(project, workspaceDir);
+    const { command, args, entrypoint } = detectProjectCommand(project);
+    const port = await reserveTcpPort();
+
+    let stdout = '';
+    let stderr = '';
+    let timedOut = false;
+
+    const child = spawn(command, args, {
+      cwd: workspaceDir,
+      shell: false,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: {
+        PATH: process.env.PATH ?? '',
+        HOME: workspaceDir,
+        TMPDIR: workspaceDir,
+        TEMP: workspaceDir,
+        TMP: workspaceDir,
+        PORT: String(port),
+        HOST: '127.0.0.1',
+        NODE_ENV: 'production',
+        PYTHONUNBUFFERED: '1',
+      },
+    });
+
+    child.stdout?.setEncoding('utf8');
+    child.stderr?.setEncoding('utf8');
+    child.stdout?.on('data', (chunk: string) => {
+      stdout = trimProcessOutput(`${stdout}${chunk}`);
+    });
+    child.stderr?.on('data', (chunk: string) => {
+      stderr = trimProcessOutput(`${stderr}${chunk}`);
+    });
+
+    const exitPromise = new Promise<{ exitCode: number | null; signal: string | null }>((resolve, reject) => {
+      child.once('error', reject);
+      child.once('exit', (exitCode, signal) => resolve({ exitCode, signal }));
+    });
+
+    const timeoutPromise = new Promise<{ kind: 'timeout' }>((resolve) => {
+      setTimeout(() => resolve({ kind: 'timeout' }), PROJECT_RUN_TIMEOUT_MS);
+    });
+
+    const httpPromise: Promise<{ kind: 'http'; verification: ProjectRunVerification }> = waitForHttpVerification(
+      port,
+      PROJECT_HTTP_READY_TIMEOUT_MS,
+    ).then((verification) => {
+      if (verification) {
+        return { kind: 'http' as const, verification };
+      }
+
+      return new Promise<never>(() => undefined);
+    });
+
+    const first = await Promise.race([
+      exitPromise.then((result) => ({ kind: 'exit' as const, ...result })),
+      timeoutPromise,
+      httpPromise,
+    ]);
+
+    let verification: ProjectRunVerification = {
+      kind: 'none',
+      ok: false,
+      message: 'Запуск не был подтверждён',
+    };
+    let status: ProjectRunResult['status'] = 'failed';
+    let exitCode: number | null = null;
+    let signal: string | null = null;
+
+    if (first && first.kind === 'http') {
+      verification = first.verification;
+      status = verification.ok ? 'passed' : 'failed';
+      await stopChildProcess(child);
+      const exitResult = await exitPromise.catch(() => ({ exitCode: null, signal: 'SIGTERM' }));
+      exitCode = exitResult.exitCode;
+      signal = exitResult.signal;
+    } else if (first && first.kind === 'exit') {
+      exitCode = first.exitCode;
+      signal = first.signal;
+      verification = {
+        kind: 'process_exit',
+        ok: first.exitCode === 0,
+        message: first.exitCode === 0 ? 'Процесс завершился с кодом 0' : `Процесс завершился с кодом ${first.exitCode ?? 'null'}`,
+      };
+      status = first.exitCode === 0 ? 'passed' : 'failed';
+    } else {
+      timedOut = true;
+      verification = {
+        kind: 'none',
+        ok: false,
+        message: 'Превышен таймаут выполнения',
+      };
+      status = 'timeout';
+      await stopChildProcess(child);
+      const exitResult = await exitPromise.catch(() => ({ exitCode: null, signal: 'SIGKILL' }));
+      exitCode = exitResult.exitCode;
+      signal = exitResult.signal;
+    }
+
+    if (!timedOut && status === 'passed' && verification.kind === 'process_exit' && project.runtime === 'node') {
+      verification.message = 'Node.js проект успешно выполнился';
+    }
+
+    return {
+      runtime: project.runtime,
+      status,
+      command: [command, ...args],
+      entrypoint,
+      duration_ms: Date.now() - startedAt,
+      exit_code: exitCode,
+      signal,
+      stdout,
+      stderr,
+      verification,
+    };
+  } finally {
+    await rm(workspaceDir, { recursive: true, force: true }).catch(() => undefined);
+  }
 }
 
 function extractFirstJsonObject(value: string): { json: string; endIndex: number } | null {
@@ -3235,6 +3527,45 @@ export async function getChatById(chatId: string, userId: string): Promise<Conve
     },
     messages,
   };
+}
+
+async function getAssistantMessageForConversation(conversationId: string, messageId: string) {
+  const [message] = await db
+    .select()
+    .from(chatConversationMessages)
+    .where(and(
+      eq(chatConversationMessages.id, messageId),
+      eq(chatConversationMessages.conversation_id, conversationId),
+    ))
+    .limit(1);
+
+  if (!message || message.role !== 'assistant') {
+    throw new NotFoundError('Project bundle not found');
+  }
+
+  return message;
+}
+
+function extractProjectBundleFromMessage(message: typeof chatConversationMessages.$inferSelect): CodingReportProject {
+  const rawUsage = (message.usage_json as Record<string, unknown> | null) ?? null;
+  const normalized = normalizeAssistantChatPayload(message.content_text, rawUsage);
+  const project = normalized.codingReport?.project;
+
+  if (!project || !project.files || project.files.length === 0) {
+    throw new AppError(400, 'PROJECT_BUNDLE_MISSING', 'В сообщении нет runnable project bundle');
+  }
+
+  return project;
+}
+
+export async function runChatMessageProject(
+  chatId: string,
+  messageId: string,
+  userId: string,
+): Promise<ProjectRunResult> {
+  await getConversationForUser(chatId, userId);
+  const message = await getAssistantMessageForConversation(chatId, messageId);
+  return runProjectBundle(extractProjectBundleFromMessage(message));
 }
 
 export async function getChatMessagePreviewHtml(

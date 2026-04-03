@@ -262,6 +262,10 @@ export function SharedChatPage() {
 	                }
 	              }
 	              : undefined}
+	            canRunProject={Boolean(profile) && Boolean(data.chatId) && msg.role === 'assistant' && Boolean(msg.id)}
+	            onRunProject={profile && data.chatId && msg.role === 'assistant' && msg.id
+	              ? async () => chatsApi.runProject(data.chatId!, msg.id!)
+	              : undefined}
 	            canDeleteMessage={Boolean(profile) && Boolean(data.chatId) && Boolean(msg.id)}
 		            onDeleteMessage={profile && data.chatId && msg.id
 		              ? async () => {

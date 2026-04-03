@@ -99,6 +99,27 @@ export interface CodingReport {
   preview?: CodingReportPreview | null;
 }
 
+export interface ProjectRunVerification {
+  kind: 'http' | 'process_exit' | 'none';
+  ok: boolean;
+  message: string;
+  url?: string;
+  http_status?: number | null;
+}
+
+export interface ProjectRunResult {
+  runtime: 'node' | 'python' | 'static' | 'generic';
+  status: 'passed' | 'failed' | 'timeout' | 'unsupported';
+  command: string[];
+  entrypoint: string | null;
+  duration_ms: number;
+  exit_code: number | null;
+  signal: string | null;
+  stdout: string;
+  stderr: string;
+  verification: ProjectRunVerification;
+}
+
 export interface UsageSummary {
   prompt_tokens: number;
   completion_tokens: number;

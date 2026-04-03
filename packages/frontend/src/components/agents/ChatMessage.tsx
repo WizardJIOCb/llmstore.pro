@@ -3,7 +3,7 @@ import type { ComponentPropsWithoutRef, CSSProperties, KeyboardEvent, ReactNode 
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Pencil, Trash2 } from 'lucide-react';
-import type { CodingReport, CodingReportProject, ToolTrace } from '../../lib/api/agents';
+import type { CodingReport, CodingReportProject, ProjectRunResult, ToolTrace } from '../../lib/api/agents';
 import { cn } from '../../lib/utils';
 import { ToolTracePanel } from './ToolTracePanel';
 import { ChatCodeBlock, ChatInlineCode } from './ChatCodeBlock';
@@ -30,6 +30,8 @@ interface ChatMessageProps {
   previewPageUrl?: string | null;
   canEditPreview?: boolean;
   onSavePreview?: (payload: { title?: string | null; html: string }) => Promise<void>;
+  canRunProject?: boolean;
+  onRunProject?: () => Promise<ProjectRunResult>;
   canEditMessage?: boolean;
   onEditMessage?: () => Promise<void> | void;
   canDeleteMessage?: boolean;
@@ -1408,6 +1410,8 @@ export function ChatMessage({
   previewPageUrl = null,
   canEditPreview = false,
   onSavePreview,
+  canRunProject = false,
+  onRunProject,
   canEditMessage = false,
   onEditMessage,
   canDeleteMessage = false,
@@ -1421,6 +1425,8 @@ export function ChatMessage({
   const [previewEditor, setPreviewEditor] = useState<{ title: string; html: string } | null>(null);
   const [previewExporting, setPreviewExporting] = useState(false);
   const [projectExporting, setProjectExporting] = useState(false);
+  const [projectRunning, setProjectRunning] = useState(false);
+  const [projectRunResult, setProjectRunResult] = useState<ProjectRunResult | null>(null);
   const [editorSaving, setEditorSaving] = useState(false);
   const [editorExporting, setEditorExporting] = useState(false);
   const [editorError, setEditorError] = useState<string | null>(null);
@@ -1616,6 +1622,23 @@ export function ChatMessage({
       setMessageActionError(error instanceof Error ? error.message : 'Не удалось экспортировать проект');
     } finally {
       setProjectExporting(false);
+    }
+  };
+
+  const runProjectBundleOnServer = async () => {
+    if (!onRunProject) return;
+
+    setProjectRunning(true);
+    setMessageActionError(null);
+    setProjectRunResult(null);
+
+    try {
+      const result = await onRunProject();
+      setProjectRunResult(result);
+    } catch (error) {
+      setMessageActionError(error instanceof Error ? error.message : 'Не удалось выполнить проект на сервере');
+    } finally {
+      setProjectRunning(false);
     }
   };
 
@@ -2031,6 +2054,18 @@ export function ChatMessage({
                       >
                         {projectExporting ? 'Экспортирую...' : 'Скачать проект'}
                       </Button>
+                      {canRunProject && onRunProject && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="whitespace-nowrap"
+                          onClick={() => { void runProjectBundleOnServer(); }}
+                          disabled={projectRunning}
+                        >
+                          {projectRunning ? 'Проверяю...' : 'Проверить на сервере'}
+                        </Button>
+                      )}
                     </div>
 
                     <div className="space-y-2">
@@ -2045,6 +2080,30 @@ export function ChatMessage({
                         </div>
                       ))}
                     </div>
+                    {projectRunResult && (
+                      <div className="rounded-md border border-border/60 bg-background/80 p-3 text-sm">
+                        <p className="font-medium text-slate-900">
+                          Результат: {projectRunResult.status}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {projectRunResult.command.join(' ')} · {projectRunResult.duration_ms} ms
+                        </p>
+                        <p className="mt-2 text-xs">
+                          {projectRunResult.verification.message}
+                          {projectRunResult.verification.url ? ` (${projectRunResult.verification.url})` : ''}
+                        </p>
+                        {projectRunResult.stdout && (
+                          <pre className="mt-3 max-h-48 overflow-auto rounded bg-slate-950 p-3 text-xs text-slate-100">
+                            {projectRunResult.stdout}
+                          </pre>
+                        )}
+                        {projectRunResult.stderr && (
+                          <pre className="mt-3 max-h-48 overflow-auto rounded bg-slate-950 p-3 text-xs text-rose-200">
+                            {projectRunResult.stderr}
+                          </pre>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </SectionCard>
               )}

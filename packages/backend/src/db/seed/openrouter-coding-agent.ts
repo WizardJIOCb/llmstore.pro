@@ -134,6 +134,7 @@ const CLEAN_BASE_SYSTEM_PROMPT = `Ты — OpenRouter Coding Agent для llmsto
 - в project.files передавай полное содержимое файлов, достаточное для сборки/запуска;
 - для Node.js проектов по возможности включай package.json и все нужные исходники;
 - для Python-проектов по возможности включай requirements.txt и точку входа;
+- для server-side проверки предпочитай простые zero-dependency Node.js/Python решения без внешних сервисов и без обязательного npm/pip install;
 - preview.type="html" используй только для standalone preview, который реально можно отрисовать в iframe;
 - если preview не нужен, передай null или не указывай поле;
 - JSON должен быть валидным, без комментариев и markdown fences;

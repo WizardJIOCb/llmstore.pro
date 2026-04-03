@@ -33,6 +33,7 @@ router.post('/chats/import', requireAuth, chatBundleUpload.single('file'), contr
 router.get('/chats/:chatId/export', requireAuth, controller.exportChatBundle);
 router.get('/chats/:chatId/messages/:messageId/preview', controller.getChatMessagePreview);
 router.patch('/chats/:chatId/messages/:messageId/preview', requireAuth, validateUpdateMessagePreview, controller.updateChatMessagePreview);
+router.post('/chats/:chatId/messages/:messageId/project-run', requireAuth, controller.runChatMessageProject);
 router.get('/chats/:chatId', requireAuth, controller.getChatById);
 router.get('/chats/:chatId/events', requireAuth, controller.streamChatEvents);
 router.get('/chats/:chatId/stats', requireAuth, controller.getChatStats);

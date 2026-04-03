@@ -46,6 +46,27 @@ export interface CodingReport {
   preview?: CodingReportPreview | null;
 }
 
+export interface ProjectRunVerification {
+  kind: 'http' | 'process_exit' | 'none';
+  ok: boolean;
+  message: string;
+  url?: string;
+  http_status?: number | null;
+}
+
+export interface ProjectRunResult {
+  runtime: 'node' | 'python' | 'static' | 'generic';
+  status: 'passed' | 'failed' | 'timeout' | 'unsupported';
+  command: string[];
+  entrypoint: string | null;
+  duration_ms: number;
+  exit_code: number | null;
+  signal: string | null;
+  stdout: string;
+  stderr: string;
+  verification: ProjectRunVerification;
+}
+
 export interface ToolTrace {
   tool_call_id: string;
   tool_name: string;
@@ -327,6 +348,11 @@ export const chatsApi = {
   updatePreview: (chatId: string, messageId: string, payload: { title?: string | null; html: string }) =>
     apiClient
       .patch<{ data: UpdateMessagePreviewResult }>(`/chats/${chatId}/messages/${messageId}/preview`, payload)
+      .then((r) => r.data.data),
+
+  runProject: (chatId: string, messageId: string) =>
+    apiClient
+      .post<{ data: ProjectRunResult }>(`/chats/${chatId}/messages/${messageId}/project-run`)
       .then((r) => r.data.data),
 
   updateSharedPreview: (token: string, messageId: string, payload: { title?: string | null; html: string }) =>

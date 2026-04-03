@@ -1817,6 +1817,10 @@ export function ChatsPage() {
                       }
                     }
                     : undefined}
+                  canRunProject={msg.role === 'assistant' && Boolean(activeChat)}
+                  onRunProject={msg.role === 'assistant' && activeChat
+                    ? async () => chatsApi.runProject(activeChat.id, msg.id)
+                    : undefined}
                   canEditMessage={canEditUserMessage}
                   onEditMessage={canEditUserMessage
                     ? async () => {
@@ -1888,6 +1892,10 @@ export function ChatsPage() {
                             throw new Error(getApiErrorMessage(error) ?? 'Не удалось сохранить preview');
                           }
                         }
+                        : undefined}
+                      canRunProject={Boolean(activeChat)}
+                      onRunProject={activeChat
+                        ? async () => chatsApi.runProject(activeChat.id, assistantSlotResolvedMessage.id)
                         : undefined}
                       canDeleteMessage={Boolean(activeChat)}
                       onDeleteMessage={activeChat
