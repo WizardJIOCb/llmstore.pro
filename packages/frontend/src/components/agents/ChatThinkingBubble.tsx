@@ -1,22 +1,58 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { cn } from '../../lib/utils';
 
 interface ChatThinkingBubbleProps {
   label?: string;
   detail?: string;
+  startedAt?: string | null;
   className?: string;
   presenceState?: 'enter' | 'exit';
   onHeightChange?: (height: number) => void;
 }
 
+function formatThinkingElapsed(elapsedMs: number): string {
+  const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+
+  if (minutes === 0) {
+    return `${totalSeconds} с`;
+  }
+
+  return `${minutes} мин ${seconds.toString().padStart(2, '0')} с`;
+}
+
 export function ChatThinkingBubble({
   label = 'Думаю...',
   detail = 'Собираю следующий ответ.',
+  startedAt,
   className,
   presenceState = 'enter',
   onHeightChange,
 }: ChatThinkingBubbleProps) {
   const bubbleRef = useRef<HTMLDivElement | null>(null);
+  const [elapsedLabel, setElapsedLabel] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!startedAt) {
+      setElapsedLabel(null);
+      return;
+    }
+
+    const startedAtMs = Date.parse(startedAt);
+    if (Number.isNaN(startedAtMs)) {
+      setElapsedLabel(null);
+      return;
+    }
+
+    const updateElapsed = () => {
+      setElapsedLabel(formatThinkingElapsed(Date.now() - startedAtMs));
+    };
+
+    updateElapsed();
+    const intervalId = window.setInterval(updateElapsed, 1000);
+    return () => window.clearInterval(intervalId);
+  }, [startedAt]);
 
   useEffect(() => {
     if (!bubbleRef.current || !onHeightChange) return;
@@ -34,7 +70,7 @@ export function ChatThinkingBubble({
     const observer = new ResizeObserver(() => measure());
     observer.observe(bubbleRef.current);
     return () => observer.disconnect();
-  }, [detail, label, onHeightChange, presenceState]);
+  }, [detail, elapsedLabel, label, onHeightChange, presenceState]);
 
   return (
     <div
@@ -56,7 +92,14 @@ export function ChatThinkingBubble({
             <span className="chat-thinking-loader__core" />
           </div>
           <div className="min-w-0">
-            <p className="text-sm font-semibold tracking-[0.01em] text-slate-900">{label}</p>
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-semibold tracking-[0.01em] text-slate-900">{label}</p>
+              {elapsedLabel ? (
+                <span className="rounded-full border border-sky-200/80 bg-white/70 px-2 py-0.5 text-[11px] font-medium text-sky-800">
+                  {elapsedLabel}
+                </span>
+              ) : null}
+            </div>
             <p className="mt-1 text-xs leading-5 text-slate-500">{detail}</p>
           </div>
         </div>

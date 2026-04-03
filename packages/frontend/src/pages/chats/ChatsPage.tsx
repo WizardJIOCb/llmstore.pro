@@ -1961,6 +1961,7 @@ export function ChatsPage() {
                   <ChatThinkingBubble
                     label={assistantResponseSlotForActiveChat.label}
                     detail={assistantResponseSlotForActiveChat.detail}
+                    startedAt={assistantResponseSlotForActiveChat.startedAt}
                   />
                 )}
               </div>
