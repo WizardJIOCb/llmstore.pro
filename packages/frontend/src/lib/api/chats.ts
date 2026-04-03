@@ -68,6 +68,27 @@ export interface ProjectRunResult {
   verification: ProjectRunVerification;
 }
 
+export interface ProjectDeployment {
+  id: string;
+  status: 'deploying' | 'running' | 'stopped' | 'failed';
+  title: string;
+  runtime: 'node' | 'python';
+  entrypoint: string | null;
+  webhook_url: string;
+  linked_agent_id: string | null;
+  linked_agent_name: string | null;
+  agent_run_url: string | null;
+  last_error: string | null;
+  last_exit_code: number | null;
+  last_signal: string | null;
+  live_stdout: string;
+  live_stderr: string;
+  created_at: string;
+  updated_at: string;
+  last_started_at: string | null;
+  last_stopped_at: string | null;
+}
+
 export interface ToolTrace {
   tool_call_id: string;
   tool_name: string;
@@ -361,6 +382,30 @@ export const chatsApi = {
   runProject: (chatId: string, messageId: string) =>
     apiClient
       .post<{ data: ProjectRunResult }>(`/chats/${chatId}/messages/${messageId}/project-run`)
+      .then((r) => r.data.data),
+
+  getProjectDeployment: (chatId: string, messageId: string) =>
+    apiClient
+      .get<{ data: ProjectDeployment | null }>(`/chats/${chatId}/messages/${messageId}/project-deployment`)
+      .then((r) => r.data.data),
+
+  upsertProjectDeployment: (
+    chatId: string,
+    messageId: string,
+    payload: { env?: Record<string, string>; linked_agent_id?: string | null },
+  ) =>
+    apiClient
+      .post<{ data: ProjectDeployment }>(`/chats/${chatId}/messages/${messageId}/project-deployment`, payload)
+      .then((r) => r.data.data),
+
+  startProjectDeployment: (chatId: string, messageId: string) =>
+    apiClient
+      .post<{ data: ProjectDeployment }>(`/chats/${chatId}/messages/${messageId}/project-deployment/start`)
+      .then((r) => r.data.data),
+
+  stopProjectDeployment: (chatId: string, messageId: string) =>
+    apiClient
+      .post<{ data: ProjectDeployment }>(`/chats/${chatId}/messages/${messageId}/project-deployment/stop`)
       .then((r) => r.data.data),
 
   updateSharedPreview: (token: string, messageId: string, payload: { title?: string | null; html: string }) =>

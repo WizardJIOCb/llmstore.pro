@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import { randomUUID } from 'crypto';
 import * as runtimeService from './runtime.service.js';
+import * as projectDeploymentsService from './project-deployments.service.js';
 import { AppError } from '../../middleware/error-handler.js';
 
 const PREVIEW_CSP = [
@@ -359,6 +360,88 @@ export async function runChatMessageProject(req: Request<{ chatId: string; messa
       req.params.chatId,
       req.params.messageId,
       req.session.userId!,
+    );
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getChatMessageProjectDeployment(req: Request<{ chatId: string; messageId: string }>, res: Response, next: NextFunction) {
+  try {
+    const result = await projectDeploymentsService.readProjectDeploymentForUser(
+      req.params.chatId,
+      req.params.messageId,
+      req.session.userId!,
+    );
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function upsertChatMessageProjectDeployment(req: Request<{ chatId: string; messageId: string }>, res: Response, next: NextFunction) {
+  try {
+    const result = await projectDeploymentsService.upsertChatMessageProjectDeployment(
+      req.params.chatId,
+      req.params.messageId,
+      req.session.userId!,
+      req.body,
+    );
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function startChatMessageProjectDeployment(req: Request<{ chatId: string; messageId: string }>, res: Response, next: NextFunction) {
+  try {
+    const result = await projectDeploymentsService.startChatMessageProjectDeployment(
+      req.params.chatId,
+      req.params.messageId,
+      req.session.userId!,
+    );
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function stopChatMessageProjectDeployment(req: Request<{ chatId: string; messageId: string }>, res: Response, next: NextFunction) {
+  try {
+    const result = await projectDeploymentsService.stopChatMessageProjectDeployment(
+      req.params.chatId,
+      req.params.messageId,
+      req.session.userId!,
+    );
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function proxyProjectDeploymentWebhook(req: Request<{ token: string }>, res: Response, next: NextFunction) {
+  try {
+    const result = await projectDeploymentsService.proxyProjectDeploymentWebhook(req.params.token, req);
+    result.headers.forEach((value, key) => {
+      if (key.toLowerCase() === 'content-length') return;
+      res.setHeader(key, value);
+    });
+    res.status(result.status).send(result.body);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function runLinkedAgentForProjectDeployment(req: Request<{ token: string }>, res: Response, next: NextFunction) {
+  try {
+    const headerSecret = typeof req.headers['x-llmstore-deployment-secret'] === 'string'
+      ? req.headers['x-llmstore-deployment-secret']
+      : undefined;
+    const result = await projectDeploymentsService.runLinkedAgentForProjectDeployment(
+      req.params.token,
+      headerSecret,
+      req.body,
     );
     res.json({ data: result });
   } catch (err) {

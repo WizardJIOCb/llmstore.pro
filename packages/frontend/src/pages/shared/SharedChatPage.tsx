@@ -299,6 +299,19 @@ export function SharedChatPage() {
                   return result;
                 }
 	              : undefined}
+	            canManageDeployment={Boolean(profile) && Boolean(data.chatId) && msg.role === 'assistant' && Boolean(msg.id)}
+	            onLoadProjectDeployment={profile && data.chatId && msg.role === 'assistant' && msg.id
+	              ? async () => chatsApi.getProjectDeployment(data.chatId!, msg.id!)
+	              : undefined}
+	            onUpsertProjectDeployment={profile && data.chatId && msg.role === 'assistant' && msg.id
+	              ? async (payload) => chatsApi.upsertProjectDeployment(data.chatId!, msg.id!, payload)
+	              : undefined}
+	            onStartProjectDeployment={profile && data.chatId && msg.role === 'assistant' && msg.id
+	              ? async () => chatsApi.startProjectDeployment(data.chatId!, msg.id!)
+	              : undefined}
+	            onStopProjectDeployment={profile && data.chatId && msg.role === 'assistant' && msg.id
+	              ? async () => chatsApi.stopProjectDeployment(data.chatId!, msg.id!)
+	              : undefined}
 	            onFixProjectError={profile && data.chatId && msg.role === 'assistant'
 	              ? async (prompt) => {
 	                  try {

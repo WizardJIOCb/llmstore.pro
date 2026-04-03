@@ -9,6 +9,8 @@ import {
   validateSendChatMessage,
   validateUpdateMessagePreview,
   validateSetGalleryReaction,
+  validateUpsertProjectDeployment,
+  validateProjectDeploymentAgentRun,
 } from './runtime.validators.js';
 
 const router = Router();
@@ -26,6 +28,8 @@ router.get('/emoji/:code.svg', controller.getEmojiSvg);
 router.get('/gallery/previews', controller.listGalleryPreviews);
 router.post('/gallery/previews/:chatId/reaction', requireAuth, validateSetGalleryReaction, controller.setGalleryPreviewReaction);
 router.delete('/gallery/previews/:chatId/reaction', requireAuth, controller.deleteGalleryPreviewReaction);
+router.all('/project-deployments/:token/webhook*', controller.proxyProjectDeploymentWebhook);
+router.post('/project-deployments/:token/agent-run', validateProjectDeploymentAgentRun, controller.runLinkedAgentForProjectDeployment);
 router.get('/chats', requireAuth, controller.listChats);
 router.get('/chats/agents', requireAuth, controller.listChatAgents);
 router.post('/chats', requireAuth, validateCreateChat, controller.createChat);
@@ -34,6 +38,10 @@ router.get('/chats/:chatId/export', requireAuth, controller.exportChatBundle);
 router.get('/chats/:chatId/messages/:messageId/preview', controller.getChatMessagePreview);
 router.patch('/chats/:chatId/messages/:messageId/preview', requireAuth, validateUpdateMessagePreview, controller.updateChatMessagePreview);
 router.post('/chats/:chatId/messages/:messageId/project-run', requireAuth, controller.runChatMessageProject);
+router.get('/chats/:chatId/messages/:messageId/project-deployment', requireAuth, controller.getChatMessageProjectDeployment);
+router.post('/chats/:chatId/messages/:messageId/project-deployment', requireAuth, validateUpsertProjectDeployment, controller.upsertChatMessageProjectDeployment);
+router.post('/chats/:chatId/messages/:messageId/project-deployment/start', requireAuth, controller.startChatMessageProjectDeployment);
+router.post('/chats/:chatId/messages/:messageId/project-deployment/stop', requireAuth, controller.stopChatMessageProjectDeployment);
 router.get('/chats/:chatId', requireAuth, controller.getChatById);
 router.get('/chats/:chatId/events', requireAuth, controller.streamChatEvents);
 router.get('/chats/:chatId/stats', requireAuth, controller.getChatStats);

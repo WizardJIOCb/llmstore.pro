@@ -78,7 +78,7 @@ interface CodingReportProjectFile {
   entrypoint?: boolean;
 }
 
-interface CodingReportProject {
+export interface CodingReportProject {
   title?: string;
   runtime: 'node' | 'python' | 'static' | 'generic';
   root_dir?: string;
@@ -3767,8 +3767,11 @@ async function getAssistantMessageForConversation(conversationId: string, messag
   return message;
 }
 
-function extractProjectBundleFromMessage(message: typeof chatConversationMessages.$inferSelect): CodingReportProject {
-  const rawUsage = (message.usage_json as Record<string, unknown> | null) ?? null;
+export function extractProjectBundleFromMessageRecord(message: {
+  content_text: string;
+  usage_json: Record<string, unknown> | null;
+}): CodingReportProject {
+  const rawUsage = message.usage_json ?? null;
   const normalized = normalizeAssistantChatPayload(message.content_text, rawUsage);
   const project = normalized.codingReport?.project;
 
@@ -3777,6 +3780,13 @@ function extractProjectBundleFromMessage(message: typeof chatConversationMessage
   }
 
   return project;
+}
+
+function extractProjectBundleFromMessage(message: typeof chatConversationMessages.$inferSelect): CodingReportProject {
+  return extractProjectBundleFromMessageRecord({
+    content_text: message.content_text,
+    usage_json: (message.usage_json as Record<string, unknown> | null) ?? null,
+  });
 }
 
 export async function runChatMessageProject(

@@ -116,6 +116,33 @@ export const chatConversationMessages = pgTable('chat_conversation_messages', {
   index('chat_conversation_messages_conversation_created_idx').on(table.conversation_id, table.created_at),
 ]);
 
+export const chatProjectDeployments = pgTable('chat_project_deployments', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  conversation_id: uuid('conversation_id').notNull().references(() => chatConversations.id, { onDelete: 'cascade' }),
+  message_id: uuid('message_id').notNull().references(() => chatConversationMessages.id, { onDelete: 'cascade' }),
+  user_id: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  linked_agent_id: uuid('linked_agent_id').references(() => agents.id, { onDelete: 'set null' }),
+  title: varchar('title', { length: 255 }).notNull(),
+  runtime: varchar('runtime', { length: 20 }).notNull(),
+  entrypoint: varchar('entrypoint', { length: 500 }),
+  public_token: varchar('public_token', { length: 64 }).notNull(),
+  deployment_secret: varchar('deployment_secret', { length: 128 }).notNull(),
+  env_json: jsonb('env_json').$type<Record<string, string>>().notNull().default({}),
+  status: varchar('status', { length: 20 }).notNull().default('deploying'),
+  last_error: text('last_error'),
+  last_exit_code: integer('last_exit_code'),
+  last_signal: varchar('last_signal', { length: 40 }),
+  last_started_at: timestamp('last_started_at', { withTimezone: true }),
+  last_stopped_at: timestamp('last_stopped_at', { withTimezone: true }),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex('chat_project_deployments_public_token_idx').on(table.public_token),
+  uniqueIndex('chat_project_deployments_message_user_idx').on(table.message_id, table.user_id),
+  index('chat_project_deployments_user_idx').on(table.user_id, table.created_at),
+  index('chat_project_deployments_conversation_idx').on(table.conversation_id),
+]);
+
 export const chatConversationViewers = pgTable('chat_conversation_viewers', {
   id: uuid('id').primaryKey().defaultRandom(),
   conversation_id: uuid('conversation_id').notNull().references(() => chatConversations.id, { onDelete: 'cascade' }),

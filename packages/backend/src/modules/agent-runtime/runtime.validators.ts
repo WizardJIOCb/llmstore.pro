@@ -52,6 +52,15 @@ const updateMessagePreviewSchema = z.object({
   html: z.string().min(1).max(50_000),
 });
 
+const upsertProjectDeploymentSchema = z.object({
+  env: z.record(z.string().max(4000)).optional().default({}),
+  linked_agent_id: z.string().uuid().optional().nullable(),
+});
+
+const projectDeploymentAgentRunSchema = z.object({
+  message: z.string().min(1).max(16_000),
+});
+
 const setGalleryReactionSchema = z.object({
   reaction_type: z.enum(['heart', 'thumbs_up', 'thumbs_down', 'laugh', 'smile', 'meh']),
 });
@@ -60,4 +69,6 @@ export const validateCreateChat = validate(createChatSchema, 'body');
 export const validateUpdateChat = validate(updateChatSchema, 'body');
 export const validateSendChatMessage = validate(sendMessageSchema, 'body');
 export const validateUpdateMessagePreview = validate(updateMessagePreviewSchema, 'body');
+export const validateUpsertProjectDeployment = validate(upsertProjectDeploymentSchema, 'body');
+export const validateProjectDeploymentAgentRun = validate(projectDeploymentAgentRunSchema, 'body');
 export const validateSetGalleryReaction = validate(setGalleryReactionSchema, 'body');

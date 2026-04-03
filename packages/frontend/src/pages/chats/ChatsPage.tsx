@@ -1934,6 +1934,19 @@ export function ChatsPage() {
                       return result;
                     }
                     : undefined}
+                  canManageDeployment={msg.role === 'assistant' && Boolean(activeChat)}
+                  onLoadProjectDeployment={msg.role === 'assistant' && activeChat
+                    ? async () => chatsApi.getProjectDeployment(activeChat.id, msg.id)
+                    : undefined}
+                  onUpsertProjectDeployment={msg.role === 'assistant' && activeChat
+                    ? async (payload) => chatsApi.upsertProjectDeployment(activeChat.id, msg.id, payload)
+                    : undefined}
+                  onStartProjectDeployment={msg.role === 'assistant' && activeChat
+                    ? async () => chatsApi.startProjectDeployment(activeChat.id, msg.id)
+                    : undefined}
+                  onStopProjectDeployment={msg.role === 'assistant' && activeChat
+                    ? async () => chatsApi.stopProjectDeployment(activeChat.id, msg.id)
+                    : undefined}
                   onFixProjectError={msg.role === 'assistant' && activeChat
                     ? async (prompt) => sendMessage(prompt)
                     : undefined}
@@ -2017,6 +2030,19 @@ export function ChatsPage() {
                           syncProjectRunCount(activeChat.id, assistantSlotResolvedMessage.id, result.project_run_count);
                           return result;
                         }
+                        : undefined}
+                      canManageDeployment={Boolean(activeChat)}
+                      onLoadProjectDeployment={activeChat
+                        ? async () => chatsApi.getProjectDeployment(activeChat.id, assistantSlotResolvedMessage.id)
+                        : undefined}
+                      onUpsertProjectDeployment={activeChat
+                        ? async (payload) => chatsApi.upsertProjectDeployment(activeChat.id, assistantSlotResolvedMessage.id, payload)
+                        : undefined}
+                      onStartProjectDeployment={activeChat
+                        ? async () => chatsApi.startProjectDeployment(activeChat.id, assistantSlotResolvedMessage.id)
+                        : undefined}
+                      onStopProjectDeployment={activeChat
+                        ? async () => chatsApi.stopProjectDeployment(activeChat.id, assistantSlotResolvedMessage.id)
                         : undefined}
                       onFixProjectError={activeChat
                         ? async (prompt) => sendMessage(prompt)

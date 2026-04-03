@@ -4,6 +4,7 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Pencil, Trash2 } from 'lucide-react';
 import type { CodingReport, CodingReportProject, ProjectRunResult, ToolTrace } from '../../lib/api/agents';
+import type { ProjectDeployment } from '../../lib/api/chats';
 import { cn } from '../../lib/utils';
 import { ToolTracePanel } from './ToolTracePanel';
 import { ChatCodeBlock, ChatInlineCode } from './ChatCodeBlock';
@@ -34,6 +35,11 @@ interface ChatMessageProps {
   onRunProject?: () => Promise<ProjectRunResult>;
   projectRunCount?: number | null;
   onFixProjectError?: (prompt: string) => Promise<void>;
+  canManageDeployment?: boolean;
+  onLoadProjectDeployment?: () => Promise<ProjectDeployment | null>;
+  onUpsertProjectDeployment?: (payload: { env?: Record<string, string>; linked_agent_id?: string | null }) => Promise<ProjectDeployment>;
+  onStartProjectDeployment?: () => Promise<ProjectDeployment>;
+  onStopProjectDeployment?: () => Promise<ProjectDeployment>;
   canEditMessage?: boolean;
   onEditMessage?: () => Promise<void> | void;
   canDeleteMessage?: boolean;
@@ -76,6 +82,33 @@ function buildFixProjectPrompt(project: CodingReportProject, result: ProjectRunR
   ];
 
   return lines.join('\n');
+}
+
+function parseEnvText(value: string): Record<string, string> {
+  const normalized: Record<string, string> = {};
+
+  value
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('#'))
+    .forEach((line) => {
+      const separatorIndex = line.indexOf('=');
+      if (separatorIndex <= 0) return;
+      const key = line.slice(0, separatorIndex).trim().toUpperCase();
+      const envValue = line.slice(separatorIndex + 1);
+      if (!/^[A-Z_][A-Z0-9_]{0,63}$/.test(key)) return;
+      normalized[key] = envValue;
+    });
+
+  return normalized;
+}
+
+function formatEnvText(value: Record<string, string> | undefined): string {
+  if (!value) return '';
+  return Object.entries(value)
+    .map(([key, envValue]) => `${key}=${envValue}`)
+    .join('\n');
 }
 
 function stripDevReportEnvelope(content: string): string {
@@ -1473,6 +1506,11 @@ export function ChatMessage({
   onRunProject,
   projectRunCount = null,
   onFixProjectError,
+  canManageDeployment = false,
+  onLoadProjectDeployment,
+  onUpsertProjectDeployment,
+  onStartProjectDeployment,
+  onStopProjectDeployment,
   canEditMessage = false,
   onEditMessage,
   canDeleteMessage = false,
@@ -1490,6 +1528,16 @@ export function ChatMessage({
   const [projectRunning, setProjectRunning] = useState(false);
   const [projectFixing, setProjectFixing] = useState(false);
   const [projectRunResult, setProjectRunResult] = useState<ProjectRunResult | null>(null);
+  const [projectDeployment, setProjectDeployment] = useState<ProjectDeployment | null>(null);
+  const [projectDeploymentLoading, setProjectDeploymentLoading] = useState(false);
+  const [projectDeploying, setProjectDeploying] = useState(false);
+  const [projectStartingDeployment, setProjectStartingDeployment] = useState(false);
+  const [projectStoppingDeployment, setProjectStoppingDeployment] = useState(false);
+  const [projectDeploymentError, setProjectDeploymentError] = useState<string | null>(null);
+  const [projectDeploymentStatus, setProjectDeploymentStatus] = useState<string | null>(null);
+  const [projectDeploymentEditorOpen, setProjectDeploymentEditorOpen] = useState(false);
+  const [projectDeploymentEnvText, setProjectDeploymentEnvText] = useState('');
+  const [projectDeploymentLinkedAgentId, setProjectDeploymentLinkedAgentId] = useState('');
   const [editorSaving, setEditorSaving] = useState(false);
   const [editorExporting, setEditorExporting] = useState(false);
   const [editorError, setEditorError] = useState<string | null>(null);
@@ -1520,6 +1568,13 @@ export function ChatMessage({
   const projectBundle = codingReport?.project && codingReport.project.files.length > 0
     ? codingReport.project
     : null;
+  const canDeployProject = Boolean(
+    projectBundle
+    && canManageDeployment
+    && onUpsertProjectDeployment
+    && onLoadProjectDeployment
+    && (projectBundle.runtime === 'node' || projectBundle.runtime === 'python'),
+  );
   const displayedProjectRunCount = projectRunResult?.project_run_count ?? projectRunCount ?? 0;
   const resolvedHtmlPreview = previewOverride ?? propHtmlPreview;
   const highlightedEditorHtml = useMemo(
@@ -1547,6 +1602,34 @@ export function ChatMessage({
   useEffect(() => {
     setPreviewOverride(propHtmlPreview);
   }, [propHtmlPreview?.title, propHtmlPreview?.html]);
+
+  useEffect(() => {
+    if (!canDeployProject || !onLoadProjectDeployment) return;
+
+    let cancelled = false;
+    setProjectDeploymentLoading(true);
+    setProjectDeploymentError(null);
+    void onLoadProjectDeployment()
+      .then((deployment) => {
+        if (cancelled) return;
+        setProjectDeployment(deployment);
+        setProjectDeploymentEnvText('');
+        setProjectDeploymentLinkedAgentId(deployment?.linked_agent_id ?? '');
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setProjectDeploymentError(error instanceof Error ? error.message : 'Не удалось загрузить deployment');
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setProjectDeploymentLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canDeployProject, onLoadProjectDeployment, content]);
 
   const setEditorTransientStatus = (message: string | null) => {
     if (editorStatusTimeoutRef.current) {
@@ -1730,6 +1813,69 @@ export function ChatMessage({
       setMessageActionError(error instanceof Error ? error.message : 'Не удалось отправить запрос на исправление');
     } finally {
       setProjectFixing(false);
+    }
+  };
+
+  const copyTextToClipboard = async (value: string, successMessage: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setProjectDeploymentStatus(successMessage);
+      setProjectDeploymentError(null);
+    } catch {
+      setProjectDeploymentError('Не удалось скопировать в буфер обмена');
+    }
+  };
+
+  const saveProjectDeployment = async () => {
+    if (!onUpsertProjectDeployment) return;
+
+    setProjectDeploying(true);
+    setProjectDeploymentError(null);
+    setProjectDeploymentStatus(null);
+    try {
+      const deployment = await onUpsertProjectDeployment({
+        env: parseEnvText(projectDeploymentEnvText),
+        linked_agent_id: projectDeploymentLinkedAgentId.trim() || null,
+      });
+      setProjectDeployment(deployment);
+      setProjectDeploymentEditorOpen(false);
+      setProjectDeploymentStatus('Webhook-проект развернут и готов принимать запросы');
+    } catch (error) {
+      setProjectDeploymentError(error instanceof Error ? error.message : 'Не удалось развернуть webhook-проект');
+    } finally {
+      setProjectDeploying(false);
+    }
+  };
+
+  const startProjectDeployment = async () => {
+    if (!onStartProjectDeployment) return;
+    setProjectStartingDeployment(true);
+    setProjectDeploymentError(null);
+    setProjectDeploymentStatus(null);
+    try {
+      const deployment = await onStartProjectDeployment();
+      setProjectDeployment(deployment);
+      setProjectDeploymentStatus('Deployment снова запущен');
+    } catch (error) {
+      setProjectDeploymentError(error instanceof Error ? error.message : 'Не удалось запустить deployment');
+    } finally {
+      setProjectStartingDeployment(false);
+    }
+  };
+
+  const stopProjectDeployment = async () => {
+    if (!onStopProjectDeployment) return;
+    setProjectStoppingDeployment(true);
+    setProjectDeploymentError(null);
+    setProjectDeploymentStatus(null);
+    try {
+      const deployment = await onStopProjectDeployment();
+      setProjectDeployment(deployment);
+      setProjectDeploymentStatus('Deployment остановлен');
+    } catch (error) {
+      setProjectDeploymentError(error instanceof Error ? error.message : 'Не удалось остановить deployment');
+    } finally {
+      setProjectStoppingDeployment(false);
     }
   };
 
@@ -2165,7 +2311,121 @@ export function ChatMessage({
                           {projectRunning ? 'Запускаю...' : 'Запустить'}
                         </Button>
                       )}
+                      {canDeployProject && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="whitespace-nowrap"
+                          onClick={() => {
+                            setProjectDeploymentEditorOpen(true);
+                            setProjectDeploymentError(null);
+                            setProjectDeploymentStatus(null);
+                          }}
+                          disabled={projectDeploymentLoading}
+                        >
+                          {projectDeployment ? 'Обновить deploy' : 'Развернуть webhook'}
+                        </Button>
+                      )}
                     </div>
+
+                    {projectDeploymentLoading && (
+                      <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                        Загружаю состояние deployment...
+                      </div>
+                    )}
+
+                    {projectDeployment && (
+                      <div className="rounded-md border border-border/60 bg-background/80 p-3 text-sm">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="space-y-1">
+                            <p className="font-medium text-slate-900">
+                              Webhook deployment: {projectDeployment.status}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              Runtime: {projectDeployment.runtime}
+                              {projectDeployment.entrypoint ? `, entrypoint: ${projectDeployment.entrypoint}` : ''}
+                            </p>
+                            <p className="break-all text-xs text-muted-foreground">
+                              Webhook URL: {projectDeployment.webhook_url}
+                            </p>
+                            {projectDeployment.linked_agent_name && (
+                              <p className="text-xs text-muted-foreground">
+                                Связанный агент: {projectDeployment.linked_agent_name}
+                              </p>
+                            )}
+                            {projectDeployment.last_error && (
+                              <p className="whitespace-pre-wrap text-xs text-rose-600">
+                                {projectDeployment.last_error}
+                              </p>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => { void copyTextToClipboard(projectDeployment.webhook_url, 'Webhook URL скопирован'); }}
+                            >
+                              Копировать URL
+                            </Button>
+                            {projectDeployment.status !== 'running' && onStartProjectDeployment && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => { void startProjectDeployment(); }}
+                                disabled={projectStartingDeployment}
+                              >
+                                {projectStartingDeployment ? 'Запускаю...' : 'Запустить deploy'}
+                              </Button>
+                            )}
+                            {projectDeployment.status === 'running' && onStopProjectDeployment && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => { void stopProjectDeployment(); }}
+                                disabled={projectStoppingDeployment}
+                              >
+                                {projectStoppingDeployment ? 'Останавливаю...' : 'Остановить deploy'}
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                        {(projectDeployment.live_stdout || projectDeployment.live_stderr) && (
+                          <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                            {projectDeployment.live_stdout && (
+                              <div className="space-y-1">
+                                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">stdout</p>
+                                <pre className="max-h-48 overflow-auto rounded bg-slate-950 p-3 text-xs text-slate-100">
+                                  {projectDeployment.live_stdout}
+                                </pre>
+                              </div>
+                            )}
+                            {projectDeployment.live_stderr && (
+                              <div className="space-y-1">
+                                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">stderr</p>
+                                <pre className="max-h-48 overflow-auto rounded bg-slate-950 p-3 text-xs text-rose-200">
+                                  {projectDeployment.live_stderr}
+                                </pre>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {(projectDeploymentStatus || projectDeploymentError) && (
+                      <div className={cn(
+                        'rounded-md border px-3 py-2 text-xs',
+                        projectDeploymentError
+                          ? 'border-rose-200 bg-rose-50 text-rose-700'
+                          : 'border-emerald-200 bg-emerald-50 text-emerald-700',
+                      )}>
+                        {projectDeploymentError ?? projectDeploymentStatus}
+                      </div>
+                    )}
 
                     <div className="space-y-2">
                       {projectBundle.files.map((file) => (
@@ -2524,6 +2784,97 @@ export function ChatMessage({
                   </div>
                 )}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {projectDeploymentEditorOpen && (
+        <div
+          className="fixed inset-0 z-[133] flex items-center justify-center bg-black/85 p-3"
+          onClick={() => !projectDeploying && setProjectDeploymentEditorOpen(false)}
+        >
+          <div
+            className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3 border-b px-5 py-4">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-slate-900">Deploy webhook-проекта</p>
+                <p className="text-xs text-slate-500">
+                  Подходит для Telegram webhook-ботов и других long-running HTTP проектов.
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setProjectDeploymentEditorOpen(false)}
+                disabled={projectDeploying}
+              >
+                Закрыть
+              </Button>
+            </div>
+
+            <div className="space-y-4 px-5 py-4">
+              <div className="space-y-2">
+                <label className="block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Linked agent id
+                </label>
+                <input
+                  value={projectDeploymentLinkedAgentId}
+                  onChange={(e) => setProjectDeploymentLinkedAgentId(e.target.value)}
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  placeholder="Например: 4f20dda0-a03b-48d6-ac03-2ea2f25f6901"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Если указать агент, проект получит `LLMSTORE_AGENT_RUN_URL`, `LLMSTORE_LINKED_AGENT_ID`
+                  и `LLMSTORE_DEPLOYMENT_SECRET` в env.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Env переменные
+                </label>
+                <textarea
+                  value={projectDeploymentEnvText}
+                  onChange={(e) => setProjectDeploymentEnvText(e.target.value)}
+                  className="min-h-[180px] w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs"
+                  placeholder={'TELEGRAM_BOT_TOKEN=123456:ABC\nTELEGRAM_SECRET_TOKEN=my-secret'}
+                  spellCheck={false}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Формат: `KEY=value` по одной строке. Для Telegram обычно достаточно `TELEGRAM_BOT_TOKEN`
+                  и опционально `TELEGRAM_SECRET_TOKEN`.
+                </p>
+              </div>
+
+              {projectDeploymentError && (
+                <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                  {projectDeploymentError}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 border-t bg-slate-50 px-5 py-4">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setProjectDeploymentEditorOpen(false)}
+                disabled={projectDeploying}
+              >
+                Отмена
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => { void saveProjectDeployment(); }}
+                disabled={projectDeploying}
+              >
+                {projectDeploying ? 'Разворачиваю...' : 'Развернуть'}
+              </Button>
             </div>
           </div>
         </div>
