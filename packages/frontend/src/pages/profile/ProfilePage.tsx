@@ -40,7 +40,7 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
 
 const LINKABLE_PROVIDERS = ['google', 'yandex', 'vk'];
 type HistoryTab = 'all' | 'topup' | 'writeoff';
-const LEADERBOARD_LIMIT = 50;
+const LEADERBOARD_PAGE_SIZE = 20;
 const LEADERBOARD_SORT_OPTIONS: Array<{ value: ProfileLeaderboardSort; label: string; shortLabel: string }> = [
   { value: 'tokens', label: 'По токенам во всех чатах', shortLabel: 'Токены' },
   { value: 'cost', label: 'По цене во всех чатах', shortLabel: 'Цена' },
@@ -57,6 +57,22 @@ function formatTokens(value: number): string {
 function formatRankLabel(rank: number | null | undefined): string | null {
   if (!rank || rank < 1) return null;
   return `Топ ${rank}`;
+}
+
+function formatLeaderboardPosition(position: number | null | undefined): string | null {
+  if (!position || position < 1) return null;
+  return `#${position.toLocaleString('ru-RU')}`;
+}
+
+function buildPageNumbers(currentPage: number, totalPages: number): number[] {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, idx) => idx + 1);
+  }
+
+  const pages = new Set<number>([1, totalPages, currentPage - 1, currentPage, currentPage + 1]);
+  return Array.from(pages)
+    .filter((p) => p >= 1 && p <= totalPages)
+    .sort((a, b) => a - b);
 }
 
 function leaderboardValue(entry: ProfileLeaderboardEntry, sort: ProfileLeaderboardSort, usdToRubRate: number): string {
@@ -90,8 +106,9 @@ export function ProfilePage() {
   const [emailVerificationSending, setEmailVerificationSending] = useState(false);
   const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false);
   const [leaderboardSort, setLeaderboardSort] = useState<ProfileLeaderboardSort>('tokens');
-  const tokenLeaderboardQuery = useProfileLeaderboard('tokens', true, LEADERBOARD_LIMIT);
-  const leaderboardQuery = useProfileLeaderboard(leaderboardSort, isLeaderboardOpen, LEADERBOARD_LIMIT);
+  const [leaderboardPage, setLeaderboardPage] = useState(1);
+  const tokenLeaderboardQuery = useProfileLeaderboard('tokens', true, 1, 1);
+  const leaderboardQuery = useProfileLeaderboard(leaderboardSort, isLeaderboardOpen, leaderboardPage, LEADERBOARD_PAGE_SIZE);
 
   useEffect(() => {
     const oauth = searchParams.get('oauth');
@@ -139,6 +156,10 @@ export function ProfilePage() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isLeaderboardOpen]);
+
+  useEffect(() => {
+    setLeaderboardPage(1);
+  }, [leaderboardSort]);
 
   const handleStartEdit = () => {
     if (!profile) return;
@@ -201,13 +222,7 @@ export function ProfilePage() {
   }, [historyItems, historyPage, historyPageSize]);
 
   const historyPageNumbers = useMemo(() => {
-    if (totalHistoryPages <= 7) {
-      return Array.from({ length: totalHistoryPages }, (_, idx) => idx + 1);
-    }
-    const pages = new Set<number>([1, totalHistoryPages, historyPage - 1, historyPage, historyPage + 1]);
-    return Array.from(pages)
-      .filter((p) => p >= 1 && p <= totalHistoryPages)
-      .sort((a, b) => a - b);
+    return buildPageNumbers(historyPage, totalHistoryPages);
   }, [historyPage, totalHistoryPages]);
 
   if (isLoading) {
@@ -239,10 +254,24 @@ export function ProfilePage() {
   const activeLeaderboardCurrentUser = isLeaderboardOpen
     ? leaderboardQuery.data?.current_user ?? null
     : tokenLeaderboardQuery.data?.current_user ?? null;
+  const currentLeaderboardPage = activeLeaderboard?.page ?? 1;
+  const leaderboardTotalPages = activeLeaderboard?.total_pages ?? 1;
+  const leaderboardPageNumbers = useMemo(
+    () => buildPageNumbers(currentLeaderboardPage, leaderboardTotalPages),
+    [currentLeaderboardPage, leaderboardTotalPages],
+  );
+  const activeLeaderboardCurrentUserPage = activeLeaderboardCurrentUser
+    ? Math.max(1, Math.ceil(activeLeaderboardCurrentUser.position / (activeLeaderboard?.per_page ?? LEADERBOARD_PAGE_SIZE)))
+    : null;
   const showPinnedCurrentUser = Boolean(
     activeLeaderboardCurrentUser
       && !activeLeaderboard?.entries.some((entry) => entry.user_id === activeLeaderboardCurrentUser.user_id),
   );
+  const lastVisibleLeaderboardEntry = activeLeaderboard?.entries.at(-1);
+  const leaderboardEntriesStart = activeLeaderboard?.entries[0]?.position
+    ?? ((currentLeaderboardPage - 1) * (activeLeaderboard?.per_page ?? LEADERBOARD_PAGE_SIZE) + 1);
+  const leaderboardEntriesEnd = lastVisibleLeaderboardEntry?.position
+    ?? Math.min(currentLeaderboardPage * (activeLeaderboard?.per_page ?? LEADERBOARD_PAGE_SIZE), activeLeaderboard?.total_users ?? 0);
 
   return (
     <div className="container mx-auto max-w-4xl px-4 py-8 space-y-6">
@@ -542,6 +571,7 @@ export function ProfilePage() {
                     className="rounded-full border border-amber-300 bg-amber-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-900 transition hover:bg-amber-200"
                     onClick={() => {
                       setLeaderboardSort('tokens');
+                      setLeaderboardPage(1);
                       setIsLeaderboardOpen(true);
                     }}
                   >
@@ -605,7 +635,7 @@ export function ProfilePage() {
                       <h2 className="text-xl font-semibold">Рейтинг пользователей</h2>
                       <p className="mt-1 text-sm text-muted-foreground">
                         Сортировка по активности во всех чатах.
-                        {activeLeaderboardCurrentUser ? ` Ваше место: ${formatRankLabel(activeLeaderboardCurrentUser.rank)}.` : ''}
+                        {activeLeaderboardCurrentUser ? ` Ваше место: ${formatLeaderboardPosition(activeLeaderboardCurrentUser.position)}.` : ''}
                       </p>
                     </div>
                     <Button variant="outline" size="sm" onClick={() => setIsLeaderboardOpen(false)}>
@@ -620,7 +650,10 @@ export function ProfilePage() {
                           key={option.value}
                           size="sm"
                           variant={leaderboardSort === option.value ? 'primary' : 'outline'}
-                          onClick={() => setLeaderboardSort(option.value)}
+                          onClick={() => {
+                            setLeaderboardSort(option.value);
+                            setLeaderboardPage(1);
+                          }}
                         >
                           {option.shortLabel}
                         </Button>
@@ -632,11 +665,28 @@ export function ProfilePage() {
                         <div className="flex flex-wrap items-center justify-between gap-3">
                           <div>
                             <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Ваша позиция</p>
-                            <p className="mt-1 text-lg font-semibold">{formatRankLabel(activeLeaderboardCurrentUser.rank)}</p>
+                            <div className="mt-1 flex flex-wrap items-center gap-2">
+                              <p className="text-lg font-semibold">{formatLeaderboardPosition(activeLeaderboardCurrentUser.position)}</p>
+                              {activeLeaderboardCurrentUser.rank !== activeLeaderboardCurrentUser.position ? (
+                                <span className="text-xs text-muted-foreground">{formatRankLabel(activeLeaderboardCurrentUser.rank)}</span>
+                              ) : null}
+                            </div>
                           </div>
-                          <p className="text-sm text-muted-foreground">
-                            {leaderboardValue(activeLeaderboardCurrentUser, leaderboardSort, usdToRubRate)}
-                          </p>
+                          <div className="text-right">
+                            <p className="text-sm text-muted-foreground">
+                              {leaderboardValue(activeLeaderboardCurrentUser, leaderboardSort, usdToRubRate)}
+                            </p>
+                            {activeLeaderboardCurrentUserPage && activeLeaderboardCurrentUserPage !== currentLeaderboardPage ? (
+                              <Button
+                                className="mt-2"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setLeaderboardPage(activeLeaderboardCurrentUserPage)}
+                              >
+                                Перейти к моей странице
+                              </Button>
+                            ) : null}
+                          </div>
                         </div>
                       </div>
                     )}
@@ -651,9 +701,17 @@ export function ProfilePage() {
                       </div>
                     ) : activeLeaderboard ? (
                       <div className="space-y-3">
-                        <p className="text-sm text-muted-foreground">
-                          В рейтинге сейчас {activeLeaderboard.total_users.toLocaleString('ru-RU')} пользователей.
-                        </p>
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
+                          <p>
+                            В рейтинге сейчас {activeLeaderboard.total_users.toLocaleString('ru-RU')} пользователей.
+                          </p>
+                          <p>
+                            {activeLeaderboard.total_users > 0
+                              ? `Показаны места ${leaderboardEntriesStart.toLocaleString('ru-RU')}-${leaderboardEntriesEnd.toLocaleString('ru-RU')} • страница ${currentLeaderboardPage} из ${leaderboardTotalPages}`
+                              : 'Пока нет участников'}
+                            {leaderboardQuery.isFetching ? ' • Обновляем...' : ''}
+                          </p>
+                        </div>
                         <div className="max-h-[55vh] overflow-auto rounded-xl border">
                           <table className="w-full min-w-[760px] text-sm">
                             <thead className="sticky top-0 bg-background">
@@ -672,7 +730,14 @@ export function ProfilePage() {
                                   key={entry.user_id}
                                   className={entry.is_current_user ? 'border-b bg-primary/5' : 'border-b last:border-0'}
                                 >
-                                  <td className="px-4 py-3 font-medium">{formatRankLabel(entry.rank)}</td>
+                                  <td className="px-4 py-3 font-medium">
+                                    <div className="flex flex-col">
+                                      <span>{formatLeaderboardPosition(entry.position)}</span>
+                                      {entry.rank !== entry.position ? (
+                                        <span className="text-xs font-normal text-muted-foreground">{formatRankLabel(entry.rank)}</span>
+                                      ) : null}
+                                    </div>
+                                  </td>
                                   <td className="px-4 py-3">
                                     <div className="flex items-center gap-3">
                                       {entry.avatar_url ? (
@@ -708,6 +773,49 @@ export function ProfilePage() {
                           </table>
                         </div>
 
+                        {activeLeaderboard.total_pages > 1 && (
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <p className="text-xs text-muted-foreground">
+                              Страница {currentLeaderboardPage} из {leaderboardTotalPages}
+                            </p>
+                            <div className="flex items-center gap-1">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setLeaderboardPage((p) => Math.max(1, p - 1))}
+                                disabled={currentLeaderboardPage === 1 || leaderboardQuery.isFetching}
+                              >
+                                {'<'}
+                              </Button>
+                              {leaderboardPageNumbers.map((pageNumber, idx) => {
+                                const prev = leaderboardPageNumbers[idx - 1];
+                                const hasGap = prev && pageNumber - prev > 1;
+                                return (
+                                  <div key={pageNumber} className="flex items-center gap-1">
+                                    {hasGap ? <span className="px-1 text-muted-foreground">...</span> : null}
+                                    <Button
+                                      size="sm"
+                                      variant={currentLeaderboardPage === pageNumber ? 'primary' : 'outline'}
+                                      onClick={() => setLeaderboardPage(pageNumber)}
+                                      disabled={leaderboardQuery.isFetching && currentLeaderboardPage !== pageNumber}
+                                    >
+                                      {pageNumber}
+                                    </Button>
+                                  </div>
+                                );
+                              })}
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setLeaderboardPage((p) => Math.min(leaderboardTotalPages, p + 1))}
+                                disabled={currentLeaderboardPage === leaderboardTotalPages || leaderboardQuery.isFetching}
+                              >
+                                {'>'}
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+
                         {showPinnedCurrentUser && activeLeaderboardCurrentUser && (
                           <div className="rounded-xl border border-dashed p-4">
                             <p className="mb-2 text-sm font-medium">Вы вне видимой части таблицы</p>
@@ -717,7 +825,7 @@ export function ProfilePage() {
                                 name={activeLeaderboardCurrentUser.name}
                                 className="font-medium hover:text-primary hover:underline"
                               />
-                              <span>{formatRankLabel(activeLeaderboardCurrentUser.rank)}</span>
+                              <span>{formatLeaderboardPosition(activeLeaderboardCurrentUser.position)}</span>
                               <span>{leaderboardValue(activeLeaderboardCurrentUser, leaderboardSort, usdToRubRate)}</span>
                             </div>
                           </div>

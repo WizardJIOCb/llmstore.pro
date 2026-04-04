@@ -32,8 +32,9 @@ export async function updateProfile(req: Request, res: Response, next: NextFunct
 export async function getProfileLeaderboard(req: Request, res: Response, next: NextFunction) {
   try {
     const sort = String(req.query.sort ?? 'tokens') as ProfileLeaderboardSort;
+    const page = Number(req.query.page ?? 1);
     const limit = Number(req.query.limit ?? 50);
-    const leaderboard = await profileService.getProfileLeaderboard(req.session.userId!, sort, limit);
+    const leaderboard = await profileService.getProfileLeaderboard(req.session.userId!, sort, page, limit);
     res.json({ data: leaderboard });
   } catch (err) {
     next(err);

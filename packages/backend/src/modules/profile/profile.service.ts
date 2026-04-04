@@ -65,6 +65,7 @@ function buildProfileLeaderboardMetricSql(sortBy: ProfileLeaderboardSort) {
 function mapProfileLeaderboardEntry(
   row: {
     rank: number | string;
+    sort_position: number | string;
     user_id: string;
     username: string | null;
     name: string | null;
@@ -79,6 +80,7 @@ function mapProfileLeaderboardEntry(
 ): ProfileLeaderboardEntry {
   return {
     rank: Math.max(1, Math.trunc(toNumberOrZero(row.rank))),
+    position: Math.max(1, Math.trunc(toNumberOrZero(row.sort_position))),
     user_id: row.user_id,
     username: row.username,
     name: row.name,
@@ -248,10 +250,12 @@ async function getUserUsageSummary(userId: string): Promise<UserUsageSummary> {
 export async function getProfileLeaderboard(
   userId: string,
   sortBy: ProfileLeaderboardSort = 'tokens',
+  page = 1,
   limit = 50,
 ): Promise<ProfileLeaderboard> {
   const normalizedSort = PROFILE_LEADERBOARD_SORTS[sortBy] ? sortBy : 'tokens';
   const metricSql = buildProfileLeaderboardMetricSql(normalizedSort);
+  const normalizedPage = Math.max(1, Math.trunc(page) || 1);
   const normalizedLimit = Math.min(Math.max(Math.trunc(limit) || 50, 5), 100);
 
   const leaderboardCte = sql`
@@ -342,9 +346,10 @@ export async function getProfileLeaderboard(
     )
   `;
 
-  const [topRows, currentUserRows, totalRows] = await Promise.all([
+  const [currentUserRows, totalRows] = await Promise.all([
     db.execute<{
       rank: number | string;
+      sort_position: number | string;
       user_id: string;
       username: string | null;
       name: string | null;
@@ -358,34 +363,7 @@ export async function getProfileLeaderboard(
       ${leaderboardCte}
       SELECT
         rank,
-        user_id,
-        username,
-        name,
-        avatar_url,
-        total_tokens,
-        total_cost_usd,
-        chats_count,
-        messages_count,
-        user_id = ${userId} AS is_current_user
-      FROM ranked
-      ORDER BY sort_position
-      LIMIT ${normalizedLimit}
-    `),
-    db.execute<{
-      rank: number | string;
-      user_id: string;
-      username: string | null;
-      name: string | null;
-      avatar_url: string | null;
-      total_tokens: number | string;
-      total_cost_usd: number | string;
-      chats_count: number | string;
-      messages_count: number | string;
-      is_current_user: boolean;
-    }>(sql`
-      ${leaderboardCte}
-      SELECT
-        rank,
+        sort_position,
         user_id,
         username,
         name,
@@ -406,9 +384,49 @@ export async function getProfileLeaderboard(
     `),
   ]);
 
+  const totalUsers = Math.max(0, Math.trunc(toNumberOrZero(totalRows[0]?.total_users ?? 0)));
+  const totalPages = Math.max(1, Math.ceil(totalUsers / normalizedLimit));
+  const currentPage = Math.min(normalizedPage, totalPages);
+  const offset = (currentPage - 1) * normalizedLimit;
+
+  const topRows = await db.execute<{
+      rank: number | string;
+      sort_position: number | string;
+      user_id: string;
+      username: string | null;
+      name: string | null;
+      avatar_url: string | null;
+      total_tokens: number | string;
+      total_cost_usd: number | string;
+      chats_count: number | string;
+      messages_count: number | string;
+      is_current_user: boolean;
+    }>(sql`
+      ${leaderboardCte}
+      SELECT
+        rank,
+        sort_position,
+        user_id,
+        username,
+        name,
+        avatar_url,
+        total_tokens,
+        total_cost_usd,
+        chats_count,
+        messages_count,
+        user_id = ${userId} AS is_current_user
+      FROM ranked
+      ORDER BY sort_position
+      LIMIT ${normalizedLimit}
+      OFFSET ${offset}
+    `);
+
   return {
     sort_by: normalizedSort,
-    total_users: Math.max(0, Math.trunc(toNumberOrZero(totalRows[0]?.total_users ?? 0))),
+    page: currentPage,
+    per_page: normalizedLimit,
+    total_pages: totalPages,
+    total_users: totalUsers,
     current_user: currentUserRows[0] ? mapProfileLeaderboardEntry(currentUserRows[0], userId) : null,
     entries: topRows.map((row) => mapProfileLeaderboardEntry(row, userId)),
   };

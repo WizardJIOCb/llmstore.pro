@@ -71,6 +71,7 @@ export type ProfileLeaderboardSort = 'tokens' | 'cost' | 'chats' | 'messages';
 
 export interface ProfileLeaderboardEntry {
   rank: number;
+  position: number;
   user_id: string;
   username: string | null;
   name: string | null;
@@ -84,6 +85,9 @@ export interface ProfileLeaderboardEntry {
 
 export interface ProfileLeaderboard {
   sort_by: ProfileLeaderboardSort;
+  page: number;
+  per_page: number;
+  total_pages: number;
   total_users: number;
   current_user: ProfileLeaderboardEntry | null;
   entries: ProfileLeaderboardEntry[];

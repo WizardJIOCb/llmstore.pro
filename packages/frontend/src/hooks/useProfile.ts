@@ -21,11 +21,12 @@ export function useUpdateProfile() {
   });
 }
 
-export function useProfileLeaderboard(sort: ProfileLeaderboardSort, enabled = true, limit = 50) {
+export function useProfileLeaderboard(sort: ProfileLeaderboardSort, enabled = true, page = 1, limit = 50) {
   return useQuery({
-    queryKey: ['profile', 'leaderboard', sort, limit],
-    queryFn: () => profileApi.getLeaderboard(sort, limit),
+    queryKey: ['profile', 'leaderboard', sort, page, limit],
+    queryFn: () => profileApi.getLeaderboard(sort, page, limit),
     staleTime: 30_000,
+    placeholderData: (previousData) => previousData,
     enabled,
   });
 }

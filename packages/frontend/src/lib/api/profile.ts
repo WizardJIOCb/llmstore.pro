@@ -8,9 +8,9 @@ export const profileApi = {
   getPublicProfile: (username: string) =>
     apiClient.get<{ data: PublicUserProfile }>(`/profile/public/${encodeURIComponent(username)}`).then(r => r.data.data),
 
-  getLeaderboard: (sort: ProfileLeaderboardSort = 'tokens', limit = 50) =>
+  getLeaderboard: (sort: ProfileLeaderboardSort = 'tokens', page = 1, limit = 50) =>
     apiClient
-      .get<{ data: ProfileLeaderboard }>('/profile/leaderboard', { params: { sort, limit } })
+      .get<{ data: ProfileLeaderboard }>('/profile/leaderboard', { params: { sort, page, limit } })
       .then((r) => r.data.data),
 
   updateProfile: (data: { name?: string; username?: string }) =>
