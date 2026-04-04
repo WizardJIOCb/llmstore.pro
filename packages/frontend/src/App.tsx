@@ -37,6 +37,7 @@ import { ProfilePage } from './pages/profile/ProfilePage';
 import { PublicProfilePage } from './pages/profile/PublicProfilePage';
 import { ChatsPage } from './pages/chats/ChatsPage';
 import { GalleryPage } from './pages/gallery/GalleryPage';
+import { GuidesPage } from './pages/guides/GuidesPage';
 import { PricingPage } from './pages/legal/PricingPage';
 import { OfferPage } from './pages/legal/OfferPage';
 import { ContactsPage } from './pages/legal/ContactsPage';
@@ -80,9 +81,9 @@ export function App() {
         <Route path="/assets/:slug" element={<CatalogDetailPage type="developer_asset" />} />
         <Route path="/stacks" element={<CatalogListPage type="stack_preset" />} />
         <Route path="/stacks/:slug" element={<CatalogDetailPage type="stack_preset" />} />
-        <Route path="/guides" element={<CatalogListPage type="guide" title="База знаний" />} />
+        <Route path="/guides" element={<GuidesPage />} />
         <Route path="/guides/:slug" element={<ArticleDetailPage />} />
-        <Route path="/articles" element={<CatalogListPage type="guide" title="База знаний" />} />
+        <Route path="/articles" element={<GuidesPage />} />
         <Route path="/article/:slug" element={<ArticleDetailPage />} />
 
         {/* News routes */}
