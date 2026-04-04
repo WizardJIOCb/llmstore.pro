@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import type { ProfileLeaderboardEntry, ProfileLeaderboardSort } from '@llmstore/shared';
@@ -15,37 +15,37 @@ import { UserLink } from '../../components/users/UserLink';
 import { formatRub, formatUsd, formatUsdRubPair } from '../../lib/utils';
 
 const ROLE_LABELS: Record<string, string> = {
-  user: 'Пользователь',
-  power_user: 'Продвинутый',
-  curator: 'Куратор',
-  admin: 'Администратор',
+  user: 'РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ',
+  power_user: 'РџСЂРѕРґРІРёРЅСѓС‚С‹Р№',
+  curator: 'РљСѓСЂР°С‚РѕСЂ',
+  admin: 'РђРґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂ',
 };
 
 const PROVIDER_LABELS: Record<string, string> = {
   google: 'Google',
-  yandex: 'Яндекс',
+  yandex: 'РЇРЅРґРµРєСЃ',
   mailru: 'Mail.ru',
   vk: 'VK',
 };
 
 const EVENT_TYPE_LABELS: Record<string, string> = {
-  chat_usage: 'Списание за чат',
-  agent_run_usage: 'Списание за запуск агента',
-  signup_bonus: 'Стартовый бонус',
-  topup: 'Пополнение баланса',
-  admin_adjustment: 'Корректировка администратором',
-  admin_credit: 'Пополнение администратором',
-  admin_debit: 'Списание администратором',
+  chat_usage: 'РЎРїРёСЃР°РЅРёРµ Р·Р° С‡Р°С‚',
+  agent_run_usage: 'РЎРїРёСЃР°РЅРёРµ Р·Р° Р·Р°РїСѓСЃРє Р°РіРµРЅС‚Р°',
+  signup_bonus: 'РЎС‚Р°СЂС‚РѕРІС‹Р№ Р±РѕРЅСѓСЃ',
+  topup: 'РџРѕРїРѕР»РЅРµРЅРёРµ Р±Р°Р»Р°РЅСЃР°',
+  admin_adjustment: 'РљРѕСЂСЂРµРєС‚РёСЂРѕРІРєР° Р°РґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂРѕРј',
+  admin_credit: 'РџРѕРїРѕР»РЅРµРЅРёРµ Р°РґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂРѕРј',
+  admin_debit: 'РЎРїРёСЃР°РЅРёРµ Р°РґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂРѕРј',
 };
 
 const LINKABLE_PROVIDERS = ['google', 'yandex', 'vk'];
 type HistoryTab = 'all' | 'topup' | 'writeoff';
 const LEADERBOARD_PAGE_SIZE = 20;
 const LEADERBOARD_SORT_OPTIONS: Array<{ value: ProfileLeaderboardSort; label: string; shortLabel: string }> = [
-  { value: 'tokens', label: 'По токенам во всех чатах', shortLabel: 'Токены' },
-  { value: 'cost', label: 'По цене во всех чатах', shortLabel: 'Цена' },
-  { value: 'chats', label: 'По количеству чатов', shortLabel: 'Чаты' },
-  { value: 'messages', label: 'По сообщениям', shortLabel: 'Сообщения' },
+  { value: 'tokens', label: 'РџРѕ С‚РѕРєРµРЅР°Рј РІРѕ РІСЃРµС… С‡Р°С‚Р°С…', shortLabel: 'РўРѕРєРµРЅС‹' },
+  { value: 'cost', label: 'РџРѕ С†РµРЅРµ РІРѕ РІСЃРµС… С‡Р°С‚Р°С…', shortLabel: 'Р¦РµРЅР°' },
+  { value: 'chats', label: 'РџРѕ РєРѕР»РёС‡РµСЃС‚РІСѓ С‡Р°С‚РѕРІ', shortLabel: 'Р§Р°С‚С‹' },
+  { value: 'messages', label: 'РџРѕ СЃРѕРѕР±С‰РµРЅРёСЏРј', shortLabel: 'РЎРѕРѕР±С‰РµРЅРёСЏ' },
 ];
 
 function formatTokens(value: number): string {
@@ -56,7 +56,7 @@ function formatTokens(value: number): string {
 
 function formatRankLabel(rank: number | null | undefined): string | null {
   if (!rank || rank < 1) return null;
-  return `Топ ${rank}`;
+  return `РўРѕРї ${rank}`;
 }
 
 function formatLeaderboardPosition(position: number | null | undefined): string | null {
@@ -78,7 +78,7 @@ function buildPageNumbers(currentPage: number, totalPages: number): number[] {
 function getLeaderboardMedal(position: number | null | undefined) {
   if (position === 1) {
     return {
-      label: 'Золото',
+      label: 'Р—РѕР»РѕС‚Рѕ',
       badgeClass: 'border border-amber-300 bg-amber-100 text-amber-900',
       cardClass: 'border-amber-200 bg-[linear-gradient(135deg,rgba(251,191,36,0.20),rgba(255,255,255,1))]',
       rowClass: 'bg-amber-50/60',
@@ -88,7 +88,7 @@ function getLeaderboardMedal(position: number | null | undefined) {
 
   if (position === 2) {
     return {
-      label: 'Серебро',
+      label: 'РЎРµСЂРµР±СЂРѕ',
       badgeClass: 'border border-slate-300 bg-slate-100 text-slate-800',
       cardClass: 'border-slate-200 bg-[linear-gradient(135deg,rgba(203,213,225,0.35),rgba(255,255,255,1))]',
       rowClass: 'bg-slate-50/80',
@@ -98,7 +98,7 @@ function getLeaderboardMedal(position: number | null | undefined) {
 
   if (position === 3) {
     return {
-      label: 'Бронза',
+      label: 'Р‘СЂРѕРЅР·Р°',
       badgeClass: 'border border-orange-300 bg-orange-100 text-orange-900',
       cardClass: 'border-orange-200 bg-[linear-gradient(135deg,rgba(251,146,60,0.22),rgba(255,255,255,1))]',
       rowClass: 'bg-orange-50/70',
@@ -117,7 +117,7 @@ function leaderboardValue(entry: ProfileLeaderboardEntry, sort: ProfileLeaderboa
 }
 
 function eventTypeLabel(type: string): string {
-  return EVENT_TYPE_LABELS[type] ?? `Событие: ${type}`;
+  return EVENT_TYPE_LABELS[type] ?? `РЎРѕР±С‹С‚РёРµ: ${type}`;
 }
 
 export function ProfilePage() {
@@ -158,14 +158,14 @@ export function ProfilePage() {
       setOauthMessage({
         type: 'success',
         text: provider
-          ? `${PROVIDER_LABELS[provider] || provider} успешно привязан`
-          : 'Аккаунт успешно привязан',
+          ? `${PROVIDER_LABELS[provider] || provider} СѓСЃРїРµС€РЅРѕ РїСЂРёРІСЏР·Р°РЅ`
+          : 'РђРєРєР°СѓРЅС‚ СѓСЃРїРµС€РЅРѕ РїСЂРёРІСЏР·Р°РЅ',
       });
       setSearchParams({}, { replace: true });
     } else if (oauth === 'error') {
       setOauthMessage({
         type: 'error',
-        text: message || 'Ошибка при привязке аккаунта',
+        text: message || 'РћС€РёР±РєР° РїСЂРё РїСЂРёРІСЏР·РєРµ Р°РєРєР°СѓРЅС‚Р°',
       });
       setSearchParams({}, { replace: true });
     }
@@ -226,17 +226,17 @@ export function ProfilePage() {
     const hasPassword = profile.has_password;
 
     if (hasPassword && currentPassword.length === 0) {
-      setPasswordFormError('Укажите текущий пароль');
+      setPasswordFormError('РЈРєР°Р¶РёС‚Рµ С‚РµРєСѓС‰РёР№ РїР°СЂРѕР»СЊ');
       return;
     }
 
     if (newPassword.length < 8) {
-      setPasswordFormError('Новый пароль должен быть не короче 8 символов');
+      setPasswordFormError('РќРѕРІС‹Р№ РїР°СЂРѕР»СЊ РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ РЅРµ РєРѕСЂРѕС‡Рµ 8 СЃРёРјРІРѕР»РѕРІ');
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      setPasswordFormError('Подтверждение пароля не совпадает');
+      setPasswordFormError('РџРѕРґС‚РІРµСЂР¶РґРµРЅРёРµ РїР°СЂРѕР»СЏ РЅРµ СЃРѕРІРїР°РґР°РµС‚');
       return;
     }
 
@@ -252,8 +252,8 @@ export function ProfilePage() {
           setConfirmPassword('');
           setPasswordSuccessMessage(
             hasPassword
-              ? 'Пароль обновлён'
-              : 'Пароль установлен. Теперь можно входить по email или логину и паролю.',
+              ? 'РџР°СЂРѕР»СЊ РѕР±РЅРѕРІР»С‘РЅ'
+              : 'РџР°СЂРѕР»СЊ СѓСЃС‚Р°РЅРѕРІР»РµРЅ. РўРµРїРµСЂСЊ РјРѕР¶РЅРѕ РІС…РѕРґРёС‚СЊ РїРѕ email РёР»Рё Р»РѕРіРёРЅСѓ Рё РїР°СЂРѕР»СЋ.',
           );
         },
       },
@@ -261,7 +261,7 @@ export function ProfilePage() {
   };
 
   const handleUnlink = (provider: string) => {
-    if (!confirm(`Отвязать ${PROVIDER_LABELS[provider] || provider}?`)) return;
+    if (!confirm(`РћС‚РІСЏР·Р°С‚СЊ ${PROVIDER_LABELS[provider] || provider}?`)) return;
     unlinkMutation.mutate(provider);
   };
 
@@ -272,11 +272,11 @@ export function ProfilePage() {
       const result = await authApi.resendEmailVerification();
       setEmailVerificationMessage(
         result.alreadyVerified
-          ? 'Email уже подтверждён.'
-          : 'Письмо отправлено повторно. Проверьте входящие.',
+          ? 'Email СѓР¶Рµ РїРѕРґС‚РІРµСЂР¶РґС‘РЅ.'
+          : 'РџРёСЃСЊРјРѕ РѕС‚РїСЂР°РІР»РµРЅРѕ РїРѕРІС‚РѕСЂРЅРѕ. РџСЂРѕРІРµСЂСЊС‚Рµ РІС…РѕРґСЏС‰РёРµ.',
       );
     } catch (err: any) {
-      setEmailVerificationMessage(err.response?.data?.error?.message || 'Не удалось отправить письмо.');
+      setEmailVerificationMessage(err.response?.data?.error?.message || 'РќРµ СѓРґР°Р»РѕСЃСЊ РѕС‚РїСЂР°РІРёС‚СЊ РїРёСЃСЊРјРѕ.');
     } finally {
       setEmailVerificationSending(false);
     }
@@ -321,7 +321,7 @@ export function ProfilePage() {
   if (error || !profile) {
     return (
       <div className="container mx-auto max-w-4xl px-4 py-16 text-center">
-        <p className="text-destructive">Ошибка загрузки профиля</p>
+        <p className="text-destructive">РћС€РёР±РєР° Р·Р°РіСЂСѓР·РєРё РїСЂРѕС„РёР»СЏ</p>
       </div>
     );
   }
@@ -360,7 +360,7 @@ export function ProfilePage() {
 
   return (
     <div className="container mx-auto max-w-4xl px-4 py-8 space-y-6">
-      <h1 className="text-2xl font-bold">Профиль</h1>
+      <h1 className="text-2xl font-bold">РџСЂРѕС„РёР»СЊ</h1>
 
       {oauthMessage && (
         <div
@@ -378,16 +378,16 @@ export function ProfilePage() {
         <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-900">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="font-medium">Email пока не подтверждён.</p>
+              <p className="font-medium">Email РїРѕРєР° РЅРµ РїРѕРґС‚РІРµСЂР¶РґС‘РЅ.</p>
               <p className="mt-1 text-amber-800/80">
-                Если для стартового бонуса включено подтверждение email, бонус начислится после перехода по ссылке из письма.
+                Р•СЃР»Рё РґР»СЏ СЃС‚Р°СЂС‚РѕРІРѕРіРѕ Р±РѕРЅСѓСЃР° РІРєР»СЋС‡РµРЅРѕ РїРѕРґС‚РІРµСЂР¶РґРµРЅРёРµ email, Р±РѕРЅСѓСЃ РЅР°С‡РёСЃР»РёС‚СЃСЏ РїРѕСЃР»Рµ РїРµСЂРµС…РѕРґР° РїРѕ СЃСЃС‹Р»РєРµ РёР· РїРёСЃСЊРјР°.
               </p>
               {emailVerificationMessage ? (
                 <p className="mt-2 text-amber-800">{emailVerificationMessage}</p>
               ) : null}
             </div>
             <Button variant="outline" size="sm" onClick={handleResendEmailVerification} disabled={emailVerificationSending}>
-              {emailVerificationSending ? 'Отправляю...' : 'Отправить письмо ещё раз'}
+              {emailVerificationSending ? 'РћС‚РїСЂР°РІР»СЏСЋ...' : 'РћС‚РїСЂР°РІРёС‚СЊ РїРёСЃСЊРјРѕ РµС‰С‘ СЂР°Р·'}
             </Button>
           </div>
         </div>
@@ -403,18 +403,18 @@ export function ProfilePage() {
                 : 'border-blue-200 bg-blue-50 text-blue-800'
           }`}
         >
-          {topUpStatusQuery.isLoading && 'Проверяем статус платежа...'}
-          {topUpStatusQuery.isError && 'Не удалось проверить статус пополнения. Обновите страницу чуть позже.'}
+          {topUpStatusQuery.isLoading && 'РџСЂРѕРІРµСЂСЏРµРј СЃС‚Р°С‚СѓСЃ РїР»Р°С‚РµР¶Р°...'}
+          {topUpStatusQuery.isError && 'РќРµ СѓРґР°Р»РѕСЃСЊ РїСЂРѕРІРµСЂРёС‚СЊ СЃС‚Р°С‚СѓСЃ РїРѕРїРѕР»РЅРµРЅРёСЏ. РћР±РЅРѕРІРёС‚Рµ СЃС‚СЂР°РЅРёС†Сѓ С‡СѓС‚СЊ РїРѕР·Р¶Рµ.'}
           {!topUpStatusQuery.isLoading && !topUpStatusQuery.isError && returnedTopUp && (
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="font-medium">
-                  {returnedTopUpIsSucceeded && 'Платёж подтверждён, баланс уже пополнен.'}
-                  {returnedTopUpIsCanceled && 'Платёж отменён или не был завершён.'}
-                  {returnedTopUpIsProcessing && 'Платёж создан и ещё обрабатывается YooKassa.'}
+                  {returnedTopUpIsSucceeded && 'РџР»Р°С‚С‘Р¶ РїРѕРґС‚РІРµСЂР¶РґС‘РЅ, Р±Р°Р»Р°РЅСЃ СѓР¶Рµ РїРѕРїРѕР»РЅРµРЅ.'}
+                  {returnedTopUpIsCanceled && 'РџР»Р°С‚С‘Р¶ РѕС‚РјРµРЅС‘РЅ РёР»Рё РЅРµ Р±С‹Р» Р·Р°РІРµСЂС€С‘РЅ.'}
+                  {returnedTopUpIsProcessing && 'РџР»Р°С‚С‘Р¶ СЃРѕР·РґР°РЅ Рё РµС‰С‘ РѕР±СЂР°Р±Р°С‚С‹РІР°РµС‚СЃСЏ YooKassa.'}
                 </p>
                 <p className="text-xs opacity-80">
-                  {formatRub(returnedTopUp.amount_rub, { minimumFractionDigits: 0, maximumFractionDigits: 0 })} → {formatUsd(returnedTopUp.amount_usd, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
+                  {formatRub(returnedTopUp.amount_rub, { minimumFractionDigits: 0, maximumFractionDigits: 0 })} в†’ {formatUsd(returnedTopUp.amount_usd, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
                 </p>
               </div>
               {returnedTopUpIsProcessing && returnedTopUp.confirmation_url && (
@@ -423,7 +423,7 @@ export function ProfilePage() {
                   variant="outline"
                   onClick={() => { window.location.href = returnedTopUp.confirmation_url!; }}
                 >
-                  Продолжить оплату
+                  РџСЂРѕРґРѕР»Р¶РёС‚СЊ РѕРїР»Р°С‚Сѓ
                 </Button>
               )}
             </div>
@@ -433,7 +433,7 @@ export function ProfilePage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Информация</CardTitle>
+          <CardTitle>РРЅС„РѕСЂРјР°С†РёСЏ</CardTitle>
         </CardHeader>
         <CardContent>
           {!editing ? (
@@ -454,7 +454,7 @@ export function ProfilePage() {
                   {(profile.name || profile.email)[0].toUpperCase()}
                 </div>
                 <div>
-                  <p className="font-medium">{profile.name || 'Без имени'}</p>
+                  <p className="font-medium">{profile.name || 'Р‘РµР· РёРјРµРЅРё'}</p>
                   <p className="text-sm text-muted-foreground">{profile.email}</p>
                 </div>
                 <Badge variant="secondary" className="ml-auto">
@@ -463,7 +463,7 @@ export function ProfilePage() {
               </div>
               {profile.username && (
                 <p className="text-sm text-muted-foreground">
-                  Логин:{' '}
+                  Р›РѕРіРёРЅ:{' '}
                   <UserLink
                     username={profile.username}
                     name={null}
@@ -472,44 +472,44 @@ export function ProfilePage() {
                 </p>
               )}
               <p className="text-sm text-muted-foreground">
-                Зарегистрирован: {new Date(profile.created_at).toLocaleDateString('ru-RU')}
+                Р—Р°СЂРµРіРёСЃС‚СЂРёСЂРѕРІР°РЅ: {new Date(profile.created_at).toLocaleDateString('ru-RU')}
               </p>
               <Button variant="outline" size="sm" onClick={handleStartEdit}>
-                Редактировать
+                Р РµРґР°РєС‚РёСЂРѕРІР°С‚СЊ
               </Button>
             </div>
           ) : (
             <div className="space-y-3">
               <div>
-                <label className="text-sm font-medium">Имя</label>
+                <label className="text-sm font-medium">РРјСЏ</label>
                 <Input
                   value={editName}
                   onChange={(e) => setEditName(e.target.value)}
-                  placeholder="Ваше имя"
+                  placeholder="Р’Р°С€Рµ РёРјСЏ"
                 />
               </div>
               <div>
-                <label className="text-sm font-medium">Логин</label>
+                <label className="text-sm font-medium">Р›РѕРіРёРЅ</label>
                 <Input
                   value={profile.username || ''}
                   disabled
-                  placeholder="Логин не редактируется"
+                  placeholder="Р›РѕРіРёРЅ РЅРµ СЂРµРґР°РєС‚РёСЂСѓРµС‚СЃСЏ"
                 />
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Логин в профиле сейчас не изменяется.
+                  Р›РѕРіРёРЅ РІ РїСЂРѕС„РёР»Рµ СЃРµР№С‡Р°СЃ РЅРµ РёР·РјРµРЅСЏРµС‚СЃСЏ.
                 </p>
               </div>
               {updateMutation.error && (
                 <p className="text-sm text-destructive">
-                  {(updateMutation.error as any)?.response?.data?.error?.message || 'Ошибка сохранения'}
+                  {(updateMutation.error as any)?.response?.data?.error?.message || 'РћС€РёР±РєР° СЃРѕС…СЂР°РЅРµРЅРёСЏ'}
                 </p>
               )}
               <div className="flex gap-2">
                 <Button size="sm" onClick={handleSave} disabled={updateMutation.isPending}>
-                  {updateMutation.isPending ? 'Сохранение...' : 'Сохранить'}
+                  {updateMutation.isPending ? 'РЎРѕС…СЂР°РЅРµРЅРёРµ...' : 'РЎРѕС…СЂР°РЅРёС‚СЊ'}
                 </Button>
                 <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>
-                  Отмена
+                  РћС‚РјРµРЅР°
                 </Button>
               </div>
             </div>
@@ -517,98 +517,10 @@ export function ProfilePage() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Безопасность</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="rounded-lg border bg-muted/30 p-4 text-sm">
-            <p className="font-medium">
-              {profile.has_password ? 'Сменить пароль' : 'Задать пароль'}
-            </p>
-            <p className="mt-1 text-muted-foreground">
-              {profile.has_password
-                ? 'Пароль используется для входа по email или логину. Чтобы изменить его, подтвердите текущий пароль.'
-                : 'Сейчас пароль для этого аккаунта не задан. После установки вы сможете входить по email или логину и паролю.'}
-            </p>
-          </div>
-
-          <div className="grid gap-3 md:grid-cols-2">
-            {profile.has_password ? (
-              <div className="md:col-span-2">
-                <label className="text-sm font-medium">Текущий пароль</label>
-                <Input
-                  type="password"
-                  value={currentPassword}
-                  onChange={(e) => {
-                    clearPasswordFeedback();
-                    setCurrentPassword(e.target.value);
-                  }}
-                  placeholder="Введите текущий пароль"
-                  autoComplete="current-password"
-                />
-              </div>
-            ) : null}
-
-            <div>
-              <label className="text-sm font-medium">Новый пароль</label>
-              <Input
-                type="password"
-                value={newPassword}
-                onChange={(e) => {
-                  clearPasswordFeedback();
-                  setNewPassword(e.target.value);
-                }}
-                placeholder="Минимум 8 символов"
-                autoComplete="new-password"
-              />
-            </div>
-
-            <div>
-              <label className="text-sm font-medium">Повторите пароль</label>
-              <Input
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => {
-                  clearPasswordFeedback();
-                  setConfirmPassword(e.target.value);
-                }}
-                placeholder="Повторите новый пароль"
-                autoComplete="new-password"
-              />
-            </div>
-          </div>
-
-          {passwordSuccessMessage ? (
-            <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
-              {passwordSuccessMessage}
-            </div>
-          ) : null}
-
-          {passwordFormError || changePasswordMutation.error ? (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-              {passwordFormError || (changePasswordMutation.error as any)?.response?.data?.error?.message || 'Не удалось изменить пароль'}
-            </div>
-          ) : null}
-
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-xs text-muted-foreground">
-              {profile.has_password
-                ? 'Если забыли пароль, администратор тоже может задать новый в панели пользователей.'
-                : 'Это не отвяжет ваши OAuth-аккаунты, а просто добавит ещё один способ входа.'}
-            </p>
-            <Button size="sm" onClick={handlePasswordSubmit} disabled={changePasswordMutation.isPending}>
-              {changePasswordMutation.isPending
-                ? (profile.has_password ? 'Сохраняю...' : 'Устанавливаю...')
-                : (profile.has_password ? 'Обновить пароль' : 'Установить пароль')}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Баланс</CardTitle>
+          <CardTitle>Р‘Р°Р»Р°РЅСЃ</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex items-baseline gap-4">
@@ -618,33 +530,33 @@ export function ProfilePage() {
             </span>
           </div>
           <p className="mt-2 text-xs text-muted-foreground">
-            Курс: $1 = {formatRub(usdToRubRate, { minimumFractionDigits: 0, maximumFractionDigits: 4 })}.
+            РљСѓСЂСЃ: $1 = {formatRub(usdToRubRate, { minimumFractionDigits: 0, maximumFractionDigits: 4 })}.
           </p>
           <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            Мы в процессе подключения платежей. Возможность пополнения баланса скоро появится.
+            РњС‹ РІ РїСЂРѕС†РµСЃСЃРµ РїРѕРґРєР»СЋС‡РµРЅРёСЏ РїР»Р°С‚РµР¶РµР№. Р’РѕР·РјРѕР¶РЅРѕСЃС‚СЊ РїРѕРїРѕР»РЅРµРЅРёСЏ Р±Р°Р»Р°РЅСЃР° СЃРєРѕСЂРѕ РїРѕСЏРІРёС‚СЃСЏ.
           </div>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>История баланса</CardTitle>
+          <CardTitle>РСЃС‚РѕСЂРёСЏ Р±Р°Р»Р°РЅСЃР°</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap gap-2">
               <Button size="sm" variant={historyTab === 'all' ? 'primary' : 'outline'} onClick={() => setHistoryTab('all')}>
-                Все
+                Р’СЃРµ
               </Button>
               <Button size="sm" variant={historyTab === 'topup' ? 'primary' : 'outline'} onClick={() => setHistoryTab('topup')}>
-                Пополнение
+                РџРѕРїРѕР»РЅРµРЅРёРµ
               </Button>
               <Button size="sm" variant={historyTab === 'writeoff' ? 'primary' : 'outline'} onClick={() => setHistoryTab('writeoff')}>
-                Списание
+                РЎРїРёСЃР°РЅРёРµ
               </Button>
             </div>
             <label className="flex items-center gap-2 text-sm text-muted-foreground">
-              Показывать
+              РџРѕРєР°Р·С‹РІР°С‚СЊ
               <select
                 className="h-8 rounded-md border bg-background px-2 text-foreground"
                 value={historyPageSize}
@@ -658,7 +570,7 @@ export function ProfilePage() {
           </div>
           {historyItems.length === 0 ? (
             <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
-              История пока пустая
+              РСЃС‚РѕСЂРёСЏ РїРѕРєР° РїСѓСЃС‚Р°СЏ
             </div>
           ) : (
             <div className="space-y-2">
@@ -676,11 +588,11 @@ export function ProfilePage() {
                         </p>
                         <div className="mt-2 flex flex-wrap gap-2">
                           <Badge variant={item.direction === 'credit' ? 'success' : 'destructive'}>
-                            {item.direction === 'credit' ? 'Пополнение' : 'Списание'}
+                            {item.direction === 'credit' ? 'РџРѕРїРѕР»РЅРµРЅРёРµ' : 'РЎРїРёСЃР°РЅРёРµ'}
                           </Badge>
                           <Badge variant="outline">{eventTypeLabel(item.event_type)}</Badge>
                           {item.model && <Badge variant="outline">{item.model}</Badge>}
-                          <Badge variant="outline">Токены: {formatTokens(item.tokens)}</Badge>
+                          <Badge variant="outline">РўРѕРєРµРЅС‹: {formatTokens(item.tokens)}</Badge>
                         </div>
                       </div>
                       <div className="text-right shrink-0">
@@ -697,7 +609,7 @@ export function ProfilePage() {
               })}
               <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
                 <p className="text-xs text-muted-foreground">
-                  {`Записи ${(historyPage - 1) * historyPageSize + 1}-${Math.min(historyPage * historyPageSize, historyItems.length)} из ${historyItems.length}`}
+                  {`Р—Р°РїРёСЃРё ${(historyPage - 1) * historyPageSize + 1}-${Math.min(historyPage * historyPageSize, historyItems.length)} РёР· ${historyItems.length}`}
                 </p>
                 <div className="flex items-center gap-1">
                   <Button size="sm" variant="outline" onClick={() => setHistoryPage((p) => Math.max(1, p - 1))} disabled={historyPage === 1}>
@@ -727,17 +639,17 @@ export function ProfilePage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Использование</CardTitle>
+          <CardTitle>РСЃРїРѕР»СЊР·РѕРІР°РЅРёРµ</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="mb-4 grid gap-4 md:grid-cols-3">
             <div className="rounded-lg bg-muted/50 p-3 text-center">
               <p className="text-2xl font-bold">{profile.usage.total_runs}</p>
-              <p className="text-xs text-muted-foreground">Запусков</p>
+              <p className="text-xs text-muted-foreground">Р—Р°РїСѓСЃРєРѕРІ</p>
             </div>
             <div className="rounded-lg bg-muted/50 p-3 text-center">
               <p className="text-2xl font-bold">{formatTokens(profile.usage.total_tokens)}</p>
-              <p className="text-xs text-muted-foreground">Токенов</p>
+              <p className="text-xs text-muted-foreground">РўРѕРєРµРЅРѕРІ</p>
             </div>
             <div className="rounded-lg bg-muted/50 p-3 text-center">
               <p className="text-xl font-bold break-words">{formatUsdRubPair(profile.usage.total_cost_usd, usdToRubRate)}</p>
@@ -755,24 +667,24 @@ export function ProfilePage() {
                     {tokenLeaderboardLabel}
                   </button>
                 ) : tokenLeaderboardQuery.isLoading ? (
-                  <span className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Рейтинг...</span>
+                  <span className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Р РµР№С‚РёРЅРі...</span>
                 ) : null}
-                <p className="text-xs text-muted-foreground">Потрачено</p>
+                <p className="text-xs text-muted-foreground">РџРѕС‚СЂР°С‡РµРЅРѕ</p>
               </div>
             </div>
           </div>
 
           {profile.usage.per_agent.length > 0 && (
             <div className="mt-4">
-              <p className="text-sm font-medium mb-2">По агентам</p>
+              <p className="text-sm font-medium mb-2">РџРѕ Р°РіРµРЅС‚Р°Рј</p>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b text-left text-muted-foreground">
-                      <th className="pb-2 font-medium">Агент</th>
-                      <th className="pb-2 font-medium text-right">Запуски</th>
-                      <th className="pb-2 font-medium text-right">Токены</th>
-                      <th className="pb-2 font-medium text-right">Стоимость ($/₽)</th>
+                      <th className="pb-2 font-medium">РђРіРµРЅС‚</th>
+                      <th className="pb-2 font-medium text-right">Р—Р°РїСѓСЃРєРё</th>
+                      <th className="pb-2 font-medium text-right">РўРѕРєРµРЅС‹</th>
+                      <th className="pb-2 font-medium text-right">РЎС‚РѕРёРјРѕСЃС‚СЊ ($/в‚Ѕ)</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -794,7 +706,7 @@ export function ProfilePage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Привязанные аккаунты</CardTitle>
+          <CardTitle>РџСЂРёРІСЏР·Р°РЅРЅС‹Рµ Р°РєРєР°СѓРЅС‚С‹</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
@@ -809,14 +721,14 @@ export function ProfilePage() {
                 >
                   <div className="flex items-start justify-between gap-4 border-b p-6">
                     <div>
-                      <h2 className="text-xl font-semibold">Рейтинг пользователей</h2>
+                      <h2 className="text-xl font-semibold">Р РµР№С‚РёРЅРі РїРѕР»СЊР·РѕРІР°С‚РµР»РµР№</h2>
                       <p className="mt-1 text-sm text-muted-foreground">
-                        Сортировка по активности во всех чатах.
-                        {activeLeaderboardCurrentUser ? ` Ваше место: ${formatLeaderboardPosition(activeLeaderboardCurrentUser.position)}.` : ''}
+                        РЎРѕСЂС‚РёСЂРѕРІРєР° РїРѕ Р°РєС‚РёРІРЅРѕСЃС‚Рё РІРѕ РІСЃРµС… С‡Р°С‚Р°С….
+                        {activeLeaderboardCurrentUser ? ` Р’Р°С€Рµ РјРµСЃС‚Рѕ: ${formatLeaderboardPosition(activeLeaderboardCurrentUser.position)}.` : ''}
                       </p>
                     </div>
                     <Button variant="outline" size="sm" onClick={() => setIsLeaderboardOpen(false)}>
-                      Закрыть
+                      Р—Р°РєСЂС‹С‚СЊ
                     </Button>
                   </div>
 
@@ -841,7 +753,7 @@ export function ProfilePage() {
                       <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
                         <div className="flex flex-wrap items-center justify-between gap-3">
                           <div>
-                            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Ваша позиция</p>
+                            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Р’Р°С€Р° РїРѕР·РёС†РёСЏ</p>
                             <div className="mt-1 flex flex-wrap items-center gap-2">
                               <p className="text-lg font-semibold">{formatLeaderboardPosition(activeLeaderboardCurrentUser.position)}</p>
                               {activeLeaderboardCurrentUser.rank !== activeLeaderboardCurrentUser.position ? (
@@ -860,7 +772,7 @@ export function ProfilePage() {
                                 variant="outline"
                                 onClick={() => setLeaderboardPage(activeLeaderboardCurrentUserPage)}
                               >
-                                Перейти к моей странице
+                                РџРµСЂРµР№С‚Рё Рє РјРѕРµР№ СЃС‚СЂР°РЅРёС†Рµ
                               </Button>
                             ) : null}
                           </div>
@@ -874,19 +786,19 @@ export function ProfilePage() {
                       </div>
                     ) : leaderboardQuery.isError ? (
                       <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
-                        Не удалось загрузить рейтинг. Попробуйте обновить страницу чуть позже.
+                        РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ СЂРµР№С‚РёРЅРі. РџРѕРїСЂРѕР±СѓР№С‚Рµ РѕР±РЅРѕРІРёС‚СЊ СЃС‚СЂР°РЅРёС†Сѓ С‡СѓС‚СЊ РїРѕР·Р¶Рµ.
                       </div>
                     ) : activeLeaderboard ? (
                       <div className="space-y-3">
                         <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
                           <p>
-                            В рейтинге сейчас {activeLeaderboard.total_users.toLocaleString('ru-RU')} пользователей.
+                            Р’ СЂРµР№С‚РёРЅРіРµ СЃРµР№С‡Р°СЃ {activeLeaderboard.total_users.toLocaleString('ru-RU')} РїРѕР»СЊР·РѕРІР°С‚РµР»РµР№.
                           </p>
                           <p>
                             {activeLeaderboard.total_users > 0
-                              ? `Показаны места ${leaderboardEntriesStart.toLocaleString('ru-RU')}-${leaderboardEntriesEnd.toLocaleString('ru-RU')} • страница ${currentLeaderboardPage} из ${leaderboardTotalPages}`
-                              : 'Пока нет участников'}
-                            {leaderboardQuery.isFetching ? ' • Обновляем...' : ''}
+                              ? `РџРѕРєР°Р·Р°РЅС‹ РјРµСЃС‚Р° ${leaderboardEntriesStart.toLocaleString('ru-RU')}-${leaderboardEntriesEnd.toLocaleString('ru-RU')} вЂў СЃС‚СЂР°РЅРёС†Р° ${currentLeaderboardPage} РёР· ${leaderboardTotalPages}`
+                              : 'РџРѕРєР° РЅРµС‚ СѓС‡Р°СЃС‚РЅРёРєРѕРІ'}
+                            {leaderboardQuery.isFetching ? ' вЂў РћР±РЅРѕРІР»СЏРµРј...' : ''}
                           </p>
                         </div>
                         {featuredLeaderboardEntries.length > 0 && (
@@ -913,7 +825,7 @@ export function ProfilePage() {
                                       )}
                                       <div className="min-w-0">
                                         <Badge variant="outline" className={medal?.badgeClass}>
-                                          {medal?.label ?? 'Топ'}
+                                          {medal?.label ?? 'РўРѕРї'}
                                         </Badge>
                                         <div className="mt-2">
                                           <UserLink
@@ -922,7 +834,7 @@ export function ProfilePage() {
                                             className="truncate font-semibold hover:text-primary hover:underline"
                                           />
                                           {entry.is_current_user ? (
-                                            <p className="text-xs text-primary">Это вы</p>
+                                            <p className="text-xs text-primary">Р­С‚Рѕ РІС‹</p>
                                           ) : null}
                                         </div>
                                       </div>
@@ -934,7 +846,7 @@ export function ProfilePage() {
 
                                   <div className="mt-4 rounded-xl border border-white/60 bg-white/70 px-3 py-3">
                                     <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
-                                      {LEADERBOARD_SORT_OPTIONS.find((option) => option.value === leaderboardSort)?.shortLabel ?? 'Метрика'}
+                                      {LEADERBOARD_SORT_OPTIONS.find((option) => option.value === leaderboardSort)?.shortLabel ?? 'РњРµС‚СЂРёРєР°'}
                                     </p>
                                     <p className="mt-1 text-lg font-semibold">
                                       {leaderboardValue(entry, leaderboardSort, usdToRubRate)}
@@ -950,12 +862,12 @@ export function ProfilePage() {
                           <table className="w-full min-w-[760px] text-sm">
                             <thead className="sticky top-0 bg-background">
                               <tr className="border-b text-left text-muted-foreground">
-                                <th className="px-4 py-3 font-medium">Место</th>
-                                <th className="px-4 py-3 font-medium">Пользователь</th>
-                                <th className="px-4 py-3 text-right font-medium">Токены</th>
-                                <th className="px-4 py-3 text-right font-medium">Цена</th>
-                                <th className="px-4 py-3 text-right font-medium">Чаты</th>
-                                <th className="px-4 py-3 text-right font-medium">Сообщения</th>
+                                <th className="px-4 py-3 font-medium">РњРµСЃС‚Рѕ</th>
+                                <th className="px-4 py-3 font-medium">РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ</th>
+                                <th className="px-4 py-3 text-right font-medium">РўРѕРєРµРЅС‹</th>
+                                <th className="px-4 py-3 text-right font-medium">Р¦РµРЅР°</th>
+                                <th className="px-4 py-3 text-right font-medium">Р§Р°С‚С‹</th>
+                                <th className="px-4 py-3 text-right font-medium">РЎРѕРѕР±С‰РµРЅРёСЏ</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -997,7 +909,7 @@ export function ProfilePage() {
                                           className="truncate font-medium hover:text-primary hover:underline"
                                         />
                                         {entry.is_current_user && (
-                                          <p className="text-xs text-primary">Это вы</p>
+                                          <p className="text-xs text-primary">Р­С‚Рѕ РІС‹</p>
                                         )}
                                       </div>
                                     </div>
@@ -1015,7 +927,7 @@ export function ProfilePage() {
                         {activeLeaderboard.total_pages > 1 && (
                           <div className="flex flex-wrap items-center justify-between gap-3">
                             <p className="text-xs text-muted-foreground">
-                              Страница {currentLeaderboardPage} из {leaderboardTotalPages}
+                              РЎС‚СЂР°РЅРёС†Р° {currentLeaderboardPage} РёР· {leaderboardTotalPages}
                             </p>
                             <div className="flex items-center gap-1">
                               <Button
@@ -1057,7 +969,7 @@ export function ProfilePage() {
 
                         {showPinnedCurrentUser && activeLeaderboardCurrentUser && (
                           <div className="rounded-xl border border-dashed p-4">
-                            <p className="mb-2 text-sm font-medium">Вы вне видимой части таблицы</p>
+                            <p className="mb-2 text-sm font-medium">Р’С‹ РІРЅРµ РІРёРґРёРјРѕР№ С‡Р°СЃС‚Рё С‚Р°Р±Р»РёС†С‹</p>
                             <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
                               <UserLink
                                 username={activeLeaderboardCurrentUser.username}
@@ -1072,7 +984,7 @@ export function ProfilePage() {
                       </div>
                     ) : (
                       <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
-                        Рейтинг пока пустой.
+                        Р РµР№С‚РёРЅРі РїРѕРєР° РїСѓСЃС‚РѕР№.
                       </div>
                     )}
                   </div>
@@ -1085,15 +997,15 @@ export function ProfilePage() {
                 <div key={provider} className="flex items-center justify-between py-2 border-b last:border-0">
                   <div className="flex items-center gap-3">
                     <span className="font-medium">{PROVIDER_LABELS[provider]}</span>
-                    {isLinked && <Badge variant="success">Привязан</Badge>}
+                    {isLinked && <Badge variant="success">РџСЂРёРІСЏР·Р°РЅ</Badge>}
                   </div>
                   {isLinked ? (
                     <Button variant="outline" size="sm" onClick={() => handleUnlink(provider)} disabled={unlinkMutation.isPending}>
-                      Отвязать
+                      РћС‚РІСЏР·Р°С‚СЊ
                     </Button>
                   ) : (
                     <a href={getOAuthLinkUrl(provider)}>
-                      <Button variant="outline" size="sm">Привязать</Button>
+                      <Button variant="outline" size="sm">РџСЂРёРІСЏР·Р°С‚СЊ</Button>
                     </a>
                   )}
                 </div>
@@ -1102,7 +1014,7 @@ export function ProfilePage() {
           </div>
           {unlinkMutation.error && (
             <p className="text-sm text-destructive mt-2">
-              {(unlinkMutation.error as any)?.response?.data?.error?.message || 'Ошибка при отвязке'}
+              {(unlinkMutation.error as any)?.response?.data?.error?.message || 'РћС€РёР±РєР° РїСЂРё РѕС‚РІСЏР·РєРµ'}
             </p>
           )}
         </CardContent>
@@ -1110,24 +1022,113 @@ export function ProfilePage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Лимиты</CardTitle>
+          <CardTitle>Р›РёРјРёС‚С‹</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="space-y-2 text-sm">
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Макс. агентов</span>
-              <span className="font-medium">{profile.limits.max_agents === -1 ? 'Без ограничений' : profile.limits.max_agents}</span>
+              <span className="text-muted-foreground">РњР°РєСЃ. Р°РіРµРЅС‚РѕРІ</span>
+              <span className="font-medium">{profile.limits.max_agents === -1 ? 'Р‘РµР· РѕРіСЂР°РЅРёС‡РµРЅРёР№' : profile.limits.max_agents}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Макс. запусков / день</span>
-              <span className="font-medium">{profile.limits.max_runs_per_day === -1 ? 'Без ограничений' : profile.limits.max_runs_per_day}</span>
+              <span className="text-muted-foreground">РњР°РєСЃ. Р·Р°РїСѓСЃРєРѕРІ / РґРµРЅСЊ</span>
+              <span className="font-medium">{profile.limits.max_runs_per_day === -1 ? 'Р‘РµР· РѕРіСЂР°РЅРёС‡РµРЅРёР№' : profile.limits.max_runs_per_day}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Макс. токенов / запуск</span>
+              <span className="text-muted-foreground">РњР°РєСЃ. С‚РѕРєРµРЅРѕРІ / Р·Р°РїСѓСЃРє</span>
               <span className="font-medium">
-                {profile.limits.max_tokens_per_run === -1 ? 'Без ограничений' : profile.limits.max_tokens_per_run.toLocaleString('ru-RU')}
+                {profile.limits.max_tokens_per_run === -1 ? 'Р‘РµР· РѕРіСЂР°РЅРёС‡РµРЅРёР№' : profile.limits.max_tokens_per_run.toLocaleString('ru-RU')}
               </span>
             </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Р‘РµР·РѕРїР°СЃРЅРѕСЃС‚СЊ</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="rounded-lg border bg-muted/30 p-4 text-sm">
+            <p className="font-medium">
+              {profile.has_password ? 'РЎРјРµРЅРёС‚СЊ РїР°СЂРѕР»СЊ' : 'Р—Р°РґР°С‚СЊ РїР°СЂРѕР»СЊ'}
+            </p>
+            <p className="mt-1 text-muted-foreground">
+              {profile.has_password
+                ? 'РџР°СЂРѕР»СЊ РёСЃРїРѕР»СЊР·СѓРµС‚СЃСЏ РґР»СЏ РІС…РѕРґР° РїРѕ email РёР»Рё Р»РѕРіРёРЅСѓ. Р§С‚РѕР±С‹ РёР·РјРµРЅРёС‚СЊ РµРіРѕ, РїРѕРґС‚РІРµСЂРґРёС‚Рµ С‚РµРєСѓС‰РёР№ РїР°СЂРѕР»СЊ.'
+                : 'РЎРµР№С‡Р°СЃ РїР°СЂРѕР»СЊ РґР»СЏ СЌС‚РѕРіРѕ Р°РєРєР°СѓРЅС‚Р° РЅРµ Р·Р°РґР°РЅ. РџРѕСЃР»Рµ СѓСЃС‚Р°РЅРѕРІРєРё РІС‹ СЃРјРѕР¶РµС‚Рµ РІС…РѕРґРёС‚СЊ РїРѕ email РёР»Рё Р»РѕРіРёРЅСѓ Рё РїР°СЂРѕР»СЋ.'}
+            </p>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            {profile.has_password ? (
+              <div className="md:col-span-2">
+                <label className="text-sm font-medium">РўРµРєСѓС‰РёР№ РїР°СЂРѕР»СЊ</label>
+                <Input
+                  type="password"
+                  value={currentPassword}
+                  onChange={(e) => {
+                    clearPasswordFeedback();
+                    setCurrentPassword(e.target.value);
+                  }}
+                  placeholder="Р’РІРµРґРёС‚Рµ С‚РµРєСѓС‰РёР№ РїР°СЂРѕР»СЊ"
+                  autoComplete="current-password"
+                />
+              </div>
+            ) : null}
+
+            <div>
+              <label className="text-sm font-medium">РќРѕРІС‹Р№ РїР°СЂРѕР»СЊ</label>
+              <Input
+                type="password"
+                value={newPassword}
+                onChange={(e) => {
+                  clearPasswordFeedback();
+                  setNewPassword(e.target.value);
+                }}
+                placeholder="РњРёРЅРёРјСѓРј 8 СЃРёРјРІРѕР»РѕРІ"
+                autoComplete="new-password"
+              />
+            </div>
+
+            <div>
+              <label className="text-sm font-medium">РџРѕРІС‚РѕСЂРёС‚Рµ РїР°СЂРѕР»СЊ</label>
+              <Input
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => {
+                  clearPasswordFeedback();
+                  setConfirmPassword(e.target.value);
+                }}
+                placeholder="РџРѕРІС‚РѕСЂРёС‚Рµ РЅРѕРІС‹Р№ РїР°СЂРѕР»СЊ"
+                autoComplete="new-password"
+              />
+            </div>
+          </div>
+
+          {passwordSuccessMessage ? (
+            <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+              {passwordSuccessMessage}
+            </div>
+          ) : null}
+
+          {passwordFormError || changePasswordMutation.error ? (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+              {passwordFormError || (changePasswordMutation.error as any)?.response?.data?.error?.message || 'РќРµ СѓРґР°Р»РѕСЃСЊ РёР·РјРµРЅРёС‚СЊ РїР°СЂРѕР»СЊ'}
+            </div>
+          ) : null}
+
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs text-muted-foreground">
+              {profile.has_password
+                ? 'Р•СЃР»Рё Р·Р°Р±С‹Р»Рё РїР°СЂРѕР»СЊ, Р°РґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂ С‚РѕР¶Рµ РјРѕР¶РµС‚ Р·Р°РґР°С‚СЊ РЅРѕРІС‹Р№ РІ РїР°РЅРµР»Рё РїРѕР»СЊР·РѕРІР°С‚РµР»РµР№.'
+                : 'Р­С‚Рѕ РЅРµ РѕС‚РІСЏР¶РµС‚ РІР°С€Рё OAuth-Р°РєРєР°СѓРЅС‚С‹, Р° РїСЂРѕСЃС‚Рѕ РґРѕР±Р°РІРёС‚ РµС‰С‘ РѕРґРёРЅ СЃРїРѕСЃРѕР± РІС…РѕРґР°.'}
+            </p>
+            <Button size="sm" onClick={handlePasswordSubmit} disabled={changePasswordMutation.isPending}>
+              {changePasswordMutation.isPending
+                ? (profile.has_password ? 'РЎРѕС…СЂР°РЅСЏСЋ...' : 'РЈСЃС‚Р°РЅР°РІР»РёРІР°СЋ...')
+                : (profile.has_password ? 'РћР±РЅРѕРІРёС‚СЊ РїР°СЂРѕР»СЊ' : 'РЈСЃС‚Р°РЅРѕРІРёС‚СЊ РїР°СЂРѕР»СЊ')}
+            </Button>
           </div>
         </CardContent>
       </Card>
