@@ -11,7 +11,11 @@ export function useAdminDashboardStats() {
   return useQuery({
     queryKey: ['admin', 'dashboard', 'stats'],
     queryFn: () => adminApi.getDashboardStats(),
-    refetchInterval: 30_000,
+    staleTime: 0,
+    refetchInterval: 5_000,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: 'always',
   });
 }
 

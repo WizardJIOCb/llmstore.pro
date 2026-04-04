@@ -36,7 +36,7 @@ function formatDateTime(value: string | null) {
 }
 
 export function AdminDashboardPage() {
-  const { data, isLoading } = useAdminDashboardStats();
+  const { data, isLoading, isFetching } = useAdminDashboardStats();
   const { data: settings, isLoading: settingsLoading } = useAdminSettings();
   const updateSettingsMutation = useUpdateAdminSettings();
 
@@ -81,6 +81,16 @@ export function AdminDashboardPage() {
   return (
     <AdminLayout>
       <div className="space-y-6">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+          <div className="flex items-center gap-2">
+            <span className={`inline-block h-2.5 w-2.5 rounded-full ${isFetching ? 'bg-emerald-500 animate-pulse' : 'bg-emerald-600'}`} />
+            <span className="font-medium">Live-обновление включено</span>
+          </div>
+          <p className="text-emerald-800/80">
+            Дашборд обновляется автоматически каждые 5 секунд{isFetching ? ', сейчас обновляем…' : '.'}
+          </p>
+        </div>
+
         <section className="rounded-lg border">
           <div className="border-b px-4 py-3">
             <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
