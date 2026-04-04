@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+п»їimport { useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { OAuthButtons } from '../../components/auth/OAuthButtons';
@@ -77,7 +77,7 @@ export function LoginPage() {
             <span className="w-full border-t" />
           </div>
           <div className="relative flex justify-center text-xs uppercase">
-            <span className="bg-background px-2 text-muted-foreground">или по email или логину</span>
+            <span className="bg-background px-2 text-muted-foreground">РёР»Рё РїРѕ email РёР»Рё Р»РѕРіРёРЅСѓ</span>
           </div>
         </div>
 
