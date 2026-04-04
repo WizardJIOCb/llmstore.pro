@@ -290,10 +290,7 @@ export function ProfilePage() {
     : tokenLeaderboardQuery.data?.current_user ?? null;
   const currentLeaderboardPage = activeLeaderboard?.page ?? 1;
   const leaderboardTotalPages = activeLeaderboard?.total_pages ?? 1;
-  const leaderboardPageNumbers = useMemo(
-    () => buildPageNumbers(currentLeaderboardPage, leaderboardTotalPages),
-    [currentLeaderboardPage, leaderboardTotalPages],
-  );
+  const leaderboardPageNumbers = buildPageNumbers(currentLeaderboardPage, leaderboardTotalPages);
   const activeLeaderboardCurrentUserPage = activeLeaderboardCurrentUser
     ? Math.max(1, Math.ceil(activeLeaderboardCurrentUser.position / (activeLeaderboard?.per_page ?? LEADERBOARD_PAGE_SIZE)))
     : null;
