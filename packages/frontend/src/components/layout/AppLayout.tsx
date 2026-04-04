@@ -126,8 +126,8 @@ export function AppLayout() {
               Меню
             </button>
           </div>
-          <div className="hidden items-center gap-6 md:flex">
-            <nav className="flex items-center gap-6">
+          <div className="hidden items-center gap-4 md:flex">
+            <nav className="flex items-center gap-4">
               {visibleNavItems.map((item) => (
                 item.href === '/chats' ? (
                   <button
@@ -168,7 +168,8 @@ export function AppLayout() {
                         : 'rounded-md px-3 py-1.5 transition-colors hover:text-foreground hover:underline'
                     }
                   >
-                    {profileLabel}
+                    <span>{profileBaseLabel}</span>
+                    {profileBalanceLabel && <span className="inline-block">{` ${profileBalanceLabel}`}</span>}
                   </Link>
                 </span>
                 {isAdmin && (
