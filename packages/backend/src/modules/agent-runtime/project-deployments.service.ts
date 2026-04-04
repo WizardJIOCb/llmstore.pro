@@ -95,6 +95,13 @@ function trimOutput(value: string): string {
   return `${value.slice(0, PROJECT_DEPLOY_OUTPUT_LIMIT)}\n...[truncated]`;
 }
 
+function toIsoString(value: Date | string | null | undefined): string | null {
+  if (!value) return null;
+  if (value instanceof Date) return value.toISOString();
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
 function sanitizeProjectFilePath(filePath: string): string {
   const normalized = filePath.replace(/\\/g, '/').trim();
   if (!normalized || normalized.startsWith('/') || normalized.includes('\0')) {
@@ -377,7 +384,7 @@ async function getDeploymentRunInsights(deploymentId: string): Promise<ProjectDe
       total_completion_tokens: sql<number>`coalesce(sum(${usageLedger.completion_tokens}), 0)::int`,
       total_tokens: sql<number>`coalesce(sum(${usageLedger.total_tokens}), 0)::int`,
       total_cost_usd: sql<string>`coalesce(sum(${usageLedger.estimated_cost}::numeric), 0)`,
-      last_run_at: sql<Date | null>`max(${agentRuns.started_at})`,
+      last_run_at: sql<string | Date | null>`max(${agentRuns.started_at})`,
     })
     .from(agentRuns)
     .leftJoin(usageLedger, eq(usageLedger.run_id, agentRuns.id))
@@ -413,7 +420,7 @@ async function getDeploymentRunInsights(deploymentId: string): Promise<ProjectDe
     total_tokens: statsRow?.total_tokens ?? 0,
     total_cost_usd: totalCostUsd,
     total_cost_rub: totalCostUsd * usdToRubRate,
-    last_run_at: statsRow?.last_run_at?.toISOString() ?? null,
+    last_run_at: toIsoString(statsRow?.last_run_at),
     recent_runs: recentRows.map((row) => ({
       id: row.id,
       status: row.status,
@@ -421,8 +428,8 @@ async function getDeploymentRunInsights(deploymentId: string): Promise<ProjectDe
       output_summary: row.output_summary ?? null,
       error_message: row.error_message ?? null,
       latency_ms: row.latency_ms ?? null,
-      started_at: row.started_at.toISOString(),
-      completed_at: row.completed_at?.toISOString() ?? null,
+      started_at: toIsoString(row.started_at) ?? new Date(0).toISOString(),
+      completed_at: toIsoString(row.completed_at),
       total_tokens: row.total_tokens ?? 0,
       estimated_cost_usd: Number(row.estimated_cost_usd ?? 0),
     })),
