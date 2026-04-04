@@ -376,7 +376,7 @@ export function ProfilePage() {
     ?? ((currentLeaderboardPage - 1) * (activeLeaderboard?.per_page ?? LEADERBOARD_PAGE_SIZE) + 1);
   const leaderboardEntriesEnd = lastVisibleLeaderboardEntry?.position
     ?? Math.min(currentLeaderboardPage * (activeLeaderboard?.per_page ?? LEADERBOARD_PAGE_SIZE), activeLeaderboard?.total_users ?? 0);
-  const recentRuns = useMemo(() => (runsQuery.data ?? []).slice(0, 8), [runsQuery.data]);
+  const recentRuns = (runsQuery.data ?? []).slice(0, 8);
 
   return (
     <div className="container mx-auto max-w-4xl px-4 py-8 space-y-6">
