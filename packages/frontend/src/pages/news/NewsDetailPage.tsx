@@ -13,6 +13,7 @@ import { ImageGallery } from '../../components/news/ImageGallery';
 import { NewsLightbox } from '../../components/news/NewsLightbox';
 import { NewsCommentsPanel } from '../../components/news/NewsCommentsPanel';
 import { Spinner } from '../../components/ui/Spinner';
+import { UserLink } from '../../components/users/UserLink';
 
 function formatDisplayDate(value: string | null): string | null {
   if (!value) return null;
@@ -99,6 +100,15 @@ export function NewsDetailPage() {
                   {displayDate}
                 </span>
               )}
+              <span className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-700">
+                Автор:{' '}
+                <UserLink
+                  username={article.author?.username}
+                  name={article.author?.name}
+                  fallback="Команда LLMStore"
+                  className="font-medium text-slate-900 hover:text-primary"
+                />
+              </span>
               <button
                 type="button"
                 className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-700 transition hover:bg-slate-100"

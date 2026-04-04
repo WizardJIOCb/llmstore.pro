@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useNewsList } from '../../hooks/useNews';
+import { UserLink } from '../../components/users/UserLink';
 import { Button } from '../../components/ui/Button';
 import { Spinner } from '../../components/ui/Spinner';
 import type { NewsArticle } from '../../lib/api/news';
@@ -109,6 +110,15 @@ export function NewsListPage() {
                           </span>
                         )}
                         <span className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-700">
+                          Автор:{' '}
+                          <UserLink
+                            username={lead.author?.username}
+                            name={lead.author?.name}
+                            fallback="Команда LLMStore"
+                            className="font-medium text-slate-900 hover:text-primary"
+                          />
+                        </span>
+                        <span className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-700">
                           {lead.comments_count} комментариев
                         </span>
                         <span className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-700">
@@ -177,6 +187,15 @@ export function NewsListPage() {
                         </button>
                         <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">
                           {getExcerpt(article)}
+                        </p>
+                        <p className="mt-3 text-sm text-slate-500">
+                          Автор:{' '}
+                          <UserLink
+                            username={article.author?.username}
+                            name={article.author?.name}
+                            fallback="Команда LLMStore"
+                            className="font-medium text-slate-700 hover:text-primary"
+                          />
                         </p>
                         <div className="mt-4 flex flex-wrap gap-3">
                           <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700">

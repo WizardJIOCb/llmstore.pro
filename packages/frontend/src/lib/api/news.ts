@@ -1,3 +1,4 @@
+import type { UserSlim } from '@llmstore/shared';
 import { apiClient } from '../api-client';
 
 export interface NewsListParams {
@@ -30,6 +31,7 @@ export interface NewsArticle {
   views_count: number;
   comments_count: number;
   author_user_id: string | null;
+  author: UserSlim | null;
   published_at: string | null;
   created_at: string;
   updated_at: string;

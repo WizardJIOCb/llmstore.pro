@@ -46,7 +46,26 @@ async function loadImages(newsId: string) {
   }));
 }
 
-function formatArticle(row: typeof news.$inferSelect, images: Awaited<ReturnType<typeof loadImages>>) {
+async function loadAuthor(userId: string | null) {
+  if (!userId) return null;
+
+  const [author] = await db
+    .select({
+      id: users.id,
+      username: users.username,
+      name: users.name,
+      avatar_url: users.avatar_url,
+    })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+
+  return author ?? null;
+}
+
+async function formatArticle(row: typeof news.$inferSelect, images: Awaited<ReturnType<typeof loadImages>>) {
+  const author = await loadAuthor(row.author_user_id);
+
   return {
     id: row.id,
     title: row.title,
@@ -57,6 +76,7 @@ function formatArticle(row: typeof news.$inferSelect, images: Awaited<ReturnType
     views_count: row.views_count,
     comments_count: 0,
     author_user_id: row.author_user_id,
+    author,
     published_at: row.published_at?.toISOString() ?? null,
     created_at: row.created_at.toISOString(),
     updated_at: row.updated_at.toISOString(),
@@ -146,7 +166,7 @@ export async function listPublished(query: { page: number; per_page: number }) {
     rows.map(async (row) => {
       const images = await loadImages(row.id);
       return {
-        ...formatArticle(row, images),
+        ...(await formatArticle(row, images)),
         comments_count: row.comments_count,
       };
     }),
@@ -206,7 +226,7 @@ export async function getBySlug(slug: string) {
 
   const images = await loadImages(row.id);
   return {
-    ...formatArticle(row, images),
+    ...(await formatArticle(row, images)),
     views_count: row.views_count + 1,
     comments_count: row.comments_count,
   };
@@ -427,7 +447,7 @@ export async function listForAdmin(query: { page: number; per_page: number; stat
   const items = await Promise.all(
     rows.map(async (row) => {
       const images = await loadImages(row.id);
-      return formatArticle(row, images);
+      return await formatArticle(row, images);
     }),
   );
 
@@ -452,7 +472,7 @@ export async function getById(id: string) {
   if (!row) throw new NotFoundError('Новость не найдена');
 
   const images = await loadImages(row.id);
-  return formatArticle(row, images);
+  return await formatArticle(row, images);
 }
 
 export async function create(input: CreateNewsInput, authorUserId: string) {
