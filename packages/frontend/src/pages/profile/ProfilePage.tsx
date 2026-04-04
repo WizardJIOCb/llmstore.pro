@@ -132,7 +132,6 @@ export function ProfilePage() {
 
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState('');
-  const [editUsername, setEditUsername] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -204,13 +203,12 @@ export function ProfilePage() {
   const handleStartEdit = () => {
     if (!profile) return;
     setEditName(profile.name || '');
-    setEditUsername(profile.username || '');
     setEditing(true);
   };
 
   const handleSave = () => {
     updateMutation.mutate(
-      { name: editName, username: editUsername },
+      { name: editName },
       { onSuccess: () => setEditing(false) },
     );
   };
@@ -493,10 +491,13 @@ export function ProfilePage() {
               <div>
                 <label className="text-sm font-medium">Логин</label>
                 <Input
-                  value={editUsername}
-                  onChange={(e) => setEditUsername(e.target.value)}
-                  placeholder="username"
+                  value={profile.username || ''}
+                  disabled
+                  placeholder="Логин не редактируется"
                 />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Логин в профиле сейчас не изменяется.
+                </p>
               </div>
               {updateMutation.error && (
                 <p className="text-sm text-destructive">

@@ -13,7 +13,7 @@ export const profileApi = {
       .get<{ data: ProfileLeaderboard }>('/profile/leaderboard', { params: { sort, page, limit } })
       .then((r) => r.data.data),
 
-  updateProfile: (data: { name?: string; username?: string }) =>
+  updateProfile: (data: { name?: string }) =>
     apiClient.put<{ data: UserProfile }>('/profile', data).then(r => r.data.data),
 
   changePassword: (data: { current_password?: string; new_password: string }) =>

@@ -539,22 +539,10 @@ export async function getPublicProfileByUsername(username: string): Promise<Publ
 
 export async function updateProfile(
   userId: string,
-  input: { name?: string; username?: string },
+  input: { name?: string },
 ): Promise<UserProfile> {
-  if (input.username) {
-    const existing = await db
-      .select({ id: users.id })
-      .from(users)
-      .where(eq(users.username, input.username))
-      .limit(1);
-    if (existing.length > 0 && existing[0].id !== userId) {
-      throw new ConflictError('Этот логин уже занят');
-    }
-  }
-
   const updateData: Record<string, unknown> = {};
   if (input.name !== undefined) updateData.name = input.name || null;
-  if (input.username !== undefined) updateData.username = input.username || null;
 
   if (Object.keys(updateData).length > 0) {
     await db.update(users).set(updateData).where(eq(users.id, userId));
