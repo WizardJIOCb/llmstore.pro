@@ -21,6 +21,16 @@ export function useUpdateProfile() {
   });
 }
 
+export function useChangePassword() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { current_password?: string; new_password: string }) => profileApi.changePassword(data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['profile'] });
+    },
+  });
+}
+
 export function useProfileLeaderboard(sort: ProfileLeaderboardSort, enabled = true, page = 1, limit = 50) {
   return useQuery({
     queryKey: ['profile', 'leaderboard', sort, page, limit],

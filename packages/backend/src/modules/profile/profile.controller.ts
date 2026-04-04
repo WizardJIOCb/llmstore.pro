@@ -29,6 +29,15 @@ export async function updateProfile(req: Request, res: Response, next: NextFunct
   }
 }
 
+export async function changePassword(req: Request, res: Response, next: NextFunction) {
+  try {
+    const result = await profileService.changePassword(req.session.userId!, req.body);
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function getProfileLeaderboard(req: Request, res: Response, next: NextFunction) {
   try {
     const sort = String(req.query.sort ?? 'tokens') as ProfileLeaderboardSort;

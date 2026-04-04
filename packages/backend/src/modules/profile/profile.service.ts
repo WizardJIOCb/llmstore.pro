@@ -1,5 +1,6 @@
 ﻿import { eq, sql } from 'drizzle-orm';
 import { db } from '../../config/database.js';
+import argon2 from 'argon2';
 import {
   users,
   authAccounts,
@@ -483,6 +484,7 @@ export async function getProfile(userId: string): Promise<UserProfile> {
     email_verified_at: user.email_verified_at?.toISOString() ?? null,
     created_at: user.created_at.toISOString(),
     has_pending_email_verification: pendingVerificationTokens.length > 0,
+    has_password: Boolean(user.password_hash),
     balance_usd: String(user.balance_usd),
     balance_rub: balanceRub,
     usd_to_rub_rate: usdToRubRate,
@@ -559,6 +561,49 @@ export async function updateProfile(
   }
 
   return getProfile(userId);
+}
+
+export async function changePassword(
+  userId: string,
+  input: { current_password?: string; new_password: string },
+): Promise<{ success: true; has_password: true }> {
+  const [user] = await db
+    .select({
+      id: users.id,
+      password_hash: users.password_hash,
+    })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+
+  if (!user) {
+    throw new NotFoundError('Пользователь не найден');
+  }
+
+  if (user.password_hash) {
+    if (!input.current_password) {
+      throw new AppError(400, 'CURRENT_PASSWORD_REQUIRED', 'Укажите текущий пароль');
+    }
+
+    const isCurrentPasswordValid = await argon2.verify(user.password_hash, input.current_password);
+    if (!isCurrentPasswordValid) {
+      throw new AppError(400, 'INVALID_CURRENT_PASSWORD', 'Текущий пароль указан неверно');
+    }
+
+    const isSamePassword = await argon2.verify(user.password_hash, input.new_password);
+    if (isSamePassword) {
+      throw new AppError(400, 'PASSWORD_UNCHANGED', 'Новый пароль должен отличаться от текущего');
+    }
+  }
+
+  const password_hash = await argon2.hash(input.new_password);
+
+  await db
+    .update(users)
+    .set({ password_hash })
+    .where(eq(users.id, userId));
+
+  return { success: true, has_password: true };
 }
 
 export async function unlinkAccount(userId: string, provider: string): Promise<void> {

@@ -16,6 +16,9 @@ export const profileApi = {
   updateProfile: (data: { name?: string; username?: string }) =>
     apiClient.put<{ data: UserProfile }>('/profile', data).then(r => r.data.data),
 
+  changePassword: (data: { current_password?: string; new_password: string }) =>
+    apiClient.put<{ data: { success: true; has_password: true } }>('/profile/password', data).then(r => r.data.data),
+
   unlinkAccount: (provider: string) =>
     apiClient.delete(`/profile/linked-accounts/${provider}`).then(r => r.data),
 };

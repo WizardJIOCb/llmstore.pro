@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import type { ProfileLeaderboardEntry, ProfileLeaderboardSort } from '@llmstore/shared';
-import { useProfile, useProfileLeaderboard, useUnlinkAccount, useUpdateProfile } from '../../hooks/useProfile';
+import { useChangePassword, useProfile, useProfileLeaderboard, useUnlinkAccount, useUpdateProfile } from '../../hooks/useProfile';
 import { useTopUpStatus } from '../../hooks/usePayments';
 import { authApi } from '../../lib/api/auth';
 import { getOAuthLinkUrl } from '../../lib/api/profile';
@@ -124,6 +124,7 @@ export function ProfilePage() {
   const queryClient = useQueryClient();
   const { data: profile, isLoading, error } = useProfile();
   const updateMutation = useUpdateProfile();
+  const changePasswordMutation = useChangePassword();
   const unlinkMutation = useUnlinkAccount();
   const [searchParams, setSearchParams] = useSearchParams();
   const returnedTopUpId = searchParams.get('topup_id');
@@ -132,6 +133,11 @@ export function ProfilePage() {
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState('');
   const [editUsername, setEditUsername] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordFormError, setPasswordFormError] = useState<string | null>(null);
+  const [passwordSuccessMessage, setPasswordSuccessMessage] = useState<string | null>(null);
   const [historyTab, setHistoryTab] = useState<HistoryTab>('all');
   const [historyPageSize, setHistoryPageSize] = useState<5 | 10 | 20>(5);
   const [historyPage, setHistoryPage] = useState(1);
@@ -206,6 +212,53 @@ export function ProfilePage() {
     updateMutation.mutate(
       { name: editName, username: editUsername },
       { onSuccess: () => setEditing(false) },
+    );
+  };
+
+  const clearPasswordFeedback = () => {
+    setPasswordFormError(null);
+    setPasswordSuccessMessage(null);
+    changePasswordMutation.reset();
+  };
+
+  const handlePasswordSubmit = () => {
+    if (!profile) return;
+
+    clearPasswordFeedback();
+    const hasPassword = profile.has_password;
+
+    if (hasPassword && currentPassword.length === 0) {
+      setPasswordFormError('Укажите текущий пароль');
+      return;
+    }
+
+    if (newPassword.length < 8) {
+      setPasswordFormError('Новый пароль должен быть не короче 8 символов');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setPasswordFormError('Подтверждение пароля не совпадает');
+      return;
+    }
+
+    changePasswordMutation.mutate(
+      {
+        current_password: hasPassword ? currentPassword : undefined,
+        new_password: newPassword,
+      },
+      {
+        onSuccess: () => {
+          setCurrentPassword('');
+          setNewPassword('');
+          setConfirmPassword('');
+          setPasswordSuccessMessage(
+            hasPassword
+              ? 'Пароль обновлён'
+              : 'Пароль установлен. Теперь можно входить по email или логину и паролю.',
+          );
+        },
+      },
     );
   };
 
@@ -460,6 +513,95 @@ export function ProfilePage() {
               </div>
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Безопасность</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="rounded-lg border bg-muted/30 p-4 text-sm">
+            <p className="font-medium">
+              {profile.has_password ? 'Сменить пароль' : 'Задать пароль'}
+            </p>
+            <p className="mt-1 text-muted-foreground">
+              {profile.has_password
+                ? 'Пароль используется для входа по email или логину. Чтобы изменить его, подтвердите текущий пароль.'
+                : 'Сейчас пароль для этого аккаунта не задан. После установки вы сможете входить по email или логину и паролю.'}
+            </p>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            {profile.has_password ? (
+              <div className="md:col-span-2">
+                <label className="text-sm font-medium">Текущий пароль</label>
+                <Input
+                  type="password"
+                  value={currentPassword}
+                  onChange={(e) => {
+                    clearPasswordFeedback();
+                    setCurrentPassword(e.target.value);
+                  }}
+                  placeholder="Введите текущий пароль"
+                  autoComplete="current-password"
+                />
+              </div>
+            ) : null}
+
+            <div>
+              <label className="text-sm font-medium">Новый пароль</label>
+              <Input
+                type="password"
+                value={newPassword}
+                onChange={(e) => {
+                  clearPasswordFeedback();
+                  setNewPassword(e.target.value);
+                }}
+                placeholder="Минимум 8 символов"
+                autoComplete="new-password"
+              />
+            </div>
+
+            <div>
+              <label className="text-sm font-medium">Повторите пароль</label>
+              <Input
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => {
+                  clearPasswordFeedback();
+                  setConfirmPassword(e.target.value);
+                }}
+                placeholder="Повторите новый пароль"
+                autoComplete="new-password"
+              />
+            </div>
+          </div>
+
+          {passwordSuccessMessage ? (
+            <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+              {passwordSuccessMessage}
+            </div>
+          ) : null}
+
+          {passwordFormError || changePasswordMutation.error ? (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+              {passwordFormError || (changePasswordMutation.error as any)?.response?.data?.error?.message || 'Не удалось изменить пароль'}
+            </div>
+          ) : null}
+
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs text-muted-foreground">
+              {profile.has_password
+                ? 'Если забыли пароль, администратор тоже может задать новый в панели пользователей.'
+                : 'Это не отвяжет ваши OAuth-аккаунты, а просто добавит ещё один способ входа.'}
+            </p>
+            <Button size="sm" onClick={handlePasswordSubmit} disabled={changePasswordMutation.isPending}>
+              {changePasswordMutation.isPending
+                ? (profile.has_password ? 'Сохраняю...' : 'Устанавливаю...')
+                : (profile.has_password ? 'Обновить пароль' : 'Установить пароль')}
+            </Button>
+          </div>
         </CardContent>
       </Card>
 

@@ -110,6 +110,7 @@ export interface BalanceHistoryItem {
 
 export interface UserProfile extends UserPublic {
   has_pending_email_verification: boolean;
+  has_password: boolean;
   balance_usd: string;
   balance_rub: string;
   usd_to_rub_rate: number;
