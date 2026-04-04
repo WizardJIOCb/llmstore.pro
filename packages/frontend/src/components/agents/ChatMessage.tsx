@@ -2641,6 +2641,26 @@ export function ChatMessage({
                             Последний запрос: {formatDateTime(projectDeployment.run_stats.last_run_at)}
                           </div>
                         </div>
+                        {deploymentLogLines.length > 0 && (
+                          <div className="mt-3 space-y-1">
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Логи</p>
+                            <pre className={cn(
+                              'max-h-[32rem] min-h-[18rem] w-full overflow-auto rounded bg-slate-950 p-3 text-xs',
+                              looksLikeErrorLog(deploymentLogLines.join('\n'))
+                                ? 'text-rose-200'
+                                : 'text-slate-100',
+                            )}>
+                              {deploymentLogLines.map((line, index) => (
+                                <span
+                                  key={`${index}-${line}`}
+                                  className={cn('block whitespace-pre-wrap break-all', getLogLineClassName(line))}
+                                >
+                                  {line || ' '}
+                                </span>
+                              ))}
+                            </pre>
+                          </div>
+                        )}
                         {projectDeployment.recent_runs.length > 0 && (
                           <div className="mt-3 space-y-2">
                             <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Последние запросы</p>
@@ -2678,26 +2698,6 @@ export function ChatMessage({
                                 </div>
                               ))}
                             </div>
-                          </div>
-                        )}
-                        {deploymentLogLines.length > 0 && (
-                          <div className="mt-3 space-y-1">
-                            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Логи</p>
-                            <pre className={cn(
-                              'max-h-[32rem] min-h-[18rem] w-full overflow-auto rounded bg-slate-950 p-3 text-xs',
-                              looksLikeErrorLog(deploymentLogLines.join('\n'))
-                                ? 'text-rose-200'
-                                : 'text-slate-100',
-                            )}>
-                              {deploymentLogLines.map((line, index) => (
-                                <span
-                                  key={`${index}-${line}`}
-                                  className={cn('block whitespace-pre-wrap break-all', getLogLineClassName(line))}
-                                >
-                                  {line || ' '}
-                                </span>
-                              ))}
-                            </pre>
                           </div>
                         )}
                       </div>
