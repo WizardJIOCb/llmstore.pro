@@ -1,9 +1,9 @@
-import axios from 'axios';
 import { db } from '../../../config/database.js';
 import { sourceCacheEntries } from '../../../db/schema/source-cache.js';
 import { eq } from 'drizzle-orm';
 import { logger } from '../../../lib/logger.js';
 import type { DtfPopularResult, DtfPopularArticle } from '../types.js';
+import { fetchDtfJson } from './dtf-http.js';
 
 const DTF_API_URL = 'https://api.dtf.ru/v2.1/timeline';
 const CACHE_TTL_SEC = 300;
@@ -28,14 +28,14 @@ function cacheKey(sorting: string): string {
   return `dtf_popular_${sorting}`;
 }
 
-async function getCached(sorting: string): Promise<CachedData | null> {
+async function getCached(sorting: string, includeExpired = false): Promise<CachedData | null> {
   const [entry] = await db
     .select()
     .from(sourceCacheEntries)
     .where(eq(sourceCacheEntries.cache_key, cacheKey(sorting)))
     .limit(1);
 
-  if (entry && new Date(entry.expires_at) > new Date()) {
+  if (entry && (includeExpired || new Date(entry.expires_at) > new Date())) {
     return entry.content_json as unknown as CachedData;
   }
   return null;
@@ -74,6 +74,12 @@ interface RawEntry {
   likes?: { counterLikes?: number } | number;
   subsite?: { name?: string };
   author?: { name?: string };
+}
+
+interface DtfPopularResponse {
+  result?: {
+    items?: Array<{ type?: string; data?: Record<string, unknown> }>;
+  };
 }
 
 function extractEntry(raw: RawEntry): ParsedEntry | null {
@@ -123,22 +129,30 @@ export async function executeDtfPopularFeed(input: {
   const cached = await getCached(sorting);
   if (cached) {
     logger.info({ sorting }, 'DTF popular: serving from cache');
-    return applyFilters(cached.articles, period, limit, sorting);
+    return applyFilters(cached.articles, period, limit, sorting, cached.fetched_at);
   }
+
+  const staleCache = await getCached(sorting, true);
 
   logger.info({ sorting }, 'DTF popular: fetching from API');
 
-  const { data } = await axios.get(DTF_API_URL, {
-    timeout: 15000,
-    params: {
-      allSite: true,
-      sorting,
-      count: 30,
-    },
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (compatible; LLMStore/1.0; +https://llmstore.pro)',
-    },
-  });
+  let data: DtfPopularResponse;
+  try {
+    data = await fetchDtfJson(`dtf-popular-${sorting}`, DTF_API_URL, {
+      params: {
+        allSite: true,
+        sorting,
+        count: 30,
+      },
+    });
+  } catch (error) {
+    if (staleCache) {
+      logger.warn({ sorting, err: error }, 'DTF popular: serving stale cache after API failure');
+      return applyFilters(staleCache.articles, period, limit, sorting, staleCache.fetched_at);
+    }
+
+    throw error;
+  }
 
   const items: Array<{ type?: string; data?: Record<string, unknown> }> = data?.result?.items ?? [];
   const articles: ParsedEntry[] = [];
@@ -167,10 +181,16 @@ export async function executeDtfPopularFeed(input: {
 
   await setCache(sorting, { articles, sorting, fetched_at: new Date().toISOString() });
 
-  return applyFilters(articles, period, limit, sorting);
+  return applyFilters(articles, period, limit, sorting, new Date().toISOString());
 }
 
-function applyFilters(articles: ParsedEntry[], period: string, limit: number, sorting: string): DtfPopularResult {
+function applyFilters(
+  articles: ParsedEntry[],
+  period: string,
+  limit: number,
+  sorting: string,
+  fetchedAt: string,
+): DtfPopularResult {
   let filtered = [...articles];
 
   const periodSec = PERIOD_SECONDS[period];
@@ -187,6 +207,6 @@ function applyFilters(articles: ParsedEntry[], period: string, limit: number, so
     articles: clean,
     sorting,
     period,
-    fetched_at: new Date().toISOString(),
+    fetched_at: fetchedAt,
   };
 }

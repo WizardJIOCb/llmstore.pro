@@ -1,14 +1,34 @@
-import axios from 'axios';
 import { db } from '../../../config/database.js';
 import { sourceCacheEntries } from '../../../db/schema/source-cache.js';
 import { eq } from 'drizzle-orm';
 import { logger } from '../../../lib/logger.js';
 import { AppError } from '../../../middleware/error-handler.js';
 import type { DtfArticleResult } from '../types.js';
+import { fetchDtfJson } from './dtf-http.js';
 
 const DTF_LOCATE_URL = 'https://api.dtf.ru/v2.1/locate';
 const CACHE_TTL_SEC = 600;
 const ALLOWED_DOMAINS = ['dtf.ru', 'www.dtf.ru'];
+
+interface DtfArticleResponseEntry {
+  title?: string;
+  date?: number;
+  blocks?: Array<{
+    type?: string;
+    data?: {
+      text?: string;
+      items?: string[];
+    };
+  }>;
+  subsite?: { name?: string };
+  author?: { name?: string };
+}
+
+interface DtfArticleResponse {
+  result?: {
+    data?: DtfArticleResponseEntry;
+  };
+}
 
 function validateDtfUrl(url: string): void {
   try {
@@ -30,7 +50,7 @@ function stripHtml(html: string): string {
   return html.replace(/<[^>]+>/g, '').trim();
 }
 
-async function getCached(url: string): Promise<DtfArticleResult | null> {
+async function getCached(url: string, includeExpired = false): Promise<DtfArticleResult | null> {
   const key = cacheKey(url);
   const [entry] = await db
     .select()
@@ -38,7 +58,7 @@ async function getCached(url: string): Promise<DtfArticleResult | null> {
     .where(eq(sourceCacheEntries.cache_key, key))
     .limit(1);
 
-  if (entry && new Date(entry.expires_at) > new Date()) {
+  if (entry && (includeExpired || new Date(entry.expires_at) > new Date())) {
     return entry.content_json as unknown as DtfArticleResult;
   }
   return null;
@@ -74,15 +94,23 @@ export async function executeDtfArticleFetch(input: { url: string }): Promise<Dt
     return cached;
   }
 
+  const staleCache = await getCached(input.url, true);
+
   logger.info({ url: input.url }, 'DTF article: fetching from API');
 
-  const { data } = await axios.get(DTF_LOCATE_URL, {
-    timeout: 15000,
-    params: { url: input.url },
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (compatible; LLMStore/1.0; +https://llmstore.pro)',
-    },
-  });
+  let data: DtfArticleResponse;
+  try {
+    data = await fetchDtfJson('dtf-article', DTF_LOCATE_URL, {
+      params: { url: input.url },
+    });
+  } catch (error) {
+    if (staleCache) {
+      logger.warn({ url: input.url, err: error }, 'DTF article: serving stale cache after API failure');
+      return staleCache;
+    }
+
+    throw error;
+  }
 
   const entry = data?.result?.data;
   if (!entry) {

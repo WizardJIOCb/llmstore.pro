@@ -1,22 +1,40 @@
-import axios from 'axios';
 import { db } from '../../../config/database.js';
 import { sourceCacheEntries } from '../../../db/schema/source-cache.js';
 import { eq } from 'drizzle-orm';
 import { logger } from '../../../lib/logger.js';
 import type { DtfFeedResult, DtfFeedArticle } from '../types.js';
+import { fetchDtfJson } from './dtf-http.js';
 
 const DTF_API_URL = 'https://api.dtf.ru/v2.1/timeline';
 const CACHE_KEY = 'dtf_latest_feed';
 const CACHE_TTL_SEC = 120;
 
-async function getCached(): Promise<DtfFeedResult | null> {
+interface DtfFeedRawEntry {
+  title?: string;
+  url?: string;
+  blocks?: Array<{ type?: string; data?: { text?: string } }>;
+  counters?: { comments?: number };
+  likes?: { counterLikes?: number } | number;
+  subsite?: { name?: string };
+  author?: { name?: string };
+}
+
+interface DtfFeedResponse {
+  result?: {
+    items?: Array<{
+      data?: DtfFeedRawEntry;
+    }>;
+  };
+}
+
+async function getCached(includeExpired = false): Promise<DtfFeedResult | null> {
   const [entry] = await db
     .select()
     .from(sourceCacheEntries)
     .where(eq(sourceCacheEntries.cache_key, CACHE_KEY))
     .limit(1);
 
-  if (entry && new Date(entry.expires_at) > new Date()) {
+  if (entry && (includeExpired || new Date(entry.expires_at) > new Date())) {
     return entry.content_json as unknown as DtfFeedResult;
   }
   return null;
@@ -58,19 +76,30 @@ export async function executeDtfFeed(input: { limit?: number }): Promise<DtfFeed
     };
   }
 
+  const staleCache = await getCached(true);
+
   logger.info('DTF feed: fetching from API');
 
-  const { data } = await axios.get(DTF_API_URL, {
-    timeout: 15000,
-    params: {
-      allSite: true,
-      sorting: 'new',
-      count: 30,
-    },
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (compatible; LLMStore/1.0; +https://llmstore.pro)',
-    },
-  });
+  let data: DtfFeedResponse;
+  try {
+    data = await fetchDtfJson('dtf-latest-feed', DTF_API_URL, {
+      params: {
+        allSite: true,
+        sorting: 'new',
+        count: 30,
+      },
+    });
+  } catch (error) {
+    if (staleCache) {
+      logger.warn({ err: error }, 'DTF feed: serving stale cache after API failure');
+      return {
+        ...staleCache,
+        articles: staleCache.articles.slice(0, limit),
+      };
+    }
+
+    throw error;
+  }
 
   const items = data?.result?.items ?? [];
   const articles: DtfFeedArticle[] = [];
