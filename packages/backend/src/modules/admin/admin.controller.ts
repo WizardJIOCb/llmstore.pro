@@ -256,6 +256,15 @@ export async function updateUserStatus(req: Request<IdParams>, res: Response, ne
 
 // ─── User Balance ───────────────────────────────────────────
 
+export async function resetUserPassword(req: Request<IdParams>, res: Response, next: NextFunction) {
+  try {
+    const result = await adminService.resetUserPassword(req.session.userId!, req.params.id, req.body.password);
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function adjustUserBalance(req: Request<IdParams>, res: Response, next: NextFunction) {
   try {
     const result = await adminService.adjustUserBalance(req.session.userId!, {

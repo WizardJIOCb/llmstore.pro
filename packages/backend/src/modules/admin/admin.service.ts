@@ -1,3 +1,4 @@
+import argon2 from 'argon2';
 import { eq, and, desc, asc, ilike, sql, count, inArray, type SQL } from 'drizzle-orm';
 import { db } from '../../config/database.js';
 import {
@@ -780,6 +781,37 @@ interface AdminAgentsQuery {
   search?: string;
   status?: string;
   owner_id?: string;
+}
+
+export async function resetUserPassword(adminUserId: string, id: string, password: string) {
+  const [user] = await db
+    .select({
+      id: users.id,
+      email: users.email,
+      username: users.username,
+    })
+    .from(users)
+    .where(eq(users.id, id))
+    .limit(1);
+
+  if (!user) throw new NotFoundError('РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ РЅРµ РЅР°Р№РґРµРЅ');
+
+  const password_hash = await argon2.hash(password);
+
+  await db.update(users).set({ password_hash }).where(eq(users.id, id));
+
+  logger.info({
+    adminUserId,
+    targetUserId: user.id,
+    targetUserEmail: user.email,
+  }, 'Admin reset user password');
+
+  return {
+    id: user.id,
+    email: user.email,
+    username: user.username,
+    password_updated: true,
+  };
 }
 
 export async function listAllAgents(query: AdminAgentsQuery) {

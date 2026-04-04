@@ -98,3 +98,9 @@ const updateAdminSettingsSchema = z.object({
 });
 
 export const validateUpdateAdminSettings = validate(updateAdminSettingsSchema, 'body');
+
+const resetUserPasswordSchema = z.object({
+  password: z.string().min(8).max(128),
+});
+
+export const validateResetUserPassword = validate(resetUserPasswordSchema, 'body');

@@ -17,8 +17,12 @@ export const registerSchema = z.object({
 export type RegisterInput = z.infer<typeof registerSchema>;
 
 export const loginSchema = z.object({
-  email: z.string().email(),
+  login: z.string().trim().min(1).max(255).optional(),
+  email: z.string().trim().min(1).max(255).optional(),
   password: z.string().min(1),
+}).refine((value) => Boolean(value.login || value.email), {
+  message: 'Укажите email или логин',
+  path: ['login'],
 });
 
 export type LoginInput = z.infer<typeof loginSchema>;

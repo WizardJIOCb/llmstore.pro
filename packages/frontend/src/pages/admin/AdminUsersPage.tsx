@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { AdminLayout } from '../../components/admin/AdminLayout';
-import { useAdminUsers, useUpdateUserRole, useUpdateUserStatus, useAdjustUserBalance } from '../../hooks/useAdmin';
+import { useAdminUsers, useUpdateUserRole, useUpdateUserStatus, useAdjustUserBalance, useResetUserPassword } from '../../hooks/useAdmin';
 import { Button, Badge, Spinner } from '../../components/ui';
 import { UserLink } from '../../components/users/UserLink';
 import { formatUsd } from '../../lib/utils';
@@ -41,6 +41,8 @@ export function AdminUsersPage() {
   const [balanceModal, setBalanceModal] = useState<{ userId: string; email: string } | null>(null);
   const [balanceAmount, setBalanceAmount] = useState('');
   const [balanceDescription, setBalanceDescription] = useState('');
+  const [passwordModal, setPasswordModal] = useState<{ userId: string; email: string; username: string | null } | null>(null);
+  const [newPassword, setNewPassword] = useState('');
 
   // Role change state
   const [roleModal, setRoleModal] = useState<{ userId: string; email: string; currentRole: string } | null>(null);
@@ -57,6 +59,7 @@ export function AdminUsersPage() {
   const updateRoleMutation = useUpdateUserRole();
   const updateStatusMutation = useUpdateUserStatus();
   const adjustBalanceMutation = useAdjustUserBalance();
+  const resetPasswordMutation = useResetUserPassword();
 
   const users = data?.data ?? [];
   const meta = data?.meta ?? { total: 0, page: 1, per_page: 20, total_pages: 1 };
@@ -87,6 +90,19 @@ export function AdminUsersPage() {
     const newStatus = currentStatus === 'active' ? 'suspended' : 'active';
     if (!confirm(`${newStatus === 'suspended' ? 'Заблокировать' : 'Разблокировать'} пользователя?`)) return;
     updateStatusMutation.mutate({ id: userId, status: newStatus });
+  };
+
+  const handleResetPassword = () => {
+    if (!passwordModal || newPassword.length < 8) return;
+    resetPasswordMutation.mutate(
+      { id: passwordModal.userId, password: newPassword },
+      {
+        onSuccess: () => {
+          setPasswordModal(null);
+          setNewPassword('');
+        },
+      },
+    );
   };
 
   return (
@@ -208,6 +224,16 @@ export function AdminUsersPage() {
                         <Button
                           variant="ghost"
                           size="sm"
+                          onClick={() => {
+                            setPasswordModal({ userId: user.id, email: user.email, username: user.username ?? null });
+                            setNewPassword('');
+                          }}
+                        >
+                          Пароль
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           className={user.status === 'active' ? 'text-destructive hover:text-destructive' : 'text-green-600 hover:text-green-600'}
                           onClick={() => handleToggleStatus(user.id, user.status)}
                         >
@@ -259,6 +285,45 @@ export function AdminUsersPage() {
               <Button variant="outline" size="sm" onClick={() => setRoleModal(null)}>Отмена</Button>
               <Button size="sm" onClick={handleRoleChange} disabled={updateRoleMutation.isPending}>
                 {updateRoleMutation.isPending ? 'Сохранение...' : 'Сохранить'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {passwordModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setPasswordModal(null)}>
+          <div className="w-full max-w-md rounded-lg bg-background p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h2 className="mb-4 text-lg font-semibold">Сменить пароль</h2>
+            <p className="mb-1 text-sm text-muted-foreground">{passwordModal.email}</p>
+            <p className="mb-4 text-xs text-muted-foreground">
+              {passwordModal.username
+                ? `Вход будет работать по email или логину @${passwordModal.username}`
+                : 'Вход будет работать по email и новому паролю'}
+            </p>
+            <div className="mb-4">
+              <label className="mb-1 block text-sm font-medium">Новый пароль</label>
+              <input
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="Минимум 8 символов"
+                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              />
+            </div>
+            {resetPasswordMutation.error && (
+              <p className="mb-4 text-sm text-destructive">
+                {(resetPasswordMutation.error as any)?.response?.data?.error?.message || 'Не удалось обновить пароль'}
+              </p>
+            )}
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setPasswordModal(null)}>Отмена</Button>
+              <Button
+                size="sm"
+                onClick={handleResetPassword}
+                disabled={resetPasswordMutation.isPending || newPassword.length < 8}
+              >
+                {resetPasswordMutation.isPending ? 'Сохранение...' : 'Сменить пароль'}
               </Button>
             </div>
           </div>

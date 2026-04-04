@@ -7,7 +7,7 @@ interface AuthState {
   isLoading: boolean;
   setUser: (user: UserPublic | null) => void;
   fetchMe: () => Promise<void>;
-  login: (email: string, password: string) => Promise<UserPublic>;
+  login: (login: string, password: string) => Promise<UserPublic>;
   register: (data: {
     email: string;
     password: string;
@@ -34,8 +34,8 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
   },
 
-  login: async (email, password) => {
-    const user = await authApi.login({ email, password });
+  login: async (login, password) => {
+    const user = await authApi.login({ login, password });
     set({ user });
     return user;
   },

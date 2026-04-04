@@ -175,6 +175,17 @@ export function useAdjustUserBalance() {
 
 // ─── Agents ─────────────────────────────────────────────────
 
+export function useResetUserPassword() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, password }: { id: string; password: string }) =>
+      adminApi.resetUserPassword(id, { password }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+    },
+  });
+}
+
 export function useAdminAgents(params: AdminAgentsParams) {
   return useQuery({
     queryKey: ['admin', 'agents', params],

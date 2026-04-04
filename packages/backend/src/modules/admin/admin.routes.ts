@@ -4,7 +4,7 @@ import {
   validateCreateItem, validateUpdateItem, validateAdminListQuery,
   validateTaxonomyCreate, validateTaxonomyUpdate,
   validateCreateTool, validateUpdateTool,
-  validateUpdateAdminSettings, validateAdminChartsQuery,
+  validateUpdateAdminSettings, validateAdminChartsQuery, validateResetUserPassword,
 } from './admin.validators.js';
 import { validateCreateNews, validateUpdateNews, validateAdminNewsListQuery } from '../news/news.validators.js';
 import { requireRole } from '../../middleware/auth-guard.js';
@@ -57,6 +57,7 @@ router.get('/users/:id', controller.getUser);
 router.put('/users/:id/role', controller.updateUserRole);
 router.put('/users/:id/status', controller.updateUserStatus);
 router.post('/users/:id/balance', controller.adjustUserBalance);
+router.post('/users/:id/password', requireRole('admin'), validateResetUserPassword, controller.resetUserPassword);
 
 // Agents management (admin view)
 router.get('/agents', controller.listAllAgents);

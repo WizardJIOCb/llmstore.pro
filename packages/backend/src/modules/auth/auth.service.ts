@@ -1,5 +1,5 @@
 import argon2 from 'argon2';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { db } from '../../config/database.js';
 import { users } from '../../db/schema/index.js';
 import { AppError, ConflictError, NotFoundError } from '../../middleware/error-handler.js';
@@ -102,14 +102,16 @@ export async function register(input: {
   };
 }
 
-export async function login(input: { email: string; password: string }): Promise<UserPublic> {
+export async function login(input: { login?: string; email?: string; password: string }): Promise<UserPublic> {
+  const identifier = String(input.login ?? input.email ?? '').trim().toLowerCase();
+
   const [user] = await db
     .select({
       ...userPublicColumns,
       password_hash: users.password_hash,
     })
     .from(users)
-    .where(eq(users.email, input.email.toLowerCase()))
+    .where(sql`lower(${users.email}) = ${identifier} OR lower(coalesce(${users.username}, '')) = ${identifier}`)
     .limit(1);
 
   if (!user) {

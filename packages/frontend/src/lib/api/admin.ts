@@ -53,6 +53,10 @@ export interface AdminSettings {
   openrouter_disabled_message: string;
 }
 
+export interface ResetUserPasswordInput {
+  password: string;
+}
+
 export interface AdminTool {
   id: string;
   name: string;
@@ -239,6 +243,9 @@ export const adminApi = {
 
   updateSettings: (data: AdminSettings) =>
     apiClient.put<{ data: AdminSettings }>('/admin/settings', data).then((r) => r.data.data),
+
+  resetUserPassword: (id: string, data: ResetUserPasswordInput) =>
+    apiClient.post(`/admin/users/${id}/password`, data).then((r) => r.data.data),
 
   // Catalog items
   listItems: (params: AdminListParams) =>

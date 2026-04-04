@@ -2,7 +2,7 @@ import { apiClient } from '../api-client';
 import type { UserPublic } from '@llmstore/shared';
 
 export interface LoginInput {
-  email: string;
+  login: string;
   password: string;
 }
 

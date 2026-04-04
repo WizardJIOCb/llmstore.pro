@@ -20,7 +20,7 @@ export function LoginPage() {
   const navigate = useNavigate();
   const { login, fetchMe } = useAuth();
   const [searchParams] = useSearchParams();
-  const [email, setEmail] = useState('');
+  const [loginValue, setLoginValue] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -50,7 +50,7 @@ export function LoginPage() {
     setLoading(true);
 
     try {
-      await login(email, password);
+      await login(loginValue, password);
       redirectToNext();
     } catch (err: any) {
       setError(err.response?.data?.error?.message || 'РћС€РёР±РєР° РІС…РѕРґР°');
@@ -77,18 +77,18 @@ export function LoginPage() {
             <span className="w-full border-t" />
           </div>
           <div className="relative flex justify-center text-xs uppercase">
-            <span className="bg-background px-2 text-muted-foreground">РёР»Рё РїРѕ email</span>
+            <span className="bg-background px-2 text-muted-foreground">или по email или логину</span>
           </div>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="mb-1 block text-sm font-medium">Email</label>
+            <label className="mb-1 block text-sm font-medium">Email РёР»Рё Р»РѕРіРёРЅ</label>
             <Input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="admin@llmstore.pro"
+              type="text"
+              value={loginValue}
+              onChange={(e) => setLoginValue(e.target.value)}
+              placeholder="admin@llmstore.pro РёР»Рё wizard"
               required
             />
           </div>
