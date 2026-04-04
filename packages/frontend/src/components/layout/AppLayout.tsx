@@ -169,7 +169,7 @@ export function AppLayout() {
                     }
                   >
                     <span>{profileBaseLabel}</span>
-                    {profileBalanceLabel && <span className="inline-block">{` ${profileBalanceLabel}`}</span>}
+                    {profileBalanceLabel && <span className="ml-1 inline-block">{profileBalanceLabel}</span>}
                   </Link>
                 </span>
                 {isAdmin && (
