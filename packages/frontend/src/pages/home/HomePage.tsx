@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useLatestNews } from '../../hooks/useNews';
+import { UserLink } from '../../components/users/UserLink';
 import type { NewsArticle } from '../../lib/api/news';
 
 const sections = [
@@ -84,8 +85,6 @@ export function HomePage() {
   const { data: newsData } = useLatestNews(3);
   const newsItems: NewsArticle[] = newsData?.data ?? [];
   const totalNews = newsData?.meta?.total ?? 0;
-  const leadNews = newsItems[0];
-  const feedNews: NewsArticle[] = newsItems.slice(1);
 
   return (
     <div>
@@ -204,95 +203,85 @@ export function HomePage() {
               </Link>
             </div>
 
-            {leadNews && (
-              <div className="grid gap-8 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
-                <article className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-[0_18px_60px_-44px_rgba(15,23,42,0.28)]">
-                  <div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_320px]">
-                    <div className="p-6 md:p-7">
-                      <p className="text-xs uppercase tracking-[0.22em] text-slate-400">Главное обновление</p>
-                      <Link to={`/news/${leadNews.slug}`} className="mt-4 block text-left">
-                        <h3 className="text-3xl font-semibold tracking-tight text-slate-950 transition hover:text-primary">
-                          {leadNews.title}
-                        </h3>
-                      </Link>
-                      <p className="mt-4 max-w-3xl text-base leading-8 text-slate-600">
-                        {getExcerpt(leadNews)}
-                      </p>
-                      <div className="mt-6 flex flex-wrap gap-3">
-                        {formatLongDate(leadNews.published_at) && (
-                          <span className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-700">
-                            {formatLongDate(leadNews.published_at)}
-                          </span>
-                        )}
-                        <span className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-700">
-                          {leadNews.comments_count} комментариев
-                        </span>
-                        <span className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-700">
-                          {leadNews.views_count ?? 0} просмотров
-                        </span>
+            <div className="grid gap-6 lg:grid-cols-3">
+              {newsItems.map((article) => (
+                <article
+                  key={article.id}
+                  className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-[0_18px_60px_-44px_rgba(15,23,42,0.28)] transition hover:-translate-y-0.5 hover:shadow-[0_24px_80px_-48px_rgba(15,23,42,0.32)]"
+                >
+                  <Link to={`/news/${article.slug}`} className="block">
+                    {article.images[0]?.url ? (
+                      <div className="overflow-hidden border-b border-slate-200 bg-slate-50">
+                        <img
+                          src={article.images[0].url}
+                          alt={article.title}
+                          className="h-56 w-full object-cover transition duration-300 hover:scale-[1.02]"
+                        />
                       </div>
+                    ) : (
+                      <div className="flex h-56 items-center justify-center border-b border-slate-200 bg-slate-50 px-6 text-center text-sm text-slate-400">
+                        Обложка новости пока не добавлена.
+                      </div>
+                    )}
+                  </Link>
+
+                  <div className="flex h-[calc(100%-14rem)] flex-col p-6">
+                    <div className="flex flex-wrap items-center gap-3 text-sm text-slate-500">
+                      <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5">
+                        {formatShortDate(article.published_at)}
+                      </span>
+                      <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5">
+                        {article.comments_count} комментариев
+                      </span>
+                      <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5">
+                        {article.views_count ?? 0} просмотров
+                      </span>
                     </div>
 
-                    <div className="border-t border-slate-200 bg-slate-50 lg:border-l lg:border-t-0">
-                      {leadNews.images[0]?.url ? (
-                        <Link to={`/news/${leadNews.slug}`} className="block h-full w-full">
-                          <img
-                            src={leadNews.images[0].url}
-                            alt={leadNews.title}
-                            className="h-full min-h-[240px] w-full object-cover transition duration-300 hover:scale-[1.01]"
-                          />
-                        </Link>
-                      ) : (
-                        <div className="flex h-full min-h-[240px] items-center justify-center p-6 text-center text-sm text-slate-400">
-                          В этой новости нет обложки, но внутри есть полное описание обновления.
-                        </div>
-                      )}
+                    <Link to={`/news/${article.slug}`} className="mt-4 block">
+                      <h3 className="text-2xl font-semibold tracking-tight text-slate-950 transition hover:text-primary">
+                        {article.title}
+                      </h3>
+                    </Link>
+
+                    <p className="mt-4 flex-1 text-sm leading-7 text-slate-600">
+                      {getExcerpt(article)}
+                    </p>
+
+                    <div className="mt-5 text-sm text-slate-500">
+                      Автор:{' '}
+                      <UserLink
+                        username={article.author?.username}
+                        name={article.author?.name}
+                        fallback="Команда LLMStore"
+                        className="font-medium text-slate-700 hover:text-primary"
+                      />
+                    </div>
+
+                    <div className="mt-6 flex items-center justify-between gap-4">
+                      <span className="text-sm text-slate-500">
+                        {formatLongDate(article.published_at) ?? formatShortDate(article.published_at)}
+                      </span>
+                      <Link
+                        to={`/news/${article.slug}`}
+                        className="text-sm font-medium text-primary hover:underline"
+                      >
+                        Открыть →
+                      </Link>
                     </div>
                   </div>
                 </article>
+              ))}
+            </div>
 
-                <div className="space-y-4">
-                  {feedNews.map((article) => (
-                    <article
-                      key={article.id}
-                      className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-[0_16px_50px_-44px_rgba(15,23,42,0.28)]"
-                    >
-                      <div className="grid gap-4 sm:grid-cols-[76px_minmax(0,1fr)]">
-                        <div>
-                          <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Дата</div>
-                          <div className="mt-1 text-sm font-medium text-slate-900">{formatShortDate(article.published_at)}</div>
-                        </div>
-                        <div className="min-w-0">
-                          <Link to={`/news/${article.slug}`} className="block">
-                            <h3 className="text-xl font-semibold tracking-tight text-slate-950 transition hover:text-primary">
-                              {article.title}
-                            </h3>
-                          </Link>
-                          <p className="mt-3 text-sm leading-7 text-slate-600">
-                            {getExcerpt(article)}
-                          </p>
-                          <div className="mt-4 flex flex-wrap gap-3">
-                            <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700">
-                              {article.comments_count} комментариев
-                            </span>
-                            <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700">
-                              {article.views_count ?? 0} просмотров
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </article>
-                  ))}
-
-                  {totalNews > 3 && (
-                    <Link
-                      to="/news"
-                      className="inline-flex items-center justify-center rounded-md border border-input bg-background px-5 py-2.5 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
-                    >
-                      Показать весь архив новостей
-                    </Link>
-                  )}
-                </div>
+            {totalNews > 3 && (
+              <div className="mt-8 flex justify-center">
+                <Link
+                  to="/news"
+                  className="inline-flex items-center justify-center rounded-md border border-input bg-background px-5 py-2.5 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
+                >
+                  Показать все новости
+                </Link>
               </div>
             )}
           </div>
