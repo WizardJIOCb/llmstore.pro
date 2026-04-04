@@ -9,6 +9,7 @@ import { cn, formatRub, formatUsd } from '../../lib/utils';
 
 const navItems = [
   { label: 'Новости', href: '/news' },
+  { label: 'Гайды', href: '/guides' },
   { label: 'Планы', href: '/milestones' },
   { label: 'Галерея', href: '/gallery' },
   { label: 'Чаты', href: '/chats', requiresAuth: true },
@@ -66,6 +67,14 @@ export function AppLayout() {
 
   const isNavItemActive = (href: string) => {
     if (href === '/news') return location.pathname === '/news' || location.pathname.startsWith('/news/');
+    if (href === '/guides') {
+      return (
+        location.pathname === '/guides'
+        || location.pathname.startsWith('/guides/')
+        || location.pathname === '/articles'
+        || location.pathname.startsWith('/article/')
+      );
+    }
     if (href === '/milestones') return location.pathname === '/milestones' || location.pathname.startsWith('/milestones/');
     if (href === '/tools') return location.pathname === '/tools' || location.pathname.startsWith('/tools/');
     if (href === '/gallery') return location.pathname === '/gallery' || location.pathname.startsWith('/gallery/');

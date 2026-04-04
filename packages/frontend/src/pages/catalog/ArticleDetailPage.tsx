@@ -15,6 +15,22 @@ import {
   readinessLabels,
 } from '../../lib/label-maps';
 
+function getSectionMeta(type?: string | null) {
+  if (type === 'guide') {
+    return {
+      label: 'Гайды',
+      href: '/guides',
+      emptyLabel: 'Гайд',
+    };
+  }
+
+  return {
+    label: 'Статьи',
+    href: '/articles',
+    emptyLabel: 'Статья',
+  };
+}
+
 export function ArticleDetailPage() {
   const { slug } = useParams<{ slug: string }>();
   const { user, isAuthenticated, isAdmin } = useAuth();
@@ -33,26 +49,29 @@ export function ArticleDetailPage() {
     );
   }
 
+  const section = getSectionMeta(item?.type);
+
   if (error || !item) {
     return (
       <div className="container mx-auto px-4 py-16 text-center">
         <h1 className="mb-4 text-2xl font-bold">Не найдено</h1>
-        <p className="text-muted-foreground">Статья не найдена или была удалена.</p>
-        <Link to="/articles" className="mt-4 inline-block text-primary hover:underline">
-          К списку статей
+        <p className="text-muted-foreground">{section.emptyLabel} не найден{section.emptyLabel === 'Гайд' ? '' : 'а'} или был удалён.</p>
+        <Link to={section.href} className="mt-4 inline-block text-primary hover:underline">
+          К списку материалов
         </Link>
       </div>
     );
   }
 
   const meta = item.meta_full;
+  const relatedHref = (type: string, itemSlug: string) => (type === 'guide' ? `/guides/${itemSlug}` : `/article/${itemSlug}`);
 
   return (
     <div className="container mx-auto px-4 py-8">
       <nav className="mb-4 text-sm text-muted-foreground">
         <Link to="/" className="hover:text-foreground">Главная</Link>
         {' / '}
-        <Link to="/articles" className="hover:text-foreground">Статьи</Link>
+        <Link to={section.href} className="hover:text-foreground">{section.label}</Link>
         {' / '}
         <span className="text-foreground">{item.title}</span>
       </nav>
@@ -73,8 +92,8 @@ export function ArticleDetailPage() {
 
           {item.full_description && (
             <div className="prose prose-sm max-w-none">
-              {item.full_description.split('\n').map((line, i) => (
-                <p key={i}>{line}</p>
+              {item.full_description.split('\n').map((line, index) => (
+                line.trim() ? <p key={index}>{line}</p> : <br key={index} />
               ))}
             </div>
           )}
@@ -96,45 +115,45 @@ export function ArticleDetailPage() {
             <h3 className="mb-4 text-lg font-semibold">Характеристики</h3>
             <dl className="space-y-3 text-sm">
               {meta.pricing_type && (
-                <div className="flex justify-between">
+                <div className="flex justify-between gap-4">
                   <dt className="text-muted-foreground">Цена</dt>
-                  <dd className="font-medium">{pricingTypeLabels[meta.pricing_type]}</dd>
+                  <dd className="text-right font-medium">{pricingTypeLabels[meta.pricing_type]}</dd>
                 </div>
               )}
               {meta.deployment_type && (
-                <div className="flex justify-between">
+                <div className="flex justify-between gap-4">
                   <dt className="text-muted-foreground">Deploy</dt>
-                  <dd className="font-medium">{deploymentTypeLabels[meta.deployment_type]}</dd>
+                  <dd className="text-right font-medium">{deploymentTypeLabels[meta.deployment_type]}</dd>
                 </div>
               )}
               {meta.privacy_type && (
-                <div className="flex justify-between">
+                <div className="flex justify-between gap-4">
                   <dt className="text-muted-foreground">Приватность</dt>
-                  <dd className="font-medium">{privacyTypeLabels[meta.privacy_type]}</dd>
+                  <dd className="text-right font-medium">{privacyTypeLabels[meta.privacy_type]}</dd>
                 </div>
               )}
               {meta.language_support && (
-                <div className="flex justify-between">
+                <div className="flex justify-between gap-4">
                   <dt className="text-muted-foreground">Язык</dt>
-                  <dd className="font-medium">{languageSupportLabels[meta.language_support]}</dd>
+                  <dd className="text-right font-medium">{languageSupportLabels[meta.language_support]}</dd>
                 </div>
               )}
               {meta.difficulty && (
-                <div className="flex justify-between">
+                <div className="flex justify-between gap-4">
                   <dt className="text-muted-foreground">Уровень</dt>
-                  <dd className="font-medium">{difficultyLabels[meta.difficulty]}</dd>
+                  <dd className="text-right font-medium">{difficultyLabels[meta.difficulty]}</dd>
                 </div>
               )}
               {meta.readiness && (
-                <div className="flex justify-between">
+                <div className="flex justify-between gap-4">
                   <dt className="text-muted-foreground">Готовность</dt>
-                  <dd className="font-medium">{readinessLabels[meta.readiness]}</dd>
+                  <dd className="text-right font-medium">{readinessLabels[meta.readiness]}</dd>
                 </div>
               )}
               {meta.vendor_name && (
-                <div className="flex justify-between">
-                  <dt className="text-muted-foreground">Вендор</dt>
-                  <dd className="font-medium">{meta.vendor_name}</dd>
+                <div className="flex justify-between gap-4">
+                  <dt className="text-muted-foreground">Источник</dt>
+                  <dd className="text-right font-medium">{meta.vendor_name}</dd>
                 </div>
               )}
             </dl>
@@ -157,7 +176,7 @@ export function ArticleDetailPage() {
               )}
               {meta.source_url && (
                 <a href={meta.source_url} target="_blank" rel="noopener noreferrer" className="block text-sm text-primary hover:underline">
-                  Исходный код
+                  Исходный материал
                 </a>
               )}
             </div>
@@ -180,7 +199,7 @@ export function ArticleDetailPage() {
               <UserLink
                 username={item.author.username}
                 name={item.author.name}
-                fallback="������"
+                fallback="Аноним"
                 className="text-sm text-foreground hover:text-primary hover:underline"
               />
             </div>
@@ -190,10 +209,10 @@ export function ArticleDetailPage() {
 
       {item.related_items.length > 0 && (
         <div className="mt-12">
-          <h2 className="mb-6 text-2xl font-bold">Похожие элементы</h2>
+          <h2 className="mb-6 text-2xl font-bold">Похожие материалы</h2>
           <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {item.related_items.map((rel) => (
-              <CatalogCard key={rel.id} item={rel} hrefOverride={`/article/${rel.slug}`} />
+              <CatalogCard key={rel.id} item={rel} hrefOverride={relatedHref(rel.type, rel.slug)} />
             ))}
           </div>
         </div>
@@ -212,4 +231,3 @@ export function ArticleDetailPage() {
     </div>
   );
 }
-

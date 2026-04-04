@@ -80,8 +80,9 @@ export function App() {
         <Route path="/assets/:slug" element={<CatalogDetailPage type="developer_asset" />} />
         <Route path="/stacks" element={<CatalogListPage type="stack_preset" />} />
         <Route path="/stacks/:slug" element={<CatalogDetailPage type="stack_preset" />} />
-        <Route path="/guides" element={<CatalogListPage type="guide" />} />
-        <Route path="/articles" element={<CatalogListPage title="Статьи" articleMode />} />
+        <Route path="/guides" element={<CatalogListPage type="guide" title="База знаний" />} />
+        <Route path="/guides/:slug" element={<ArticleDetailPage />} />
+        <Route path="/articles" element={<CatalogListPage type="guide" title="База знаний" />} />
         <Route path="/article/:slug" element={<ArticleDetailPage />} />
 
         {/* News routes */}
