@@ -117,7 +117,7 @@ export function GuidesPage() {
   const { data, isLoading, error } = useCatalogList({
     type: 'guide',
     sort: 'curated',
-    limit: 100,
+    limit: 50,
   });
 
   const guides = useMemo(
