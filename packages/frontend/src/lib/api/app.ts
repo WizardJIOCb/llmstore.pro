@@ -2,6 +2,8 @@ import { apiClient } from '../api-client';
 
 export interface AppSettings {
   usd_to_rub_rate: number;
+  openrouter_requests_enabled: boolean;
+  openrouter_disabled_message: string;
   topup: {
     message: string;
     telegram: string;

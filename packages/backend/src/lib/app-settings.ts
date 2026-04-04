@@ -25,6 +25,8 @@ const SETTINGS_KEYS = {
   starter_prompts_openrouter_coding_agent_coding_alternative: 'starter_prompts_openrouter_coding_agent_coding_alternative',
   starter_prompts_dtf_news_agent: 'starter_prompts_dtf_news_agent',
   signup_bonus_requires_email_verification: 'signup_bonus_requires_email_verification',
+  openrouter_requests_enabled: 'openrouter_requests_enabled',
+  openrouter_disabled_message: 'openrouter_disabled_message',
 } as const;
 
 const DEFAULT_TOPUP_MESSAGE = 'Нужна помощь с пополнением или оплатой? Напишите Родиону:';
@@ -40,6 +42,8 @@ const DEFAULT_LEGAL_SUPPORT_EMAIL = DEFAULT_TOPUP_EMAIL;
 const DEFAULT_LEGAL_SUPPORT_PHONE = DEFAULT_TOPUP_PHONE;
 const DEFAULT_LEGAL_SUPPORT_TELEGRAM = DEFAULT_TOPUP_TELEGRAM;
 const DEFAULT_SIGNUP_BONUS_REQUIRES_EMAIL_VERIFICATION = false;
+const DEFAULT_OPENROUTER_REQUESTS_ENABLED = true;
+const DEFAULT_OPENROUTER_DISABLED_MESSAGE = 'В данный момент отправка запросов отключена. В скором времени отправка снова будет доступна.';
 const DEFAULT_STARTER_PROMPTS = {
   openrouter_coding_agent: [
     'Сделай одностраничный лендинг и покажи preview',
@@ -414,6 +418,60 @@ export async function getSignupBonusSettings() {
   };
 }
 
+export async function getOpenRouterRequestsSettings() {
+  const raw = await getSettingValue(
+    SETTINGS_KEYS.openrouter_requests_enabled,
+    String(DEFAULT_OPENROUTER_REQUESTS_ENABLED),
+  );
+
+  return {
+    enabled: normalizeBoolean(raw, DEFAULT_OPENROUTER_REQUESTS_ENABLED),
+  };
+}
+
+export async function getOpenRouterRequestsEnabled(): Promise<boolean> {
+  const settings = await getOpenRouterRequestsSettings();
+  return settings.enabled;
+}
+
+export async function getOpenRouterDisabledMessage(): Promise<string> {
+  const value = await getSettingValue(
+    SETTINGS_KEYS.openrouter_disabled_message,
+    DEFAULT_OPENROUTER_DISABLED_MESSAGE,
+  );
+
+  return normalizeText(value, 1000) ?? DEFAULT_OPENROUTER_DISABLED_MESSAGE;
+}
+
+export async function updateOpenRouterRequestsSettings(input: {
+  openrouter_requests_enabled?: boolean;
+  openrouter_disabled_message?: string;
+}, updatedBy?: string | null) {
+  const enabled = normalizeBoolean(
+    input.openrouter_requests_enabled,
+    DEFAULT_OPENROUTER_REQUESTS_ENABLED,
+  );
+  const message = normalizeText(
+    input.openrouter_disabled_message,
+    1000,
+  ) ?? DEFAULT_OPENROUTER_DISABLED_MESSAGE;
+
+  await Promise.all([
+    setSettingValue(
+      SETTINGS_KEYS.openrouter_requests_enabled,
+      String(enabled),
+      updatedBy,
+    ),
+    setSettingValue(
+      SETTINGS_KEYS.openrouter_disabled_message,
+      message,
+      updatedBy,
+    ),
+  ]);
+
+  return { enabled, message };
+}
+
 export async function updateSignupBonusSettings(input: {
   signup_bonus_requires_email_verification?: boolean;
 }, updatedBy?: string | null) {
@@ -507,12 +565,14 @@ export function resolveStarterPromptsForAgentSlug(
 }
 
 export async function getAdminSettings() {
-  const [usd_to_rub_rate, topUp, legal, starterPrompts, signupBonus] = await Promise.all([
+  const [usd_to_rub_rate, topUp, legal, starterPrompts, signupBonus, openRouterRequests, openRouterDisabledMessage] = await Promise.all([
     getUsdToRubRate(),
     getTopUpSettings(),
     getLegalSettings(),
     getStarterPromptSettings(),
     getSignupBonusSettings(),
+    getOpenRouterRequestsSettings(),
+    getOpenRouterDisabledMessage(),
   ]);
 
   return {
@@ -535,19 +595,25 @@ export async function getAdminSettings() {
     starter_prompts_openrouter_coding_agent_coding_alternative: starterPrompts.openrouter_coding_agent_coding_alternative,
     starter_prompts_dtf_news_agent: starterPrompts.dtf_news_agent,
     signup_bonus_requires_email_verification: signupBonus.requires_email_verification,
+    openrouter_requests_enabled: openRouterRequests.enabled,
+    openrouter_disabled_message: openRouterDisabledMessage,
   };
 }
 
 export async function getPublicAppSettings() {
-  const [topUp, legal, starterPrompts, usdToRubRate] = await Promise.all([
+  const [topUp, legal, starterPrompts, usdToRubRate, openRouterRequests, openRouterDisabledMessage] = await Promise.all([
     getTopUpSettings(),
     getLegalSettings(),
     getStarterPromptSettings(),
     getUsdToRubRate(),
+    getOpenRouterRequestsSettings(),
+    getOpenRouterDisabledMessage(),
   ]);
 
   return {
     usd_to_rub_rate: usdToRubRate,
+    openrouter_requests_enabled: openRouterRequests.enabled,
+    openrouter_disabled_message: openRouterDisabledMessage,
     topup: {
       message: topUp.message,
       telegram: topUp.telegram,

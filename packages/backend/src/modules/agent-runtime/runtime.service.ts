@@ -28,6 +28,8 @@ import type { ChatMessage, ToolDefinitionParam } from '../openrouter/types.js';
 import { UPLOADS_DIR } from '../../config/upload.js';
 import { openChatEventStream, publishChatEvent } from './chat-events.service.js';
 import {
+  getOpenRouterRequestsEnabled,
+  getOpenRouterDisabledMessage,
   getStarterPromptSettings,
   getUsdToRubRate,
   resolveStarterPromptsForAgentSlug,
@@ -4341,7 +4343,13 @@ export async function sendChatMessage(
 ) {
   const chat = await getConversationForUser(chatId, userId);
   const chatToolSettings = extractChatToolSettings(chat.settings_json);
-  await ensureSufficientBalance(userId);
+  const openRouterRequestsEnabled = await getOpenRouterRequestsEnabled();
+  const openRouterDisabledMessage = openRouterRequestsEnabled
+    ? null
+    : await getOpenRouterDisabledMessage();
+  if (openRouterRequestsEnabled) {
+    await ensureSufficientBalance(userId);
+  }
   const usdToRubRate = await getUsdToRubRate();
   const emitChatEvent = (event: string, payload: Record<string, unknown>) => {
     publishChatEvent(chatId, userId, event, payload);
@@ -4405,20 +4413,6 @@ export async function sendChatMessage(
     attachmentMetas.push(meta);
   }
 
-  const attachmentContext = attachmentContextChunks.length > 0
-    ? `\n\nВложения пользователя:\n${attachmentContextChunks.join('\n\n')}`
-    : '';
-  const latestPreviewSnapshot = await getLatestHtmlPreviewSnapshot(chatId);
-  const strictPreviewEdit = Boolean(latestPreviewSnapshot && detectPreviewEditIntent(trimmedContent));
-  const latestPreviewContext = strictPreviewEdit
-    ? buildLatestHtmlPreviewContext(latestPreviewSnapshot)
-    : '';
-  const previewContext = latestPreviewContext
-    ? `\n\nКонтекст текущего preview:\n${latestPreviewContext}`
-    : '';
-  const userModelText = `${trimmedContent}${attachmentContext}${previewContext}`.trim();
-
-  const previousMessages = await getConversationMessages(chatId);
   const userMessage: ConversationMessage = {
     id: '',
     role: 'user',
@@ -4444,208 +4438,232 @@ export async function sendChatMessage(
       : 'Сообщение принято, запускаю обработку',
   });
 
-  const historyForModel = [
-    ...(chat.system_prompt ? [{ role: 'system' as const, content: chat.system_prompt }] : []),
-    ...previousMessages.map((m) => ({ role: m.role, content: m.content })),
-    { role: 'user' as const, content: userModelText },
-  ];
-
   let assistantText = '';
   let runId: string | null = null;
   let usagePayload: Record<string, unknown> | null = null;
   let latencyMs: number | null = null;
-  const canUseChatTools = chat.mode === 'general' && chatToolSettings.tool_ids.length > 0;
+  const canUseChatTools = openRouterRequestsEnabled && chat.mode === 'general' && chatToolSettings.tool_ids.length > 0;
 
-  if (chat.mode === 'agent') {
-    if (!chat.agent_id) {
-      throw new AppError(400, 'CHAT_CONFIG_ERROR', 'Р­С‚РѕС‚ С‡Р°С‚ РЅРµ РЅР°СЃС‚СЂРѕРµРЅ РєР°Рє Р°РіРµРЅС‚');
-    }
-    await ensureAgentIsVisibleForUser(chat.agent_id, userId, userRole);
-
-    const result = await startRun(chat.agent_id, userId, {
-      messages: historyForModel
-        .filter((m) => m.role === 'user' || m.role === 'assistant')
-        .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
-      model_external_id: null,
-    }, {
-      sync_to_chats: false,
-      charge_usage: false,
-      on_event: emitChatEvent,
-      strict_preview_edit: strictPreviewEdit && latestPreviewSnapshot
-        ? {
-          user_request: trimmedContent,
-          original_html: latestPreviewSnapshot.html,
-          preview_title: latestPreviewSnapshot.title ?? null,
-        }
-        : null,
+  if (!openRouterRequestsEnabled) {
+    latencyMs = 0;
+    assistantText = openRouterDisabledMessage || 'В данный момент отправка запросов отключена. В скором времени отправка снова будет доступна.';
+    emitChatEvent('chat.run.skipped', {
+      mode: chat.mode,
+      disabled_by_admin: true,
+      label: 'Отправка запросов временно отключена администратором',
     });
-
-    if (result.status !== 'completed') {
-      throw new AppError(
-        502,
-        'AGENT_RUNTIME_FAILED',
-        result.error_message ?? 'РђРіРµРЅС‚ РЅРµ СЃРјРѕРі СЃС„РѕСЂРјРёСЂРѕРІР°С‚СЊ РѕС‚РІРµС‚. РџРѕРїСЂРѕР±СѓР№С‚Рµ РёР·РјРµРЅРёС‚СЊ Р·Р°РїСЂРѕСЃ.',
-      );
-    }
-
-    const toolNames = Array.from(
-      new Set(
-        (result.tool_traces ?? [])
-          .map((trace) => (typeof trace.tool_name === 'string' ? trace.tool_name.trim() : ''))
-          .filter((name) => name.length > 0),
-      ),
-    );
-
-    assistantText = result.output || '(РїСѓСЃС‚РѕР№ РѕС‚РІРµС‚)';
-    runId = result.run_id;
-    latencyMs = result.latency_ms;
-    if (result.usage) {
-      usagePayload = {
-        ...(result.usage as unknown as Record<string, unknown>),
-        tool_names: toolNames,
-        tool_traces: result.tool_traces,
-        coding_report: result.coding_report ?? null,
-      };
-    } else {
-      usagePayload = (
-        toolNames.length > 0
-        || (result.tool_traces?.length ?? 0) > 0
-        || result.coding_report
-      )
-        ? {
-          tool_names: toolNames,
-          tool_traces: result.tool_traces,
-          coding_report: result.coding_report ?? null,
-        }
-        : null;
-    }
-  } else if (canUseChatTools) {
-    const selectedTools = await getActiveToolSummariesByIds(chatToolSettings.tool_ids);
-    if (selectedTools.length === 0) {
-      throw new AppError(400, 'CHAT_TOOLS_UNAVAILABLE', 'Подключённые инструменты чата сейчас недоступны');
-    }
-
-    const toolAgentId = await ensureChatToolRuntimeAgent(
-      { id: chat.id, title: chat.title },
-      userId,
-      selectedTools.map((tool) => tool.id),
-      chat.model_external_id ?? DEFAULT_GENERAL_MODEL,
-      chat.system_prompt,
-    );
-
-    if (toolAgentId !== chatToolSettings.tool_agent_id) {
-      await db.update(chatConversations)
-        .set({
-          settings_json: buildChatSettingsJson(chat.settings_json, {
-            tool_ids: selectedTools.map((tool) => tool.id),
-            tool_agent_id: toolAgentId,
-          }),
-          updated_at: new Date(),
-        })
-        .where(eq(chatConversations.id, chat.id));
-    }
-
-    const result = await startRun(toolAgentId, userId, {
-      messages: historyForModel
-        .filter((m) => m.role === 'user' || m.role === 'assistant')
-        .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
-      model_external_id: chat.model_external_id ?? DEFAULT_GENERAL_MODEL,
-    }, {
-      sync_to_chats: false,
-      charge_usage: false,
-      on_event: emitChatEvent,
-      strict_preview_edit: strictPreviewEdit && latestPreviewSnapshot
-        ? {
-          user_request: trimmedContent,
-          original_html: latestPreviewSnapshot.html,
-          preview_title: latestPreviewSnapshot.title ?? null,
-        }
-        : null,
-    });
-
-    if (result.status !== 'completed') {
-      throw new AppError(
-        502,
-        'CHAT_TOOL_RUNTIME_FAILED',
-        result.error_message ?? 'Чат с инструментами не смог сформировать ответ. Попробуйте уточнить запрос.',
-      );
-    }
-
-    const toolNames = Array.from(
-      new Set(
-        (result.tool_traces ?? [])
-          .map((trace) => (typeof trace.tool_name === 'string' ? trace.tool_name.trim() : ''))
-          .filter((name) => name.length > 0),
-      ),
-    );
-
-    assistantText = result.output || '(пустой ответ)';
-    runId = result.run_id;
-    latencyMs = result.latency_ms;
-    if (result.usage) {
-      usagePayload = {
-        ...(result.usage as unknown as Record<string, unknown>),
-        tool_names: toolNames,
-        tool_traces: result.tool_traces,
-        coding_report: result.coding_report ?? null,
-      };
-    } else {
-      usagePayload = (
-        toolNames.length > 0
-        || (result.tool_traces?.length ?? 0) > 0
-        || result.coding_report
-      )
-        ? {
-          tool_names: toolNames,
-          tool_traces: result.tool_traces,
-          coding_report: result.coding_report ?? null,
-        }
-        : null;
-    }
   } else {
-    const model = normalizeOpenRouterModelId(chat.model_external_id || DEFAULT_GENERAL_MODEL);
-    const startedAt = Date.now();
-    emitChatEvent('chat.run.started', {
-      mode: 'general',
-      model,
-      label: 'Отправляю запрос в OpenRouter',
-    });
-    try {
-      const userContentForGeneral = imageDataUrls.length > 0
-        ? ([{ type: 'text' as const, text: userModelText }, ...imageDataUrls.map((url) => ({ type: 'image_url' as const, image_url: { url } }))])
-        : userModelText;
-      const response = await openRouterClient.chatCompletion({
-        model,
-        messages: [
-          ...historyForModel.slice(0, -1).map((m) => ({ role: m.role, content: m.content })),
-          { role: 'user', content: userContentForGeneral },
-        ],
-        temperature: 0.5,
-        max_tokens: 2048,
+    const attachmentContext = attachmentContextChunks.length > 0
+      ? `\n\nВложения пользователя:\n${attachmentContextChunks.join('\n\n')}`
+      : '';
+    const latestPreviewSnapshot = await getLatestHtmlPreviewSnapshot(chatId);
+    const strictPreviewEdit = Boolean(latestPreviewSnapshot && detectPreviewEditIntent(trimmedContent));
+    const latestPreviewContext = strictPreviewEdit
+      ? buildLatestHtmlPreviewContext(latestPreviewSnapshot)
+      : '';
+    const previewContext = latestPreviewContext
+      ? `\n\nКонтекст текущего preview:\n${latestPreviewContext}`
+      : '';
+    const userModelText = `${trimmedContent}${attachmentContext}${previewContext}`.trim();
+
+    const previousMessages = await getConversationMessages(chatId);
+    const historyForModel = [
+      ...(chat.system_prompt ? [{ role: 'system' as const, content: chat.system_prompt }] : []),
+      ...previousMessages.map((m) => ({ role: m.role, content: m.content })),
+      { role: 'user' as const, content: userModelText },
+    ];
+
+    if (chat.mode === 'agent') {
+      if (!chat.agent_id) {
+        throw new AppError(400, 'CHAT_CONFIG_ERROR', 'Р­С‚РѕС‚ С‡Р°С‚ РЅРµ РЅР°СЃС‚СЂРѕРµРЅ РєР°Рє Р°РіРµРЅС‚');
+      }
+      await ensureAgentIsVisibleForUser(chat.agent_id, userId, userRole);
+
+      const result = await startRun(chat.agent_id, userId, {
+        messages: historyForModel
+          .filter((m) => m.role === 'user' || m.role === 'assistant')
+          .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+        model_external_id: null,
+      }, {
+        sync_to_chats: false,
+        charge_usage: false,
+        on_event: emitChatEvent,
+        strict_preview_edit: strictPreviewEdit && latestPreviewSnapshot
+          ? {
+            user_request: trimmedContent,
+            original_html: latestPreviewSnapshot.html,
+            preview_title: latestPreviewSnapshot.title ?? null,
+          }
+          : null,
       });
-      latencyMs = Date.now() - startedAt;
-      const rawAssistant = response.choices?.[0]?.message?.content;
-      assistantText = typeof rawAssistant === 'string' ? rawAssistant : '(пустой ответ)';
-      if (response.usage) {
-        usagePayload = attachUsdToRubRate(
-          estimateGeneralChatCost(model, response.usage) as unknown as Record<string, unknown>,
-          usdToRubRate,
+
+      if (result.status !== 'completed') {
+        throw new AppError(
+          502,
+          'AGENT_RUNTIME_FAILED',
+          result.error_message ?? 'РђРіРµРЅС‚ РЅРµ СЃРјРѕРі СЃС„РѕСЂРјРёСЂРѕРІР°С‚СЊ РѕС‚РІРµС‚. РџРѕРїСЂРѕР±СѓР№С‚Рµ РёР·РјРµРЅРёС‚СЊ Р·Р°РїСЂРѕСЃ.',
         );
       }
-      emitChatEvent('chat.run.completed', {
+
+      const toolNames = Array.from(
+        new Set(
+          (result.tool_traces ?? [])
+            .map((trace) => (typeof trace.tool_name === 'string' ? trace.tool_name.trim() : ''))
+            .filter((name) => name.length > 0),
+        ),
+      );
+
+      assistantText = result.output || '(РїСѓСЃС‚РѕР№ РѕС‚РІРµС‚)';
+      runId = result.run_id;
+      latencyMs = result.latency_ms;
+      if (result.usage) {
+        usagePayload = {
+          ...(result.usage as unknown as Record<string, unknown>),
+          tool_names: toolNames,
+          tool_traces: result.tool_traces,
+          coding_report: result.coding_report ?? null,
+        };
+      } else {
+        usagePayload = (
+          toolNames.length > 0
+          || (result.tool_traces?.length ?? 0) > 0
+          || result.coding_report
+        )
+          ? {
+            tool_names: toolNames,
+            tool_traces: result.tool_traces,
+            coding_report: result.coding_report ?? null,
+          }
+          : null;
+      }
+    } else if (canUseChatTools) {
+      const selectedTools = await getActiveToolSummariesByIds(chatToolSettings.tool_ids);
+      if (selectedTools.length === 0) {
+        throw new AppError(400, 'CHAT_TOOLS_UNAVAILABLE', 'Подключённые инструменты чата сейчас недоступны');
+      }
+
+      const toolAgentId = await ensureChatToolRuntimeAgent(
+        { id: chat.id, title: chat.title },
+        userId,
+        selectedTools.map((tool) => tool.id),
+        chat.model_external_id ?? DEFAULT_GENERAL_MODEL,
+        chat.system_prompt,
+      );
+
+      if (toolAgentId !== chatToolSettings.tool_agent_id) {
+        await db.update(chatConversations)
+          .set({
+            settings_json: buildChatSettingsJson(chat.settings_json, {
+              tool_ids: selectedTools.map((tool) => tool.id),
+              tool_agent_id: toolAgentId,
+            }),
+            updated_at: new Date(),
+          })
+          .where(eq(chatConversations.id, chat.id));
+      }
+
+      const result = await startRun(toolAgentId, userId, {
+        messages: historyForModel
+          .filter((m) => m.role === 'user' || m.role === 'assistant')
+          .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+        model_external_id: chat.model_external_id ?? DEFAULT_GENERAL_MODEL,
+      }, {
+        sync_to_chats: false,
+        charge_usage: false,
+        on_event: emitChatEvent,
+        strict_preview_edit: strictPreviewEdit && latestPreviewSnapshot
+          ? {
+            user_request: trimmedContent,
+            original_html: latestPreviewSnapshot.html,
+            preview_title: latestPreviewSnapshot.title ?? null,
+          }
+          : null,
+      });
+
+      if (result.status !== 'completed') {
+        throw new AppError(
+          502,
+          'CHAT_TOOL_RUNTIME_FAILED',
+          result.error_message ?? 'Чат с инструментами не смог сформировать ответ. Попробуйте уточнить запрос.',
+        );
+      }
+
+      const toolNames = Array.from(
+        new Set(
+          (result.tool_traces ?? [])
+            .map((trace) => (typeof trace.tool_name === 'string' ? trace.tool_name.trim() : ''))
+            .filter((name) => name.length > 0),
+        ),
+      );
+
+      assistantText = result.output || '(пустой ответ)';
+      runId = result.run_id;
+      latencyMs = result.latency_ms;
+      if (result.usage) {
+        usagePayload = {
+          ...(result.usage as unknown as Record<string, unknown>),
+          tool_names: toolNames,
+          tool_traces: result.tool_traces,
+          coding_report: result.coding_report ?? null,
+        };
+      } else {
+        usagePayload = (
+          toolNames.length > 0
+          || (result.tool_traces?.length ?? 0) > 0
+          || result.coding_report
+        )
+          ? {
+            tool_names: toolNames,
+            tool_traces: result.tool_traces,
+            coding_report: result.coding_report ?? null,
+          }
+          : null;
+      }
+    } else {
+      const model = normalizeOpenRouterModelId(chat.model_external_id || DEFAULT_GENERAL_MODEL);
+      const startedAt = Date.now();
+      emitChatEvent('chat.run.started', {
         mode: 'general',
         model,
-        latency_ms: latencyMs,
-        label: 'OpenRouter вернул ответ',
+        label: 'Отправляю запрос в OpenRouter',
       });
-    } catch (err) {
-      emitChatEvent('chat.run.failed', {
-        mode: 'general',
-        model,
-        error: err instanceof Error ? err.message : 'Unknown error',
-        label: 'OpenRouter вернул ошибку',
-      });
-      throw err;
+      try {
+        const userContentForGeneral = imageDataUrls.length > 0
+          ? ([{ type: 'text' as const, text: userModelText }, ...imageDataUrls.map((url) => ({ type: 'image_url' as const, image_url: { url } }))])
+          : userModelText;
+        const response = await openRouterClient.chatCompletion({
+          model,
+          messages: [
+            ...historyForModel.slice(0, -1).map((m) => ({ role: m.role, content: m.content })),
+            { role: 'user', content: userContentForGeneral },
+          ],
+          temperature: 0.5,
+          max_tokens: 2048,
+        });
+        latencyMs = Date.now() - startedAt;
+        const rawAssistant = response.choices?.[0]?.message?.content;
+        assistantText = typeof rawAssistant === 'string' ? rawAssistant : '(пустой ответ)';
+        if (response.usage) {
+          usagePayload = attachUsdToRubRate(
+            estimateGeneralChatCost(model, response.usage) as unknown as Record<string, unknown>,
+            usdToRubRate,
+          );
+        }
+        emitChatEvent('chat.run.completed', {
+          mode: 'general',
+          model,
+          latency_ms: latencyMs,
+          label: 'OpenRouter вернул ответ',
+        });
+      } catch (err) {
+        emitChatEvent('chat.run.failed', {
+          mode: 'general',
+          model,
+          error: err instanceof Error ? err.message : 'Unknown error',
+          label: 'OpenRouter вернул ошибку',
+        });
+        throw err;
+      }
     }
   }
 

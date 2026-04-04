@@ -67,6 +67,28 @@ export interface UserUsageSummary {
   per_agent: AgentUsageSummary[];
 }
 
+export type ProfileLeaderboardSort = 'tokens' | 'cost' | 'chats' | 'messages';
+
+export interface ProfileLeaderboardEntry {
+  rank: number;
+  user_id: string;
+  username: string | null;
+  name: string | null;
+  avatar_url: string | null;
+  total_tokens: number;
+  total_cost_usd: string;
+  chats_count: number;
+  messages_count: number;
+  is_current_user: boolean;
+}
+
+export interface ProfileLeaderboard {
+  sort_by: ProfileLeaderboardSort;
+  total_users: number;
+  current_user: ProfileLeaderboardEntry | null;
+  entries: ProfileLeaderboardEntry[];
+}
+
 export type BalanceHistoryDirection = 'credit' | 'debit';
 export type BalanceHistoryCategory = 'topup' | 'writeoff';
 

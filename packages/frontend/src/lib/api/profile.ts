@@ -1,5 +1,5 @@
 import { apiClient } from '../api-client';
-import type { PublicUserProfile, UserProfile } from '@llmstore/shared';
+import type { ProfileLeaderboard, ProfileLeaderboardSort, PublicUserProfile, UserProfile } from '@llmstore/shared';
 
 export const profileApi = {
   getProfile: () =>
@@ -7,6 +7,11 @@ export const profileApi = {
 
   getPublicProfile: (username: string) =>
     apiClient.get<{ data: PublicUserProfile }>(`/profile/public/${encodeURIComponent(username)}`).then(r => r.data.data),
+
+  getLeaderboard: (sort: ProfileLeaderboardSort = 'tokens', limit = 50) =>
+    apiClient
+      .get<{ data: ProfileLeaderboard }>('/profile/leaderboard', { params: { sort, limit } })
+      .then((r) => r.data.data),
 
   updateProfile: (data: { name?: string; username?: string }) =>
     apiClient.put<{ data: UserProfile }>('/profile', data).then(r => r.data.data),

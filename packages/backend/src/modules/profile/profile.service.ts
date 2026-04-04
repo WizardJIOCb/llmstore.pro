@@ -16,6 +16,9 @@ import type {
   AgentUsageSummary,
   UserLimits,
   BalanceHistoryItem,
+  ProfileLeaderboard,
+  ProfileLeaderboardEntry,
+  ProfileLeaderboardSort,
 } from '@llmstore/shared';
 import type { UserRole } from '@llmstore/shared';
 import { getUsdToRubRate } from '../../lib/app-settings.js';
@@ -46,6 +49,46 @@ function txTypeTitle(type: string, description: string | null): string {
   if (type === 'admin_debit') return 'Списание администратором';
   if (type === 'topup') return 'Пополнение баланса';
   return `Операция: ${type}`;
+}
+
+const PROFILE_LEADERBOARD_SORTS: Record<ProfileLeaderboardSort, string> = {
+  tokens: 'total_tokens',
+  cost: 'total_cost_usd',
+  chats: 'chats_count',
+  messages: 'messages_count',
+};
+
+function buildProfileLeaderboardMetricSql(sortBy: ProfileLeaderboardSort) {
+  return sql.raw(PROFILE_LEADERBOARD_SORTS[sortBy] ?? PROFILE_LEADERBOARD_SORTS.tokens);
+}
+
+function mapProfileLeaderboardEntry(
+  row: {
+    rank: number | string;
+    user_id: string;
+    username: string | null;
+    name: string | null;
+    avatar_url: string | null;
+    total_tokens: number | string;
+    total_cost_usd: number | string;
+    chats_count: number | string;
+    messages_count: number | string;
+    is_current_user: boolean;
+  },
+  userId: string,
+): ProfileLeaderboardEntry {
+  return {
+    rank: Math.max(1, Math.trunc(toNumberOrZero(row.rank))),
+    user_id: row.user_id,
+    username: row.username,
+    name: row.name,
+    avatar_url: row.avatar_url,
+    total_tokens: Math.max(0, Math.trunc(toNumberOrZero(row.total_tokens))),
+    total_cost_usd: toFixedAmount(Math.max(0, toNumberOrZero(row.total_cost_usd)), 6),
+    chats_count: Math.max(0, Math.trunc(toNumberOrZero(row.chats_count))),
+    messages_count: Math.max(0, Math.trunc(toNumberOrZero(row.messages_count))),
+    is_current_user: row.is_current_user || row.user_id === userId,
+  };
 }
 
 async function getBalanceHistory(userId: string): Promise<BalanceHistoryItem[]> {
@@ -199,6 +242,175 @@ async function getUserUsageSummary(userId: string): Promise<UserUsageSummary> {
     total_tokens: totalTokens,
     total_cost_usd: totalCost.toFixed(6),
     per_agent: perAgent,
+  };
+}
+
+export async function getProfileLeaderboard(
+  userId: string,
+  sortBy: ProfileLeaderboardSort = 'tokens',
+  limit = 50,
+): Promise<ProfileLeaderboard> {
+  const normalizedSort = PROFILE_LEADERBOARD_SORTS[sortBy] ? sortBy : 'tokens';
+  const metricSql = buildProfileLeaderboardMetricSql(normalizedSort);
+  const normalizedLimit = Math.min(Math.max(Math.trunc(limit) || 50, 5), 100);
+
+  const leaderboardCte = sql`
+    WITH chat_counts AS (
+      SELECT
+        cc.user_id,
+        COUNT(*)::int AS chats_count
+      FROM chat_conversations cc
+      GROUP BY cc.user_id
+    ),
+    message_counts AS (
+      SELECT
+        cc.user_id,
+        COUNT(*)::int AS messages_count
+      FROM chat_conversation_messages ccm
+      INNER JOIN chat_conversations cc ON cc.id = ccm.conversation_id
+      GROUP BY cc.user_id
+    ),
+    usage_stats AS (
+      SELECT
+        cc.user_id,
+        COALESCE(SUM(
+          COALESCE(
+            NULLIF(ccm.usage_json->>'total_tokens', '')::numeric,
+            COALESCE(ul.total_tokens, ul.prompt_tokens + ul.completion_tokens, 0),
+            0
+          )
+        ), 0) AS total_tokens,
+        COALESCE(SUM(
+          COALESCE(
+            NULLIF(ccm.usage_json->>'estimated_cost', '')::numeric,
+            COALESCE(ul.estimated_cost, 0),
+            0
+          )
+        ), 0) AS total_cost_usd
+      FROM chat_conversation_messages ccm
+      INNER JOIN chat_conversations cc ON cc.id = ccm.conversation_id
+      LEFT JOIN usage_ledger ul ON ul.run_id = ccm.run_id
+      WHERE ccm.role = 'assistant'
+        AND (ccm.usage_json IS NOT NULL OR ccm.run_id IS NOT NULL)
+      GROUP BY cc.user_id
+    ),
+    leaderboard_base AS (
+      SELECT
+        u.id AS user_id,
+        u.username,
+        u.name,
+        u.avatar_url,
+        COALESCE(us.total_tokens, 0) AS total_tokens,
+        COALESCE(us.total_cost_usd, 0) AS total_cost_usd,
+        COALESCE(ch.chats_count, 0) AS chats_count,
+        COALESCE(mc.messages_count, 0) AS messages_count
+      FROM users u
+      LEFT JOIN usage_stats us ON us.user_id = u.id
+      LEFT JOIN chat_counts ch ON ch.user_id = u.id
+      LEFT JOIN message_counts mc ON mc.user_id = u.id
+      WHERE u.status = 'active'
+    ),
+    leaderboard_users AS (
+      SELECT *
+      FROM leaderboard_base
+      WHERE total_tokens > 0
+        OR total_cost_usd > 0
+        OR chats_count > 0
+        OR messages_count > 0
+    ),
+    ranked AS (
+      SELECT
+        RANK() OVER (ORDER BY ${metricSql} DESC) AS rank,
+        ROW_NUMBER() OVER (
+          ORDER BY
+            ${metricSql} DESC,
+            total_tokens DESC,
+            total_cost_usd DESC,
+            chats_count DESC,
+            messages_count DESC,
+            COALESCE(username, name, user_id) ASC
+        ) AS sort_position,
+        user_id,
+        username,
+        name,
+        avatar_url,
+        total_tokens,
+        total_cost_usd,
+        chats_count,
+        messages_count
+      FROM leaderboard_users
+    )
+  `;
+
+  const [topRows, currentUserRows, totalRows] = await Promise.all([
+    db.execute<{
+      rank: number | string;
+      user_id: string;
+      username: string | null;
+      name: string | null;
+      avatar_url: string | null;
+      total_tokens: number | string;
+      total_cost_usd: number | string;
+      chats_count: number | string;
+      messages_count: number | string;
+      is_current_user: boolean;
+    }>(sql`
+      ${leaderboardCte}
+      SELECT
+        rank,
+        user_id,
+        username,
+        name,
+        avatar_url,
+        total_tokens,
+        total_cost_usd,
+        chats_count,
+        messages_count,
+        user_id = ${userId} AS is_current_user
+      FROM ranked
+      ORDER BY sort_position
+      LIMIT ${normalizedLimit}
+    `),
+    db.execute<{
+      rank: number | string;
+      user_id: string;
+      username: string | null;
+      name: string | null;
+      avatar_url: string | null;
+      total_tokens: number | string;
+      total_cost_usd: number | string;
+      chats_count: number | string;
+      messages_count: number | string;
+      is_current_user: boolean;
+    }>(sql`
+      ${leaderboardCte}
+      SELECT
+        rank,
+        user_id,
+        username,
+        name,
+        avatar_url,
+        total_tokens,
+        total_cost_usd,
+        chats_count,
+        messages_count,
+        true AS is_current_user
+      FROM ranked
+      WHERE user_id = ${userId}
+      LIMIT 1
+    `),
+    db.execute<{ total_users: number | string }>(sql`
+      ${leaderboardCte}
+      SELECT COUNT(*) AS total_users
+      FROM ranked
+    `),
+  ]);
+
+  return {
+    sort_by: normalizedSort,
+    total_users: Math.max(0, Math.trunc(toNumberOrZero(totalRows[0]?.total_users ?? 0))),
+    current_user: currentUserRows[0] ? mapProfileLeaderboardEntry(currentUserRows[0], userId) : null,
+    entries: topRows.map((row) => mapProfileLeaderboardEntry(row, userId)),
   };
 }
 

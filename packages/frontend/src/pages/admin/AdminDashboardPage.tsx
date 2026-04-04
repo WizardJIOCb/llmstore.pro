@@ -1,6 +1,6 @@
 import { AdminLayout } from '../../components/admin/AdminLayout';
 import { Spinner } from '../../components/ui/Spinner';
-import { useAdminDashboardStats } from '../../hooks/useAdmin';
+import { useAdminDashboardStats, useAdminSettings, useUpdateAdminSettings } from '../../hooks/useAdmin';
 import { formatUsd as formatUsdValue } from '../../lib/utils';
 
 function formatUsd(value: number, digits = 4) {
@@ -37,6 +37,8 @@ function formatDateTime(value: string | null) {
 
 export function AdminDashboardPage() {
   const { data, isLoading } = useAdminDashboardStats();
+  const { data: settings, isLoading: settingsLoading } = useAdminSettings();
+  const updateSettingsMutation = useUpdateAdminSettings();
 
   if (isLoading) {
     return (
@@ -64,6 +66,17 @@ export function AdminDashboardPage() {
     : openrouter.key?.limit_remaining != null
       ? 'Остаток лимита по ключу'
       : 'Нет данных по остатку';
+  const openrouterRequestsEnabled = settings?.openrouter_requests_enabled ?? true;
+  const isOpenRouterToggleBusy = settingsLoading || updateSettingsMutation.isPending || !settings;
+
+  const handleToggleOpenRouterRequests = () => {
+    if (!settings || updateSettingsMutation.isPending) return;
+
+    updateSettingsMutation.mutate({
+      ...settings,
+      openrouter_requests_enabled: !settings.openrouter_requests_enabled,
+    });
+  };
 
   return (
     <AdminLayout>
@@ -77,13 +90,50 @@ export function AdminDashboardPage() {
                   Последнее обновление: {formatDateTime(openrouter.fetched_at)}
                 </p>
               </div>
-              <p className={`text-sm font-medium ${openrouter.available ? 'text-emerald-600' : 'text-red-600'}`}>
-                {openrouter.available ? 'Подключено' : 'Недоступно'}
-              </p>
+              <div className="flex flex-col items-start gap-2 md:items-end">
+                <p className={`text-sm font-medium ${openrouter.available ? 'text-emerald-600' : 'text-red-600'}`}>
+                  {openrouter.available ? 'Подключено' : 'Недоступно'}
+                </p>
+                <div className="flex items-center gap-3">
+                  <div className="text-right">
+                    <p className="text-xs font-medium text-foreground">Запросы в чатах</p>
+                    <p className={`text-xs ${openrouterRequestsEnabled ? 'text-emerald-600' : 'text-amber-700'}`}>
+                      {openrouterRequestsEnabled ? 'Включены' : 'Отключены'}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={openrouterRequestsEnabled}
+                    aria-label="Переключить отправку запросов в чатах"
+                    disabled={isOpenRouterToggleBusy}
+                    onClick={handleToggleOpenRouterRequests}
+                    className={`relative inline-flex h-7 w-12 items-center rounded-full transition ${
+                      openrouterRequestsEnabled ? 'bg-emerald-500' : 'bg-slate-300'
+                    } ${isOpenRouterToggleBusy ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
+                  >
+                    <span
+                      className={`inline-block h-5 w-5 transform rounded-full bg-white transition ${
+                        openrouterRequestsEnabled ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
 
           <div className="space-y-4 p-4">
+            <div className={`rounded-lg border px-4 py-3 text-sm ${
+              openrouterRequestsEnabled
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                : 'border-amber-200 bg-amber-50 text-amber-900'
+            }`}>
+              {openrouterRequestsEnabled
+                ? 'Отправка запросов в чатах разрешена.'
+                : 'Отправка запросов в чатах отключена. Вместо реального запроса пользователи сразу получают сообщение о временной недоступности.'}
+            </div>
+
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <MetricCard
                 label="Баланс OpenRouter"

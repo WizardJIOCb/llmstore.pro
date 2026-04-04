@@ -9,6 +9,7 @@ router.get('/public/:username', controller.getPublicProfile);
 router.use(requireAuth);
 
 router.get('/', controller.getProfile);
+router.get('/leaderboard', controller.getProfileLeaderboard);
 router.put('/', controller.updateProfile);
 router.delete('/linked-accounts/:provider', controller.unlinkAccount);
 

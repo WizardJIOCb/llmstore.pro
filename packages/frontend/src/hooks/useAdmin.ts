@@ -53,9 +53,12 @@ export function useUpdateAdminSettings() {
       starter_prompts_openrouter_coding_agent_coding_alternative: string[];
       starter_prompts_dtf_news_agent: string[];
       signup_bonus_requires_email_verification: boolean;
+      openrouter_requests_enabled: boolean;
+      openrouter_disabled_message: string;
     }) => adminApi.updateSettings(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'settings'] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'dashboard'] });
       queryClient.invalidateQueries({ queryKey: ['app', 'settings'] });
       queryClient.invalidateQueries({ queryKey: ['profile'] });
       queryClient.invalidateQueries({ queryKey: ['chat'] });

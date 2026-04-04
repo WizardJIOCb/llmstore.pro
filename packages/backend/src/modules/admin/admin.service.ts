@@ -20,6 +20,7 @@ import {
   updateLegalSettings,
   updateStarterPromptSettings,
   updateSignupBonusSettings,
+  updateOpenRouterRequestsSettings,
 } from '../../lib/app-settings.js';
 import { openRouterClient } from '../openrouter/index.js';
 import { logger } from '../../lib/logger.js';
@@ -60,10 +61,12 @@ export async function updateAdminSettings(
     starter_prompts_openrouter_coding_agent_coding_alternative: string[];
     starter_prompts_dtf_news_agent: string[];
     signup_bonus_requires_email_verification: boolean;
+    openrouter_requests_enabled: boolean;
+    openrouter_disabled_message: string;
   },
   adminUserId: string,
 ) {
-  const [usdToRubRate, topUp, legal, starterPrompts, signupBonus] = await Promise.all([
+  const [usdToRubRate, topUp, legal, starterPrompts, signupBonus, openRouterRequests] = await Promise.all([
     setUsdToRubRate(input.usd_to_rub_rate, adminUserId),
     updateTopUpSettings(input, adminUserId),
     updateLegalSettings(input, adminUserId),
@@ -76,6 +79,10 @@ export async function updateAdminSettings(
     }, adminUserId),
     updateSignupBonusSettings({
       signup_bonus_requires_email_verification: input.signup_bonus_requires_email_verification,
+    }, adminUserId),
+    updateOpenRouterRequestsSettings({
+      openrouter_requests_enabled: input.openrouter_requests_enabled,
+      openrouter_disabled_message: input.openrouter_disabled_message,
     }, adminUserId),
   ]);
 
@@ -99,6 +106,8 @@ export async function updateAdminSettings(
     starter_prompts_openrouter_coding_agent_coding_alternative: starterPrompts.openrouter_coding_agent_coding_alternative,
     starter_prompts_dtf_news_agent: starterPrompts.dtf_news_agent,
     signup_bonus_requires_email_verification: signupBonus.requires_email_verification,
+    openrouter_requests_enabled: openRouterRequests.enabled,
+    openrouter_disabled_message: openRouterRequests.message,
   };
 }
 

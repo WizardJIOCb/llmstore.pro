@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
-import { useProfile, useUnlinkAccount, useUpdateProfile } from '../../hooks/useProfile';
+import type { ProfileLeaderboardEntry, ProfileLeaderboardSort } from '@llmstore/shared';
+import { useProfile, useProfileLeaderboard, useUnlinkAccount, useUpdateProfile } from '../../hooks/useProfile';
 import { useTopUpStatus } from '../../hooks/usePayments';
 import { authApi } from '../../lib/api/auth';
 import { getOAuthLinkUrl } from '../../lib/api/profile';
@@ -39,11 +40,30 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
 
 const LINKABLE_PROVIDERS = ['google', 'yandex', 'vk'];
 type HistoryTab = 'all' | 'topup' | 'writeoff';
+const LEADERBOARD_LIMIT = 50;
+const LEADERBOARD_SORT_OPTIONS: Array<{ value: ProfileLeaderboardSort; label: string; shortLabel: string }> = [
+  { value: 'tokens', label: 'По токенам во всех чатах', shortLabel: 'Токены' },
+  { value: 'cost', label: 'По цене во всех чатах', shortLabel: 'Цена' },
+  { value: 'chats', label: 'По количеству чатов', shortLabel: 'Чаты' },
+  { value: 'messages', label: 'По сообщениям', shortLabel: 'Сообщения' },
+];
 
 function formatTokens(value: number): string {
   if (value > 1_000_000) return `${(value / 1_000_000).toFixed(2)}M`;
   if (value > 1000) return `${(value / 1000).toFixed(1)}K`;
   return String(value);
+}
+
+function formatRankLabel(rank: number | null | undefined): string | null {
+  if (!rank || rank < 1) return null;
+  return `Топ ${rank}`;
+}
+
+function leaderboardValue(entry: ProfileLeaderboardEntry, sort: ProfileLeaderboardSort, usdToRubRate: number): string {
+  if (sort === 'tokens') return formatTokens(entry.total_tokens);
+  if (sort === 'cost') return formatUsdRubPair(entry.total_cost_usd, usdToRubRate);
+  if (sort === 'chats') return entry.chats_count.toLocaleString('ru-RU');
+  return entry.messages_count.toLocaleString('ru-RU');
 }
 
 function eventTypeLabel(type: string): string {
@@ -68,6 +88,10 @@ export function ProfilePage() {
   const [oauthMessage, setOauthMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [emailVerificationMessage, setEmailVerificationMessage] = useState<string | null>(null);
   const [emailVerificationSending, setEmailVerificationSending] = useState(false);
+  const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false);
+  const [leaderboardSort, setLeaderboardSort] = useState<ProfileLeaderboardSort>('tokens');
+  const tokenLeaderboardQuery = useProfileLeaderboard('tokens', true, LEADERBOARD_LIMIT);
+  const leaderboardQuery = useProfileLeaderboard(leaderboardSort, isLeaderboardOpen, LEADERBOARD_LIMIT);
 
   useEffect(() => {
     const oauth = searchParams.get('oauth');
@@ -102,6 +126,19 @@ export function ProfilePage() {
       queryClient.invalidateQueries({ queryKey: ['profile'] });
     }
   }, [queryClient, topUpStatusQuery.data?.status]);
+
+  useEffect(() => {
+    if (!isLeaderboardOpen) return undefined;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsLeaderboardOpen(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isLeaderboardOpen]);
 
   const handleStartEdit = () => {
     if (!profile) return;
@@ -196,6 +233,16 @@ export function ProfilePage() {
   const returnedTopUpIsProcessing = returnedTopUpStatus === 'pending' || returnedTopUpStatus === 'waiting_for_capture';
   const returnedTopUpIsSucceeded = returnedTopUpStatus === 'succeeded';
   const returnedTopUpIsCanceled = returnedTopUpStatus === 'canceled';
+  const tokenLeaderboardRank = tokenLeaderboardQuery.data?.current_user?.rank ?? null;
+  const tokenLeaderboardLabel = formatRankLabel(tokenLeaderboardRank);
+  const activeLeaderboard = isLeaderboardOpen ? leaderboardQuery.data : null;
+  const activeLeaderboardCurrentUser = isLeaderboardOpen
+    ? leaderboardQuery.data?.current_user ?? null
+    : tokenLeaderboardQuery.data?.current_user ?? null;
+  const showPinnedCurrentUser = Boolean(
+    activeLeaderboardCurrentUser
+      && !activeLeaderboard?.entries.some((entry) => entry.user_id === activeLeaderboardCurrentUser.user_id),
+  );
 
   return (
     <div className="container mx-auto max-w-4xl px-4 py-8 space-y-6">
@@ -477,18 +524,34 @@ export function ProfilePage() {
           <CardTitle>Использование</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-3 gap-4 mb-4">
-            <div className="text-center p-3 rounded-lg bg-muted/50">
+          <div className="mb-4 grid gap-4 md:grid-cols-3">
+            <div className="rounded-lg bg-muted/50 p-3 text-center">
               <p className="text-2xl font-bold">{profile.usage.total_runs}</p>
               <p className="text-xs text-muted-foreground">Запусков</p>
             </div>
-            <div className="text-center p-3 rounded-lg bg-muted/50">
+            <div className="rounded-lg bg-muted/50 p-3 text-center">
               <p className="text-2xl font-bold">{formatTokens(profile.usage.total_tokens)}</p>
               <p className="text-xs text-muted-foreground">Токенов</p>
             </div>
-            <div className="text-center p-3 rounded-lg bg-muted/50">
+            <div className="rounded-lg bg-muted/50 p-3 text-center">
               <p className="text-xl font-bold break-words">{formatUsdRubPair(profile.usage.total_cost_usd, usdToRubRate)}</p>
-              <p className="text-xs text-muted-foreground">Потрачено</p>
+              <div className="mt-2 flex min-h-10 flex-col items-center justify-center gap-1">
+                {tokenLeaderboardLabel ? (
+                  <button
+                    type="button"
+                    className="rounded-full border border-amber-300 bg-amber-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-900 transition hover:bg-amber-200"
+                    onClick={() => {
+                      setLeaderboardSort('tokens');
+                      setIsLeaderboardOpen(true);
+                    }}
+                  >
+                    {tokenLeaderboardLabel}
+                  </button>
+                ) : tokenLeaderboardQuery.isLoading ? (
+                  <span className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Рейтинг...</span>
+                ) : null}
+                <p className="text-xs text-muted-foreground">Потрачено</p>
+              </div>
             </div>
           </div>
 
@@ -528,6 +591,147 @@ export function ProfilePage() {
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
+            {isLeaderboardOpen && (
+              <div
+                className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 p-4"
+                onClick={() => setIsLeaderboardOpen(false)}
+              >
+                <div
+                  className="w-full max-w-5xl rounded-2xl border bg-background shadow-2xl"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <div className="flex items-start justify-between gap-4 border-b p-6">
+                    <div>
+                      <h2 className="text-xl font-semibold">Рейтинг пользователей</h2>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        Сортировка по активности во всех чатах.
+                        {activeLeaderboardCurrentUser ? ` Ваше место: ${formatRankLabel(activeLeaderboardCurrentUser.rank)}.` : ''}
+                      </p>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={() => setIsLeaderboardOpen(false)}>
+                      Закрыть
+                    </Button>
+                  </div>
+
+                  <div className="space-y-4 p-6">
+                    <div className="flex flex-wrap gap-2">
+                      {LEADERBOARD_SORT_OPTIONS.map((option) => (
+                        <Button
+                          key={option.value}
+                          size="sm"
+                          variant={leaderboardSort === option.value ? 'primary' : 'outline'}
+                          onClick={() => setLeaderboardSort(option.value)}
+                        >
+                          {option.shortLabel}
+                        </Button>
+                      ))}
+                    </div>
+
+                    {activeLeaderboardCurrentUser && (
+                      <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Ваша позиция</p>
+                            <p className="mt-1 text-lg font-semibold">{formatRankLabel(activeLeaderboardCurrentUser.rank)}</p>
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            {leaderboardValue(activeLeaderboardCurrentUser, leaderboardSort, usdToRubRate)}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {leaderboardQuery.isLoading ? (
+                      <div className="flex justify-center py-12">
+                        <Spinner />
+                      </div>
+                    ) : leaderboardQuery.isError ? (
+                      <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+                        Не удалось загрузить рейтинг. Попробуйте обновить страницу чуть позже.
+                      </div>
+                    ) : activeLeaderboard ? (
+                      <div className="space-y-3">
+                        <p className="text-sm text-muted-foreground">
+                          В рейтинге сейчас {activeLeaderboard.total_users.toLocaleString('ru-RU')} пользователей.
+                        </p>
+                        <div className="max-h-[55vh] overflow-auto rounded-xl border">
+                          <table className="w-full min-w-[760px] text-sm">
+                            <thead className="sticky top-0 bg-background">
+                              <tr className="border-b text-left text-muted-foreground">
+                                <th className="px-4 py-3 font-medium">Место</th>
+                                <th className="px-4 py-3 font-medium">Пользователь</th>
+                                <th className="px-4 py-3 text-right font-medium">Токены</th>
+                                <th className="px-4 py-3 text-right font-medium">Цена</th>
+                                <th className="px-4 py-3 text-right font-medium">Чаты</th>
+                                <th className="px-4 py-3 text-right font-medium">Сообщения</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {activeLeaderboard.entries.map((entry) => (
+                                <tr
+                                  key={entry.user_id}
+                                  className={entry.is_current_user ? 'border-b bg-primary/5' : 'border-b last:border-0'}
+                                >
+                                  <td className="px-4 py-3 font-medium">{formatRankLabel(entry.rank)}</td>
+                                  <td className="px-4 py-3">
+                                    <div className="flex items-center gap-3">
+                                      {entry.avatar_url ? (
+                                        <img
+                                          src={entry.avatar_url}
+                                          alt=""
+                                          className="h-9 w-9 rounded-full object-cover"
+                                        />
+                                      ) : (
+                                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
+                                          {(entry.name || entry.username || '?').slice(0, 1).toUpperCase()}
+                                        </div>
+                                      )}
+                                      <div className="min-w-0">
+                                        <UserLink
+                                          username={entry.username}
+                                          name={entry.name}
+                                          className="truncate font-medium hover:text-primary hover:underline"
+                                        />
+                                        {entry.is_current_user && (
+                                          <p className="text-xs text-primary">Это вы</p>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td className="px-4 py-3 text-right">{formatTokens(entry.total_tokens)}</td>
+                                  <td className="px-4 py-3 text-right">{formatUsdRubPair(entry.total_cost_usd, usdToRubRate)}</td>
+                                  <td className="px-4 py-3 text-right">{entry.chats_count.toLocaleString('ru-RU')}</td>
+                                  <td className="px-4 py-3 text-right">{entry.messages_count.toLocaleString('ru-RU')}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {showPinnedCurrentUser && activeLeaderboardCurrentUser && (
+                          <div className="rounded-xl border border-dashed p-4">
+                            <p className="mb-2 text-sm font-medium">Вы вне видимой части таблицы</p>
+                            <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+                              <UserLink
+                                username={activeLeaderboardCurrentUser.username}
+                                name={activeLeaderboardCurrentUser.name}
+                                className="font-medium hover:text-primary hover:underline"
+                              />
+                              <span>{formatRankLabel(activeLeaderboardCurrentUser.rank)}</span>
+                              <span>{leaderboardValue(activeLeaderboardCurrentUser, leaderboardSort, usdToRubRate)}</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+                        Рейтинг пока пустой.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
             {LINKABLE_PROVIDERS.map((provider) => {
               const isLinked = linkedProviders.has(provider);
               return (

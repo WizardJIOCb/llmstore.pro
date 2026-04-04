@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { profileApi } from '../lib/api/profile';
+import type { ProfileLeaderboardSort } from '@llmstore/shared';
 
 export function useProfile(enabled = true) {
   return useQuery({
@@ -17,6 +18,15 @@ export function useUpdateProfile() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['profile'] });
     },
+  });
+}
+
+export function useProfileLeaderboard(sort: ProfileLeaderboardSort, enabled = true, limit = 50) {
+  return useQuery({
+    queryKey: ['profile', 'leaderboard', sort, limit],
+    queryFn: () => profileApi.getLeaderboard(sort, limit),
+    staleTime: 30_000,
+    enabled,
   });
 }
 

@@ -55,6 +55,8 @@ export function AdminSettingsPage() {
   const [codingAlternativePrompts, setCodingAlternativePrompts] = useState('');
   const [dtfPrompts, setDtfPrompts] = useState('');
   const [signupBonusRequiresEmailVerification, setSignupBonusRequiresEmailVerification] = useState(false);
+  const [openrouterRequestsEnabled, setOpenrouterRequestsEnabled] = useState(true);
+  const [openrouterDisabledMessage, setOpenrouterDisabledMessage] = useState('');
   const [settingsSaved, setSettingsSaved] = useState(false);
 
   const [userSearch, setUserSearch] = useState('');
@@ -83,6 +85,8 @@ export function AdminSettingsPage() {
     setCodingAlternativePrompts(promptsToText(settings.starter_prompts_openrouter_coding_agent_coding_alternative));
     setDtfPrompts(promptsToText(settings.starter_prompts_dtf_news_agent));
     setSignupBonusRequiresEmailVerification(settings.signup_bonus_requires_email_verification);
+    setOpenrouterRequestsEnabled(settings.openrouter_requests_enabled);
+    setOpenrouterDisabledMessage(settings.openrouter_disabled_message);
   }, [settings]);
 
   const searchTerm = userSearch.trim();
@@ -122,6 +126,8 @@ export function AdminSettingsPage() {
         starter_prompts_openrouter_coding_agent_coding_alternative: textToPrompts(codingAlternativePrompts),
         starter_prompts_dtf_news_agent: textToPrompts(dtfPrompts),
         signup_bonus_requires_email_verification: signupBonusRequiresEmailVerification,
+        openrouter_requests_enabled: openrouterRequestsEnabled,
+        openrouter_disabled_message: openrouterDisabledMessage,
       },
       {
         onSuccess: () => {
@@ -301,6 +307,40 @@ export function AdminSettingsPage() {
                         placeholder="@llmstore"
                       />
                     </div>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border bg-muted/20 p-4 space-y-4">
+                  <div>
+                    <p className="text-sm font-medium">OpenRouter в чатах</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Здесь можно временно отключить отправку запросов в чатах и задать текст, который пользователь увидит вместо ответа модели.
+                    </p>
+                  </div>
+
+                  <label className="flex items-start gap-3 rounded-lg border bg-background px-4 py-3">
+                    <input
+                      type="checkbox"
+                      className="mt-1 h-4 w-4 rounded border-slate-300"
+                      checked={openrouterRequestsEnabled}
+                      onChange={(e) => setOpenrouterRequestsEnabled(e.target.checked)}
+                    />
+                    <span className="space-y-1">
+                      <span className="block text-sm font-medium">Разрешить отправку запросов в чатах через OpenRouter</span>
+                      <span className="block text-xs text-muted-foreground">
+                        Если выключить, новые сообщения в чатах не будут уходить в OpenRouter и сразу вернётся системный текст из поля ниже.
+                      </span>
+                    </span>
+                  </label>
+
+                  <div>
+                    <label className="mb-1 block text-sm font-medium">Текст при отключённой отправке</label>
+                    <Textarea
+                      value={openrouterDisabledMessage}
+                      onChange={(e) => setOpenrouterDisabledMessage(e.target.value)}
+                      rows={3}
+                      placeholder="В данный момент отправка запросов отключена. В скором времени отправка снова будет доступна."
+                    />
                   </div>
                 </div>
 
