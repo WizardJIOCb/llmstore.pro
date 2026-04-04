@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import type { ProfileLeaderboardEntry, ProfileLeaderboardSort } from '@llmstore/shared';
 import { useChangePassword, useProfile, useProfileLeaderboard, useUnlinkAccount, useUpdateProfile } from '../../hooks/useProfile';
+import { useRunList } from '../../hooks/useAgents';
 import { useTopUpStatus } from '../../hooks/usePayments';
 import { authApi } from '../../lib/api/auth';
 import { getOAuthLinkUrl } from '../../lib/api/profile';
@@ -47,6 +48,23 @@ const LEADERBOARD_SORT_OPTIONS: Array<{ value: ProfileLeaderboardSort; label: st
   { value: 'chats', label: 'По количеству чатов', shortLabel: 'Чаты' },
   { value: 'messages', label: 'По сообщениям', shortLabel: 'Сообщения' },
 ];
+const RUN_STATUS_LABELS: Record<string, string> = {
+  pending: 'Ожидание',
+  preparing: 'Подготовка',
+  running: 'Выполняется',
+  waiting_for_tool: 'Ожидание инструмента',
+  tool_executing: 'Инструмент работает',
+  continuing: 'Продолжение',
+  completed: 'Завершён',
+  failed: 'Ошибка',
+  cancelled: 'Отменён',
+};
+const RUN_STATUS_VARIANTS: Record<string, 'default' | 'secondary' | 'outline' | 'destructive'> = {
+  completed: 'default',
+  failed: 'destructive',
+  running: 'secondary',
+  cancelled: 'outline',
+};
 
 function formatTokens(value: number): string {
   if (value > 1_000_000) return `${(value / 1_000_000).toFixed(2)}M`;
@@ -148,6 +166,7 @@ export function ProfilePage() {
   const [leaderboardPage, setLeaderboardPage] = useState(1);
   const tokenLeaderboardQuery = useProfileLeaderboard('tokens', true, 1, 1);
   const leaderboardQuery = useProfileLeaderboard(leaderboardSort, isLeaderboardOpen, leaderboardPage, LEADERBOARD_PAGE_SIZE);
+  const runsQuery = useRunList();
 
   useEffect(() => {
     const oauth = searchParams.get('oauth');
@@ -357,6 +376,7 @@ export function ProfilePage() {
     ?? ((currentLeaderboardPage - 1) * (activeLeaderboard?.per_page ?? LEADERBOARD_PAGE_SIZE) + 1);
   const leaderboardEntriesEnd = lastVisibleLeaderboardEntry?.position
     ?? Math.min(currentLeaderboardPage * (activeLeaderboard?.per_page ?? LEADERBOARD_PAGE_SIZE), activeLeaderboard?.total_users ?? 0);
+  const recentRuns = useMemo(() => (runsQuery.data ?? []).slice(0, 8), [runsQuery.data]);
 
   return (
     <div className="container mx-auto max-w-4xl px-4 py-8 space-y-6">
@@ -699,6 +719,71 @@ export function ProfilePage() {
                   </tbody>
                 </table>
               </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle>Запуски</CardTitle>
+            <Link to="/dashboard/runs">
+              <Button variant="outline" size="sm">Все запуски</Button>
+            </Link>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {runsQuery.isLoading ? (
+            <div className="flex justify-center py-8">
+              <Spinner />
+            </div>
+          ) : runsQuery.isError ? (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+              Не удалось загрузить запуски. Попробуйте обновить страницу чуть позже.
+            </div>
+          ) : recentRuns.length === 0 ? (
+            <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+              Запусков пока нет.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {recentRuns.map((run) => (
+                <div key={run.id} className="rounded-lg border p-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0 flex-1">
+                      <div className="mb-1 flex items-center gap-2">
+                        <Badge variant={RUN_STATUS_VARIANTS[run.status] ?? 'secondary'}>
+                          {RUN_STATUS_LABELS[run.status] ?? run.status}
+                        </Badge>
+                        {run.latency_ms != null ? (
+                          <span className="text-xs text-muted-foreground">
+                            {(run.latency_ms / 1000).toFixed(1)}s
+                          </span>
+                        ) : null}
+                      </div>
+                      {run.input_summary ? (
+                        <p className="truncate text-sm">{run.input_summary}</p>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">Запуск без краткого описания</p>
+                      )}
+                      {run.output_summary ? (
+                        <p className="mt-1 truncate text-xs text-muted-foreground">
+                          {run.output_summary}
+                        </p>
+                      ) : null}
+                      {run.error_message ? (
+                        <p className="mt-1 truncate text-xs text-destructive">
+                          {run.error_message}
+                        </p>
+                      ) : null}
+                    </div>
+                    <div className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
+                      {new Date(run.started_at).toLocaleString('ru-RU')}
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </CardContent>
