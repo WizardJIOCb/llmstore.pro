@@ -265,7 +265,7 @@ export function GalleryPage() {
   const [pageSize, setPageSize] = useState(4);
   const [currentPage, setCurrentPage] = useState(1);
   const [search, setSearch] = useState('');
-  const [kindFilter, setKindFilter] = useState<GalleryKindFilter>('all');
+  const [kindFilter, setKindFilter] = useState<GalleryKindFilter>('preview');
   const [runningMessageId, setRunningMessageId] = useState<string | null>(null);
   const [projectRunCounts, setProjectRunCounts] = useState<Record<string, number>>({});
   const [runResult, setRunResult] = useState<(ProjectRunResult & {
