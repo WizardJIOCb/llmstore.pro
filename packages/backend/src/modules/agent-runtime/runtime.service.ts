@@ -2225,6 +2225,8 @@ export async function listRuns(userId: string, agentId?: string, deploymentId?: 
       id: agentRuns.id,
       agent_id: agentRuns.agent_id,
       deployment_id: agentRuns.deployment_id,
+      chat_id: chatConversations.id,
+      chat_title: chatConversations.title,
       status: agentRuns.status,
       mode: agentRuns.mode,
       input_summary: agentRuns.input_summary,
@@ -2235,6 +2237,8 @@ export async function listRuns(userId: string, agentId?: string, deploymentId?: 
       error_message: agentRuns.error_message,
     })
     .from(agentRuns)
+    .leftJoin(chatConversationMessages, eq(chatConversationMessages.run_id, agentRuns.id))
+    .leftJoin(chatConversations, eq(chatConversations.id, chatConversationMessages.conversation_id))
     .where(
       and(
         eq(agentRuns.user_id, userId),

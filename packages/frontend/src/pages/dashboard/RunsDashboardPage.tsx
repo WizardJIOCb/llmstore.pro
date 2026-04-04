@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useRunList } from '../../hooks/useAgents';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
@@ -85,6 +85,16 @@ export function RunsDashboardPage() {
                       <p className="text-xs text-destructive truncate mt-1">
                         {run.error_message}
                       </p>
+                    )}
+                    {run.chat_id && (
+                      <div className="mt-2">
+                        <Link
+                          to={`/chats?chat=${encodeURIComponent(run.chat_id)}`}
+                          className="text-xs font-medium text-primary hover:underline"
+                        >
+                          {run.chat_title ? `Перейти в чат: ${run.chat_title}` : 'Перейти в чат'}
+                        </Link>
+                      </div>
                     )}
                   </div>
                   <div className="text-xs text-muted-foreground whitespace-nowrap shrink-0">

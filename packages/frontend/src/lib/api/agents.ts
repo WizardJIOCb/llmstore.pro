@@ -144,6 +144,8 @@ export interface RunSummary {
   id: string;
   agent_id: string;
   deployment_id?: string | null;
+  chat_id?: string | null;
+  chat_title?: string | null;
   status: string;
   mode: string;
   input_summary: string | null;

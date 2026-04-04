@@ -777,6 +777,16 @@ export function ProfilePage() {
                           {run.error_message}
                         </p>
                       ) : null}
+                      {run.chat_id ? (
+                        <div className="mt-2">
+                          <Link
+                            className="text-xs font-medium text-primary hover:underline"
+                            to={`/chats?chat=${encodeURIComponent(run.chat_id)}`}
+                          >
+                            {run.chat_title ? `Открыть чат: ${run.chat_title}` : 'Открыть чат'}
+                          </Link>
+                        </div>
+                      ) : null}
                     </div>
                     <div className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
                       {new Date(run.started_at).toLocaleString('ru-RU')}
