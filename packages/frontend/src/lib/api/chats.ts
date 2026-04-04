@@ -408,6 +408,11 @@ export const chatsApi = {
       .post<{ data: ProjectRunResult }>(`/chats/${chatId}/messages/${messageId}/project-run`)
       .then((r) => r.data.data),
 
+  runGalleryProject: (chatId: string, messageId: string) =>
+    apiClient
+      .post<{ data: ProjectRunResult }>(`/gallery/previews/${chatId}/messages/${messageId}/project-run`)
+      .then((r) => r.data.data),
+
   getProjectDeployment: (chatId: string, messageId: string) =>
     apiClient
       .get<{ data: ProjectDeployment | null }>(`/chats/${chatId}/messages/${messageId}/project-deployment`)

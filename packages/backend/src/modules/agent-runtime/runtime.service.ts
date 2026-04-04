@@ -3812,6 +3812,28 @@ export async function runChatMessageProject(
   };
 }
 
+export async function runGalleryPreviewProject(
+  chatId: string,
+  messageId: string,
+  viewerUserId: string,
+): Promise<ProjectRunResult> {
+  const chat = await getConversationById(chatId);
+  await ensureChatViewerAccess(chat, viewerUserId);
+
+  if (chat.access !== 'public') {
+    throw new NotFoundError('Ресурс не найден');
+  }
+
+  const message = await getAssistantMessageForConversation(chatId, messageId);
+  const project = extractProjectBundleFromMessage(message);
+  const projectRunCount = await incrementProjectRunCount(message.id);
+  const result = await runProjectBundle(project);
+  return {
+    ...result,
+    project_run_count: projectRunCount,
+  };
+}
+
 export async function getChatMessagePreviewHtml(
   chatId: string,
   messageId: string,

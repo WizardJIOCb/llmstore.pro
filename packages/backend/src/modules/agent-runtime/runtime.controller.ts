@@ -368,6 +368,19 @@ export async function runChatMessageProject(req: Request<{ chatId: string; messa
   }
 }
 
+export async function runGalleryPreviewProject(req: Request<{ chatId: string; messageId: string }>, res: Response, next: NextFunction) {
+  try {
+    const result = await runtimeService.runGalleryPreviewProject(
+      req.params.chatId,
+      req.params.messageId,
+      req.session.userId!,
+    );
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function getChatMessageProjectDeployment(req: Request<{ chatId: string; messageId: string }>, res: Response, next: NextFunction) {
   try {
     const result = await projectDeploymentsService.readProjectDeploymentForUser(

@@ -28,6 +28,7 @@ router.get('/emoji/:code.svg', controller.getEmojiSvg);
 router.get('/gallery/previews', controller.listGalleryPreviews);
 router.post('/gallery/previews/:chatId/reaction', requireAuth, validateSetGalleryReaction, controller.setGalleryPreviewReaction);
 router.delete('/gallery/previews/:chatId/reaction', requireAuth, controller.deleteGalleryPreviewReaction);
+router.post('/gallery/previews/:chatId/messages/:messageId/project-run', requireAuth, controller.runGalleryPreviewProject);
 router.all('/project-deployments/:token/webhook*', controller.proxyProjectDeploymentWebhook);
 router.post('/project-deployments/:token/agent-run', validateProjectDeploymentAgentRun, controller.runLinkedAgentForProjectDeployment);
 router.get('/chats', requireAuth, controller.listChats);

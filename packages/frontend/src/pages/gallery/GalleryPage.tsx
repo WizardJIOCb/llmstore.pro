@@ -330,7 +330,7 @@ export function GalleryPage() {
     setRunError(null);
     setRunningMessageId(item.message_id);
     try {
-      const result = await chatsApi.runProject(item.chat_id, item.message_id);
+      const result = await chatsApi.runGalleryProject(item.chat_id, item.message_id);
       const nextProjectRunCount = result.project_run_count;
       if (typeof nextProjectRunCount === 'number') {
         setProjectRunCounts((current) => ({
