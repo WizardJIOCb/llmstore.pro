@@ -328,7 +328,7 @@ export async function getProfileLeaderboard(
             total_cost_usd DESC,
             chats_count DESC,
             messages_count DESC,
-            COALESCE(username, name, user_id) ASC
+            COALESCE(username, name, user_id::text) ASC
         ) AS sort_position,
         user_id,
         username,
