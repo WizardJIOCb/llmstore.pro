@@ -169,8 +169,8 @@ export function AppLayout() {
                     title="Админ"
                     className={
                       isAdminActive
-                        ? `rounded-md ${activeMenuClass} p-2 text-primary transition-colors`
-                        : 'rounded-md p-2 text-muted-foreground transition-colors hover:text-foreground'
+                        ? `rounded-md ${activeMenuClass} px-1.5 py-1.5 text-primary transition-colors`
+                        : 'rounded-md px-1.5 py-1.5 text-muted-foreground transition-colors hover:text-foreground'
                     }
                   >
                     <Shield className="h-4 w-4" />
