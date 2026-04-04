@@ -75,6 +75,40 @@ function buildPageNumbers(currentPage: number, totalPages: number): number[] {
     .sort((a, b) => a - b);
 }
 
+function getLeaderboardMedal(position: number | null | undefined) {
+  if (position === 1) {
+    return {
+      label: 'Золото',
+      badgeClass: 'border border-amber-300 bg-amber-100 text-amber-900',
+      cardClass: 'border-amber-200 bg-[linear-gradient(135deg,rgba(251,191,36,0.20),rgba(255,255,255,1))]',
+      rowClass: 'bg-amber-50/60',
+      numberClass: 'bg-amber-500 text-white',
+    };
+  }
+
+  if (position === 2) {
+    return {
+      label: 'Серебро',
+      badgeClass: 'border border-slate-300 bg-slate-100 text-slate-800',
+      cardClass: 'border-slate-200 bg-[linear-gradient(135deg,rgba(203,213,225,0.35),rgba(255,255,255,1))]',
+      rowClass: 'bg-slate-50/80',
+      numberClass: 'bg-slate-500 text-white',
+    };
+  }
+
+  if (position === 3) {
+    return {
+      label: 'Бронза',
+      badgeClass: 'border border-orange-300 bg-orange-100 text-orange-900',
+      cardClass: 'border-orange-200 bg-[linear-gradient(135deg,rgba(251,146,60,0.22),rgba(255,255,255,1))]',
+      rowClass: 'bg-orange-50/70',
+      numberClass: 'bg-orange-500 text-white',
+    };
+  }
+
+  return null;
+}
+
 function leaderboardValue(entry: ProfileLeaderboardEntry, sort: ProfileLeaderboardSort, usdToRubRate: number): string {
   if (sort === 'tokens') return formatTokens(entry.total_tokens);
   if (sort === 'cost') return formatUsdRubPair(entry.total_cost_usd, usdToRubRate);
@@ -268,6 +302,9 @@ export function ProfilePage() {
       && !activeLeaderboard?.entries.some((entry) => entry.user_id === activeLeaderboardCurrentUser.user_id),
   );
   const lastVisibleLeaderboardEntry = activeLeaderboard?.entries.at(-1);
+  const featuredLeaderboardEntries = currentLeaderboardPage === 1
+    ? activeLeaderboard?.entries.filter((entry) => entry.position <= 3).slice(0, 3) ?? []
+    : [];
   const leaderboardEntriesStart = activeLeaderboard?.entries[0]?.position
     ?? ((currentLeaderboardPage - 1) * (activeLeaderboard?.per_page ?? LEADERBOARD_PAGE_SIZE) + 1);
   const leaderboardEntriesEnd = lastVisibleLeaderboardEntry?.position
@@ -712,6 +749,63 @@ export function ProfilePage() {
                             {leaderboardQuery.isFetching ? ' • Обновляем...' : ''}
                           </p>
                         </div>
+                        {featuredLeaderboardEntries.length > 0 && (
+                          <div className="grid gap-3 md:grid-cols-3">
+                            {featuredLeaderboardEntries.map((entry) => {
+                              const medal = getLeaderboardMedal(entry.position);
+                              return (
+                                <div
+                                  key={`featured-${entry.user_id}`}
+                                  className={`rounded-2xl border p-4 shadow-sm ${medal?.cardClass ?? 'bg-background'} ${entry.is_current_user ? 'ring-2 ring-primary/20' : ''}`}
+                                >
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="flex items-center gap-3">
+                                      {entry.avatar_url ? (
+                                        <img
+                                          src={entry.avatar_url}
+                                          alt=""
+                                          className="h-12 w-12 rounded-full border border-white/70 object-cover shadow-sm"
+                                        />
+                                      ) : (
+                                        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/80 text-sm font-semibold text-slate-700 shadow-sm">
+                                          {(entry.name || entry.username || '?').slice(0, 1).toUpperCase()}
+                                        </div>
+                                      )}
+                                      <div className="min-w-0">
+                                        <Badge variant="outline" className={medal?.badgeClass}>
+                                          {medal?.label ?? 'Топ'}
+                                        </Badge>
+                                        <div className="mt-2">
+                                          <UserLink
+                                            username={entry.username}
+                                            name={entry.name}
+                                            className="truncate font-semibold hover:text-primary hover:underline"
+                                          />
+                                          {entry.is_current_user ? (
+                                            <p className="text-xs text-primary">Это вы</p>
+                                          ) : null}
+                                        </div>
+                                      </div>
+                                    </div>
+                                    <div className={`flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold shadow-sm ${medal?.numberClass ?? 'bg-primary text-primary-foreground'}`}>
+                                      {entry.position}
+                                    </div>
+                                  </div>
+
+                                  <div className="mt-4 rounded-xl border border-white/60 bg-white/70 px-3 py-3">
+                                    <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
+                                      {LEADERBOARD_SORT_OPTIONS.find((option) => option.value === leaderboardSort)?.shortLabel ?? 'Метрика'}
+                                    </p>
+                                    <p className="mt-1 text-lg font-semibold">
+                                      {leaderboardValue(entry, leaderboardSort, usdToRubRate)}
+                                    </p>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+
                         <div className="max-h-[55vh] overflow-auto rounded-xl border">
                           <table className="w-full min-w-[760px] text-sm">
                             <thead className="sticky top-0 bg-background">
@@ -728,11 +822,16 @@ export function ProfilePage() {
                               {activeLeaderboard.entries.map((entry) => (
                                 <tr
                                   key={entry.user_id}
-                                  className={entry.is_current_user ? 'border-b bg-primary/5' : 'border-b last:border-0'}
+                                  className={`${entry.position === 1 ? 'bg-amber-50/60' : entry.position === 2 ? 'bg-slate-50/80' : entry.position === 3 ? 'bg-orange-50/70' : ''} ${entry.is_current_user ? 'ring-1 ring-primary/10 bg-primary/5' : ''} border-b last:border-0`}
                                 >
                                   <td className="px-4 py-3 font-medium">
                                     <div className="flex flex-col">
                                       <span>{formatLeaderboardPosition(entry.position)}</span>
+                                      {getLeaderboardMedal(entry.position) ? (
+                                        <Badge variant="outline" className={`mt-1 w-fit ${getLeaderboardMedal(entry.position)?.badgeClass}`}>
+                                          {getLeaderboardMedal(entry.position)?.label}
+                                        </Badge>
+                                      ) : null}
                                       {entry.rank !== entry.position ? (
                                         <span className="text-xs font-normal text-muted-foreground">{formatRankLabel(entry.rank)}</span>
                                       ) : null}
