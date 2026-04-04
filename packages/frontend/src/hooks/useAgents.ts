@@ -134,10 +134,10 @@ export function useAgentStats() {
   });
 }
 
-export function useRunList(agentId?: string) {
+export function useRunList(agentId?: string, deploymentId?: string) {
   return useQuery({
-    queryKey: ['runs', { agentId }],
-    queryFn: () => agentApi.listRuns(agentId),
+    queryKey: ['runs', { agentId, deploymentId }],
+    queryFn: () => agentApi.listRuns(agentId, deploymentId),
   });
 }
 

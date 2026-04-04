@@ -4,14 +4,16 @@ import type { Request } from 'express';
 import { mkdir, readFile, rm, writeFile } from 'fs/promises';
 import net from 'net';
 import path from 'path';
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import { db } from '../../config/database.js';
 import { env } from '../../config/env.js';
 import { UPLOADS_DIR } from '../../config/upload.js';
 import { agents } from '../../db/schema/agents.js';
-import { chatConversations, chatConversationMessages, chatProjectDeployments } from '../../db/schema/runtime.js';
+import { usageLedger } from '../../db/schema/analytics.js';
+import { agentRuns, chatConversations, chatConversationMessages, chatProjectDeployments } from '../../db/schema/runtime.js';
 import { AppError, NotFoundError } from '../../middleware/error-handler.js';
 import { logger } from '../../lib/logger.js';
+import { getUsdToRubRate } from '../../lib/app-settings.js';
 import { extractProjectBundleFromMessageRecord, startRun, type CodingReportProject } from './runtime.service.js';
 
 const PROJECT_DEPLOY_HTTP_READY_TIMEOUT_MS = 15_000;
@@ -37,6 +39,29 @@ export interface ProjectDeploymentRecord {
   last_signal: string | null;
   live_stdout: string;
   live_stderr: string;
+  run_stats: {
+    total_runs: number;
+    completed_runs: number;
+    failed_runs: number;
+    total_prompt_tokens: number;
+    total_completion_tokens: number;
+    total_tokens: number;
+    total_cost_usd: number;
+    total_cost_rub: number;
+    last_run_at: string | null;
+  };
+  recent_runs: Array<{
+    id: string;
+    status: string;
+    input_summary: string | null;
+    output_summary: string | null;
+    error_message: string | null;
+    latency_ms: number | null;
+    started_at: string;
+    completed_at: string | null;
+    total_tokens: number;
+    estimated_cost_usd: number;
+  }>;
   created_at: string;
   updated_at: string;
   last_started_at: string | null;
@@ -340,11 +365,76 @@ async function getDeploymentWithAgentMeta(deploymentId: string, userId: string) 
   return row;
 }
 
-function toProjectDeploymentRecord(
+async function getDeploymentRunInsights(deploymentId: string): Promise<ProjectDeploymentRecord['run_stats'] & { recent_runs: ProjectDeploymentRecord['recent_runs'] }> {
+  const usdToRubRate = await getUsdToRubRate();
+
+  const [statsRow] = await db
+    .select({
+      total_runs: sql<number>`count(${agentRuns.id})::int`,
+      completed_runs: sql<number>`count(*) filter (where ${agentRuns.status} = 'completed')::int`,
+      failed_runs: sql<number>`count(*) filter (where ${agentRuns.status} = 'failed')::int`,
+      total_prompt_tokens: sql<number>`coalesce(sum(${usageLedger.prompt_tokens}), 0)::int`,
+      total_completion_tokens: sql<number>`coalesce(sum(${usageLedger.completion_tokens}), 0)::int`,
+      total_tokens: sql<number>`coalesce(sum(${usageLedger.total_tokens}), 0)::int`,
+      total_cost_usd: sql<string>`coalesce(sum(${usageLedger.estimated_cost}::numeric), 0)`,
+      last_run_at: sql<Date | null>`max(${agentRuns.started_at})`,
+    })
+    .from(agentRuns)
+    .leftJoin(usageLedger, eq(usageLedger.run_id, agentRuns.id))
+    .where(eq(agentRuns.deployment_id, deploymentId));
+
+  const recentRows = await db
+    .select({
+      id: agentRuns.id,
+      status: agentRuns.status,
+      input_summary: agentRuns.input_summary,
+      output_summary: agentRuns.output_summary,
+      error_message: agentRuns.error_message,
+      latency_ms: agentRuns.latency_ms,
+      started_at: agentRuns.started_at,
+      completed_at: agentRuns.completed_at,
+      total_tokens: sql<number>`coalesce(${usageLedger.total_tokens}, 0)::int`,
+      estimated_cost_usd: sql<string>`coalesce(${usageLedger.estimated_cost}::numeric, 0)`,
+    })
+    .from(agentRuns)
+    .leftJoin(usageLedger, eq(usageLedger.run_id, agentRuns.id))
+    .where(eq(agentRuns.deployment_id, deploymentId))
+    .orderBy(desc(agentRuns.started_at))
+    .limit(8);
+
+  const totalCostUsd = Number(statsRow?.total_cost_usd ?? 0);
+
+  return {
+    total_runs: statsRow?.total_runs ?? 0,
+    completed_runs: statsRow?.completed_runs ?? 0,
+    failed_runs: statsRow?.failed_runs ?? 0,
+    total_prompt_tokens: statsRow?.total_prompt_tokens ?? 0,
+    total_completion_tokens: statsRow?.total_completion_tokens ?? 0,
+    total_tokens: statsRow?.total_tokens ?? 0,
+    total_cost_usd: totalCostUsd,
+    total_cost_rub: totalCostUsd * usdToRubRate,
+    last_run_at: statsRow?.last_run_at?.toISOString() ?? null,
+    recent_runs: recentRows.map((row) => ({
+      id: row.id,
+      status: row.status,
+      input_summary: row.input_summary ?? null,
+      output_summary: row.output_summary ?? null,
+      error_message: row.error_message ?? null,
+      latency_ms: row.latency_ms ?? null,
+      started_at: row.started_at.toISOString(),
+      completed_at: row.completed_at?.toISOString() ?? null,
+      total_tokens: row.total_tokens ?? 0,
+      estimated_cost_usd: Number(row.estimated_cost_usd ?? 0),
+    })),
+  };
+}
+
+async function toProjectDeploymentRecord(
   row: Awaited<ReturnType<typeof getDeploymentWithAgentMeta>>,
-): ProjectDeploymentRecord {
+): Promise<ProjectDeploymentRecord> {
   const runtime = row.runtime === 'python' ? 'python' : 'node';
   const live = deploymentRuntimes.get(row.id);
+  const insights = await getDeploymentRunInsights(row.id);
 
   return {
     id: row.id,
@@ -362,6 +452,18 @@ function toProjectDeploymentRecord(
     last_signal: row.last_signal ?? null,
     live_stdout: live?.stdout ?? '',
     live_stderr: live?.stderr ?? '',
+    run_stats: {
+      total_runs: insights.total_runs,
+      completed_runs: insights.completed_runs,
+      failed_runs: insights.failed_runs,
+      total_prompt_tokens: insights.total_prompt_tokens,
+      total_completion_tokens: insights.total_completion_tokens,
+      total_tokens: insights.total_tokens,
+      total_cost_usd: insights.total_cost_usd,
+      total_cost_rub: insights.total_cost_rub,
+      last_run_at: insights.last_run_at,
+    },
+    recent_runs: insights.recent_runs,
     created_at: row.created_at.toISOString(),
     updated_at: row.updated_at.toISOString(),
     last_started_at: row.last_started_at?.toISOString() ?? null,
@@ -669,7 +771,7 @@ export async function getChatMessageProjectDeployment(
     return null;
   }
 
-  return toProjectDeploymentRecord(await getDeploymentWithAgentMeta(row.id, userId));
+  return await toProjectDeploymentRecord(await getDeploymentWithAgentMeta(row.id, userId));
 }
 
 export async function upsertChatMessageProjectDeployment(
@@ -729,7 +831,7 @@ export async function upsertChatMessageProjectDeployment(
   if (input.set_telegram_webhook) {
     await installTelegramWebhookForDeployment(deploymentId, userId, normalizedEnv);
   }
-  return toProjectDeploymentRecord(await getDeploymentWithAgentMeta(deploymentId, userId));
+  return await toProjectDeploymentRecord(await getDeploymentWithAgentMeta(deploymentId, userId));
 }
 
 export async function startChatMessageProjectDeployment(
@@ -743,7 +845,7 @@ export async function startChatMessageProjectDeployment(
   }
 
   await startDeploymentInternal(deployment.id, userId);
-  return toProjectDeploymentRecord(await getDeploymentWithAgentMeta(deployment.id, userId));
+  return await toProjectDeploymentRecord(await getDeploymentWithAgentMeta(deployment.id, userId));
 }
 
 export async function reinstallTelegramWebhookForChatMessageProjectDeployment(
@@ -757,7 +859,7 @@ export async function reinstallTelegramWebhookForChatMessageProjectDeployment(
   }
 
   await installTelegramWebhookForDeployment(deployment.id, userId, deployment.env);
-  return toProjectDeploymentRecord(await getDeploymentWithAgentMeta(deployment.id, userId));
+  return await toProjectDeploymentRecord(await getDeploymentWithAgentMeta(deployment.id, userId));
 }
 
 export async function stopChatMessageProjectDeployment(
@@ -771,7 +873,7 @@ export async function stopChatMessageProjectDeployment(
   }
 
   await stopDeploymentInternal(deployment.id, userId);
-  return toProjectDeploymentRecord(await getDeploymentWithAgentMeta(deployment.id, userId));
+  return await toProjectDeploymentRecord(await getDeploymentWithAgentMeta(deployment.id, userId));
 }
 
 export async function proxyProjectDeploymentWebhook(
@@ -821,6 +923,7 @@ export async function runLinkedAgentForProjectDeployment(
     messages: [{ role: 'user', content: message }],
     model_external_id: null,
   }, {
+    deployment_id: deployment.id,
     sync_to_chats: false,
     charge_usage: true,
   });

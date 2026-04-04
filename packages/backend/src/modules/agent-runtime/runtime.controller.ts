@@ -136,7 +136,8 @@ export async function getRun(req: Request<{ id: string }>, res: Response, next: 
 export async function listRuns(req: Request, res: Response, next: NextFunction) {
   try {
     const agentId = req.query.agent_id as string | undefined;
-    const runs = await runtimeService.listRuns(req.session.userId!, agentId);
+    const deploymentId = req.query.deployment_id as string | undefined;
+    const runs = await runtimeService.listRuns(req.session.userId!, agentId, deploymentId);
     res.json({ data: runs });
   } catch (err) {
     next(err);

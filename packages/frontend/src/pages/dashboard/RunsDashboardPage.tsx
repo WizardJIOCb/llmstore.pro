@@ -1,3 +1,5 @@
+import { useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useRunList } from '../../hooks/useAgents';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
@@ -23,7 +25,15 @@ const statusVariants: Record<string, 'default' | 'secondary' | 'outline' | 'dest
 };
 
 export function RunsDashboardPage() {
-  const { data: runs, isLoading } = useRunList();
+  const [searchParams] = useSearchParams();
+  const agentId = searchParams.get('agentId')?.trim() || undefined;
+  const deploymentId = searchParams.get('deploymentId')?.trim() || undefined;
+  const title = useMemo(() => {
+    if (deploymentId) return 'Запуски deployment';
+    if (agentId) return 'Запуски агента';
+    return 'История запусков';
+  }, [agentId, deploymentId]);
+  const { data: runs, isLoading } = useRunList(agentId, deploymentId);
 
   if (isLoading) {
     return (
@@ -35,7 +45,12 @@ export function RunsDashboardPage() {
 
   return (
     <div className="container mx-auto max-w-4xl px-4 py-8">
-      <h1 className="text-2xl font-bold mb-6">История запусков</h1>
+      <h1 className="mb-2 text-2xl font-bold">{title}</h1>
+      {(deploymentId || agentId) && (
+        <p className="mb-6 break-all text-sm text-muted-foreground">
+          {deploymentId ? `Deployment ID: ${deploymentId}` : `Agent ID: ${agentId}`}
+        </p>
+      )}
 
       {!runs || runs.length === 0 ? (
         <div className="text-center py-12">

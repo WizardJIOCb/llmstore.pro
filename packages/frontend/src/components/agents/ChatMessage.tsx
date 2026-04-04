@@ -221,6 +221,59 @@ function withPreviewId(url: string, previewId: string): string {
   }
 }
 
+function formatCompactNumber(value: number): string {
+  return new Intl.NumberFormat('ru-RU').format(value);
+}
+
+function formatUsdAmount(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return '$0';
+  if (value < 0.0001) return '<$0.0001';
+  if (value < 0.01) return `$${value.toFixed(4)}`;
+  return `$${value.toFixed(3)}`;
+}
+
+function formatRubAmount(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return '0 ₽';
+  if (value < 0.01) return '<0.01 ₽';
+  return `${value.toFixed(2)} ₽`;
+}
+
+function formatDateTime(iso: string | null | undefined): string {
+  if (!iso) return 'Не было';
+  return new Date(iso).toLocaleString('ru-RU');
+}
+
+function getRunStatusLabel(status: string): string {
+  switch (status) {
+    case 'completed':
+      return 'Успешно';
+    case 'failed':
+      return 'Ошибка';
+    case 'running':
+      return 'Выполняется';
+    case 'preparing':
+      return 'Подготовка';
+    case 'cancelled':
+      return 'Отменён';
+    default:
+      return status;
+  }
+}
+
+function getRunStatusTone(status: string): string {
+  switch (status) {
+    case 'completed':
+      return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+    case 'failed':
+      return 'border-rose-200 bg-rose-50 text-rose-700';
+    case 'running':
+    case 'preparing':
+      return 'border-sky-200 bg-sky-50 text-sky-700';
+    default:
+      return 'border-border bg-muted/30 text-muted-foreground';
+  }
+}
+
 function SectionCard({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="rounded-lg border border-border/70 bg-background/70 p-3">
@@ -1750,6 +1803,9 @@ export function ChatMessage({
     () => splitDeploymentLogLines(projectDeployment?.live_stdout ?? '', projectDeployment?.live_stderr ?? ''),
     [projectDeployment?.live_stdout, projectDeployment?.live_stderr],
   );
+  const deploymentRunsDashboardUrl = projectDeployment
+    ? `/dashboard/runs?deploymentId=${encodeURIComponent(projectDeployment.id)}`
+    : null;
 
   const setEditorTransientStatus = (message: string | null) => {
     if (editorStatusTimeoutRef.current) {
@@ -2552,8 +2608,78 @@ export function ChatMessage({
                                 {projectStoppingDeployment ? 'Останавливаю...' : 'Остановить deploy'}
                               </Button>
                             )}
+                            {deploymentRunsDashboardUrl && (
+                              <a
+                                href={deploymentRunsDashboardUrl}
+                                className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium text-foreground shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground"
+                              >
+                                Все запросы
+                              </a>
+                            )}
                           </div>
                         </div>
+                        <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2 xl:grid-cols-4">
+                          <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2">
+                            Запросов: {formatCompactNumber(projectDeployment.run_stats.total_runs)}
+                          </div>
+                          <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2">
+                            Токенов: {formatCompactNumber(projectDeployment.run_stats.total_tokens)}
+                          </div>
+                          <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2">
+                            Стоимость: {formatUsdAmount(projectDeployment.run_stats.total_cost_usd)}
+                          </div>
+                          <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2">
+                            В рублях: {formatRubAmount(projectDeployment.run_stats.total_cost_rub)}
+                          </div>
+                          <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2">
+                            Успешно: {formatCompactNumber(projectDeployment.run_stats.completed_runs)}
+                          </div>
+                          <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2">
+                            Ошибок: {formatCompactNumber(projectDeployment.run_stats.failed_runs)}
+                          </div>
+                          <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2 sm:col-span-2">
+                            Последний запрос: {formatDateTime(projectDeployment.run_stats.last_run_at)}
+                          </div>
+                        </div>
+                        {projectDeployment.recent_runs.length > 0 && (
+                          <div className="mt-3 space-y-2">
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Последние запросы</p>
+                            <div className="space-y-2">
+                              {projectDeployment.recent_runs.map((run) => (
+                                <div key={run.id} className="rounded-md border border-border/60 bg-background/70 p-3">
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <span className={cn('inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium', getRunStatusTone(run.status))}>
+                                      {getRunStatusLabel(run.status)}
+                                    </span>
+                                    <span className="text-[11px] text-muted-foreground">
+                                      {formatDateTime(run.started_at)}
+                                      {typeof run.latency_ms === 'number' ? ` • ${(run.latency_ms / 1000).toFixed(1)}s` : ''}
+                                    </span>
+                                  </div>
+                                  {run.input_summary && (
+                                    <p className="mt-2 line-clamp-2 text-sm text-slate-900">
+                                      {run.input_summary}
+                                    </p>
+                                  )}
+                                  <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                                    <span>Токены: {formatCompactNumber(run.total_tokens)}</span>
+                                    <span>Стоимость: {formatUsdAmount(run.estimated_cost_usd)}</span>
+                                  </div>
+                                  {run.error_message && (
+                                    <p className="mt-2 line-clamp-2 text-xs text-rose-600">
+                                      {run.error_message}
+                                    </p>
+                                  )}
+                                  {!run.error_message && run.output_summary && (
+                                    <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
+                                      {run.output_summary}
+                                    </p>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                         {deploymentLogLines.length > 0 && (
                           <div className="mt-3 space-y-1">
                             <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Логи</p>

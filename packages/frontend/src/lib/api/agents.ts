@@ -143,6 +143,7 @@ export interface RunResult {
 export interface RunSummary {
   id: string;
   agent_id: string;
+  deployment_id?: string | null;
   status: string;
   mode: string;
   input_summary: string | null;
@@ -310,8 +311,10 @@ export const agentApi = {
   getRun: (runId: string) =>
     apiClient.get<{ data: RunDetail }>(`/runs/${runId}`).then(r => r.data.data),
 
-  listRuns: (agentId?: string) => {
-    const params = agentId ? { agent_id: agentId } : {};
+  listRuns: (agentId?: string, deploymentId?: string) => {
+    const params: Record<string, string> = {};
+    if (agentId) params.agent_id = agentId;
+    if (deploymentId) params.deployment_id = deploymentId;
     return apiClient.get<{ data: RunSummary[] }>('/runs', { params }).then(r => r.data.data);
   },
 };

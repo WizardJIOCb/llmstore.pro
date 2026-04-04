@@ -25,6 +25,7 @@ export const agentRuns = pgTable('agent_runs', {
   agent_id: uuid('agent_id').notNull().references(() => agents.id, { onDelete: 'cascade' }),
   agent_version_id: uuid('agent_version_id').notNull().references(() => agentVersions.id, { onDelete: 'cascade' }),
   user_id: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  deployment_id: uuid('deployment_id'),
   status: agentRunStatusEnum('status').notNull().default('pending'),
   mode: agentRunModeEnum('mode').notNull().default('chat'),
   model_id: uuid('model_id').references(() => aiModels.id, { onDelete: 'set null' }),
@@ -46,6 +47,7 @@ export const agentRuns = pgTable('agent_runs', {
   index('agent_runs_agent_started_idx').on(table.agent_id, table.started_at),
   index('agent_runs_version_idx').on(table.agent_version_id),
   index('agent_runs_model_idx').on(table.model_id),
+  index('agent_runs_deployment_idx').on(table.deployment_id, table.started_at),
   index('agent_runs_status_idx').on(table.status),
   index('agent_runs_session_key_idx').on(table.session_key),
 ]);

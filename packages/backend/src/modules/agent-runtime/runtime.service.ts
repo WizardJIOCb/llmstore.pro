@@ -438,6 +438,7 @@ interface StartRunOptions {
   on_event?: (event: string, payload: Record<string, unknown>) => void;
   strict_preview_edit?: StrictPreviewEditOptions | null;
   charge_usage?: boolean;
+  deployment_id?: string | null;
 }
 
 interface RunResult {
@@ -1793,6 +1794,7 @@ export async function startRun(
     agent_id: agentId,
     agent_version_id: version.id,
     user_id: userId,
+    deployment_id: options.deployment_id ?? null,
     status: 'preparing',
     mode: 'chat',
     provider_name: 'openrouter',
@@ -2215,11 +2217,12 @@ export async function getRun(runId: string, userId: string) {
   return { ...run, messages, tool_calls: toolCalls };
 }
 
-export async function listRuns(userId: string, agentId?: string) {
+export async function listRuns(userId: string, agentId?: string, deploymentId?: string) {
   let query = db
     .select({
       id: agentRuns.id,
       agent_id: agentRuns.agent_id,
+      deployment_id: agentRuns.deployment_id,
       status: agentRuns.status,
       mode: agentRuns.mode,
       input_summary: agentRuns.input_summary,
@@ -2231,9 +2234,11 @@ export async function listRuns(userId: string, agentId?: string) {
     })
     .from(agentRuns)
     .where(
-      agentId
-        ? and(eq(agentRuns.user_id, userId), eq(agentRuns.agent_id, agentId))
-        : eq(agentRuns.user_id, userId),
+      and(
+        eq(agentRuns.user_id, userId),
+        ...(agentId ? [eq(agentRuns.agent_id, agentId)] : []),
+        ...(deploymentId ? [eq(agentRuns.deployment_id, deploymentId)] : []),
+      ),
     )
     .orderBy(desc(agentRuns.started_at))
     .limit(100);

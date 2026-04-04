@@ -84,6 +84,29 @@ export interface ProjectDeployment {
   last_signal: string | null;
   live_stdout: string;
   live_stderr: string;
+  run_stats: {
+    total_runs: number;
+    completed_runs: number;
+    failed_runs: number;
+    total_prompt_tokens: number;
+    total_completion_tokens: number;
+    total_tokens: number;
+    total_cost_usd: number;
+    total_cost_rub: number;
+    last_run_at: string | null;
+  };
+  recent_runs: Array<{
+    id: string;
+    status: string;
+    input_summary: string | null;
+    output_summary: string | null;
+    error_message: string | null;
+    latency_ms: number | null;
+    started_at: string;
+    completed_at: string | null;
+    total_tokens: number;
+    estimated_cost_usd: number;
+  }>;
   created_at: string;
   updated_at: string;
   last_started_at: string | null;
