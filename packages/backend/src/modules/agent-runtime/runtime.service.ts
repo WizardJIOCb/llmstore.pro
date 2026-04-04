@@ -285,7 +285,7 @@ async function ensureSufficientBalance(userId: string) {
     .where(eq(users.id, userId))
     .limit(1);
 
-  if (!user) throw new NotFoundError('Р РµСЃСѓСЂСЃ РЅРµ РЅР°Р№РґРµРЅ');
+  if (!user) throw new NotFoundError('Ресурс не найден');
 
   const balance = Number(user.balance_usd);
   if (!(balance > 0)) {
@@ -403,7 +403,7 @@ async function ensureAgentIsVisibleForUser(agentId: string, userId: string, user
     .limit(1);
 
   if (!agent) {
-    throw new NotFoundError('Р РµСЃСѓСЂСЃ РЅРµ РЅР°Р№РґРµРЅ');
+    throw new NotFoundError('Ресурс не найден');
   }
 
   if (agent.status !== 'active' || !agent.current_version_id) {
@@ -1712,14 +1712,14 @@ export async function startRun(
 
   // 1. Load agent + version + tools
   const [agent] = await db.select().from(agents).where(eq(agents.id, agentId)).limit(1);
-  if (!agent) throw new NotFoundError('Р РµСЃСѓСЂСЃ РЅРµ РЅР°Р№РґРµРЅ');
+  if (!agent) throw new NotFoundError('Ресурс не найден');
 
   if (!agent.current_version_id) {
     throw new AppError(400, 'NO_VERSION', 'РЈ Р°РіРµРЅС‚Р° РЅРµС‚ Р°РєС‚РёРІРЅРѕР№ РІРµСЂСЃРёРё');
   }
 
   const [version] = await db.select().from(agentVersions).where(eq(agentVersions.id, agent.current_version_id)).limit(1);
-  if (!version) throw new NotFoundError('Р РµСЃСѓСЂСЃ РЅРµ РЅР°Р№РґРµРЅ');
+  if (!version) throw new NotFoundError('Ресурс не найден');
 
   const versionToolRows = await db
     .select({ tool: toolDefinitions })
@@ -2211,7 +2211,7 @@ export async function getRun(runId: string, userId: string) {
     and(eq(agentRuns.id, runId), eq(agentRuns.user_id, userId)),
   ).limit(1);
 
-  if (!run) throw new NotFoundError('Р РµСЃСѓСЂСЃ РЅРµ РЅР°Р№РґРµРЅ');
+  if (!run) throw new NotFoundError('Ресурс не найден');
 
   const messages = await db.select().from(agentRunMessages).where(eq(agentRunMessages.run_id, runId)).orderBy(agentRunMessages.created_at);
   const toolCalls = await db.select().from(agentRunToolCalls).where(eq(agentRunToolCalls.run_id, runId)).orderBy(agentRunToolCalls.created_at);
@@ -2461,7 +2461,7 @@ export async function shareChat(agentId: string, userId: string) {
     .where(and(eq(chatSessions.agent_id, agentId), eq(chatSessions.user_id, userId)))
     .limit(1);
 
-  if (!session) throw new NotFoundError('Р РµСЃСѓСЂСЃ РЅРµ РЅР°Р№РґРµРЅ');
+  if (!session) throw new NotFoundError('Ресурс не найден');
 
   if (session.share_token) {
     return { share_token: session.share_token };
@@ -2481,7 +2481,7 @@ export async function getSharedChat(token: string) {
     .where(eq(chatSessions.share_token, token))
     .limit(1);
 
-  if (!session) throw new NotFoundError('Р РµСЃСѓСЂСЃ РЅРµ РЅР°Р№РґРµРЅ');
+  if (!session) throw new NotFoundError('Ресурс не найден');
 
   // Load agent name
   const [agent] = await db.select({ name: agents.name }).from(agents).where(eq(agents.id, session.agent_id)).limit(1);
@@ -2964,7 +2964,7 @@ async function getConversationForUser(chatId: string, userId: string): Promise<C
     .where(and(eq(chatConversations.id, chatId), eq(chatConversations.user_id, userId)))
     .limit(1);
 
-  if (!chat) throw new NotFoundError('Р РµСЃСѓСЂСЃ РЅРµ РЅР°Р№РґРµРЅ');
+  if (!chat) throw new NotFoundError('Ресурс не найден');
   return chat as ChatConversationRow;
 }
 

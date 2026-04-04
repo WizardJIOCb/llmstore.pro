@@ -262,6 +262,11 @@ function GalleryArtifactFrame({
 }
 
 export function GalleryPage() {
+  type GalleryRunErrorState = {
+    message: string;
+    message_id?: string;
+  };
+
   const [pageSize, setPageSize] = useState(4);
   const [currentPage, setCurrentPage] = useState(1);
   const [search, setSearch] = useState('');
@@ -273,7 +278,7 @@ export function GalleryPage() {
     message_id: string;
     chat_id: string;
   }) | null>(null);
-  const [runError, setRunError] = useState<string | null>(null);
+  const [runError, setRunError] = useState<GalleryRunErrorState | null>(null);
   const { data: currentUser } = useQuery({
     queryKey: ['gallery-auth-me'],
     queryFn: async () => {
@@ -346,7 +351,10 @@ export function GalleryPage() {
       });
     } catch (error) {
       const maybe = error as { response?: { data?: { error?: { message?: string } } } };
-      setRunError(maybe?.response?.data?.error?.message ?? 'Не удалось запустить проект из галереи');
+      setRunError({
+        message: maybe?.response?.data?.error?.message ?? 'Не удалось запустить проект из галереи',
+        message_id: item.message_id,
+      });
     } finally {
       setRunningMessageId(null);
     }
@@ -558,6 +566,12 @@ export function GalleryPage() {
                       </a>
                     ) : null}
                   </div>
+
+                  {runError?.message_id === item.message_id ? (
+                    <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                      {runError.message}
+                    </div>
+                  ) : null}
                 </div>
               </article>
             ))}
@@ -605,9 +619,9 @@ export function GalleryPage() {
           </div>
         )}
 
-        {runError && (
+        {runError && !runError.message_id && (
           <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
-            {runError}
+            {runError.message}
           </div>
         )}
       </div>
@@ -652,6 +666,12 @@ export function GalleryPage() {
                 </Button>
               </div>
             </div>
+
+            {runError?.message_id === runResult.message_id ? (
+              <div className="border-b border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+                {runError.message}
+              </div>
+            ) : null}
 
             <div className="min-h-0 flex-1 overflow-auto px-4 py-4">
               <div className="flex min-h-full flex-col gap-4">
