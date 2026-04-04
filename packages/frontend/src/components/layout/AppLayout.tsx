@@ -1,4 +1,5 @@
-﻿import { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
+import { Shield } from 'lucide-react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useChatsList } from '../../hooks/useChats';
@@ -91,12 +92,12 @@ export function AppLayout() {
 
   return (
     <div className={cn('min-h-screen flex flex-col', isChatsPage && 'h-screen overflow-hidden')}>
-      <header className="border-b bg-white sticky top-0 z-50">
-        <div className="container mx-auto px-4 flex items-center justify-between h-16">
-          <Link to="/" className="text-xl font-bold text-primary">
+      <header className="sticky top-0 z-50 border-b bg-white">
+        <div className="container mx-auto flex h-16 items-center justify-between px-4">
+          <Link to="/" className="relative top-[-2px] text-xl font-bold text-primary">
             LLMStore.pro
           </Link>
-          <div className="md:hidden flex items-center gap-2">
+          <div className="flex items-center gap-2 md:hidden">
             {isChatsPage && isMobileChatOpen && (
               <button
                 type="button"
@@ -116,7 +117,7 @@ export function AppLayout() {
               Меню
             </button>
           </div>
-          <div className="hidden md:flex items-center gap-6">
+          <div className="hidden items-center gap-6 md:flex">
             <nav className="flex items-center gap-6">
               {visibleNavItems.map((item) => (
                 item.href === '/chats' ? (
@@ -126,7 +127,7 @@ export function AppLayout() {
                     className={
                       isNavItemActive(item.href)
                         ? `rounded-md ${activeMenuClass} px-[0.35rem] py-1.5 text-sm font-medium text-primary transition-colors`
-                        : 'rounded-md px-[0.35rem] py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors'
+                        : 'rounded-md px-[0.35rem] py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground'
                     }
                     onClick={openChatsSection}
                   >
@@ -139,7 +140,7 @@ export function AppLayout() {
                     className={
                       isNavItemActive(item.href)
                         ? `rounded-md ${activeMenuClass} px-[0.35rem] py-1.5 text-sm font-medium text-primary transition-colors`
-                        : 'rounded-md px-[0.35rem] py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors'
+                        : 'rounded-md px-[0.35rem] py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground'
                     }
                   >
                     {item.label}
@@ -149,30 +150,32 @@ export function AppLayout() {
             </nav>
             {isAuthenticated ? (
               <>
-                {isAdmin && (
-                  <Link
-                    to="/admin"
-                    className={
-                      isAdminActive
-                        ? `rounded-md ${activeMenuClass} px-3 py-1.5 text-sm font-medium text-primary transition-colors`
-                        : 'rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors'
-                    }
-                  >
-                    Админ
-                  </Link>
-                )}
                 <span className={isProfileActive ? 'text-sm text-primary' : 'text-sm text-muted-foreground'}>
                   <Link
                     to="/profile"
                     className={
                       isProfileActive
                         ? `rounded-md ${activeMenuClass} px-3 py-1.5 font-medium transition-colors`
-                        : 'rounded-md px-3 py-1.5 hover:text-foreground hover:underline transition-colors'
+                        : 'rounded-md px-3 py-1.5 transition-colors hover:text-foreground hover:underline'
                     }
                   >
                     {profileLabel}
                   </Link>
                 </span>
+                {isAdmin && (
+                  <Link
+                    to="/admin"
+                    aria-label="Админ"
+                    title="Админ"
+                    className={
+                      isAdminActive
+                        ? `rounded-md ${activeMenuClass} p-2 text-primary transition-colors`
+                        : 'rounded-md p-2 text-muted-foreground transition-colors hover:text-foreground'
+                    }
+                  >
+                    <Shield className="h-4 w-4" />
+                  </Link>
+                )}
                 <Button variant="ghost" size="sm" onClick={handleLogout}>Выйти</Button>
               </>
             ) : (
@@ -186,8 +189,8 @@ export function AppLayout() {
       </header>
 
       {isMobileMenuOpen && (
-        <div className="fixed inset-0 z-[60] md:hidden bg-black/40" onClick={() => setIsMobileMenuOpen(false)}>
-          <div className="ml-auto h-full w-80 max-w-[85vw] bg-white border-l p-4 overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-[60] bg-black/40 md:hidden" onClick={() => setIsMobileMenuOpen(false)}>
+          <div className="ml-auto h-full w-80 max-w-[85vw] overflow-y-auto border-l bg-white p-4" onClick={(e) => e.stopPropagation()}>
             <div className="mb-4 flex items-center justify-between">
               <p className="font-semibold">Меню</p>
               <Button variant="ghost" size="sm" onClick={() => setIsMobileMenuOpen(false)}>Закрыть</Button>
@@ -226,7 +229,7 @@ export function AppLayout() {
             </nav>
 
             {isChatsPage && (
-              <div className="mt-4 border-t pt-4 space-y-2">
+              <div className="mt-4 space-y-2 border-t pt-4">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">Список чатов</p>
                 {(!chats || chats.length === 0) && (
                   <p className="text-sm text-muted-foreground">Пока нет чатов</p>
@@ -244,7 +247,7 @@ export function AppLayout() {
               </div>
             )}
 
-            <div className="mt-6 border-t pt-4 space-y-2">
+            <div className="mt-6 space-y-2 border-t pt-4">
               {isAuthenticated ? (
                 <>
                   {isAdmin && (
@@ -290,7 +293,7 @@ export function AppLayout() {
 
       {!isChatsPage && (
         <footer className="border-t bg-white py-8">
-          <div className="container mx-auto px-4 space-y-4 text-center text-sm text-muted-foreground">
+          <div className="container mx-auto space-y-4 px-4 text-center text-sm text-muted-foreground">
             <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
               <Link to="/pricing" className="hover:text-foreground hover:underline">Оплата и тарифы</Link>
               <Link to="/offer" className="hover:text-foreground hover:underline">Оферта</Link>
