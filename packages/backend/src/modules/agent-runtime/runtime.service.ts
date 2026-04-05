@@ -461,6 +461,16 @@ interface RunResult {
   error_message?: string;
 }
 
+interface SharedPendingRunState {
+  run_id: string;
+  status: string;
+  started_at: string;
+  label: string;
+  detail: string;
+  tool_name?: string | null;
+  error?: string | null;
+}
+
 interface ToolTrace {
   tool_call_id: string;
   tool_name: string;
@@ -1900,6 +1910,7 @@ ${agent.description.trim()}`);
   }));
   const llmTimeoutMs = resolveAgentOpenRouterTimeoutMs(modelId, toolParams.length);
   const providerPreferences = resolveOpenRouterProviderPreferences(modelId, toolParams.length);
+  const responseMaxTokens = resolveAgentResponseMaxTokens(runtimeConfig.max_tokens, modelId, toolParams.length);
 
   logger.info({ runId: run.id, agentId, toolCount: toolParams.length, toolNames: tools.map(t => t.slug) }, 'Starting agent run');
 
@@ -1955,7 +1966,7 @@ ${agent.description.trim()}`);
         { role: 'user', content: continuationPrompt },
       ],
       temperature: effectiveTemperature,
-      max_tokens: runtimeConfig.max_tokens ?? 4096,
+      max_tokens: responseMaxTokens,
       provider: providerPreferences,
     }, {
       timeoutMs: llmTimeoutMs,
@@ -1973,6 +1984,13 @@ ${agent.description.trim()}`);
     }
 
     const chunk = extractAssistantTextFromMessage(continuationChoice.message);
+    logger.info({
+      runId: run.id,
+      continuationIndex,
+      finishReason: continuationChoice.finish_reason,
+      chunkLength: chunk.trim().length,
+      responseMaxTokens,
+    }, 'LLM continuation response received');
     emitEvent('chat.run.status', {
       run_id: run.id,
       status: 'continuing_output',
@@ -2012,7 +2030,7 @@ ${agent.description.trim()}`);
         tools: toolParams.length > 0 ? toolParams : undefined,
         tool_choice: toolParams.length > 0 ? 'auto' : undefined,
         temperature: effectiveTemperature,
-        max_tokens: runtimeConfig.max_tokens ?? 4096,
+        max_tokens: responseMaxTokens,
         provider: providerPreferences,
       }, {
         timeoutMs: llmTimeoutMs,
@@ -2037,6 +2055,7 @@ ${agent.description.trim()}`);
         finishReason: choice.finish_reason,
         hasToolCalls: !!(assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0),
         toolCallCount: assistantMessage.tool_calls?.length ?? 0,
+        responseMaxTokens,
       }, 'LLM response received');
 
             // If tool calls are present, execute tools and continue
@@ -2692,6 +2711,7 @@ const TOOL_AGENT_OPENROUTER_TIMEOUT_MS = 8 * 60_000;
 const CODING_AGENT_OPENROUTER_TIMEOUT_MS = 8 * 60_000;
 const GENERAL_CHAT_OPENROUTER_TIMEOUT_MS = 3 * 60_000;
 const MAX_FINAL_OUTPUT_CONTINUATIONS = 3;
+const MAX_AGENT_RESPONSE_TOKENS = 2200;
 
 function resolveAgentOpenRouterTimeoutMs(modelId: string, toolCount: number): number {
   if (isCodingModel(modelId)) {
@@ -2714,6 +2734,22 @@ function resolveOpenRouterProviderPreferences(modelId: string, toolCount: number
   }
 
   return undefined;
+}
+
+function resolveAgentResponseMaxTokens(
+  configuredMaxTokens: number | undefined,
+  modelId: string,
+  toolCount: number,
+): number {
+  const base = configuredMaxTokens && Number.isFinite(configuredMaxTokens)
+    ? Math.max(256, Math.round(configuredMaxTokens))
+    : 4096;
+
+  if (isCodingModel(modelId) || toolCount > 0) {
+    return Math.min(base, MAX_AGENT_RESPONSE_TOKENS);
+  }
+
+  return base;
 }
 
 type ChatMode = 'general' | 'agent';
@@ -3182,6 +3218,116 @@ async function getConversationMessages(chatId: string): Promise<ConversationMess
   return rows
     .filter((row) => row.role === 'user' || row.role === 'assistant')
     .map((row) => toConversationMessage(row, usdToRubRate));
+}
+
+async function getSharedPendingRunState(chat: ChatConversationRow, messages: ConversationMessage[]): Promise<SharedPendingRunState | null> {
+  const lastMessage = messages[messages.length - 1];
+  if (!lastMessage || lastMessage.role !== 'user') return null;
+
+  const lastUserAt = new Date(lastMessage.created_at);
+  if (Number.isNaN(lastUserAt.getTime())) return null;
+
+  const assistantAfterLastUser = messages.some((message) => (
+    message.role === 'assistant' && Date.parse(message.created_at) >= lastUserAt.getTime()
+  ));
+  if (assistantAfterLastUser || !chat.agent_id) return null;
+
+  const [latestRun] = await db
+    .select({
+      id: agentRuns.id,
+      status: agentRuns.status,
+      started_at: agentRuns.started_at,
+      completed_at: agentRuns.completed_at,
+      error_message: agentRuns.error_message,
+    })
+    .from(agentRuns)
+    .where(and(
+      eq(agentRuns.user_id, chat.user_id),
+      eq(agentRuns.agent_id, chat.agent_id),
+      sql`${agentRuns.started_at} >= ${lastUserAt.toISOString()}`,
+    ))
+    .orderBy(desc(agentRuns.started_at))
+    .limit(1);
+
+  if (!latestRun) return null;
+
+  const [latestToolCall] = await db
+    .select({
+      tool_name: agentRunToolCalls.tool_name,
+      status: agentRunToolCalls.status,
+      error_message: agentRunToolCalls.error_message,
+      created_at: agentRunToolCalls.created_at,
+    })
+    .from(agentRunToolCalls)
+    .where(eq(agentRunToolCalls.run_id, latestRun.id))
+    .orderBy(desc(agentRunToolCalls.created_at))
+    .limit(1);
+
+  const startedAtIso = toIso(latestRun.started_at);
+
+  if (latestRun.status === 'failed') {
+    return {
+      run_id: latestRun.id,
+      status: latestRun.status,
+      started_at: startedAtIso,
+      label: 'Ответ не получен',
+      detail: latestRun.error_message?.trim() || 'Во время выполнения произошла ошибка.',
+      tool_name: latestToolCall?.tool_name ?? null,
+      error: latestRun.error_message ?? null,
+    };
+  }
+
+  if (latestRun.status === 'completed') {
+    const completedAtMs = latestRun.completed_at ? new Date(latestRun.completed_at).getTime() : Date.now();
+    if ((Date.now() - completedAtMs) > 30_000) {
+      return null;
+    }
+    return {
+      run_id: latestRun.id,
+      status: latestRun.status,
+      started_at: startedAtIso,
+      label: 'Ответ почти готов',
+      detail: 'Финализирую сообщение и сохраняю результат в чат.',
+      tool_name: latestToolCall?.tool_name ?? null,
+      error: null,
+    };
+  }
+
+  if (latestRun.status === 'tool_executing') {
+    return {
+      run_id: latestRun.id,
+      status: latestRun.status,
+      started_at: startedAtIso,
+      label: 'Инструменты работают',
+      detail: latestToolCall?.tool_name
+        ? `Сейчас выполняется или только что обновился инструмент ${latestToolCall.tool_name}.`
+        : 'Собираю данные через инструменты.',
+      tool_name: latestToolCall?.tool_name ?? null,
+      error: latestToolCall?.error_message ?? null,
+    };
+  }
+
+  if (latestRun.status === 'continuing') {
+    return {
+      run_id: latestRun.id,
+      status: latestRun.status,
+      started_at: startedAtIso,
+      label: 'Обрабатываю результаты инструментов',
+      detail: 'Собираю найденные данные в единый финальный ответ.',
+      tool_name: latestToolCall?.tool_name ?? null,
+      error: null,
+    };
+  }
+
+  return {
+    run_id: latestRun.id,
+    status: latestRun.status,
+    started_at: startedAtIso,
+    label: 'Агент работает',
+    detail: 'Анализирую задачу и готовлю следующие шаги.',
+    tool_name: latestToolCall?.tool_name ?? null,
+    error: null,
+  };
 }
 
 function extractUsageAttachments(value: Record<string, unknown> | null | undefined): ChatAttachmentMeta[] {
@@ -4948,6 +5094,7 @@ export async function getSharedChatById(token: string, viewerUserId?: string | n
   await registerConversationView(chat, viewerUserId, viewerKey);
 
   const messages = await getConversationMessages(chat.id);
+  const pending_run = await getSharedPendingRunState(chat, messages);
   let agentName: string | null = null;
 
   if (chat.agent_id) {
@@ -4964,6 +5111,7 @@ export async function getSharedChatById(token: string, viewerUserId?: string | n
       mode: chat.mode,
       agent_name: agentName,
     },
+    pending_run,
     messages: messages.map((m) => ({
       id: m.id,
       role: m.role,

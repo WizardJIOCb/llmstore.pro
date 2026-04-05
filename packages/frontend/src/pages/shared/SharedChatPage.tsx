@@ -24,6 +24,15 @@ interface V2SharedChat {
     mode: 'general' | 'agent';
     agent_name: string | null;
   };
+  pending_run?: {
+    run_id: string;
+    status: string;
+    started_at: string;
+    label: string;
+    detail: string;
+    tool_name?: string | null;
+    error?: string | null;
+  } | null;
   messages: Array<{
     id: string;
     role: 'user' | 'assistant';
@@ -50,6 +59,7 @@ interface SharedPageData {
   isOwner?: boolean;
   title: string;
   subtitle: string;
+  pendingRun?: V2SharedChat['pending_run'];
   messages: SharedMessageItem[];
 }
 
@@ -223,6 +233,7 @@ export function SharedChatPage() {
           subtitle: v2.data.data.chat.is_owner
             ? 'Общий чат. Управление preview и deployment доступно владельцу.'
             : 'Общий чат только для чтения. Управление preview, deployment и секретами доступно только владельцу.',
+          pendingRun: v2.data.data.pending_run ?? null,
           messages: v2.data.data.messages.map((message): SharedMessageItem => ({
             id: message.id,
             role: message.role,
@@ -238,6 +249,7 @@ export function SharedChatPage() {
         return {
           title: legacy.data.data.agent_name,
           subtitle: 'Общий чат только для чтения.',
+          pendingRun: null,
           messages: legacy.data.data.messages.map((message): SharedMessageItem => ({
             role: message.role,
             content: message.content,
@@ -249,12 +261,12 @@ export function SharedChatPage() {
     refetchInterval: (query) => {
       const sharedData = query.state.data as SharedPageData | undefined;
       if (sendFixMessageMutation.isPending) return 4_000;
-      return shouldRefetchSharedChat(sharedData) ? 4_000 : false;
+      return sharedData && (shouldRefetchSharedChat(sharedData) || Boolean(sharedData.pendingRun)) ? 4_000 : false;
     },
   });
 
   const isPendingSharedReply = useMemo(
-    () => Boolean(data && shouldRefetchSharedChat(data)),
+    () => Boolean(data && (shouldRefetchSharedChat(data) || data.pendingRun)),
     [data],
   );
 
@@ -403,11 +415,26 @@ export function SharedChatPage() {
       ? 'Ответ почти готов'
       : latestEvent?.event === 'chat.run.tool.started'
         ? 'Инструменты работают'
-        : 'Агент работает';
+        : data.pendingRun?.label || 'Агент работает';
   const pendingDetail = latestEvent?.error
     || latestEvent?.detail
     || latestEvent?.label
+    || data.pendingRun?.detail
     || 'Собираю ответ, выполняю инструменты и автоматически обновлю страницу, когда сообщение появится.';
+  const displayedStreamEvents = streamEvents.length > 0
+    ? streamEvents
+    : (data.pendingRun
+      ? [{
+        id: `pending-${data.pendingRun.run_id}`,
+        event: 'pending.snapshot',
+        label: data.pendingRun.label,
+        detail: data.pendingRun.detail,
+        status: data.pendingRun.status,
+        tool_name: data.pendingRun.tool_name ?? undefined,
+        ts: data.pendingRun.started_at,
+        error: data.pendingRun.error ?? undefined,
+      } satisfies LiveSharedEvent]
+      : []);
 
   return (
     <div className="container mx-auto max-w-3xl px-4 py-8">
@@ -426,9 +453,9 @@ export function SharedChatPage() {
           <ChatThinkingBubble
             label={pendingLabel}
             detail={pendingDetail}
-            startedAt={lastMessage.created_at ?? null}
+            startedAt={data.pendingRun?.started_at ?? lastMessage.created_at ?? null}
           />
-          {streamEvents.length > 0 && (
+          {displayedStreamEvents.length > 0 && (
             <div className="rounded-xl border border-sky-200 bg-sky-50/80 p-4">
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div>
@@ -439,7 +466,7 @@ export function SharedChatPage() {
                 </div>
               </div>
               <div className="space-y-2">
-                {streamEvents.map((event) => (
+                {displayedStreamEvents.map((event) => (
                   <div key={event.id} className="rounded-lg border border-sky-200/80 bg-white/80 px-3 py-2">
                     <div className="flex items-start justify-between gap-3">
                       <div>
