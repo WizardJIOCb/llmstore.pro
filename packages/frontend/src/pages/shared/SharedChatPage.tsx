@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChatLiveProgressPanel } from '../../components/agents/ChatLiveProgressPanel';
 import { ChatMessage } from '../../components/agents/ChatMessage';
 import { ChatThinkingBubble } from '../../components/agents/ChatThinkingBubble';
@@ -200,6 +200,7 @@ export function SharedChatPage() {
   const [streamEvents, setStreamEvents] = useState<LiveSharedEvent[]>([]);
   const [streamConnected, setStreamConnected] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const streamRunKeyRef = useRef<string | null>(null);
 
   const updateSharedPreviewMutation = useMutation({
     mutationFn: ({ messageId, ...payload }: { messageId: string; title?: string | null; html: string }) =>
@@ -245,7 +246,11 @@ export function SharedChatPage() {
             created_at: message.created_at,
           })),
         } satisfies SharedPageData;
-      } catch {
+      } catch (requestError) {
+        const maybe = requestError as { response?: { status?: number } };
+        if (maybe?.response?.status !== 404) {
+          throw requestError;
+        }
         const legacy = await apiClient.get<{ data: LegacySharedChat }>(`/shared/chat/${token}`);
         return {
           title: legacy.data.data.agent_name,
@@ -259,6 +264,7 @@ export function SharedChatPage() {
       }
     },
     enabled: !!token,
+    placeholderData: keepPreviousData,
     refetchInterval: (query) => {
       const sharedData = query.state.data as SharedPageData | undefined;
       if (sendFixMessageMutation.isPending) return 4_000;
@@ -281,9 +287,15 @@ export function SharedChatPage() {
       return;
     }
 
+    const nextRunKey = `${token}:${data?.pendingRun?.run_id ?? 'pending'}`;
+    const shouldResetEvents = streamRunKeyRef.current !== nextRunKey;
+    streamRunKeyRef.current = nextRunKey;
+
     const source = new EventSource(`/api/shared/chats/${token}/events`);
     eventSourceRef.current = source;
-    setStreamEvents([]);
+    if (shouldResetEvents) {
+      setStreamEvents([]);
+    }
     setStreamConnected(false);
 
     const pushEvent = (eventName: string, payload: {
@@ -360,7 +372,7 @@ export function SharedChatPage() {
         eventSourceRef.current = null;
       }
     };
-  }, [isPendingSharedReply, token]);
+  }, [data?.pendingRun?.run_id, isPendingSharedReply, token]);
 
   if (isLoading) {
     return (
