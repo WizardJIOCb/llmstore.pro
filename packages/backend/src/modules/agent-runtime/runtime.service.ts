@@ -43,6 +43,7 @@ const PROJECT_RUN_TIMEOUT_MS = 20_000;
 const PROJECT_HTTP_READY_TIMEOUT_MS = 8_000;
 const PROJECT_HTTP_PROBE_INTERVAL_MS = 500;
 const PROJECT_MAX_OUTPUT_CHARS = 24_000;
+const STALE_PENDING_RUN_MS = 12 * 60_000;
 
 interface ChatAttachmentInput {
   filename: string;
@@ -3655,6 +3656,35 @@ async function getConversationRuntimeState(chat: ChatConversationRow, messages: 
     : (assistantMessagesAfterLastUser.find((message) => message.run_id === latestRun.id) ?? latestAssistantMessage);
   const hasAssistantForRun = Boolean(latestAssistantForRun);
   const isPartialResult = isConversationMessagePartial(latestAssistantForRun);
+  const latestAssistantObservedAtMs = latestAssistantForRun?.created_at ? Date.parse(latestAssistantForRun.created_at) : Number.NaN;
+  const latestToolObservedAtMs = latestToolCall?.created_at ? new Date(latestToolCall.created_at).getTime() : Number.NaN;
+  const startedAtMs = new Date(latestRun.started_at).getTime();
+  const lastObservedActivityMs = Math.max(
+    Number.isNaN(startedAtMs) ? 0 : startedAtMs,
+    Number.isNaN(latestAssistantObservedAtMs) ? 0 : latestAssistantObservedAtMs,
+    Number.isNaN(latestToolObservedAtMs) ? 0 : latestToolObservedAtMs,
+  );
+  const isStalePendingRun = !latestRun.completed_at
+    && lastObservedActivityMs > 0
+    && (Date.now() - lastObservedActivityMs) > STALE_PENDING_RUN_MS;
+
+  if (isStalePendingRun) {
+    return {
+      run_id: latestRun.id,
+      status: 'failed',
+      started_at: startedAtIso,
+      completed_at: completedAtIso,
+      result_status: hasAssistantForRun ? 'failed_partial' : 'failed_no_result',
+      label: hasAssistantForRun ? 'Run завис после частичного результата' : 'Run завис без финального ответа',
+      detail: hasAssistantForRun
+        ? 'После частичного результата больше не было новых обновлений. Считаю run зависшим и завершаю его как неуспешный.'
+        : 'Новых обновлений по run слишком долго нет. Считаю его зависшим и завершаю как неуспешный.',
+      tool_name: latestToolCall?.tool_name ?? null,
+      error: latestRun.error_message ?? 'STALE_PENDING_RUN',
+      is_terminal: true,
+      is_partial: hasAssistantForRun,
+    };
+  }
 
   if (latestRun.status === 'failed') {
     return {
