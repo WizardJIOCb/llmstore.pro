@@ -572,9 +572,45 @@ function extractAssistantTextFromMessage(message: unknown): string {
   return '';
 }
 
+function looksLikeCodeLine(line: string): boolean {
+  const value = line.trim();
+  if (!value) return false;
+  return /^(<!doctype|<html\b|<head\b|<body\b|<style\b|<script\b|<\/|<div\b|<section\b|<main\b|<header\b|<footer\b|<svg\b|<!--|[.#@]?[\w-]+\s*\{|const\s|let\s|var\s|function\s|\}|<\/?[a-z])/i.test(value);
+}
+
+function stripContinuationNarration(content: string): string {
+  const normalized = content.replace(/\r\n/g, '\n');
+
+  let cleaned = normalized
+    .replace(/```(?:html)?\s*/gi, '')
+    .replace(/^\s*(?:Продолжаю с места остановки|Продолжаю строго с места остановки|Выдаю полный HTML(?:-файл)? целиком|Ниже\s+[—-]\s+полный.*HTML.*|Вот\s+полный.*HTML.*|Ниже\s+полный.*HTML.*)\s*:?\s*$/gimu, '')
+    .replace(/\n{3,}/g, '\n\n');
+
+  const lines = cleaned.split('\n');
+  while (lines.length > 0) {
+    const first = lines[0]?.trim() ?? '';
+    if (!first) {
+      lines.shift();
+      continue;
+    }
+    if (
+      /^(?:Продолжаю|Выдаю|Ниже|Вот)\b/iu.test(first)
+      && !looksLikeCodeLine(first)
+    ) {
+      lines.shift();
+      continue;
+    }
+    break;
+  }
+
+  cleaned = lines.join('\n').trim();
+  return cleaned.replace(/\n*\[Ответ[^\]]+\]\s*$/u, '').trim();
+}
+
 function mergeAssistantOutputChunks(base: string, next: string): string {
-  const left = base.trimEnd();
-  const right = next.trimStart();
+  const htmlLike = looksLikeHtmlPreviewPayload(base) || looksLikeHtmlPreviewPayload(next);
+  const left = (htmlLike ? stripContinuationNarration(base) : base).trimEnd();
+  const right = (htmlLike ? stripContinuationNarration(next) : next).trimStart();
   if (!left) return right;
   if (!right) return left;
   if (left.endsWith(right)) return left;
@@ -1024,9 +1060,7 @@ function recoverHtmlPreviewFromMarkdown(
     if (/index\.html/i.test(headingContext)) score += 2;
     if (score < 5) continue;
 
-    const html = rawBlock
-      .replace(/\n*\[Ответ[^\]]+\]\s*$/u, '')
-      .trim();
+    const html = stripContinuationNarration(rawBlock);
     if (!html) continue;
 
     const cleanText = [
@@ -1090,7 +1124,7 @@ function normalizePreview(value: unknown): CodingReportPreview | null | undefine
     };
   }
 
-  const html = clampText(preview.html, 50_000);
+  const html = clampText(stripContinuationNarration(String(preview.html ?? '')), 50_000);
   if (!html) return null;
   return {
     type,
@@ -2160,7 +2194,7 @@ ${agent.description.trim()}`);
     const continuationPrompt = currentOutput.includes('<dev-report>')
       ? 'Продолжай строго с места остановки. Не повторяй уже выведенный текст. Если <dev-report> ещё не закончен, сначала заверши JSON и закрой </dev-report>, затем продолжи оставшийся ответ.'
       : /```html|<!doctype html|<html[\s>]/i.test(currentOutput)
-        ? 'Продолжай строго с места остановки внутри текущего HTML-файла. Не повторяй уже выведенный текст. Сначала допиши HTML до закрывающих тегов </body> и </html>, затем закрой markdown fence ``` и только после этого при необходимости добавь короткую заметку.'
+        ? 'Продолжай строго с места остановки внутри текущего HTML-файла. Не повторяй уже выведенный текст. Не пиши вступлений, пояснений, фраз вроде "продолжаю" и вообще никакого текста вне HTML. Верни только недостающий хвост HTML/CSS/JS. Сначала допиши HTML до закрывающих тегов </body> и </html>, затем закрой markdown fence ```.'
         : 'Продолжай строго с места остановки. Не повторяй уже выведенный текст и выведи только недостающую часть ответа.';
 
     const continuationResponse = await openRouterClient.chatCompletion({
@@ -2934,7 +2968,7 @@ const AGENT_OPENROUTER_TIMEOUT_MS = 3 * 60_000;
 const TOOL_AGENT_OPENROUTER_TIMEOUT_MS = 8 * 60_000;
 const CODING_AGENT_OPENROUTER_TIMEOUT_MS = 8 * 60_000;
 const GENERAL_CHAT_OPENROUTER_TIMEOUT_MS = 3 * 60_000;
-const MAX_FINAL_OUTPUT_CONTINUATIONS = 8;
+const MAX_FINAL_OUTPUT_CONTINUATIONS = 12;
 const MAX_AGENT_RESPONSE_TOKENS = 2200;
 
 function resolveAgentOpenRouterTimeoutMs(modelId: string, toolCount: number): number {
