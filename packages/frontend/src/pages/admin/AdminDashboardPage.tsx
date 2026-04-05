@@ -210,16 +210,6 @@ export function AdminDashboardPage() {
               </div>
             )}
 
-            {openrouter.credits.is_available && (
-              <div className="rounded-lg border p-4">
-                <h4 className="font-medium">Баланс аккаунта</h4>
-                <div className="mt-3 grid gap-3 sm:grid-cols-3">
-                  <DetailStat label="Всего кредитов" value={formatOptionalNumber(openrouter.credits.total_credits)} />
-                  <DetailStat label="Израсходовано" value={formatOptionalNumber(openrouter.credits.total_usage)} />
-                  <DetailStat label="Осталось" value={formatOptionalNumber(openrouter.credits.remaining_credits)} />
-                </div>
-              </div>
-            )}
           </div>
         </section>
 
@@ -330,11 +320,3 @@ function DetailRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function DetailStat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border p-3">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-1 text-lg font-semibold">{value}</p>
-    </div>
-  );
-}
