@@ -471,6 +471,13 @@ function isPendingRunProblematicTerminal(pendingRun?: ChatPendingRunState | null
   return pendingRun.result_status === 'partial' || pendingRun.result_status === 'failed_no_result' || pendingRun.result_status === 'failed_partial';
 }
 
+const LONG_RUN_FAILED_NO_RESULT_NOTICE = 'Run завершился без финального результата. Ответ в чат не доехал полностью.';
+const LONG_RUN_PARTIAL_NOTICE = 'Run завершился, но итоговый результат сохранился только частично. Лучше упростить задачу или попросить продолжить точечно.';
+
+function isLongRunTerminalNotice(value: string | null | undefined): boolean {
+  return value === LONG_RUN_FAILED_NO_RESULT_NOTICE || value === LONG_RUN_PARTIAL_NOTICE;
+}
+
 function inferOptimisticAttachmentKind(file: File): ChatAttachment['kind'] {
   if (file.type.startsWith('image/')) {
     return 'image';
@@ -2576,10 +2583,20 @@ export function ChatsPage() {
 
     showLocalWarning(
       pendingRun.result_status === 'failed_no_result'
-        ? 'Run завершился без финального результата. Ответ в чат не доехал полностью.'
-        : 'Run завершился, но итоговый результат сохранился только частично. Лучше упростить задачу или попросить продолжить точечно.',
+        ? LONG_RUN_FAILED_NO_RESULT_NOTICE
+        : LONG_RUN_PARTIAL_NOTICE,
     );
   }, [activeChat?.pending_run, localError]);
+
+  useEffect(() => {
+    if (!isLongRunTerminalNotice(localError)) return;
+
+    const pendingRun = activeChat?.pending_run;
+    if (pendingRun && isPendingRunProblematicTerminal(pendingRun)) return;
+
+    setLocalError(null);
+    setLocalNoticeAction(null);
+  }, [activeChat?.id, activeChat?.pending_run, localError]);
 
   const renderChatRow = (chat: ChatListItem) => (
     <div
