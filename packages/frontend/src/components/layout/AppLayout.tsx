@@ -91,6 +91,12 @@ export function AppLayout() {
   };
 
   const selectChat = (chatId: string) => {
+    if (!isChatsPage) {
+      closeMobileMenu();
+      navigate(`/chats?chat=${chatId}`);
+      return;
+    }
+
     window.dispatchEvent(new CustomEvent('select-chat', { detail: chatId }));
     closeMobileMenu();
   };
@@ -154,6 +160,10 @@ export function AppLayout() {
   }, [location.pathname, location.search]);
 
   const goToMobileChatsList = () => {
+    if (isMobileMenuOpen && !isMobileMenuClosing) {
+      closeMobileMenu();
+    }
+
     try {
       window.localStorage.removeItem(LAST_CHAT_SELECTION_STORAGE_KEY);
     } catch {
@@ -392,7 +402,7 @@ export function AppLayout() {
                 ))}
               </nav>
 
-              {isChatsPage && (
+              {isAuthenticated && (
                 <div className="mt-4 rounded-[22px] border border-white/10 bg-white/[0.04] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
                   <div className="mobile-popover-item mobile-popover-item--in" style={{ animationDelay: `${mobileActionDelayBase * MOBILE_MENU_ITEM_STAGGER_MS}ms` }}>
                     <p className="text-xs uppercase tracking-[0.22em] text-slate-400">Список чатов</p>
@@ -420,13 +430,13 @@ export function AppLayout() {
                       </Button>
                     </div>
                   ) : (
-                    <div className="mt-2 max-h-32 space-y-1 overflow-y-auto pr-1">
+                    <div className="mt-2 max-h-[10.5rem] space-y-1 overflow-y-auto pr-1">
                       {chats.map((chat, index) => (
                         <button
                           key={chat.id}
                           type="button"
                           className={cn(
-                            'mobile-popover-item flex w-full rounded-[18px] border border-white/10 bg-white/[0.03] px-3 py-2 text-left text-[0.96rem] text-white/78 transition-colors hover:bg-white/[0.06] hover:text-white',
+                            'mobile-popover-item flex min-h-[2.4rem] w-full items-center rounded-[18px] border border-white/10 bg-white/[0.03] px-3 py-1.5 text-left text-[0.92rem] leading-tight text-white/78 transition-colors hover:bg-white/[0.06] hover:text-white',
                             isMobileMenuClosing ? 'mobile-popover-item--out' : 'mobile-popover-item--in',
                           )}
                           style={{ animationDelay: `${(mobileActionDelayBase + 1 + index) * MOBILE_MENU_ITEM_STAGGER_MS}ms` }}
