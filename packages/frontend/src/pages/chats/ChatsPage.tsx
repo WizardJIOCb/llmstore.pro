@@ -466,6 +466,11 @@ function isPendingRunLive(pendingRun?: ChatPendingRunState | null): boolean {
   return Boolean(pendingRun) && !isPendingRunTerminal(pendingRun);
 }
 
+function isPendingRunProblematicTerminal(pendingRun?: ChatPendingRunState | null): boolean {
+  if (!pendingRun || !isPendingRunTerminal(pendingRun)) return false;
+  return pendingRun.result_status === 'partial' || pendingRun.result_status === 'failed_no_result' || pendingRun.result_status === 'failed_partial';
+}
+
 function inferOptimisticAttachmentKind(file: File): ChatAttachment['kind'] {
   if (file.type.startsWith('image/')) {
     return 'image';
@@ -2563,6 +2568,18 @@ export function ChatsPage() {
       ));
     }
   }, [activeChat?.id, activeChat?.pending_run]);
+
+  useEffect(() => {
+    const pendingRun = activeChat?.pending_run;
+    if (!pendingRun || !isPendingRunProblematicTerminal(pendingRun)) return;
+    if (localError) return;
+
+    showLocalWarning(
+      pendingRun.result_status === 'failed_no_result'
+        ? 'Run завершился без финального результата. Ответ в чат не доехал полностью.'
+        : 'Run завершился, но итоговый результат сохранился только частично. Лучше упростить задачу или попросить продолжить точечно.',
+    );
+  }, [activeChat?.pending_run, localError]);
 
   const renderChatRow = (chat: ChatListItem) => (
     <div

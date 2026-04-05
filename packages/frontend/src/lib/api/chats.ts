@@ -187,6 +187,7 @@ export interface ChatPendingRunState {
   status: string;
   started_at: string;
   completed_at?: string | null;
+  result_status?: 'success' | 'partial' | 'failed_no_result' | 'failed_partial';
   label: string;
   detail: string;
   tool_name?: string | null;

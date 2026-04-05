@@ -469,6 +469,7 @@ interface SharedPendingRunState {
   status: string;
   started_at: string;
   completed_at?: string | null;
+  result_status?: 'success' | 'partial' | 'failed_no_result' | 'failed_partial';
   label: string;
   detail: string;
   tool_name?: string | null;
@@ -3492,10 +3493,10 @@ function isConversationMessagePartial(message?: ConversationMessage | null): boo
 }
 
 async function getConversationRuntimeState(chat: ChatConversationRow, messages: ConversationMessage[]): Promise<SharedPendingRunState | null> {
-  const lastMessage = messages[messages.length - 1];
-  if (!lastMessage || lastMessage.role !== 'user') return null;
+  const lastUserMessage = [...messages].reverse().find((message) => message.role === 'user') ?? null;
+  if (!lastUserMessage) return null;
 
-  const lastUserAt = new Date(lastMessage.created_at);
+  const lastUserAt = new Date(lastUserMessage.created_at);
   if (Number.isNaN(lastUserAt.getTime())) return null;
 
   const assistantMessagesAfterLastUser = messages.filter((message) => (
@@ -3550,7 +3551,28 @@ async function getConversationRuntimeState(chat: ChatConversationRow, messages: 
       .limit(1);
   }
 
-  if (!latestRun) return null;
+  if (!latestRun) {
+    if (!latestAssistantMessage) return null;
+
+    const latestAssistantCreatedAt = latestAssistantMessage.created_at;
+    const partialWithoutRun = isConversationMessagePartial(latestAssistantMessage);
+
+    return {
+      run_id: latestAssistantMessage.run_id ?? latestAssistantMessage.id,
+      status: 'completed',
+      started_at: lastUserMessage.created_at,
+      completed_at: latestAssistantCreatedAt,
+      result_status: partialWithoutRun ? 'partial' : 'success',
+      label: partialWithoutRun ? 'Результат сохранён частично' : 'Ответ сохранён в чате',
+      detail: partialWithoutRun
+        ? 'Итоговый ответ сохранился не полностью, но часть результата уже есть в чате.'
+        : 'Run уже завершён, и результат сохранён в чат.',
+      tool_name: null,
+      error: null,
+      is_terminal: true,
+      is_partial: partialWithoutRun,
+    };
+  }
 
   const [latestToolCall] = await db
     .select({
@@ -3578,6 +3600,7 @@ async function getConversationRuntimeState(chat: ChatConversationRow, messages: 
       status: latestRun.status,
       started_at: startedAtIso,
       completed_at: completedAtIso,
+      result_status: hasAssistantForRun ? 'failed_partial' : 'failed_no_result',
       label: hasAssistantForRun ? 'Выполнение завершилось с ошибкой, сохранился частичный результат' : 'Ответ не получен',
       detail: latestRun.error_message?.trim() || (
         hasAssistantForRun
@@ -3617,6 +3640,7 @@ async function getConversationRuntimeState(chat: ChatConversationRow, messages: 
       status: latestRun.status,
       started_at: startedAtIso,
       completed_at: completedAtIso,
+      result_status: isPartialResult ? 'partial' : 'success',
       label: isPartialResult ? 'Результат сохранён частично' : 'Ответ сохранён в чате',
       detail: isPartialResult
         ? 'Run завершился, но итоговый ответ сохранился не полностью.'
