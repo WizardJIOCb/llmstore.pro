@@ -783,18 +783,6 @@ export function ChatsPage() {
     },
     [messages, debugThinkingForActiveChat, optimisticMessageForActiveChat],
   );
-  const partialRuntimeChatIds = useMemo(() => {
-    const ids = new Set<string>();
-    if (
-      activeChat?.id
-      && activeChat.pending_run
-      && isPendingRunLive(activeChat.pending_run)
-      && displayedMessages.some((message) => message.role === 'assistant')
-    ) {
-      ids.add(activeChat.id);
-    }
-    return ids;
-  }, [activeChat?.id, activeChat?.pending_run, displayedMessages]);
   const activePreviewMessageIds = useMemo(
     () => messages.filter(hasHtmlPreviewMessage).map((message) => message.id),
     [messages],
@@ -2685,9 +2673,13 @@ export function ChatsPage() {
       )}
     >
       {(() => {
-        const livePendingRun = activeChatId === chat.id && activeChat?.pending_run && isPendingRunLive(activeChat.pending_run)
-          ? activeChat.pending_run
-          : null;
+        const livePendingRun = isPendingRunLive(chat.pending_run ?? null)
+          ? (chat.pending_run ?? null)
+          : (activeChatId === chat.id && activeChat?.pending_run && isPendingRunLive(activeChat.pending_run)
+            ? activeChat.pending_run
+            : null);
+        const rowHasLiveRun = Boolean(livePendingRun) || activeRuntimeChatIds.has(chat.id);
+        const rowHasPartialRun = Boolean(livePendingRun?.is_partial);
         const previewText = livePendingRun
           ? `${livePendingRun.label}. Чат ещё не завершён.`
           : (formatChatPreview(chat.last_message_preview) || (chat.mode === 'general' ? 'Общение' : 'Чат с ботом'));
@@ -2695,6 +2687,18 @@ export function ChatsPage() {
           <>
       <button type="button" onClick={() => setActiveChatId(chat.id)} className="w-full pr-8 text-left">
         <div className="flex items-center gap-1 pr-2">
+          {rowHasLiveRun && (
+            <span
+              className={cn(
+                'h-2.5 w-2.5 shrink-0 rounded-full animate-pulse',
+                rowHasPartialRun
+                  ? 'bg-amber-500 shadow-[0_0_0_3px_rgba(245,158,11,0.18)]'
+                  : 'bg-emerald-500 shadow-[0_0_0_3px_rgba(34,197,94,0.16)]',
+              )}
+              aria-label={rowHasPartialRun ? 'Run ещё дособирает финальный результат' : 'Runtime выполняется'}
+              title={rowHasPartialRun ? 'Run ещё дособирает финальный результат' : 'Runtime выполняется'}
+            />
+          )}
           {chat.access !== 'public' && (
             <span
               className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-slate-500"
@@ -2721,18 +2725,6 @@ export function ChatsPage() {
             <span className="shrink-0 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">
               Чужой чат
             </span>
-          )}
-          {activeRuntimeChatIds.has(chat.id) && (
-            <span
-              className={cn(
-                'h-2.5 w-2.5 shrink-0 rounded-full animate-pulse',
-                partialRuntimeChatIds.has(chat.id)
-                  ? 'bg-amber-500 shadow-[0_0_0_3px_rgba(245,158,11,0.18)]'
-                  : 'bg-emerald-500 shadow-[0_0_0_3px_rgba(34,197,94,0.16)]',
-              )}
-              aria-label={partialRuntimeChatIds.has(chat.id) ? 'Run ещё дособирает финальный результат' : 'Runtime выполняется'}
-              title={partialRuntimeChatIds.has(chat.id) ? 'Run ещё дособирает финальный результат' : 'Runtime выполняется'}
-            />
           )}
         </div>
         <p className="truncate text-[11px] text-muted-foreground">

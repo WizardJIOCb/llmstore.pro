@@ -138,6 +138,7 @@ export interface ChatListItem {
   share_token: string | null;
   message_count: number;
   last_message_preview: string | null;
+  pending_run?: ChatPendingRunState | null;
   last_message_at: string;
   created_at: string;
   updated_at: string;

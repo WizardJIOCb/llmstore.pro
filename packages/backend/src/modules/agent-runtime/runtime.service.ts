@@ -1468,35 +1468,51 @@ function recoverHtmlPreviewFromLooseContent(
   report?: CodingReport | null,
 ): { preview: CodingReportPreview; cleanText: string; incomplete: boolean } | null {
   const normalized = content.replace(/\r\n/g, '\n');
-  const startMatch = normalized.match(/<!doctype\s+html|<html[\s>]/i);
-  if (!startMatch || startMatch.index == null) return null;
+  const starts = [...normalized.matchAll(/<!doctype\s+html|<html[\s>]/gi)]
+    .map((match) => match.index)
+    .filter((index): index is number => typeof index === 'number');
+  if (starts.length === 0) return null;
 
-  const startIndex = startMatch.index;
-  const before = normalized.slice(0, startIndex).trim();
-  const htmlTail = stripContinuationNarration(normalized.slice(startIndex));
-  if (!looksLikeHtmlPreviewPayload(htmlTail)) return null;
+  let bestMatch: { html: string; cleanText: string; incomplete: boolean; score: number } | null = null;
 
-  const closingMatches = [...htmlTail.matchAll(/<\/html>/gi)];
-  const lastClosingMatch = closingMatches[closingMatches.length - 1];
-  const htmlEnd = lastClosingMatch && lastClosingMatch.index != null
-    ? lastClosingMatch.index + lastClosingMatch[0].length
-    : htmlTail.length;
+  for (let i = 0; i < starts.length; i += 1) {
+    const startIndex = starts[i];
+    const nextStartIndex = starts[i + 1] ?? normalized.length;
+    const candidateTail = stripContinuationNarration(normalized.slice(startIndex, nextStartIndex));
+    if (!looksLikeHtmlPreviewPayload(candidateTail)) continue;
 
-  const html = htmlTail.slice(0, htmlEnd).trim();
-  const after = stripContinuationNarration(htmlTail.slice(htmlEnd)).trim();
-  const cleanText = [before, after].filter(Boolean).join('\n\n').trim();
-  const incomplete = !/<\/html>\s*$/i.test(html);
+    const closeMatch = [...candidateTail.matchAll(/<\/html>/gi)].pop();
+    const htmlEnd = closeMatch && closeMatch.index != null
+      ? closeMatch.index + closeMatch[0].length
+      : candidateTail.length;
+    const html = candidateTail.slice(0, htmlEnd).trim();
+    if (!html) continue;
+
+    const before = normalized.slice(0, startIndex).trim();
+    const after = stripContinuationNarration(
+      normalized.slice(startIndex + htmlEnd),
+    ).trim();
+    const cleanText = [before, after].filter(Boolean).join('\n\n').trim();
+    const incomplete = !/<\/html>\s*$/i.test(html);
+    const score = (incomplete ? 0 : 10) + html.length;
+
+    if (!bestMatch || score > bestMatch.score) {
+      bestMatch = { html, cleanText, incomplete, score };
+    }
+  }
+
+  if (!bestMatch) return null;
 
   return {
     preview: {
       type: 'html',
-      title: extractHtmlTitleFromDocument(html)
+      title: extractHtmlTitleFromDocument(bestMatch.html)
         ?? clampText(report?.summary, 200)
         ?? 'Recovered preview',
-      html,
+      html: bestMatch.html,
     },
-    cleanText,
-    incomplete,
+    cleanText: bestMatch.cleanText,
+    incomplete: bestMatch.incomplete,
   };
 }
 
@@ -3198,6 +3214,15 @@ ${agent.description.trim()}`);
               break;
             }
           }
+
+          if (finalOutputWasTruncated) {
+            const sectionalAssemblyAfterContinuations = await attemptSectionalLandingAssembly(combinedAssistantOutput || finalOutput);
+            if (sectionalAssemblyAfterContinuations) {
+              finalOutput = sectionalAssemblyAfterContinuations.content;
+              codingReport = sectionalAssemblyAfterContinuations.codingReport;
+              finalOutputWasTruncated = false;
+            }
+          }
         }
       } else if (finalOutput && shouldContinueLongOutput(finalOutput, choice.finish_reason)) {
         await persistPartialAssistantOutput(finalOutput, { markTruncated: true });
@@ -3217,6 +3242,19 @@ ${agent.description.trim()}`);
           if (!shouldContinueLongOutput(finalOutput, continuation.finishReason)) {
             finalOutputWasTruncated = false;
             break;
+          }
+        }
+
+        if (
+          finalOutputWasTruncated
+          && looksLikeLandingBuildRequest(latestUserMessage)
+          && !strictPreviewEdit
+        ) {
+          const sectionalAssemblyAfterContinuations = await attemptSectionalLandingAssembly(combinedAssistantOutput || finalOutput);
+          if (sectionalAssemblyAfterContinuations) {
+            finalOutput = sectionalAssemblyAfterContinuations.content;
+            codingReport = sectionalAssemblyAfterContinuations.codingReport;
+            finalOutputWasTruncated = false;
           }
         }
       } else if (finalOutput) {
@@ -3770,7 +3808,7 @@ const AGENT_OPENROUTER_TIMEOUT_MS = 3 * 60_000;
 const TOOL_AGENT_OPENROUTER_TIMEOUT_MS = 8 * 60_000;
 const CODING_AGENT_OPENROUTER_TIMEOUT_MS = 8 * 60_000;
 const GENERAL_CHAT_OPENROUTER_TIMEOUT_MS = 3 * 60_000;
-const MAX_FINAL_OUTPUT_CONTINUATIONS = 12;
+const MAX_FINAL_OUTPUT_CONTINUATIONS = 24;
 const MAX_AGENT_RESPONSE_TOKENS = 2200;
 
 function resolveAgentOpenRouterTimeoutMs(modelId: string, toolCount: number): number {
@@ -4987,9 +5025,14 @@ export async function listChats(userId: string): Promise<ConversationListItem[]>
   const lastMessages = await db
     .select({
       conversation_id: chatConversationMessages.conversation_id,
+      role: chatConversationMessages.role,
       content_text: chatConversationMessages.content_text,
       created_at: chatConversationMessages.created_at,
       id: chatConversationMessages.id,
+      run_id: chatConversationMessages.run_id,
+      usage_json: chatConversationMessages.usage_json,
+      project_run_count: chatConversationMessages.project_run_count,
+      latency_ms: chatConversationMessages.latency_ms,
     })
     .from(chatConversationMessages)
     .where(inArray(chatConversationMessages.conversation_id, ids))
@@ -5001,9 +5044,28 @@ export async function listChats(userId: string): Promise<ConversationListItem[]>
   const previewMap = new Map<string, string>();
   for (const m of lastMessages) {
     if (!previewMap.has(m.conversation_id)) {
-      const previewContent = normalizeAssistantChatPayload(m.content_text, null).content;
+      const previewContent = normalizeAssistantChatPayload(
+        m.content_text,
+        (m.usage_json as Record<string, unknown> | null) ?? null,
+      ).content;
       previewMap.set(m.conversation_id, compactTitle(previewContent || m.content_text));
     }
+  }
+
+  const messagesByConversation = new Map<string, ConversationMessage[]>();
+  for (const m of lastMessages) {
+    const list = messagesByConversation.get(m.conversation_id) ?? [];
+    list.push({
+      id: m.id,
+      role: m.role as 'user' | 'assistant',
+      content: m.content_text,
+      run_id: m.run_id ?? null,
+      usage: (m.usage_json as Record<string, unknown> | null) ?? null,
+      project_run_count: m.project_run_count ?? 0,
+      latency_ms: m.latency_ms ?? null,
+      created_at: toIso(m.created_at),
+    });
+    messagesByConversation.set(m.conversation_id, list);
   }
 
   const agentMetaMap = new Map<string, { name: string | null; model_external_id: string | null; model_label: string | null }>();
@@ -5029,6 +5091,20 @@ export async function listChats(userId: string): Promise<ConversationListItem[]>
     }
   }
 
+  const pendingRuns = await Promise.all(chats.map(async (chat) => {
+    const pendingRun = await getConversationRuntimeState(
+      {
+        ...(chat as ChatConversationRow),
+        mode: chat.mode as ChatMode,
+        access: normalizeChatAccess(chat.access),
+        access_identifiers: normalizeAccessIdentifiers(chat.access_identifiers),
+      },
+      messagesByConversation.get(chat.id) ?? [],
+    );
+    return [chat.id, pendingRun] as const;
+  }));
+  const pendingRunMap = new Map<string, SharedPendingRunState | null>(pendingRuns);
+
   return chats.map((chat) => {
     const agentMeta = chat.agent_id ? agentMetaMap.get(chat.agent_id) : undefined;
     const generalModelLabel = getModelDisplayLabel(chat.model_external_id ?? null);
@@ -5048,7 +5124,7 @@ export async function listChats(userId: string): Promise<ConversationListItem[]>
       share_token: chat.share_token ?? null,
       message_count: countMap.get(chat.id) ?? 0,
       last_message_preview: previewMap.get(chat.id) ?? null,
-      pending_run: null,
+      pending_run: pendingRunMap.get(chat.id) ?? null,
       last_message_at: toIso(chat.last_message_at),
       created_at: toIso(chat.created_at),
       updated_at: toIso(chat.updated_at),
