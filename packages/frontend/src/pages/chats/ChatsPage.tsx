@@ -2152,12 +2152,14 @@ export function ChatsPage() {
       trackAwaitingState?: boolean;
       windowMs?: number;
       attemptIntervalMs?: number;
+      expectedUserContent?: string;
     } = {},
   ) => {
     markChatRuntimeActive(chatId);
     const trackAwaitingState = options.trackAwaitingState ?? true;
     const windowMs = options.windowMs ?? PENDING_REPLY_RECOVERY_WINDOW_MS;
     const attemptIntervalMs = options.attemptIntervalMs ?? 4_000;
+    const expectedUserContent = options.expectedUserContent?.trim() || null;
     if (trackAwaitingState) {
       setIsAwaitingLateReply(true);
     }
@@ -2175,6 +2177,16 @@ export function ChatsPage() {
         queryClient.setQueryData<ChatDetails>(['chats', chatId], latest);
         queryClient.invalidateQueries({ queryKey: ['chats'] });
         queryClient.invalidateQueries({ queryKey: ['profile'] });
+
+        const hasExpectedUserMessage = latest.messages.some((message) => {
+          if (message.role !== 'user') return false;
+          if (expectedUserContent && message.content !== expectedUserContent) return false;
+          return Date.parse(message.created_at) >= (startedAtMs - 60_000);
+        });
+
+        if (hasExpectedUserMessage) {
+          setOptimisticPendingMessage((prev) => (prev?.chatId === chatId ? null : prev));
+        }
 
         const hasAssistantReply = latest.messages.some((message) => (
           message.role === 'assistant' && Date.parse(message.created_at) >= startedAtMs
@@ -2279,10 +2291,10 @@ export function ChatsPage() {
       setOptimisticPendingMessage((prev) => (prev?.chatId === chatId ? null : prev));
       markChatRuntimeIdle(chatId);
     } catch (err) {
-      setOptimisticPendingMessage((prev) => (prev?.chatId === chatId ? null : prev));
       const code = getApiErrorCode(err);
       const status = getApiErrorStatus(err);
       if (code === 'INSUFFICIENT_BALANCE') {
+        setOptimisticPendingMessage((prev) => (prev?.chatId === chatId ? null : prev));
         setAssistantResponseSlot((prev) => (prev?.chatId === chatId ? null : prev));
         markChatRuntimeIdle(chatId);
         openTopUpDialog();
@@ -2294,15 +2306,15 @@ export function ChatsPage() {
           prev?.chatId === chatId
             ? {
               ...prev,
-              label: 'Провайдер отвечает слишком долго',
-              detail: 'Коротко проверяю, не успел ли ответ всё-таки сохраниться после таймаута.',
+              label: 'Ответ задерживается',
+              detail: 'Проверяю, не успел ли он сохраниться в фоне. Ваше сообщение остаётся в чате.',
             }
             : prev
         ));
-        showLocalWarning('Ответ от модели занял слишком много времени. Коротко проверяю, не завершился ли он в фоне...');
         const recovered = await recoverLateAssistantReply(chatId, startedAt, {
           windowMs: TIMEOUT_REPLY_RECOVERY_WINDOW_MS,
           attemptIntervalMs: TIMEOUT_REPLY_RECOVERY_ATTEMPT_MS,
+          expectedUserContent: content,
         });
         if (recovered) {
           setLocalError(null);
@@ -2326,6 +2338,7 @@ export function ChatsPage() {
         }
         return;
       }
+      setOptimisticPendingMessage((prev) => (prev?.chatId === chatId ? null : prev));
       setAssistantResponseSlot((prev) => (prev?.chatId === chatId ? null : prev));
       markChatRuntimeIdle(chatId);
       showLocalError(err instanceof Error ? err.message : 'Не удалось отправить сообщение');
