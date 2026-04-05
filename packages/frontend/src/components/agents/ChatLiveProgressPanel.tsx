@@ -31,6 +31,19 @@ function formatLiveProgressTimestamp(iso: string): string {
   }).format(new Date(iso));
 }
 
+function normalizeLiveProgressLabel(value: string, fallback: string): string {
+  if (!value) return fallback;
+
+  if (
+    value.includes('Р')
+    || value.includes('СЋ')
+  ) {
+    return fallback;
+  }
+
+  return value;
+}
+
 export function ChatLiveProgressPanel({
   events,
   connected,
@@ -42,13 +55,17 @@ export function ChatLiveProgressPanel({
 }: ChatLiveProgressPanelProps) {
   if (events.length === 0) return null;
 
+  const safeTitle = normalizeLiveProgressLabel(title, 'Живой процесс выполнения');
+  const safeConnectedLabel = normalizeLiveProgressLabel(connectedLabel, 'SSE подключен');
+  const safeDisconnectedLabel = normalizeLiveProgressLabel(disconnectedLabel, 'Ожидаю переподключение к SSE');
+
   return (
     <div className={cn('rounded-xl border border-sky-200 bg-sky-50/80 p-4', className)}>
       <div className="mb-3 flex items-center justify-between gap-3">
         <div>
-          <p className="text-sm font-semibold text-sky-950">{title}</p>
+          <p className="text-sm font-semibold text-sky-950">{safeTitle}</p>
           <p className="text-xs text-sky-900/70">
-            {connected ? connectedLabel : disconnectedLabel}
+            {connected ? safeConnectedLabel : safeDisconnectedLabel}
           </p>
         </div>
         {trailing}

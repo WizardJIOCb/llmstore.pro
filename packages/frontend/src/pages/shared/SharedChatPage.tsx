@@ -201,6 +201,8 @@ export function SharedChatPage() {
   const [streamConnected, setStreamConnected] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
   const streamRunKeyRef = useRef<string | null>(null);
+  const pendingProgressAnchorRef = useRef<HTMLDivElement | null>(null);
+  const previousDisplayedEventsCountRef = useRef(0);
 
   const updateSharedPreviewMutation = useMutation({
     mutationFn: ({ messageId, ...payload }: { messageId: string; title?: string | null; html: string }) =>
@@ -461,6 +463,29 @@ export function SharedChatPage() {
     return lastUserIndex;
   }, [data.messages, isPendingSharedReply]);
 
+  useEffect(() => {
+    const nextCount = displayedStreamEvents.length;
+    const previousCount = previousDisplayedEventsCountRef.current;
+    previousDisplayedEventsCountRef.current = nextCount;
+
+    if (!isPendingSharedReply || nextCount === 0 || nextCount <= previousCount) return;
+
+    const anchor = pendingProgressAnchorRef.current;
+    if (!anchor) return;
+
+    const scrollToProgress = () => {
+      anchor.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    };
+
+    const rafId = requestAnimationFrame(scrollToProgress);
+    const timeoutId = window.setTimeout(scrollToProgress, 120);
+
+    return () => {
+      cancelAnimationFrame(rafId);
+      window.clearTimeout(timeoutId);
+    };
+  }, [displayedStreamEvents.length, isPendingSharedReply]);
+
   return (
     <div className="container mx-auto max-w-3xl px-4 py-8">
       <div className="mb-6 flex items-start justify-between gap-3">
@@ -598,7 +623,7 @@ export function SharedChatPage() {
               : undefined}
           />
           {isPendingSharedReply && index === pendingUserMessageIndex && (
-            <div className="space-y-3">
+            <div ref={pendingProgressAnchorRef} className="space-y-3">
               <ChatThinkingBubble
                 label={pendingLabel}
                 detail={pendingDetail}
