@@ -468,10 +468,13 @@ interface SharedPendingRunState {
   run_id: string;
   status: string;
   started_at: string;
+  completed_at?: string | null;
   label: string;
   detail: string;
   tool_name?: string | null;
   error?: string | null;
+  is_terminal?: boolean;
+  is_partial?: boolean;
 }
 
 interface ToolTrace {
@@ -3044,6 +3047,7 @@ interface ConversationListItem {
   share_token: string | null;
   message_count: number;
   last_message_preview: string | null;
+  pending_run: SharedPendingRunState | null;
   last_message_at: string;
   created_at: string;
   updated_at: string;
@@ -3087,6 +3091,7 @@ interface ConversationDetails {
     agent_starter_prompts: string[];
     tool_ids: string[];
     tools: ChatToolSummary[];
+    pending_run: SharedPendingRunState | null;
   };
   messages: ConversationMessage[];
 }
@@ -3478,34 +3483,72 @@ async function getConversationMessages(chatId: string): Promise<ConversationMess
     .map((row) => toConversationMessage(row, usdToRubRate));
 }
 
-async function getSharedPendingRunState(chat: ChatConversationRow, messages: ConversationMessage[]): Promise<SharedPendingRunState | null> {
+function isConversationMessagePartial(message?: ConversationMessage | null): boolean {
+  if (!message || message.role !== 'assistant') return false;
+  if (/\[Ответ всё ещё был обрезан по лимиту длины/i.test(message.content)) return true;
+
+  const normalized = normalizeAssistantChatPayload(message.content, message.usage);
+  return Boolean(normalized.codingReport?.notes?.some((note) => /незаверш|обрезан|partial|incomplete/i.test(note)));
+}
+
+async function getConversationRuntimeState(chat: ChatConversationRow, messages: ConversationMessage[]): Promise<SharedPendingRunState | null> {
   const lastMessage = messages[messages.length - 1];
   if (!lastMessage || lastMessage.role !== 'user') return null;
 
   const lastUserAt = new Date(lastMessage.created_at);
   if (Number.isNaN(lastUserAt.getTime())) return null;
 
-  const assistantAfterLastUser = messages.some((message) => (
+  const assistantMessagesAfterLastUser = messages.filter((message) => (
     message.role === 'assistant' && Date.parse(message.created_at) >= lastUserAt.getTime()
   ));
-  if (assistantAfterLastUser || !chat.agent_id) return null;
+  const latestAssistantMessage = assistantMessagesAfterLastUser[assistantMessagesAfterLastUser.length - 1] ?? null;
+  const latestRunIdFromMessages = [...assistantMessagesAfterLastUser]
+    .reverse()
+    .find((message) => Boolean(message.run_id))
+    ?.run_id ?? null;
+  const toolSettings = extractChatToolSettings(chat.settings_json);
+  const runtimeAgentId = chat.agent_id ?? toolSettings.tool_agent_id;
 
-  const [latestRun] = await db
-    .select({
-      id: agentRuns.id,
-      status: agentRuns.status,
-      started_at: agentRuns.started_at,
-      completed_at: agentRuns.completed_at,
-      error_message: agentRuns.error_message,
-    })
-    .from(agentRuns)
-    .where(and(
-      eq(agentRuns.user_id, chat.user_id),
-      eq(agentRuns.agent_id, chat.agent_id),
-      sql`${agentRuns.started_at} >= ${lastUserAt.toISOString()}`,
-    ))
-    .orderBy(desc(agentRuns.started_at))
-    .limit(1);
+  let latestRun: {
+    id: string;
+    status: string;
+    started_at: Date;
+    completed_at: Date | null;
+    error_message: string | null;
+  } | undefined;
+
+  if (latestRunIdFromMessages) {
+    [latestRun] = await db
+      .select({
+        id: agentRuns.id,
+        status: agentRuns.status,
+        started_at: agentRuns.started_at,
+        completed_at: agentRuns.completed_at,
+        error_message: agentRuns.error_message,
+      })
+      .from(agentRuns)
+      .where(eq(agentRuns.id, latestRunIdFromMessages))
+      .limit(1);
+  }
+
+  if (!latestRun && runtimeAgentId) {
+    [latestRun] = await db
+      .select({
+        id: agentRuns.id,
+        status: agentRuns.status,
+        started_at: agentRuns.started_at,
+        completed_at: agentRuns.completed_at,
+        error_message: agentRuns.error_message,
+      })
+      .from(agentRuns)
+      .where(and(
+        eq(agentRuns.user_id, chat.user_id),
+        eq(agentRuns.agent_id, runtimeAgentId),
+        sql`${agentRuns.started_at} >= ${lastUserAt.toISOString()}`,
+      ))
+      .orderBy(desc(agentRuns.started_at))
+      .limit(1);
+  }
 
   if (!latestRun) return null;
 
@@ -3522,32 +3565,66 @@ async function getSharedPendingRunState(chat: ChatConversationRow, messages: Con
     .limit(1);
 
   const startedAtIso = toIso(latestRun.started_at);
+  const completedAtIso = latestRun.completed_at ? toIso(latestRun.completed_at) : null;
+  const latestAssistantForRun = latestRunIdFromMessages && latestAssistantMessage?.run_id === latestRun.id
+    ? latestAssistantMessage
+    : (assistantMessagesAfterLastUser.find((message) => message.run_id === latestRun.id) ?? latestAssistantMessage);
+  const hasAssistantForRun = Boolean(latestAssistantForRun);
+  const isPartialResult = isConversationMessagePartial(latestAssistantForRun);
 
   if (latestRun.status === 'failed') {
     return {
       run_id: latestRun.id,
       status: latestRun.status,
       started_at: startedAtIso,
-      label: 'Ответ не получен',
-      detail: latestRun.error_message?.trim() || 'Во время выполнения произошла ошибка.',
+      completed_at: completedAtIso,
+      label: hasAssistantForRun ? 'Выполнение завершилось с ошибкой, сохранился частичный результат' : 'Ответ не получен',
+      detail: latestRun.error_message?.trim() || (
+        hasAssistantForRun
+          ? 'Часть ответа успела сохраниться в чат, но run завершился с ошибкой.'
+          : 'Во время выполнения произошла ошибка.'
+      ),
       tool_name: latestToolCall?.tool_name ?? null,
       error: latestRun.error_message ?? null,
+      is_terminal: true,
+      is_partial: hasAssistantForRun,
     };
   }
 
   if (latestRun.status === 'completed') {
     const completedAtMs = latestRun.completed_at ? new Date(latestRun.completed_at).getTime() : Date.now();
-    if ((Date.now() - completedAtMs) > 30_000) {
+    if (!hasAssistantForRun && (Date.now() - completedAtMs) <= 30_000) {
+      return {
+        run_id: latestRun.id,
+        status: 'finalizing',
+        started_at: startedAtIso,
+        completed_at: completedAtIso,
+        label: 'Ответ почти готов',
+        detail: 'Финализирую сообщение и сохраняю результат в чат.',
+        tool_name: latestToolCall?.tool_name ?? null,
+        error: null,
+        is_terminal: false,
+        is_partial: false,
+      };
+    }
+
+    if (!hasAssistantForRun) {
       return null;
     }
+
     return {
       run_id: latestRun.id,
       status: latestRun.status,
       started_at: startedAtIso,
-      label: 'Ответ почти готов',
-      detail: 'Финализирую сообщение и сохраняю результат в чат.',
+      completed_at: completedAtIso,
+      label: isPartialResult ? 'Результат сохранён частично' : 'Ответ сохранён в чате',
+      detail: isPartialResult
+        ? 'Run завершился, но итоговый ответ сохранился не полностью.'
+        : 'Run завершился и результат уже сохранён в чат.',
       tool_name: latestToolCall?.tool_name ?? null,
       error: null,
+      is_terminal: true,
+      is_partial: isPartialResult,
     };
   }
 
@@ -3556,12 +3633,15 @@ async function getSharedPendingRunState(chat: ChatConversationRow, messages: Con
       run_id: latestRun.id,
       status: latestRun.status,
       started_at: startedAtIso,
+      completed_at: completedAtIso,
       label: 'Инструменты работают',
       detail: latestToolCall?.tool_name
         ? `Сейчас выполняется или только что обновился инструмент ${latestToolCall.tool_name}.`
         : 'Собираю данные через инструменты.',
       tool_name: latestToolCall?.tool_name ?? null,
       error: latestToolCall?.error_message ?? null,
+      is_terminal: false,
+      is_partial: hasAssistantForRun,
     };
   }
 
@@ -3570,10 +3650,15 @@ async function getSharedPendingRunState(chat: ChatConversationRow, messages: Con
       run_id: latestRun.id,
       status: latestRun.status,
       started_at: startedAtIso,
+      completed_at: completedAtIso,
       label: 'Обрабатываю результаты инструментов',
-      detail: 'Собираю найденные данные в единый финальный ответ.',
+      detail: hasAssistantForRun
+        ? 'Частичный результат уже сохранён. Продолжаю дособирать финальный ответ.'
+        : 'Собираю найденные данные в единый финальный ответ.',
       tool_name: latestToolCall?.tool_name ?? null,
       error: null,
+      is_terminal: false,
+      is_partial: hasAssistantForRun,
     };
   }
 
@@ -3581,10 +3666,13 @@ async function getSharedPendingRunState(chat: ChatConversationRow, messages: Con
     run_id: latestRun.id,
     status: latestRun.status,
     started_at: startedAtIso,
+    completed_at: completedAtIso,
     label: 'Агент работает',
     detail: 'Анализирую задачу и готовлю следующие шаги.',
     tool_name: latestToolCall?.tool_name ?? null,
     error: null,
+    is_terminal: false,
+    is_partial: hasAssistantForRun,
   };
 }
 
@@ -4109,6 +4197,7 @@ export async function listChats(userId: string): Promise<ConversationListItem[]>
       share_token: chat.share_token ?? null,
       message_count: countMap.get(chat.id) ?? 0,
       last_message_preview: previewMap.get(chat.id) ?? null,
+      pending_run: null,
       last_message_at: toIso(chat.last_message_at),
       created_at: toIso(chat.created_at),
       updated_at: toIso(chat.updated_at),
@@ -4312,6 +4401,7 @@ export async function getChatById(chatId: string, userId: string): Promise<Conve
     getAgentChatMeta(chat.agent_id ?? null),
   ]);
   const tools = await getActiveToolSummariesByIds(chatToolSettings.tool_ids);
+  const pending_run = await getConversationRuntimeState(chat, messages);
 
   return {
     chat: {
@@ -4334,6 +4424,7 @@ export async function getChatById(chatId: string, userId: string): Promise<Conve
       agent_starter_prompts: agentMeta.agent_starter_prompts,
       tool_ids: tools.map((tool) => tool.id),
       tools,
+      pending_run,
       last_message_at: toIso(chat.last_message_at),
       created_at: toIso(chat.created_at),
       updated_at: toIso(chat.updated_at),
@@ -5351,7 +5442,7 @@ export async function getSharedChatById(token: string, viewerUserId?: string | n
   await registerConversationView(chat, viewerUserId, viewerKey);
 
   const messages = await getConversationMessages(chat.id);
-  const pending_run = await getSharedPendingRunState(chat, messages);
+  const pending_run = await getConversationRuntimeState(chat, messages);
   let agentName: string | null = null;
 
   if (chat.agent_id) {
@@ -5615,6 +5706,7 @@ export async function importChatBundle(
     share_token: chat.share_token ?? null,
     message_count: orderedMessages.length,
     last_message_preview: orderedMessages[orderedMessages.length - 1]?.content.slice(0, 160) ?? null,
+    pending_run: null,
     last_message_at: toIso(chat.last_message_at),
     created_at: toIso(chat.created_at),
     updated_at: toIso(chat.updated_at),

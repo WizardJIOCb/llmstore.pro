@@ -7,7 +7,7 @@ import { ChatThinkingBubble } from '../../components/agents/ChatThinkingBubble';
 import { Spinner } from '../../components/ui/Spinner';
 import { Button } from '../../components/ui/Button';
 import { apiClient } from '../../lib/api-client';
-import { chatsApi, type ChatAttachment, type CodingReport } from '../../lib/api/chats';
+import { chatsApi, type ChatAttachment, type ChatPendingRunState, type CodingReport } from '../../lib/api/chats';
 import { useAuth } from '../../hooks/useAuth';
 import { useProfile } from '../../hooks/useProfile';
 
@@ -25,15 +25,7 @@ interface V2SharedChat {
     mode: 'general' | 'agent';
     agent_name: string | null;
   };
-  pending_run?: {
-    run_id: string;
-    status: string;
-    started_at: string;
-    label: string;
-    detail: string;
-    tool_name?: string | null;
-    error?: string | null;
-  } | null;
+  pending_run?: ChatPendingRunState | null;
   messages: Array<{
     id: string;
     role: 'user' | 'assistant';

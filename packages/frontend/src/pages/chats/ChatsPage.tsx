@@ -43,6 +43,7 @@ import type {
   ChatListItem,
   ChatMessage as ChatMessageType,
   ChatMode,
+  ChatPendingRunState,
   CodingReport,
   PublishedLanding,
   ToolTrace,
@@ -453,6 +454,16 @@ function getUsageModel(value: Record<string, unknown> | null): string | null {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function isPendingRunTerminal(pendingRun?: ChatPendingRunState | null): boolean {
+  if (!pendingRun) return false;
+  if (pendingRun.is_terminal != null) return pendingRun.is_terminal;
+  return ['completed', 'failed', 'cancelled'].includes((pendingRun.status ?? '').trim().toLowerCase());
+}
+
+function isPendingRunLive(pendingRun?: ChatPendingRunState | null): boolean {
+  return Boolean(pendingRun) && !isPendingRunTerminal(pendingRun);
 }
 
 function inferOptimisticAttachmentKind(file: File): ChatAttachment['kind'] {
@@ -1594,6 +1605,14 @@ export function ChatsPage() {
 
   useEffect(() => {
     if (!activeChat?.id) return;
+    if (isPendingRunLive(activeChat.pending_run)) {
+      markChatRuntimeActive(activeChat.id);
+      return;
+    }
+    if (activeChat.pending_run && isPendingRunTerminal(activeChat.pending_run)) {
+      markChatRuntimeIdle(activeChat.id);
+      return;
+    }
     if (optimisticMessageForActiveChat) return;
     if (assistantResponseSlotForActiveChat) return;
     if (isAwaitingLateReply) return;
@@ -1615,6 +1634,7 @@ export function ChatsPage() {
     }
   }, [
     activeChat?.id,
+    activeChat?.pending_run,
     messages,
     optimisticMessageForActiveChat,
     assistantResponseSlotForActiveChat,
@@ -2502,6 +2522,47 @@ export function ChatsPage() {
   const assistantSlotResolvedMessage = assistantResponseSlotForActiveChat?.actualMessageId
     ? messages.find((message) => message.id === assistantResponseSlotForActiveChat.actualMessageId) ?? null
     : null;
+
+  useEffect(() => {
+    if (!activeChat?.id) return;
+
+    const pendingRun = activeChat.pending_run;
+    if (!pendingRun) return;
+
+    if (isPendingRunLive(pendingRun)) {
+      clearTransportTimeoutNotice();
+      markChatRuntimeActive(activeChat.id);
+      setAssistantResponseSlot((prev) => {
+        if (prev?.chatId === activeChat.id) {
+          if (prev.actualMessageId) return prev;
+          return {
+            ...prev,
+            startedAt: pendingRun.started_at || prev.startedAt,
+            label: pendingRun.label,
+            detail: pendingRun.detail,
+          };
+        }
+
+        return {
+          chatId: activeChat.id,
+          visualKey: `assistant-slot-runtime-${pendingRun.run_id}`,
+          startedAt: pendingRun.started_at,
+          label: pendingRun.label,
+          detail: pendingRun.detail,
+          actualMessageId: null,
+        };
+      });
+      return;
+    }
+
+    if (pendingRun && isPendingRunTerminal(pendingRun)) {
+      clearTransportTimeoutNotice();
+      markChatRuntimeIdle(activeChat.id);
+      setAssistantResponseSlot((prev) => (
+        prev?.chatId === activeChat.id && !prev.actualMessageId ? null : prev
+      ));
+    }
+  }, [activeChat?.id, activeChat?.pending_run]);
 
   const renderChatRow = (chat: ChatListItem) => (
     <div

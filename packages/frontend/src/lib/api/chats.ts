@@ -182,6 +182,19 @@ export interface ChatToolDefinition {
   is_active: boolean;
 }
 
+export interface ChatPendingRunState {
+  run_id: string;
+  status: string;
+  started_at: string;
+  completed_at?: string | null;
+  label: string;
+  detail: string;
+  tool_name?: string | null;
+  error?: string | null;
+  is_terminal?: boolean;
+  is_partial?: boolean;
+}
+
 export interface ChatDetails {
   chat: Omit<ChatListItem, 'last_message_preview'> & {
     agent_name: string | null;
@@ -189,6 +202,7 @@ export interface ChatDetails {
     agent_starter_prompts: string[];
     tool_ids: string[];
     tools: ChatToolDefinition[];
+    pending_run: ChatPendingRunState | null;
   };
   messages: ChatMessage[];
 }
@@ -228,11 +242,7 @@ export interface GalleryReactionState {
 
 export interface SendMessageResult {
   processing?: boolean;
-  pending_run?: {
-    status: string;
-    label: string;
-    detail: string;
-  } | null;
+  pending_run?: ChatPendingRunState | null;
   user_message: ChatMessage;
   assistant_message: ChatMessage | null;
   chat: {
