@@ -474,22 +474,22 @@ export function MilestonesPage() {
 
               <p className="mt-6 text-[15px] leading-7 text-slate-600 md:text-base">{summaryText}</p>
 
-              <div className="mt-7 grid gap-3 sm:grid-cols-2">
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <p className="text-2xl font-semibold text-slate-950">{counts.done}</p>
-                  <p className="mt-1 text-sm text-slate-500">Done</p>
+              <div className="mt-7 grid grid-cols-4 gap-2 sm:gap-3">
+                <div className="min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-2 py-3 text-center sm:p-4">
+                  <p className="text-xl font-semibold text-slate-950 sm:text-2xl">{counts.done}</p>
+                  <p className="mt-1 text-[11px] leading-tight text-slate-500 sm:text-sm">Done</p>
                 </div>
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <p className="text-2xl font-semibold text-slate-950">{counts.inProgress}</p>
-                  <p className="mt-1 text-sm text-slate-500">In Progress</p>
+                <div className="min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-2 py-3 text-center sm:p-4">
+                  <p className="text-xl font-semibold text-slate-950 sm:text-2xl">{counts.inProgress}</p>
+                  <p className="mt-1 text-[11px] leading-tight text-slate-500 sm:text-sm">In Progress</p>
                 </div>
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <p className="text-2xl font-semibold text-slate-950">{counts.planned}</p>
-                  <p className="mt-1 text-sm text-slate-500">Planned</p>
+                <div className="min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-2 py-3 text-center sm:p-4">
+                  <p className="text-xl font-semibold text-slate-950 sm:text-2xl">{counts.planned}</p>
+                  <p className="mt-1 text-[11px] leading-tight text-slate-500 sm:text-sm">Planned</p>
                 </div>
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <p className="text-2xl font-semibold text-slate-950">{counts.research}</p>
-                  <p className="mt-1 text-sm text-slate-500">Research</p>
+                <div className="min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-2 py-3 text-center sm:p-4">
+                  <p className="text-xl font-semibold text-slate-950 sm:text-2xl">{counts.research}</p>
+                  <p className="mt-1 text-[11px] leading-tight text-slate-500 sm:text-sm">Research</p>
                 </div>
               </div>
             </Card>
