@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Globe } from 'lucide-react';
 import { ChatInput } from '../../components/agents/ChatInput';
+import { ChatLiveProgressPanel, ChatLiveProgressTrailingBusy } from '../../components/agents/ChatLiveProgressPanel';
 import { ChatMessage } from '../../components/agents/ChatMessage';
 import { ChatThinkingBubble } from '../../components/agents/ChatThinkingBubble';
 import { RunMetadata } from '../../components/agents/RunMetadata';
@@ -769,6 +770,18 @@ export function ChatsPage() {
     setLocalError(message);
   };
 
+  const clearTransportTimeoutNotice = () => {
+    setLocalError((prev) => (
+      prev && (
+        prev.includes('Провайдер не успел вернуть ответ вовремя')
+        || prev.includes('Ответ от модели занял слишком много времени')
+      )
+        ? null
+        : prev
+    ));
+    setLocalNoticeAction((prev) => (prev?.label === 'Повторить' ? null : prev));
+  };
+
   useEffect(() => {
     if (localError) return;
     setLocalNoticeAction(null);
@@ -1055,6 +1068,7 @@ export function ChatsPage() {
                 || eventName === 'chat.run.tool.started'
                 || eventName === 'chat.run.tool.finished'
               ) {
+                clearTransportTimeoutNotice();
                 return {
                   ...prev,
                   label: eventName === 'chat.run.tool.started'
@@ -1074,10 +1088,14 @@ export function ChatsPage() {
               || eventName === 'chat.run.started'
               || eventName === 'chat.run.tool.started'
             ) {
+              clearTransportTimeoutNotice();
               markChatRuntimeActive(safeActiveChatId);
             }
 
             if (eventName === 'chat.run.status') {
+              if ((payload.status?.trim() ?? '').toLowerCase() !== 'failed') {
+                clearTransportTimeoutNotice();
+              }
               const status = payload.status?.trim();
               if (status === 'completed' || status === 'failed' || status === 'cancelled') {
                 markChatRuntimeIdle(safeActiveChatId);
@@ -1092,6 +1110,9 @@ export function ChatsPage() {
               || eventName === 'chat.run.failed'
               || eventName === 'chat.run.skipped'
             ) {
+              if (eventName !== 'chat.run.failed') {
+                clearTransportTimeoutNotice();
+              }
               markChatRuntimeIdle(safeActiveChatId);
             }
           }
@@ -2793,49 +2814,6 @@ export function ChatsPage() {
               </div>
             )}
             {!activeChatLoading && !activeChat && <div className="py-12 text-center text-muted-foreground">Выберите чат слева или создайте новый.</div>}
-            {streamEvents.length > 0 && (
-              <div className="mx-auto max-w-3xl rounded-xl border border-sky-200 bg-sky-50/80 p-4">
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold text-sky-950">Живой процесс выполнения</p>
-                    <p className="text-xs text-sky-900/70">
-                      {streamConnected ? 'SSE подключен' : 'Ожидаю переподключение к SSE'}
-                    </p>
-                  </div>
-                  {isSubmittingMessage && (
-                    <div className="flex items-center gap-2 text-xs text-sky-900/80">
-                      <Spinner size="sm" /> Агент работает
-                    </div>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  {streamEvents.map((event) => (
-                    <div key={event.id} className="rounded-lg border border-sky-200/80 bg-white/80 px-3 py-2">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-sm text-slate-900">{event.label}</p>
-                          {event.detail && (
-                            <p className="mt-1 text-xs leading-5 text-slate-600">
-                              {event.detail}
-                            </p>
-                          )}
-                          {(event.tool_name || event.status || event.error) && (
-                            <p className="mt-1 text-xs text-slate-500">
-                              {[event.tool_name, event.status, event.error].filter(Boolean).join(' • ')}
-                            </p>
-                          )}
-                        </div>
-                        {event.ts && (
-                          <span className="shrink-0 text-[11px] text-slate-400">
-                            {formatDate(event.ts)}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
             {displayedMessages
               .filter((msg) => msg.id !== assistantResponseSlotForActiveChat?.actualMessageId)
               .map((msg: ChatMessageType) => (
@@ -3090,11 +3068,18 @@ export function ChatsPage() {
                     </div>
                   </>
                 ) : (
-                  <ChatThinkingBubble
-                    label={assistantResponseSlotForActiveChat.label}
-                    detail={assistantResponseSlotForActiveChat.detail}
-                    startedAt={assistantResponseSlotForActiveChat.startedAt}
-                  />
+                  <div className="space-y-3">
+                    <ChatThinkingBubble
+                      label={assistantResponseSlotForActiveChat.label}
+                      detail={assistantResponseSlotForActiveChat.detail}
+                      startedAt={assistantResponseSlotForActiveChat.startedAt}
+                    />
+                    <ChatLiveProgressPanel
+                      events={streamEvents}
+                      connected={streamConnected}
+                      trailing={isSubmittingMessage ? <ChatLiveProgressTrailingBusy /> : null}
+                    />
+                  </div>
                 )}
               </div>
             )}

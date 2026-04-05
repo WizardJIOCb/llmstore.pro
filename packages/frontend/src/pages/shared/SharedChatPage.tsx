@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ChatLiveProgressPanel } from '../../components/agents/ChatLiveProgressPanel';
 import { ChatMessage } from '../../components/agents/ChatMessage';
 import { ChatThinkingBubble } from '../../components/agents/ChatThinkingBubble';
 import { Spinner } from '../../components/ui/Spinner';
@@ -435,6 +436,18 @@ export function SharedChatPage() {
         error: data.pendingRun.error ?? undefined,
       } satisfies LiveSharedEvent]
       : []);
+  const pendingUserMessageIndex = useMemo(() => {
+    if (!isPendingSharedReply) return -1;
+
+    let lastUserIndex = -1;
+    data.messages.forEach((message, index) => {
+      if (message.role === 'user') {
+        lastUserIndex = index;
+      }
+    });
+
+    return lastUserIndex;
+  }, [data.messages, isPendingSharedReply]);
 
   return (
     <div className="container mx-auto max-w-3xl px-4 py-8">
@@ -448,12 +461,12 @@ export function SharedChatPage() {
         </Button>
       </div>
 
-      {isPendingSharedReply && lastMessage?.role === 'user' && (
+      {false && isPendingSharedReply && lastMessage?.role === 'user' && (
         <div className="mb-6 space-y-3">
           <ChatThinkingBubble
             label={pendingLabel}
             detail={pendingDetail}
-            startedAt={data.pendingRun?.started_at ?? lastMessage.created_at ?? null}
+            startedAt={data?.pendingRun?.started_at ?? lastMessage.created_at ?? null}
           />
           {displayedStreamEvents.length > 0 && (
             <div className="rounded-xl border border-sky-200 bg-sky-50/80 p-4">
@@ -503,8 +516,8 @@ export function SharedChatPage() {
 
       <div className="space-y-4">
         {data.messages.map((msg, index) => (
+          <div key={msg.id ?? index} className="space-y-3">
           <ChatMessage
-            key={msg.id ?? index}
             role={msg.role}
             content={msg.content}
             attachments={msg.attachments ?? extractAttachments(msg.usage)}
@@ -572,6 +585,22 @@ export function SharedChatPage() {
               }
               : undefined}
           />
+          {isPendingSharedReply && index === pendingUserMessageIndex && (
+            <div className="space-y-3">
+              <ChatThinkingBubble
+                label={pendingLabel}
+                detail={pendingDetail}
+                startedAt={data.pendingRun?.started_at ?? lastMessage?.created_at ?? null}
+              />
+              <ChatLiveProgressPanel
+                events={displayedStreamEvents}
+                connected={streamConnected}
+                connectedLabel="SSE подключен"
+                disconnectedLabel="Ожидаю переподключение к SSE"
+              />
+            </div>
+          )}
+          </div>
         ))}
       </div>
 
