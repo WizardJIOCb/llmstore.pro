@@ -110,6 +110,28 @@ interface CodingReport {
   preview?: CodingReportPreview | null;
 }
 
+interface LandingSectionPlanSection {
+  id: string;
+  label: string;
+  goal: string;
+  must_include?: string[];
+}
+
+interface LandingSectionPlan {
+  title?: string;
+  summary?: string;
+  style_direction?: string;
+  sections: LandingSectionPlanSection[];
+}
+
+interface LandingThemeBundle {
+  title?: string;
+  font_links_html?: string;
+  body_class?: string;
+  style_css?: string;
+  script_js?: string;
+}
+
 export interface ProjectRunVerification {
   kind: 'http' | 'process_exit' | 'none';
   ok: boolean;
@@ -575,6 +597,198 @@ function extractAssistantTextFromMessage(message: unknown): string {
   }
 
   return '';
+}
+
+function extractJsonObjectFromAssistantContent(content: string): Record<string, unknown> | null {
+  const normalized = content.replace(/\r\n/g, '\n').trim();
+  if (!normalized) return null;
+
+  const fencedMatch = normalized.match(/```json\s*([\s\S]*?)```/i);
+  const candidate = fencedMatch?.[1]?.trim() || normalized;
+  const extracted = extractFirstJsonObject(candidate);
+  if (!extracted) return null;
+
+  try {
+    const parsed = JSON.parse(extracted.json);
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeLandingSectionId(value: unknown): string | null {
+  const source = clampText(value, 80)?.toLowerCase().trim();
+  if (!source) return null;
+
+  const normalized = source
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48);
+
+  return normalized || null;
+}
+
+function sanitizeLandingSectionPlan(value: unknown): LandingSectionPlan | null {
+  if (!value || typeof value !== 'object') return null;
+  const raw = value as Record<string, unknown>;
+  const rawSections = Array.isArray(raw.sections) ? raw.sections : [];
+  const seen = new Set<string>();
+  const sections: LandingSectionPlanSection[] = [];
+
+  for (const item of rawSections) {
+    if (!item || typeof item !== 'object') continue;
+    const record = item as Record<string, unknown>;
+    const id = normalizeLandingSectionId(record.id ?? record.label ?? record.goal);
+    const label = clampText(record.label ?? record.id, 120);
+    const goal = clampText(record.goal, 400);
+    if (!id || !label || !goal || seen.has(id)) continue;
+
+    seen.add(id);
+    sections.push({
+      id,
+      label,
+      goal,
+      must_include: normalizeStringArray(record.must_include, 8, 240),
+    });
+
+    if (sections.length >= 8) break;
+  }
+
+  if (sections.length === 0) return null;
+
+  return {
+    title: clampText(raw.title, 200) ?? undefined,
+    summary: clampText(raw.summary, 1200) ?? undefined,
+    style_direction: clampText(raw.style_direction, 600) ?? undefined,
+    sections,
+  };
+}
+
+function sanitizeLandingThemeBundle(value: unknown): LandingThemeBundle | null {
+  if (!value || typeof value !== 'object') return null;
+  const raw = value as Record<string, unknown>;
+
+  const fontLinksHtml = clampText(raw.font_links_html, 4000)
+    ?.replace(/<\/?(?:html|head|body)[^>]*>/gi, '')
+    ?.replace(/<script[\s\S]*?<\/script>/gi, '')
+    ?.trim();
+  const styleCss = clampText(raw.style_css, 40_000)?.trim();
+  const scriptJs = clampText(raw.script_js, 24_000)?.trim();
+  const title = clampText(raw.title, 200) ?? undefined;
+  const bodyClass = clampText(raw.body_class, 120)
+    ?.replace(/[^a-zA-Z0-9 _-]+/g, ' ')
+    ?.replace(/\s+/g, ' ')
+    ?.trim();
+
+  if (!title && !fontLinksHtml && !styleCss && !scriptJs && !bodyClass) {
+    return null;
+  }
+
+  return {
+    title,
+    font_links_html: fontLinksHtml || undefined,
+    body_class: bodyClass || undefined,
+    style_css: styleCss || undefined,
+    script_js: scriptJs || undefined,
+  };
+}
+
+function escapeHtmlText(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function escapeHtmlAttribute(value: string): string {
+  return escapeHtmlText(value).replace(/"/g, '&quot;');
+}
+
+function normalizeLandingSectionFragment(content: string, sectionId: string): string {
+  let html = stripContinuationNarration(content)
+    .replace(/```(?:html)?/gi, '')
+    .replace(/```/g, '')
+    .trim();
+
+  const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+  if (bodyMatch?.[1]) {
+    html = bodyMatch[1].trim();
+  }
+
+  html = html
+    .replace(/<!doctype[\s\S]*?<html[^>]*>/i, '')
+    .replace(/<\/html>\s*$/i, '')
+    .trim();
+
+  if (!/<section[\s>]|<main[\s>]|<header[\s>]|<footer[\s>]|<div[\s>]/i.test(html)) {
+    html = `<section id="${escapeHtmlAttribute(sectionId)}">\n${html}\n</section>`;
+  }
+
+  return html.trim();
+}
+
+function buildFallbackLandingTheme(plan: LandingSectionPlan): LandingThemeBundle {
+  return {
+    title: plan.title ?? 'Generated landing',
+    body_class: 'llmstore-landing-root',
+    style_css: [
+      ':root{color-scheme:dark;--bg:#07111f;--bg-soft:#0f1f34;--surface:rgba(15,23,42,.82);--text:#f8fafc;--muted:#94a3b8;--accent:#38bdf8;--accent-2:#f97316;--border:rgba(148,163,184,.2);}',
+      '*{box-sizing:border-box;}',
+      'html,body{margin:0;padding:0;min-height:100%;background:radial-gradient(circle at top,#11233d 0%,#07111f 55%,#030712 100%);color:var(--text);font-family:"Segoe UI",system-ui,sans-serif;}',
+      'body{overflow-x:hidden;}',
+      'main{display:flex;flex-direction:column;gap:0;}',
+      'section{padding:72px 0;position:relative;}',
+      '.container{width:min(1120px,calc(100% - 48px));margin:0 auto;}',
+      'h1,h2,h3{margin:0 0 16px;line-height:1.1;}',
+      'p{margin:0 0 16px;line-height:1.7;color:var(--muted);}',
+      '.eyebrow{display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border-radius:999px;background:rgba(56,189,248,.12);color:var(--accent);font-size:13px;letter-spacing:.14em;text-transform:uppercase;}',
+      '.card{background:var(--surface);border:1px solid var(--border);border-radius:28px;box-shadow:0 24px 80px rgba(2,6,23,.28);backdrop-filter:blur(18px);}',
+      '.grid{display:grid;gap:24px;}',
+      '@media (max-width: 768px){section{padding:56px 0;}.container{width:min(100% - 28px,1120px);}}',
+    ].join('\n'),
+  };
+}
+
+function buildSectionalLandingHtml(
+  plan: LandingSectionPlan,
+  theme: LandingThemeBundle,
+  sectionFragments: Array<{ id: string; html: string }>,
+): string {
+  const safeTitle = escapeHtmlText(theme.title ?? plan.title ?? 'Generated landing');
+  const bodyClass = theme.body_class ? ` class="${escapeHtmlAttribute(theme.body_class)}"` : '';
+  const headExtras = theme.font_links_html ? `\n${theme.font_links_html.trim()}\n` : '\n';
+  const styleBlock = theme.style_css
+    ? `<style>\n${theme.style_css.trim()}\n</style>\n`
+    : '';
+  const scriptBlock = theme.script_js
+    ? `\n<script>\n${theme.script_js.trim()}\n</script>\n`
+    : '\n';
+  const sectionsHtml = sectionFragments
+    .map((section) => `<!-- llmstore-section:${section.id} -->\n${section.html.trim()}`)
+    .join('\n\n');
+
+  return [
+    '<!doctype html>',
+    '<html lang="ru">',
+    '<head>',
+    '<meta charset="UTF-8">',
+    '<meta name="viewport" content="width=device-width, initial-scale=1.0">',
+    `<title>${safeTitle}</title>${headExtras}${styleBlock}</head>`,
+    `<body${bodyClass}>`,
+    '<main>',
+    sectionsHtml,
+    '</main>',
+    scriptBlock,
+    '</body>',
+    '</html>',
+  ].join('\n');
+}
+
+function looksLikeLandingBuildRequest(request: string): boolean {
+  const text = request.trim().toLowerCase();
+  if (!text) return false;
+
+  return /(landing|landing page|лендинг|preview|превью|html|site|website|страниц|сайт|hero|page)/i.test(text);
 }
 
 function looksLikeCodeLine(line: string): boolean {
@@ -2245,6 +2459,183 @@ ${agent.description.trim()}`);
     }).where(eq(chatConversationMessages.id, partialAssistantMessageId));
   };
 
+  const requestLandingAssemblyStep = async (
+    status: string,
+    label: string,
+    detail: string,
+    prompt: string,
+    maxTokens: number,
+  ): Promise<string> => {
+    await emitRunEvent('chat.run.status', {
+      run_id: run.id,
+      status,
+      label,
+      detail,
+    });
+
+    const response = await openRouterClient.chatCompletion({
+      model: modelId,
+      messages: [
+        ...messages,
+        { role: 'user', content: prompt },
+      ],
+      temperature: Math.min(effectiveTemperature, 0.35),
+      max_tokens: maxTokens,
+      provider: providerPreferences,
+    }, {
+      timeoutMs: llmTimeoutMs,
+    });
+
+    if (response.usage) {
+      totalUsage.prompt_tokens += response.usage.prompt_tokens;
+      totalUsage.completion_tokens += response.usage.completion_tokens;
+      totalUsage.total_tokens += response.usage.total_tokens;
+    }
+
+    const choice = response.choices[0];
+    if (!choice) {
+      throw new AppError(502, 'EMPTY_RESPONSE', 'LLM returned no choices during sectional landing assembly');
+    }
+
+    return extractAssistantTextFromMessage(choice.message);
+  };
+
+  const attemptSectionalLandingAssembly = async (
+    partialOutput: string,
+  ): Promise<{ content: string; codingReport: CodingReport } | null> => {
+    if (!looksLikeLandingBuildRequest(latestUserMessage) || strictPreviewEdit) {
+      return null;
+    }
+
+    const partialSnippet = clampText(stripContinuationNarration(partialOutput), 16_000) ?? '';
+
+    const planPrompt = [
+      'Нужно секционно собрать длинный HTML landing page, потому что цельный ответ слишком большой и обрезается по лимиту длины.',
+      `Запрос пользователя: ${latestUserMessage}`,
+      partialSnippet ? `Уже сохранённый промежуточный ответ:\n${partialSnippet}` : undefined,
+      'Используй уже собранные факты и результаты инструментов из истории выше.',
+      'Верни только JSON без markdown в формате:',
+      '{"title":"...","summary":"...","style_direction":"...","sections":[{"id":"hero","label":"Hero","goal":"...","must_include":["..."]}]}',
+      'Требования:',
+      '- 3-8 секций максимум;',
+      '- id секций только в kebab-case латиницей;',
+      '- summary короткий, 1-2 предложения;',
+      '- style_direction коротко описывает визуальное направление;',
+      '- must_include перечисляет ключевые элементы секции.',
+    ].filter(Boolean).join('\n\n');
+
+    const rawPlan = await requestLandingAssemblyStep(
+      'sectional_planning',
+      'Перехожу на секционную сборку лендинга',
+      'Строю короткий план секций, чтобы не тянуть весь HTML одним гигантским куском.',
+      planPrompt,
+      Math.min(responseMaxTokens, 1800),
+    );
+    const plan = sanitizeLandingSectionPlan(extractJsonObjectFromAssistantContent(rawPlan));
+    if (!plan) {
+      return null;
+    }
+
+    const themePrompt = [
+      'По этому плану лендинга верни только JSON без markdown.',
+      JSON.stringify(plan, null, 2),
+      `Запрос пользователя: ${latestUserMessage}`,
+      'Формат JSON:',
+      '{"title":"...","font_links_html":"<link ... optional>","body_class":"...","style_css":"...","script_js":"..."}',
+      'Требования:',
+      '- style_css должен содержать глобальные стили для всех секций;',
+      '- font_links_html может содержать только <link> теги для шрифтов/прелоадов;',
+      '- script_js опционален и должен содержать только JS-код без <script>;',
+      '- без markdown, без комментариев вокруг JSON.',
+    ].join('\n\n');
+
+    const rawTheme = await requestLandingAssemblyStep(
+      'sectional_theme',
+      'Собираю глобальную тему и CSS',
+      'Выношу общие стили и скрипты отдельно, чтобы потом собрать лендинг по секциям.',
+      themePrompt,
+      Math.min(responseMaxTokens, 5200),
+    );
+    const theme = sanitizeLandingThemeBundle(extractJsonObjectFromAssistantContent(rawTheme))
+      ?? buildFallbackLandingTheme(plan);
+
+    const sectionFragments: Array<{ id: string; html: string }> = [];
+    for (const [index, section] of plan.sections.entries()) {
+      const sectionPrompt = [
+        'Нужно вернуть только HTML-фрагмент одной секции лендинга без markdown и без пояснений.',
+        `Запрос пользователя: ${latestUserMessage}`,
+        `Название лендинга: ${theme.title ?? plan.title ?? 'Landing page'}`,
+        plan.style_direction ? `Визуальное направление: ${plan.style_direction}` : undefined,
+        `Текущая секция ${index + 1} из ${plan.sections.length}:`,
+        JSON.stringify(section, null, 2),
+        section.must_include?.length
+          ? `Обязательно включи: ${section.must_include.join(', ')}.`
+          : undefined,
+        sectionFragments.length > 0
+          ? `Уже собраны секции: ${sectionFragments.map((item) => item.id).join(', ')}. Не повторяй их содержимое.`
+          : undefined,
+        'Требования:',
+        '- верни только HTML для этой секции;',
+        '- не возвращай <html>, <head> или <body>;',
+        '- секция должна быть самодостаточной и готовой к вставке в общий документ;',
+        '- никаких фраз вроде "продолжаю" или "ниже HTML".',
+      ].filter(Boolean).join('\n\n');
+
+      const rawFragment = await requestLandingAssemblyStep(
+        'sectional_rendering',
+        `Рендерю секцию ${index + 1}/${plan.sections.length}: ${section.label}`,
+        'Генерирую небольшой фрагмент HTML вместо одного огромного ответа целиком.',
+        sectionPrompt,
+        Math.min(responseMaxTokens, 4200),
+      );
+      const fragment = normalizeLandingSectionFragment(rawFragment, section.id);
+      if (!fragment) {
+        return null;
+      }
+
+      sectionFragments.push({ id: section.id, html: fragment });
+      await emitRunEvent('chat.run.status', {
+        run_id: run.id,
+        status: 'sectional_rendering',
+        label: `Секция ${index + 1}/${plan.sections.length} собрана`,
+        detail: `${section.label} добавлена в общий лендинг.`,
+      });
+    }
+
+    const previewHtml = buildSectionalLandingHtml(plan, theme, sectionFragments);
+    const summary = plan.summary
+      ?? extractPartialCodingSummary(partialOutput)
+      ?? 'Лендинг собран секционно и сохранён как preview.';
+    const nextCodingReport: CodingReport = {
+      summary,
+      worklog: [
+        ...(plan.sections.length > 0 ? [`Секционный план: ${plan.sections.map((section) => section.label).join(' → ')}`] : []),
+        ...plan.sections.map((section, index) => `Секция ${index + 1}: ${section.label}`),
+      ].slice(0, 16),
+      notes: [
+        'HTML preview собран секционно после длинного ответа модели.',
+        'Этот режим используется для long landing runs, чтобы не терять результат целиком при лимите длины.',
+      ],
+      preview: {
+        type: 'html',
+        title: theme.title ?? plan.title ?? 'Generated landing',
+        html: previewHtml,
+      },
+    };
+
+    await emitRunEvent('chat.run.status', {
+      run_id: run.id,
+      status: 'sectional_assembled',
+      label: 'Секционная сборка завершена',
+      detail: 'Финальный preview собран из отдельных секций и готов к сохранению в чат.',
+    });
+
+    return {
+      content: `${summary}\n\nPreview собран секционно и сохранён в чат.`,
+      codingReport: nextCodingReport,
+    };
+  };
+
   const continueFinalAssistantOutput = async (
     currentOutput: string,
     continuationIndex: number,
@@ -2503,8 +2894,41 @@ ${agent.description.trim()}`);
         output: string,
         finishReason: ChatCompletionChoice['finish_reason'],
       ) => finishReason === 'length' || isRecoveredPreviewIncomplete(output);
+      const shouldTrySectionalLandingAssembly = (
+        looksLikeLandingBuildRequest(latestUserMessage)
+        && !strictPreviewEdit
+        && Boolean(rawAssistantOutput.trim())
+        && shouldContinueLongOutput(rawAssistantOutput, choice.finish_reason)
+      );
 
-      if (finalOutput && shouldContinueLongOutput(finalOutput, choice.finish_reason)) {
+      if (shouldTrySectionalLandingAssembly) {
+        await persistPartialAssistantOutput(finalOutput, { markTruncated: true });
+        const sectionalAssembly = await attemptSectionalLandingAssembly(rawAssistantOutput);
+        if (sectionalAssembly) {
+          finalOutput = sectionalAssembly.content;
+          codingReport = sectionalAssembly.codingReport;
+          finalOutputWasTruncated = false;
+        } else {
+          finalOutputWasTruncated = true;
+          for (let continuationIndex = 1; continuationIndex <= MAX_FINAL_OUTPUT_CONTINUATIONS; continuationIndex += 1) {
+            const continuation = await continueFinalAssistantOutput(finalOutput, continuationIndex);
+            const chunk = continuation.chunk;
+            if (!chunk) {
+              break;
+            }
+            finalOutput = mergeAssistantOutputChunks(finalOutput, chunk);
+            combinedAssistantOutput = finalOutput;
+            finalFinishReason = continuation.finishReason;
+            await persistPartialAssistantOutput(finalOutput, {
+              markTruncated: shouldContinueLongOutput(finalOutput, continuation.finishReason),
+            });
+            if (!shouldContinueLongOutput(finalOutput, continuation.finishReason)) {
+              finalOutputWasTruncated = false;
+              break;
+            }
+          }
+        }
+      } else if (finalOutput && shouldContinueLongOutput(finalOutput, choice.finish_reason)) {
         await persistPartialAssistantOutput(finalOutput, { markTruncated: true });
         finalOutputWasTruncated = true;
         for (let continuationIndex = 1; continuationIndex <= MAX_FINAL_OUTPUT_CONTINUATIONS; continuationIndex += 1) {
@@ -2527,7 +2951,7 @@ ${agent.description.trim()}`);
       } else if (finalOutput) {
         await persistPartialAssistantOutput(finalOutput);
       }
-      if (finalOutput) {
+      if (finalOutput && !codingReport) {
         const parsed = extractCodingReport(finalOutput);
         finalOutput = parsed.cleanText;
         codingReport = parsed.report;
