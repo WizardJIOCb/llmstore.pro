@@ -571,15 +571,26 @@ function extractAssistantTextFromMessage(message: unknown): string {
 
 function mergeAssistantOutputChunks(base: string, next: string): string {
   const left = base.trimEnd();
-  const right = next.trim();
+  const right = next.trimStart();
   if (!left) return right;
   if (!right) return left;
   if (left.endsWith(right)) return left;
 
-  const maxOverlap = Math.min(400, left.length, right.length);
-  for (let overlap = maxOverlap; overlap >= 40; overlap -= 1) {
+  const maxOverlap = Math.min(8000, left.length, right.length);
+  for (let overlap = maxOverlap; overlap >= 80; overlap -= 8) {
     if (left.slice(-overlap) === right.slice(0, overlap)) {
       return `${left}${right.slice(overlap)}`;
+    }
+  }
+
+  const leftLines = left.split('\n');
+  const rightLines = right.split('\n');
+  const maxLineOverlap = Math.min(80, leftLines.length, rightLines.length);
+  for (let overlap = maxLineOverlap; overlap >= 2; overlap -= 1) {
+    const leftChunk = leftLines.slice(-overlap).join('\n').trim();
+    const rightChunk = rightLines.slice(0, overlap).join('\n').trim();
+    if (leftChunk && leftChunk === rightChunk) {
+      return `${left}\n${rightLines.slice(overlap).join('\n')}`.trim();
     }
   }
 
@@ -1044,6 +1055,20 @@ function recoverHtmlPreviewFromMarkdown(
     cleanText: bestMatch.cleanText,
     incomplete: bestMatch.incomplete,
   };
+}
+
+function looksLikeHtmlPreviewPayload(content: string): boolean {
+  return /```html|<!doctype html|<html[\s>]|<body[\s>]|<head[\s>]/i.test(content);
+}
+
+function isRecoveredPreviewIncomplete(content: string, report?: CodingReport | null): boolean {
+  if (report?.preview?.type === 'html' && report.preview.html) {
+    const html = report.preview.html.trim();
+    return !/<\/html>\s*$/i.test(html);
+  }
+
+  const recovered = recoverHtmlPreviewFromMarkdown(content, report);
+  return recovered?.incomplete ?? false;
 }
 
 function normalizePreview(value: unknown): CodingReportPreview | null | undefined {
@@ -2295,18 +2320,23 @@ ${agent.description.trim()}`);
       finalOutput = rawAssistantOutput;
       let combinedAssistantOutput = rawAssistantOutput;
       let finalFinishReason = choice.finish_reason;
-      if (finalOutput && choice.finish_reason === 'length') {
+      const shouldContinueLongOutput = (
+        output: string,
+        finishReason: ChatCompletionChoice['finish_reason'],
+      ) => finishReason === 'length' || isRecoveredPreviewIncomplete(output);
+
+      if (finalOutput && shouldContinueLongOutput(finalOutput, choice.finish_reason)) {
         finalOutputWasTruncated = true;
         for (let continuationIndex = 1; continuationIndex <= MAX_FINAL_OUTPUT_CONTINUATIONS; continuationIndex += 1) {
           const continuation = await continueFinalAssistantOutput(finalOutput, continuationIndex);
-          const chunk = continuation.chunk.trim();
+          const chunk = continuation.chunk;
           if (!chunk) {
             break;
           }
           finalOutput = mergeAssistantOutputChunks(finalOutput, chunk);
           combinedAssistantOutput = finalOutput;
           finalFinishReason = continuation.finishReason;
-          if (continuation.finishReason !== 'length') {
+          if (!shouldContinueLongOutput(finalOutput, continuation.finishReason)) {
             finalOutputWasTruncated = false;
             break;
           }
