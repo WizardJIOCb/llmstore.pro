@@ -213,6 +213,7 @@ export function AppLayout() {
     : null;
   const profileLabel = [profileBaseLabel, profileBalanceLabel].filter(Boolean).join(' ');
   const visibleNavItems = navItems.filter((item) => !item.requiresAuth || isAuthenticated);
+  const mobileChatsCountLabel = `Чаты: ${chats?.length ?? 0}`;
 
   const mobileNavActions = visibleNavItems.map((item, index) => ({
     key: item.href,
@@ -405,7 +406,7 @@ export function AppLayout() {
               {isAuthenticated && (
                 <div className="mt-4 rounded-[22px] border border-white/10 bg-white/[0.04] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
                   <div className="mobile-popover-item mobile-popover-item--in" style={{ animationDelay: `${mobileActionDelayBase * MOBILE_MENU_ITEM_STAGGER_MS}ms` }}>
-                    <p className="text-xs uppercase tracking-[0.22em] text-slate-400">Список чатов</p>
+                    <p className="text-xs uppercase tracking-[0.22em] text-slate-400">{mobileChatsCountLabel}</p>
                   </div>
                   {(!chats || chats.length === 0) ? (
                     <div
@@ -566,5 +567,4 @@ export function AppLayout() {
     </div>
   );
 }
-
 

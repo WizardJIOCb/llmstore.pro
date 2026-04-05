@@ -2465,8 +2465,8 @@ export function ChatsPage() {
           </div>
           <div className="flex-1 overflow-y-auto p-2 space-y-4">
             {sidebarLoading && <div className="flex justify-center py-8"><Spinner /></div>}
-            {!sidebarLoading && draftChats.length > 0 && <section className="space-y-1"><p className="px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Черновики</p>{draftChats.map(renderChatRow)}</section>}
-            {!sidebarLoading && regularChats.length > 0 && <section className="space-y-1"><p className="px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Чаты</p>{regularChats.map(renderChatRow)}</section>}
+            {!sidebarLoading && draftChats.length > 0 && <section className="space-y-1"><p className="px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{`Черновики: ${draftChats.length}`}</p>{draftChats.map(renderChatRow)}</section>}
+            {!sidebarLoading && regularChats.length > 0 && <section className="space-y-1"><p className="px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{`Чаты: ${regularChats.length}`}</p>{regularChats.map(renderChatRow)}</section>}
             {!sidebarLoading && (!chats || chats.length === 0) && (
               <div className="flex min-h-full flex-1 items-center">
                 <div className="w-full rounded-2xl border border-dashed border-slate-300 bg-slate-50/80 p-4 text-center shadow-sm">
@@ -3872,4 +3872,3 @@ export function ChatsPage() {
     </div>
   );
 }
-
