@@ -652,6 +652,7 @@ export function ChatsPage() {
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const messagesContentRef = useRef<HTMLDivElement | null>(null);
   const assistantSlotNodeRef = useRef<HTMLDivElement | null>(null);
+  const pendingProgressAnchorRef = useRef<HTMLDivElement | null>(null);
   const shareToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const createDialogTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const deleteDialogTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -3278,12 +3279,7 @@ export function ChatsPage() {
               >
                 {assistantSlotResolvedMessage ? (
                   <>
-                    {activeChat?.pending_run && isPendingRunLive(activeChat.pending_run) && (
-                      <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                        <p className="font-medium">Промежуточный результат</p>
-                        <p className="mt-1 text-xs opacity-80">{LIVE_PARTIAL_RESULT_NOTICE}</p>
-                      </div>
-                    )}
+                    {null}
                     {activeChat?.pending_run && isPendingRunLive(activeChat.pending_run) && (
                       <div className="mb-3 space-y-3">
                         <ChatThinkingBubble
@@ -3393,6 +3389,7 @@ export function ChatsPage() {
                         }
                         : undefined}
                     />
+                    {!activeChat?.pending_run || !isPendingRunLive(activeChat.pending_run) ? (
                     <div className="mt-1 ml-1">
                       <RunMetadata
                         usage={extractUsage(assistantSlotResolvedMessage.usage)}
@@ -3401,21 +3398,27 @@ export function ChatsPage() {
                         agentName={activeChat?.mode === 'agent' ? (activeAgentName ?? undefined) : undefined}
                       />
                     </div>
+                    ) : null}
                   </>
                 ) : (
-                  <div className="space-y-3">
-                    <ChatThinkingBubble
-                      label={assistantResponseSlotForActiveChat.label}
-                      detail={assistantResponseSlotForActiveChat.detail}
-                      startedAt={assistantResponseSlotForActiveChat.startedAt}
-                    />
-                    <ChatLiveProgressPanel
-                      events={streamEvents}
-                      connected={streamConnected}
-                      trailing={isSubmittingMessage ? <ChatLiveProgressTrailingBusy /> : null}
-                    />
+                  <div className="rounded-xl border border-border/70 bg-background/50 p-4 text-sm text-muted-foreground">
+                    Ожидаю первый фрагмент ответа...
                   </div>
                 )}
+              </div>
+            )}
+            {assistantResponseSlotForActiveChat && activeChat?.pending_run && isPendingRunLive(activeChat.pending_run) && (
+              <div ref={pendingProgressAnchorRef} className="mt-3 space-y-3">
+                <ChatThinkingBubble
+                  label={assistantResponseSlotForActiveChat.label}
+                  detail={assistantResponseSlotForActiveChat.detail}
+                  startedAt={assistantResponseSlotForActiveChat.startedAt}
+                />
+                <ChatLiveProgressPanel
+                  events={streamEvents}
+                  connected={streamConnected}
+                  trailing={isSubmittingMessage ? <ChatLiveProgressTrailingBusy /> : null}
+                />
               </div>
             )}
             </div>

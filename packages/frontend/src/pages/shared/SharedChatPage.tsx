@@ -757,12 +757,12 @@ export function SharedChatPage() {
               <p className="mt-1 text-xs opacity-80">{LIVE_PARTIAL_RESULT_NOTICE}</p>
             </div>
           )}
-          {isPendingSharedReply && index === pendingAssistantMessageIndex && (
+          {false && isPendingSharedReply && index === pendingAssistantMessageIndex && (
             <div ref={pendingProgressAnchorRef} className="space-y-3">
               <ChatThinkingBubble
                 label={pendingLabel}
                 detail={pendingDetail}
-                startedAt={data.pendingRun?.started_at ?? lastMessage?.created_at ?? null}
+                startedAt={data?.pendingRun?.started_at ?? lastMessage?.created_at ?? null}
               />
               <ChatLiveProgressPanel
                 events={displayedStreamEvents}
@@ -772,12 +772,12 @@ export function SharedChatPage() {
               />
             </div>
           )}
-          {isPendingSharedReply && index === pendingUserMessageIndex && pendingAssistantMessageIndex === -1 && (
+          {false && isPendingSharedReply && index === pendingUserMessageIndex && pendingAssistantMessageIndex === -1 && (
             <div ref={pendingProgressAnchorRef} className="space-y-3">
               <ChatThinkingBubble
                 label={pendingLabel}
                 detail={pendingDetail}
-                startedAt={data.pendingRun?.started_at ?? lastMessage?.created_at ?? null}
+                startedAt={data?.pendingRun?.started_at ?? lastMessage?.created_at ?? null}
               />
               <ChatLiveProgressPanel
                 events={displayedStreamEvents}
@@ -789,6 +789,21 @@ export function SharedChatPage() {
           )}
                     </div>
         ))}
+        {isPendingSharedReply && (
+          <div ref={pendingProgressAnchorRef} className="space-y-3">
+            <ChatThinkingBubble
+              label={pendingLabel}
+              detail={pendingDetail}
+              startedAt={data.pendingRun?.started_at ?? lastMessage?.created_at ?? null}
+            />
+            <ChatLiveProgressPanel
+              events={displayedStreamEvents}
+              connected={streamConnected}
+              connectedLabel="SSE подключен"
+              disconnectedLabel="Ожидаю переподключение к SSE"
+            />
+          </div>
+        )}
         <div ref={messagesEndAnchorRef} aria-hidden="true" />
       </div>
 
