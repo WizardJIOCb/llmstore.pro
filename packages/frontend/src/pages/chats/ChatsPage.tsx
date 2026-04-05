@@ -2496,7 +2496,7 @@ export function ChatsPage() {
             <div className="min-w-0 flex-1">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1 space-y-0.5">
-                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <div className="flex min-w-0 items-center gap-2">
                     {activeChat && activeChat.access !== 'public' && (
                       <span
                         className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-slate-600"
@@ -2506,18 +2506,22 @@ export function ChatsPage() {
                         <ChatPrivacyIcon access={activeChat.access} className="h-3.5 w-3.5" />
                       </span>
                     )}
-                    <h1 className="truncate font-semibold">{activeChat?.title ?? 'Чаты'}</h1>
-                    {activeChat && activeChat.access !== 'public' && !isAdminForeignChat && (
-                      <Badge variant="outline" className="border-slate-300 bg-slate-50 text-slate-700">
-                        {activeChat.access === 'restricted' ? 'Ограниченный' : 'Приватный'}
-                      </Badge>
-                    )}
-                    {isAdminForeignChat && (
-                      <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-800">
-                        Чужой чат
-                      </Badge>
-                    )}
+                    <h1 className="min-w-0 flex-1 truncate font-semibold">{activeChat?.title ?? 'Чаты'}</h1>
                   </div>
+                  {(activeChat?.access !== 'public' && !isAdminForeignChat) || isAdminForeignChat ? (
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      {activeChat && activeChat.access !== 'public' && !isAdminForeignChat && (
+                        <Badge variant="outline" className="border-slate-300 bg-slate-50 text-slate-700">
+                          {activeChat.access === 'restricted' ? 'Ограниченный' : 'Приватный'}
+                        </Badge>
+                      )}
+                      {isAdminForeignChat && (
+                        <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-800">
+                          Чужой чат
+                        </Badge>
+                      )}
+                    </div>
+                  ) : null}
                   <p className="truncate text-[11px] leading-4 text-muted-foreground">
                     {isAdminForeignChat
                       ? `Чужой чат • ${activeChatOwnerLabel}`
