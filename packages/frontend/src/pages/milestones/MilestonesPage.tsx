@@ -181,7 +181,7 @@ const milestones: MilestoneItem[] = [
   },
   {
     id: 7,
-    title: 'YooKassa Payment Setup',
+    title: 'Payments & Billing Setup',
     status: 'inProgress',
     description: 'Подключаем ЮKassa для платёжки: сейчас идёт оформление нужных документов, прохождение шагов через Госуслуги и подготовка к официальной работе платёжной системы.',
     ctaLabel: 'Смотреть оплату',
@@ -209,7 +209,7 @@ const milestones: MilestoneItem[] = [
     status: 'done',
     description: 'Двигаем deploy для webhook-ботов и похожих сценариев с логами, статусами и историей запусков.',
     ctaLabel: 'Читать гайды',
-    ctaHref: '/guides',
+    ctaHref: 'https://llmstore.pro/guides/fast-telegram-bot-deploy',
   },
   {
     id: 11,
