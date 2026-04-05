@@ -442,7 +442,9 @@ export function AppLayout() {
                           style={{ animationDelay: `${(mobileActionDelayBase + 1 + index) * MOBILE_MENU_ITEM_STAGGER_MS}ms` }}
                           onClick={() => selectChat(chat.id)}
                         >
-                          {chat.title}
+                          <span className="block min-w-0 truncate whitespace-nowrap">
+                            {chat.title}
+                          </span>
                         </button>
                       ))}
                     </div>
