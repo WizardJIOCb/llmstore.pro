@@ -162,8 +162,8 @@ export const publishedLandings = pgTable('published_landings', {
   deployment_id: uuid('deployment_id').references(() => chatProjectDeployments.id, { onDelete: 'set null' }),
   type: publishedLandingTypeEnum('type').notNull().default('preview_html'),
   status: publishedLandingStatusEnum('status').notNull().default('active'),
-  subdomain: varchar('subdomain').notNull(),
-  title: varchar('title'),
+  subdomain: varchar('subdomain', { length: 63 }).notNull(),
+  title: varchar('title', { length: 255 }),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
