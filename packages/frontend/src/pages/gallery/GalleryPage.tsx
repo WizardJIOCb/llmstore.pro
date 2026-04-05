@@ -193,12 +193,8 @@ function buildSearchText(item: GalleryPreviewItem): string {
     .toLowerCase();
 }
 
-function buildGalleryChatTarget(item: GalleryPreviewItem, currentUserId?: string | null): string {
-  if (currentUserId && item.owner_user_id === currentUserId) {
-    return `/chats?chat=${encodeURIComponent(item.chat_id)}`;
-  }
-
-  return item.chat_url;
+function buildGalleryChatTarget(item: GalleryPreviewItem): string {
+  return item.chat_url || `/chats?chat=${encodeURIComponent(item.chat_id)}`;
 }
 
 function GalleryArtifactFrame({
@@ -578,7 +574,7 @@ export function GalleryPage() {
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <Link to={buildGalleryChatTarget(item, currentUser?.id ?? null)}>
+                      <Link to={buildGalleryChatTarget(item)}>
                         <Button size="sm">Перейти в чат</Button>
                       </Link>
                       {(item.kind === 'project' || item.kind === 'hybrid') && (
