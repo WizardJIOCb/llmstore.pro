@@ -407,7 +407,7 @@ async function ensureAgentIsVisibleForUser(agentId: string, userId: string, user
   }
 
   if (agent.status !== 'active' || !agent.current_version_id) {
-    throw new AppError(400, 'AGENT_UNAVAILABLE', 'Р’С‹Р±СЂР°РЅРЅС‹Р№ Р°РіРµРЅС‚ РЅРµРґРѕСЃС‚СѓРїРµРЅ');
+    throw new AppError(400, 'AGENT_UNAVAILABLE', 'Выбранный агент недоступен');
   }
 
   if (
@@ -418,7 +418,7 @@ async function ensureAgentIsVisibleForUser(agentId: string, userId: string, user
     return;
   }
 
-  throw new AppError(403, 'FORBIDDEN', 'Р­С‚РѕС‚ Р°РіРµРЅС‚ РЅРµРґРѕСЃС‚СѓРїРµРЅ РґР»СЏ РІС‹Р±СЂР°РЅРЅРѕРіРѕ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ');
+  throw new AppError(403, 'FORBIDDEN', 'Этот агент недоступен для выбранного пользователя');
 }
 
 // --- Types ---
@@ -1715,7 +1715,7 @@ export async function startRun(
   if (!agent) throw new NotFoundError('Ресурс не найден');
 
   if (!agent.current_version_id) {
-    throw new AppError(400, 'NO_VERSION', 'РЈ Р°РіРµРЅС‚Р° РЅРµС‚ Р°РєС‚РёРІРЅРѕР№ РІРµСЂСЃРёРё');
+    throw new AppError(400, 'NO_VERSION', 'У агента нет активной версии');
   }
 
   const [version] = await db.select().from(agentVersions).where(eq(agentVersions.id, agent.current_version_id)).limit(1);
@@ -1774,7 +1774,7 @@ export async function startRun(
         user_id: userId,
         mode: 'agent',
         agent_id: agentId,
-        title: (latestUserMessage || 'РќРѕРІС‹Р№ С‡Р°С‚').slice(0, 500),
+        title: (latestUserMessage || 'Новый чат').slice(0, 500),
         model_external_id: modelId,
         last_message_at: new Date(),
       }).returning({ id: chatConversations.id });
@@ -1831,10 +1831,12 @@ export async function startRun(
     systemParts.push(version.system_prompt.trim());
   }
   if (typeof runtimeConfig.chat_intro === 'string' && runtimeConfig.chat_intro.trim().length > 0) {
-    systemParts.push(`РћРїРёСЃР°РЅРёРµ Р°РіРµРЅС‚Р° РґР»СЏ С‡Р°С‚Р°:\n${runtimeConfig.chat_intro.trim()}`);
+    systemParts.push(`Описание агента для чата:
+${runtimeConfig.chat_intro.trim()}`);
   }
   if (typeof agent.description === 'string' && agent.description.trim().length > 0) {
-    systemParts.push(`РљСЂР°С‚РєРѕРµ РѕРїРёСЃР°РЅРёРµ Р°РіРµРЅС‚Р°:\n${agent.description.trim()}`);
+    systemParts.push(`Краткое описание агента:
+${agent.description.trim()}`);
   }
   if (strictPreviewEdit) {
     systemParts.push(buildStrictPreviewEditInstruction(strictPreviewEdit));
@@ -2082,8 +2084,8 @@ export async function startRun(
   if (runStatus === 'completed' && !finalOutput.trim()) {
     runStatus = 'failed';
     errorMessage = gotTerminalAssistantMessage
-      ? 'РњРѕРґРµР»СЊ РЅРµ РІРµСЂРЅСѓР»Р° С‚РµРєСЃС‚РѕРІС‹Р№ РѕС‚РІРµС‚.'
-      : `РђРіРµРЅС‚ РЅРµ РІРµСЂРЅСѓР» РёС‚РѕРіРѕРІС‹Р№ РѕС‚РІРµС‚: РґРѕСЃС‚РёРіРЅСѓС‚ Р»РёРјРёС‚ РёС‚РµСЂР°С†РёР№ (${maxIterations}).`;
+      ? 'Модель не вернула текстовый ответ.'
+      : `Агент не вернул итоговый ответ: достигнут лимит итераций (${maxIterations}).`;
     logger.warn({ runId: run.id, modelId, maxIterations }, 'Agent run completed without final text output');
   }
 
@@ -2750,7 +2752,7 @@ function toNumberOrNull(value: unknown): number | null {
 
 function compactTitle(content: string): string {
   const text = content.replace(/\s+/g, ' ').trim();
-  return text.length > 80 ? `${text.slice(0, 80)}...` : text || 'РќРѕРІС‹Р№ С‡Р°С‚';
+  return text.length > 80 ? `${text.slice(0, 80)}...` : text || 'Новый чат';
 }
 
 function extractStarterPrompts(value: unknown): string[] {
@@ -3641,7 +3643,7 @@ export async function createChat(userId: string, input: {
   const accessIdentifiers = normalizeAccessIdentifiers(input.access_identifiers);
   const normalizedToolIds = normalizeChatToolIds(input.tool_ids);
   if (mode === 'agent' && !input.agent_id) {
-    throw new AppError(400, 'VALIDATION_ERROR', 'Р”Р»СЏ СЂРµР¶РёРјР° С‡Р°С‚Р° СЃ Р°РіРµРЅС‚РѕРј С‚СЂРµР±СѓРµС‚СЃСЏ agent_id');
+    throw new AppError(400, 'VALIDATION_ERROR', 'Для режима чата с агентом требуется agent_id');
   }
   
   if (mode === 'agent' && input.agent_id) {
@@ -3663,7 +3665,7 @@ export async function createChat(userId: string, input: {
     user_id: userId,
     mode,
     agent_id: input.agent_id ?? null,
-    title: (input.title?.trim() || 'РќРѕРІС‹Р№ С‡Р°С‚').slice(0, 500),
+    title: (input.title?.trim() || 'Новый чат').slice(0, 500),
     model_external_id: mode === 'agent' ? null : (input.model_external_id ?? null),
     system_prompt: input.system_prompt ?? null,
     access,
@@ -4160,7 +4162,7 @@ export async function updateChat(chatId: string, userId: string, input: {
     : normalizeChatToolIds(input.tool_ids);
 
   if (nextMode === 'agent' && !nextAgentId) {
-    throw new AppError(400, 'VALIDATION_ERROR', 'Р”Р»СЏ СЂРµР¶РёРјР° С‡Р°С‚Р° СЃ Р°РіРµРЅС‚РѕРј С‚СЂРµР±СѓРµС‚СЃСЏ agent_id');
+    throw new AppError(400, 'VALIDATION_ERROR', 'Для режима чата с агентом требуется agent_id');
   }
 
   
@@ -4501,7 +4503,7 @@ export async function sendChatMessage(
 
     if (chat.mode === 'agent') {
       if (!chat.agent_id) {
-        throw new AppError(400, 'CHAT_CONFIG_ERROR', 'Р­С‚РѕС‚ С‡Р°С‚ РЅРµ РЅР°СЃС‚СЂРѕРµРЅ РєР°Рє Р°РіРµРЅС‚');
+        throw new AppError(400, 'CHAT_CONFIG_ERROR', 'Этот чат не настроен как агент');
       }
       await ensureAgentIsVisibleForUser(chat.agent_id, userId, userRole);
 
@@ -4527,7 +4529,7 @@ export async function sendChatMessage(
         throw new AppError(
           502,
           'AGENT_RUNTIME_FAILED',
-          result.error_message ?? 'РђРіРµРЅС‚ РЅРµ СЃРјРѕРі СЃС„РѕСЂРјРёСЂРѕРІР°С‚СЊ РѕС‚РІРµС‚. РџРѕРїСЂРѕР±СѓР№С‚Рµ РёР·РјРµРЅРёС‚СЊ Р·Р°РїСЂРѕСЃ.',
+          result.error_message ?? 'Агент не смог сформировать ответ. Попробуйте изменить запрос.',
         );
       }
 
@@ -4539,7 +4541,7 @@ export async function sendChatMessage(
         ),
       );
 
-      assistantText = result.output || '(РїСѓСЃС‚РѕР№ РѕС‚РІРµС‚)';
+      assistantText = result.output || '(пустой ответ)';
       runId = result.run_id;
       latencyMs = result.latency_ms;
       if (result.usage) {

@@ -1,0 +1,35 @@
+#!/bin/sh
+set -eu
+
+commits=""
+zero="0000000000000000000000000000000000000000"
+
+while read local_ref local_sha remote_ref remote_sha
+do
+  [ -z "${local_sha:-}" ] && continue
+  [ "$local_sha" = "$zero" ] && continue
+
+  if [ "$remote_sha" = "$zero" ]; then
+    revs=$(git rev-list "$local_sha" --not --all || true)
+    if [ -z "$revs" ]; then
+      revs="$local_sha"
+    fi
+  else
+    revs=$(git rev-list "$remote_sha..$local_sha" || true)
+  fi
+
+  [ -z "$revs" ] && continue
+  commits="$commits $revs"
+done
+
+if [ -z "$commits" ]; then
+  exit 0
+fi
+
+printf '%s\n' $commits \
+  | while read commit_sha
+    do
+      git diff-tree --no-commit-id --name-only -r --diff-filter=ACMR "$commit_sha"
+    done \
+  | sort -u \
+  | node scripts/check-mojibake.mjs --stdin

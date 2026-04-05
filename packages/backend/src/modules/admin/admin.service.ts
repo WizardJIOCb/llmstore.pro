@@ -805,7 +805,7 @@ export async function resetUserPassword(adminUserId: string, id: string, passwor
     .where(eq(users.id, id))
     .limit(1);
 
-  if (!user) throw new NotFoundError('РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ РЅРµ РЅР°Р№РґРµРЅ');
+  if (!user) throw new NotFoundError('Пользователь не найден');
 
   const password_hash = await argon2.hash(password);
 

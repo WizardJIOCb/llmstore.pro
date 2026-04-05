@@ -321,7 +321,7 @@ function MultiSeriesChart<T extends DatePoint>({
   const activeSeries = series.filter((item) => visibleKeys.includes(item.key));
   const width = Math.max(chartPixelWidth, 320);
   const height = chartHeightPx;
-  const padding = { top: 18, right: 18, bottom: 42, left: 56 };
+  const padding = { top: 18, right: 18, bottom: 46, left: 56 };
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
 
@@ -490,7 +490,8 @@ function MultiSeriesChart<T extends DatePoint>({
               }}
             >
               <svg
-                viewBox={`0 0 ${width} ${height}`}
+                width={width}
+                height={height}
                 className="block w-full overflow-visible"
                 style={{ height: `${chartHeightPx}px` }}
               >
@@ -539,7 +540,7 @@ function MultiSeriesChart<T extends DatePoint>({
                     <text
                       x={xScale(index)}
                       y={height - 14}
-                      textAnchor="middle"
+                      textAnchor={index === 0 ? 'start' : index === data.length - 1 ? 'end' : 'middle'}
                       fontSize="11"
                       fill="currentColor"
                       fillOpacity={0.6}
