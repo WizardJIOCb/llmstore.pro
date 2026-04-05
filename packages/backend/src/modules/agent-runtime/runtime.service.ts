@@ -108,6 +108,7 @@ interface CodingReport {
   notes?: string[];
   project?: CodingReportProject | null;
   preview?: CodingReportPreview | null;
+  landing_artifact?: LandingArtifactState | null;
 }
 
 interface LandingSectionPlanSection {
@@ -130,6 +131,28 @@ interface LandingThemeBundle {
   body_class?: string;
   style_css?: string;
   script_js?: string;
+}
+
+interface LandingArtifactSectionSnapshot {
+  id: string;
+  label: string;
+  goal: string;
+  must_include?: string[];
+  status: 'planned' | 'rendering' | 'completed' | 'failed';
+  html?: string;
+}
+
+interface LandingArtifactState {
+  mode: 'sectional';
+  status: 'planning' | 'theming' | 'rendering_sections' | 'assembling' | 'completed' | 'failed';
+  title?: string;
+  summary?: string;
+  style_direction?: string;
+  section_count: number;
+  completed_section_count: number;
+  last_completed_section_id?: string;
+  sections: LandingArtifactSectionSnapshot[];
+  assembled_html?: string | null;
 }
 
 export interface ProjectRunVerification {
@@ -705,6 +728,73 @@ function sanitizeLandingThemeBundle(value: unknown): LandingThemeBundle | null {
   };
 }
 
+function normalizeLandingArtifactState(value: unknown): LandingArtifactState | null | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const raw = value as Record<string, unknown>;
+  const rawSections = Array.isArray(raw.sections) ? raw.sections : [];
+  const sections: LandingArtifactSectionSnapshot[] = [];
+
+  for (const item of rawSections) {
+    if (!item || typeof item !== 'object') continue;
+    const record = item as Record<string, unknown>;
+    const id = normalizeLandingSectionId(record.id);
+    const label = clampText(record.label, 120);
+    const goal = clampText(record.goal, 400);
+    const status = record.status === 'rendering'
+      || record.status === 'completed'
+      || record.status === 'failed'
+      ? record.status
+      : 'planned';
+    if (!id || !label || !goal) continue;
+
+    sections.push({
+      id,
+      label,
+      goal,
+      must_include: normalizeStringArray(record.must_include, 8, 240),
+      status,
+      html: clampText(stripContinuationNarration(String(record.html ?? '')), 30_000),
+    });
+
+    if (sections.length >= 8) break;
+  }
+
+  if (sections.length === 0) return null;
+
+  const status = raw.status === 'theming'
+    || raw.status === 'rendering_sections'
+    || raw.status === 'assembling'
+    || raw.status === 'completed'
+    || raw.status === 'failed'
+    ? raw.status
+    : 'planning';
+  const sectionCount = Math.max(
+    sections.length,
+    toNumberOrNull(raw.section_count) ?? sections.length,
+  );
+  const completedSectionCount = Math.min(
+    sectionCount,
+    Math.max(
+      0,
+      toNumberOrNull(raw.completed_section_count)
+        ?? sections.filter((section) => section.status === 'completed').length,
+    ),
+  );
+
+  return {
+    mode: 'sectional',
+    status,
+    title: clampText(raw.title, 200),
+    summary: clampText(raw.summary, 1200),
+    style_direction: clampText(raw.style_direction, 600),
+    section_count: sectionCount,
+    completed_section_count: completedSectionCount,
+    last_completed_section_id: normalizeLandingSectionId(raw.last_completed_section_id) ?? undefined,
+    sections,
+    assembled_html: clampText(stripContinuationNarration(String(raw.assembled_html ?? '')), 120_000) ?? null,
+  };
+}
+
 function escapeHtmlText(value: string): string {
   return value
     .replace(/&/g, '&amp;')
@@ -794,6 +884,54 @@ function buildSectionalLandingHtml(
     '</body>',
     '</html>',
   ].join('\n');
+}
+
+function buildLandingArtifactReport(
+  artifact: LandingArtifactState,
+  options?: {
+    title?: string | null;
+    summary?: string | null;
+    extraNotes?: string[];
+  },
+): CodingReport {
+  const assembledHtml = artifact.assembled_html?.trim() || null;
+  const preview = assembledHtml
+    ? {
+      type: 'html' as const,
+      title: options?.title?.trim() || artifact.title?.trim() || 'Generated landing',
+      html: assembledHtml,
+    }
+    : null;
+
+  const notes = [
+    preview
+      ? 'Preview собран и обновляется по ходу секционной генерации.'
+      : 'Секции лендинга сохраняются по мере генерации. Preview появится после первых готовых секций.',
+    ...(
+      options?.extraNotes?.filter((note) => Boolean(note?.trim()))
+        .map((note) => note.trim())
+        ?? []
+    ),
+  ].slice(0, 12);
+
+  return {
+    summary: options?.summary?.trim()
+      || artifact.summary?.trim()
+      || 'Собираю лендинг секционно, чтобы не потерять результат на длинном ответе.',
+    worklog: artifact.sections.map((section, index) => {
+      const prefix = section.status === 'completed'
+        ? 'Секция готова'
+        : section.status === 'rendering'
+          ? 'Рендерю секцию'
+          : section.status === 'failed'
+            ? 'Секция завершилась с ошибкой'
+            : 'Запланирована секция';
+      return `${index + 1}. ${prefix}: ${section.label}`;
+    }).slice(0, 16),
+    notes,
+    preview,
+    landing_artifact: artifact,
+  };
 }
 
 function looksLikeLandingBuildRequest(request: string): boolean {
@@ -1412,6 +1550,7 @@ function sanitizeCodingReport(value: unknown): CodingReport | null {
     notes: normalizeStringArray(report.notes, 12, 1200),
     project: normalizeProject(report.project) ?? null,
     preview: normalizePreview(report.preview) ?? null,
+    landing_artifact: normalizeLandingArtifactState(report.landing_artifact) ?? null,
   };
 
   if (
@@ -1422,6 +1561,7 @@ function sanitizeCodingReport(value: unknown): CodingReport | null {
     && !normalized.notes
     && !normalized.project
     && !normalized.preview
+    && !normalized.landing_artifact
   ) {
     return null;
   }
@@ -2404,10 +2544,14 @@ ${agent.description.trim()}`);
 
   const persistPartialAssistantOutput = async (
     rawOutput: string,
-    options?: { markTruncated?: boolean },
+    options?: {
+      markTruncated?: boolean;
+      overrideContent?: string;
+      overrideReport?: CodingReport | null;
+    },
   ) => {
     if (!syncToChats || !syncedConversationId) return;
-    if (!rawOutput.trim()) return;
+    if (!rawOutput.trim() && !options?.overrideContent?.trim()) return;
 
     let nextContent = rawOutput;
     let nextCodingReport: CodingReport | null = null;
@@ -2416,12 +2560,23 @@ ${agent.description.trim()}`);
     nextContent = parsed.cleanText;
     nextCodingReport = parsed.report;
 
+    if (options?.overrideReport) {
+      nextCodingReport = sanitizeCodingReport({
+        ...(nextCodingReport ?? {}),
+        ...(options.overrideReport ?? {}),
+      });
+    }
+
     if (!nextContent && nextCodingReport?.summary) {
       nextContent = nextCodingReport.summary;
     }
 
     if (!nextContent) {
       nextContent = extractPartialCodingSummary(rawOutput) ?? rawOutput;
+    }
+
+    if (options?.overrideContent?.trim()) {
+      nextContent = options.overrideContent.trim();
     }
 
     if (!nextContent.trim()) return;
@@ -2449,6 +2604,12 @@ ${agent.description.trim()}`);
       );
 
     const nextLatencyMs = Date.now() - startTime;
+
+    await db.update(agentRuns).set({
+      final_output: nextContent,
+      final_output_json: nextCodingReport as Record<string, unknown> | null,
+      output_summary: nextContent.slice(0, 200) || null,
+    }).where(eq(agentRuns.id, run.id));
 
     if (!partialAssistantMessageId) {
       const [inserted] = await db.insert(chatConversationMessages).values({
@@ -2548,6 +2709,62 @@ ${agent.description.trim()}`);
       return null;
     }
 
+    const artifact: LandingArtifactState = {
+      mode: 'sectional',
+      status: 'planning',
+      title: plan.title ?? undefined,
+      summary: plan.summary ?? extractPartialCodingSummary(partialOutput) ?? undefined,
+      style_direction: plan.style_direction ?? undefined,
+      section_count: plan.sections.length,
+      completed_section_count: 0,
+      sections: plan.sections.map((section) => ({
+        id: section.id,
+        label: section.label,
+        goal: section.goal,
+        must_include: section.must_include,
+        status: 'planned',
+      })),
+      assembled_html: null,
+    };
+
+    let resolvedTheme = buildFallbackLandingTheme(plan);
+    const syncArtifactSnapshot = async (
+      status: LandingArtifactState['status'],
+      content: string,
+      extraNotes?: string[],
+    ) => {
+      artifact.status = status;
+      artifact.completed_section_count = artifact.sections.filter((section) => section.status === 'completed').length;
+      artifact.last_completed_section_id = [...artifact.sections]
+        .reverse()
+        .find((section) => section.status === 'completed')
+        ?.id;
+      artifact.assembled_html = artifact.completed_section_count > 0
+        ? buildSectionalLandingHtml(
+          plan,
+          resolvedTheme,
+          artifact.sections
+            .filter((section) => section.status === 'completed' && typeof section.html === 'string' && section.html.trim().length > 0)
+            .map((section) => ({ id: section.id, html: section.html! })),
+        )
+        : null;
+
+      await persistPartialAssistantOutput(partialOutput, {
+        overrideContent: content,
+        overrideReport: buildLandingArtifactReport(artifact, {
+          title: resolvedTheme.title ?? plan.title ?? 'Generated landing',
+          summary: artifact.summary ?? content,
+          extraNotes,
+        }),
+      });
+    };
+
+    await syncArtifactSnapshot(
+      'planning',
+      'Собрал план лендинга и перехожу к теме. Дальше начну по одной сохранять секции и черновой preview.',
+      ['Секционный план сохранён как артефакт.'],
+    );
+
     const themePrompt = [
       'По этому плану лендинга верни только JSON без markdown.',
       JSON.stringify(plan, null, 2),
@@ -2568,15 +2785,31 @@ ${agent.description.trim()}`);
       themePrompt,
       Math.min(responseMaxTokens, 5200),
     );
-    const theme = sanitizeLandingThemeBundle(extractJsonObjectFromAssistantContent(rawTheme))
+    resolvedTheme = sanitizeLandingThemeBundle(extractJsonObjectFromAssistantContent(rawTheme))
       ?? buildFallbackLandingTheme(plan);
+
+    artifact.title = resolvedTheme.title ?? artifact.title;
+    await syncArtifactSnapshot(
+      'theming',
+      'Глобальная тема и CSS готовы. Начинаю собирать секции и обновлять preview по мере готовности.',
+      ['Глобальная тема лендинга сохранена как отдельный артефакт.'],
+    );
 
     const sectionFragments: Array<{ id: string; html: string }> = [];
     for (const [index, section] of plan.sections.entries()) {
+      artifact.sections[index] = {
+        ...artifact.sections[index],
+        status: 'rendering',
+      };
+      await syncArtifactSnapshot(
+        'rendering_sections',
+        `Рендерю секцию ${index + 1} из ${plan.sections.length}: ${section.label}.`,
+      );
+
       const sectionPrompt = [
         'Нужно вернуть только HTML-фрагмент одной секции лендинга без markdown и без пояснений.',
         `Запрос пользователя: ${latestUserMessage}`,
-        `Название лендинга: ${theme.title ?? plan.title ?? 'Landing page'}`,
+        `Название лендинга: ${resolvedTheme.title ?? plan.title ?? 'Landing page'}`,
         plan.style_direction ? `Визуальное направление: ${plan.style_direction}` : undefined,
         `Текущая секция ${index + 1} из ${plan.sections.length}:`,
         JSON.stringify(section, null, 2),
@@ -2602,10 +2835,29 @@ ${agent.description.trim()}`);
       );
       const fragment = normalizeLandingSectionFragment(rawFragment, section.id);
       if (!fragment) {
+        artifact.sections[index] = {
+          ...artifact.sections[index],
+          status: 'failed',
+        };
+        await syncArtifactSnapshot(
+          'failed',
+          `Не удалось собрать секцию ${section.label}. Останавливаю секционную сборку.`,
+          ['Одна из секций не была сгенерирована корректно.'],
+        );
         return null;
       }
 
       sectionFragments.push({ id: section.id, html: fragment });
+      artifact.sections[index] = {
+        ...artifact.sections[index],
+        status: 'completed',
+        html: fragment,
+      };
+      await syncArtifactSnapshot(
+        'rendering_sections',
+        `Собрана секция ${index + 1} из ${plan.sections.length}: ${section.label}. Черновой preview уже обновлён.`,
+        ['Черновой preview обновлён после сохранения очередной секции.'],
+      );
       await emitRunEvent('chat.run.status', {
         run_id: run.id,
         status: 'sectional_rendering',
@@ -2614,7 +2866,16 @@ ${agent.description.trim()}`);
       });
     }
 
-    const previewHtml = buildSectionalLandingHtml(plan, theme, sectionFragments);
+    artifact.status = 'assembling';
+    await syncArtifactSnapshot(
+      'assembling',
+      'Все секции готовы. Собираю финальный HTML и финализирую preview.',
+    );
+
+    const previewHtml = buildSectionalLandingHtml(plan, resolvedTheme, sectionFragments);
+    artifact.assembled_html = previewHtml;
+    artifact.status = 'completed';
+    artifact.completed_section_count = artifact.section_count;
     const summary = plan.summary
       ?? extractPartialCodingSummary(partialOutput)
       ?? 'Лендинг собран секционно и сохранён как preview.';
@@ -2630,9 +2891,10 @@ ${agent.description.trim()}`);
       ],
       preview: {
         type: 'html',
-        title: theme.title ?? plan.title ?? 'Generated landing',
+        title: resolvedTheme.title ?? plan.title ?? 'Generated landing',
         html: previewHtml,
       },
+      landing_artifact: artifact,
     };
 
     await emitRunEvent('chat.run.status', {
@@ -2974,6 +3236,46 @@ ${agent.description.trim()}`);
           finalOutput = `${finalOutput.trim()}\n\n[Ответ всё ещё был обрезан по лимиту длины. Можно попросить продолжить или сузить задачу.]`;
         }
       }
+
+      if (finalOutput && !codingReport?.preview) {
+        const normalized = normalizeAssistantChatPayload(
+          finalOutput,
+          codingReport
+            ? { coding_report: codingReport as unknown as Record<string, unknown> }
+            : null,
+        );
+        if (normalized.codingReport) {
+          codingReport = normalized.codingReport;
+        }
+        if (normalized.content.trim()) {
+          finalOutput = normalized.content.trim();
+        }
+      }
+
+      const requiresLandingPreview = looksLikeLandingBuildRequest(latestUserMessage) && !strictPreviewEdit;
+      if (
+        runStatus === 'completed'
+        && requiresLandingPreview
+        && (!codingReport?.preview || codingReport.preview.type !== 'html' || !codingReport.preview.html?.trim())
+      ) {
+        runStatus = 'failed';
+        errorMessage = 'Landing preview was not assembled';
+        const failureNotes = [
+          ...(codingReport?.notes ?? []),
+          'Run завершился без рабочего preview, поэтому не считается успешным.',
+        ].slice(0, 12);
+        codingReport = sanitizeCodingReport({
+          ...(codingReport ?? {}),
+          notes: failureNotes,
+        });
+        if (finalOutput.trim()) {
+          await persistPartialAssistantOutput(finalOutput, {
+            overrideReport: codingReport,
+            overrideContent: finalOutput,
+          });
+        }
+      }
+
       if (!finalOutput) {
         logger.warn(
           {
