@@ -266,7 +266,7 @@ export function GuidesPage() {
                 База знаний LLMStore.pro
               </div>
 
-              <h1 className="mt-5 max-w-4xl text-4xl font-semibold leading-tight tracking-[-0.03em] text-[#352519] md:text-6xl">
+              <h1 className="mt-5 max-w-4xl text-[2rem] font-semibold leading-[1.25] tracking-[-0.03em] text-[#352519]">
                 Гайды, с которыми проще разобраться в платформе и быстрее получить результат
               </h1>
 

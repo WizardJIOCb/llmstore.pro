@@ -443,7 +443,7 @@ export function MilestonesPage() {
               <Badge className="rounded-full border border-sky-200 bg-white/85 px-4 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-sky-700 shadow-sm">
                 Milestones
               </Badge>
-              <h1 className="mt-5 max-w-4xl text-4xl font-bold tracking-tight text-slate-950 md:text-5xl">
+              <h1 className="mt-5 max-w-4xl text-[2rem] font-bold leading-[1.25] tracking-tight text-slate-950">
                 Реальное движение продукта, а не список фантазий
               </h1>
               <p className="mt-5 max-w-3xl text-lg leading-8 text-slate-600">
