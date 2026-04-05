@@ -182,11 +182,11 @@ export function AgentsHubPage() {
         </Link>
       </div>
 
-      <div className="mb-6 flex items-center gap-2 rounded-lg border p-1 w-fit">
-        <Button variant={tab === 'my' ? 'primary' : 'ghost'} size="sm" onClick={() => setTab('my')}>
+      <div className="mb-6 grid w-full grid-cols-2 gap-2 rounded-lg border p-1">
+        <Button className="w-full" variant={tab === 'my' ? 'primary' : 'ghost'} size="sm" onClick={() => setTab('my')}>
           Мои агенты{myAgentsCount > 0 ? ` · ${myAgentsCount}` : ''}
         </Button>
-        <Button variant={tab === 'search' ? 'primary' : 'ghost'} size="sm" onClick={() => setTab('search')}>
+        <Button className="w-full" variant={tab === 'search' ? 'primary' : 'ghost'} size="sm" onClick={() => setTab('search')}>
           Глобальный поиск{discoverAgentsCount > 0 ? ` · ${discoverAgentsCount}` : ''}
         </Button>
       </div>
