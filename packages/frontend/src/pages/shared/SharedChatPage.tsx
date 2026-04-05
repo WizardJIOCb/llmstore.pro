@@ -202,6 +202,7 @@ export function SharedChatPage() {
   const eventSourceRef = useRef<EventSource | null>(null);
   const streamRunKeyRef = useRef<string | null>(null);
   const pendingProgressAnchorRef = useRef<HTMLDivElement | null>(null);
+  const messagesEndAnchorRef = useRef<HTMLDivElement | null>(null);
   const previousDisplayedEventsCountRef = useRef(0);
 
   const updateSharedPreviewMutation = useMutation({
@@ -450,6 +451,22 @@ export function SharedChatPage() {
         error: data.pendingRun.error ?? undefined,
       } satisfies LiveSharedEvent]
       : []);
+  const pendingAssistantSignature = useMemo(() => {
+    const assistantMessages = data.messages.filter((message) => message.role === 'assistant');
+    const lastAssistantMessage = assistantMessages[assistantMessages.length - 1];
+    if (!lastAssistantMessage) return 'none';
+
+    const toolTraceCount = Array.isArray((lastAssistantMessage.usage as { tool_traces?: unknown[] } | null)?.tool_traces)
+      ? (((lastAssistantMessage.usage as { tool_traces?: unknown[] } | null)?.tool_traces?.length) ?? 0)
+      : 0;
+
+    return [
+      lastAssistantMessage.id ?? 'assistant',
+      lastAssistantMessage.content.length,
+      toolTraceCount,
+      lastAssistantMessage.created_at ?? 'no-ts',
+    ].join(':');
+  }, [data.messages]);
   const pendingUserMessageIndex = useMemo(() => {
     if (!isPendingSharedReply) return -1;
 
@@ -466,25 +483,29 @@ export function SharedChatPage() {
   useEffect(() => {
     const nextCount = displayedStreamEvents.length;
     const previousCount = previousDisplayedEventsCountRef.current;
+    const hasNewProgressEvent = nextCount > previousCount;
     previousDisplayedEventsCountRef.current = nextCount;
 
-    if (!isPendingSharedReply || nextCount === 0 || nextCount <= previousCount) return;
+    if (!isPendingSharedReply) return;
+    if (!hasNewProgressEvent && pendingAssistantSignature === 'none') return;
 
-    const anchor = pendingProgressAnchorRef.current;
-    if (!anchor) return;
+    const primaryAnchor = messagesEndAnchorRef.current ?? pendingProgressAnchorRef.current;
+    if (!primaryAnchor) return;
 
-    const scrollToProgress = () => {
-      anchor.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    const scrollToLatest = () => {
+      primaryAnchor.scrollIntoView({ behavior: 'smooth', block: 'end' });
     };
 
-    const rafId = requestAnimationFrame(scrollToProgress);
-    const timeoutId = window.setTimeout(scrollToProgress, 120);
+    const rafId = requestAnimationFrame(scrollToLatest);
+    const timeoutId = window.setTimeout(scrollToLatest, 100);
+    const timeoutId2 = window.setTimeout(scrollToLatest, 240);
 
     return () => {
       cancelAnimationFrame(rafId);
       window.clearTimeout(timeoutId);
+      window.clearTimeout(timeoutId2);
     };
-  }, [displayedStreamEvents.length, isPendingSharedReply]);
+  }, [displayedStreamEvents.length, isPendingSharedReply, pendingAssistantSignature]);
 
   return (
     <div className="container mx-auto max-w-3xl px-4 py-8">
@@ -639,6 +660,7 @@ export function SharedChatPage() {
           )}
           </div>
         ))}
+        <div ref={messagesEndAnchorRef} aria-hidden="true" />
       </div>
 
       {data.messages.length === 0 && (
