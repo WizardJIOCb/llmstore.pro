@@ -973,6 +973,79 @@ function recoverProjectBundleFromMarkdown(content: string, report?: CodingReport
   };
 }
 
+function extractHtmlTitleFromDocument(html: string): string | null {
+  const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  if (!titleMatch) return null;
+  return clampText(titleMatch[1].replace(/\s+/g, ' ').trim(), 200) ?? null;
+}
+
+function recoverHtmlPreviewFromMarkdown(
+  content: string,
+  report?: CodingReport | null,
+): { preview: CodingReportPreview; cleanText: string; incomplete: boolean } | null {
+  const blockPattern = /```([^\n`]*)\n([\s\S]*?)(\n```|$)/g;
+  let bestMatch: {
+    html: string;
+    cleanText: string;
+    score: number;
+    incomplete: boolean;
+  } | null = null;
+
+  for (const match of content.matchAll(blockPattern)) {
+    const rawFence = (match[1] ?? '').trim().toLowerCase();
+    const rawBlock = (match[2] ?? '').replace(/\r\n/g, '\n');
+    const closingToken = match[3] ?? '';
+    const fullMatch = match[0] ?? '';
+    const startIndex = match.index ?? 0;
+    const endIndex = startIndex + fullMatch.length;
+
+    let score = 0;
+    if (rawFence.startsWith('html')) score += 3;
+    if (/<\!doctype\s+html/i.test(rawBlock)) score += 5;
+    if (/<html[\s>]/i.test(rawBlock)) score += 4;
+    if (/<body[\s>]|<head[\s>]|<style[\s>]|<script[\s>]/i.test(rawBlock)) score += 2;
+    if (/<\/html>\s*$/i.test(rawBlock.trim())) score += 2;
+
+    const headingContext = content.slice(Math.max(0, startIndex - 160), startIndex);
+    if (/index\.html/i.test(headingContext)) score += 2;
+    if (score < 5) continue;
+
+    const html = rawBlock
+      .replace(/\n*\[Ответ[^\]]+\]\s*$/u, '')
+      .trim();
+    if (!html) continue;
+
+    const cleanText = [
+      content.slice(0, startIndex).trim(),
+      content.slice(endIndex).trim(),
+    ].filter(Boolean).join('\n\n').trim();
+    const incomplete = closingToken !== '\n```' || !/<\/html>\s*$/i.test(html);
+
+    if (!bestMatch || score > bestMatch.score || (score === bestMatch.score && html.length > bestMatch.html.length)) {
+      bestMatch = {
+        html,
+        cleanText,
+        score,
+        incomplete,
+      };
+    }
+  }
+
+  if (!bestMatch) return null;
+
+  return {
+    preview: {
+      type: 'html',
+      title: extractHtmlTitleFromDocument(bestMatch.html)
+        ?? clampText(report?.summary, 200)
+        ?? 'Recovered preview',
+      html: bestMatch.html,
+    },
+    cleanText: bestMatch.cleanText,
+    incomplete: bestMatch.incomplete,
+  };
+}
+
 function normalizePreview(value: unknown): CodingReportPreview | null | undefined {
   if (!value || typeof value !== 'object') return undefined;
   const preview = value as { type?: unknown; title?: unknown; html?: unknown; url?: unknown };
@@ -1407,9 +1480,13 @@ function normalizeAssistantChatPayload(
   const parsed = extractCodingReport(content);
   const usageCodingReport = sanitizeCodingReport(usage?.coding_report);
   let codingReport = parsed.report ?? usageCodingReport;
+  let normalizedContent = parsed.cleanText || codingReport?.summary || '';
   const recoveredProject = codingReport?.project
     ? null
     : recoverProjectBundleFromMarkdown(parsed.cleanText || content, codingReport);
+  const recoveredPreview = codingReport?.preview
+    ? null
+    : recoverHtmlPreviewFromMarkdown(parsed.cleanText || content, codingReport);
 
   if (recoveredProject) {
     codingReport = {
@@ -1422,8 +1499,31 @@ function normalizeAssistantChatPayload(
     };
   }
 
+  if (recoveredPreview) {
+    codingReport = {
+      ...(codingReport ?? {}),
+      preview: recoveredPreview.preview,
+      notes: [
+        ...(codingReport?.notes ?? []),
+        recoveredPreview.incomplete
+          ? 'HTML preview автоматически восстановлен из markdown-ответа, но выглядит незавершённым: возможно, ответ был обрезан по длине.'
+          : 'HTML preview автоматически восстановлен из markdown-ответа агента.',
+      ].slice(0, 12),
+    };
+
+    if (recoveredPreview.cleanText) {
+      normalizedContent = recoveredPreview.cleanText;
+    } else if (codingReport.summary?.trim()) {
+      normalizedContent = codingReport.summary.trim();
+    } else {
+      normalizedContent = recoveredPreview.incomplete
+        ? 'Лендинг частично восстановлен из markdown-ответа. Preview доступен, но HTML выглядит незавершённым.'
+        : 'Preview автоматически восстановлен из markdown-ответа агента.';
+    }
+  }
+
   return {
-    content: parsed.cleanText || codingReport?.summary || '',
+    content: normalizedContent,
     usage: codingReport
       ? {
         ...(usage ?? {}),
@@ -1956,7 +2056,9 @@ ${agent.description.trim()}`);
 
     const continuationPrompt = currentOutput.includes('<dev-report>')
       ? 'Продолжай строго с места остановки. Не повторяй уже выведенный текст. Если <dev-report> ещё не закончен, сначала заверши JSON и закрой </dev-report>, затем продолжи оставшийся ответ.'
-      : 'Продолжай строго с места остановки. Не повторяй уже выведенный текст и выведи только недостающую часть ответа.';
+      : /```html|<!doctype html|<html[\s>]/i.test(currentOutput)
+        ? 'Продолжай строго с места остановки внутри текущего HTML-файла. Не повторяй уже выведенный текст. Сначала допиши HTML до закрывающих тегов </body> и </html>, затем закрой markdown fence ``` и только после этого при необходимости добавь короткую заметку.'
+        : 'Продолжай строго с места остановки. Не повторяй уже выведенный текст и выведи только недостающую часть ответа.';
 
     const continuationResponse = await openRouterClient.chatCompletion({
       model: modelId,
@@ -2710,7 +2812,7 @@ const AGENT_OPENROUTER_TIMEOUT_MS = 3 * 60_000;
 const TOOL_AGENT_OPENROUTER_TIMEOUT_MS = 8 * 60_000;
 const CODING_AGENT_OPENROUTER_TIMEOUT_MS = 8 * 60_000;
 const GENERAL_CHAT_OPENROUTER_TIMEOUT_MS = 3 * 60_000;
-const MAX_FINAL_OUTPUT_CONTINUATIONS = 3;
+const MAX_FINAL_OUTPUT_CONTINUATIONS = 8;
 const MAX_AGENT_RESPONSE_TOKENS = 2200;
 
 function resolveAgentOpenRouterTimeoutMs(modelId: string, toolCount: number): number {

@@ -2283,6 +2283,10 @@ export function ChatsPage() {
           windowMs: TIMEOUT_REPLY_RECOVERY_WINDOW_MS,
           attemptIntervalMs: TIMEOUT_REPLY_RECOVERY_ATTEMPT_MS,
         });
+        if (recovered) {
+          setLocalError(null);
+          return;
+        }
         if (!recovered) {
           setAssistantResponseSlot((prev) => (prev?.chatId === chatId ? null : prev));
           markChatRuntimeIdle(chatId);
