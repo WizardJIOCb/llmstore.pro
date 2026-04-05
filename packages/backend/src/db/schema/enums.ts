@@ -41,6 +41,8 @@ export const toolCallStatusEnum = pgEnum('tool_call_status', ['pending', 'runnin
 export const chatConversationModeEnum = pgEnum('chat_conversation_mode', ['general', 'agent']);
 export const chatAccessEnum = pgEnum('chat_access', ['public', 'private', 'restricted']);
 export const chatReactionTypeEnum = pgEnum('chat_reaction_type', ['heart', 'thumbs_up', 'thumbs_down', 'laugh', 'smile', 'meh']);
+export const publishedLandingTypeEnum = pgEnum('published_landing_type', ['preview_html', 'deployment']);
+export const publishedLandingStatusEnum = pgEnum('published_landing_status', ['active', 'disabled']);
 export const aliceDefaultTargetTypeEnum = pgEnum('alice_default_target_type', ['general_chat', 'agent_chat', 'specific_chat']);
 export const aliceTtsModeEnum = pgEnum('alice_tts_mode', ['brief', 'standard']);
 

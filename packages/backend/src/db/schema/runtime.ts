@@ -5,7 +5,16 @@ import { jsonb } from 'drizzle-orm/pg-core';
 import { users } from './auth';
 import { agents, agentVersions, toolDefinitions } from './agents';
 import { aiModels } from './models';
-import { agentRunStatusEnum, agentRunModeEnum, toolCallStatusEnum, chatConversationModeEnum, chatAccessEnum, chatReactionTypeEnum } from './enums';
+import {
+  agentRunStatusEnum,
+  agentRunModeEnum,
+  toolCallStatusEnum,
+  chatConversationModeEnum,
+  chatAccessEnum,
+  chatReactionTypeEnum,
+  publishedLandingTypeEnum,
+  publishedLandingStatusEnum,
+} from './enums';
 
 export const chatSessions = pgTable('chat_sessions', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -143,6 +152,26 @@ export const chatProjectDeployments = pgTable('chat_project_deployments', {
   uniqueIndex('chat_project_deployments_message_user_idx').on(table.message_id, table.user_id),
   index('chat_project_deployments_user_idx').on(table.user_id, table.created_at),
   index('chat_project_deployments_conversation_idx').on(table.conversation_id),
+]);
+
+export const publishedLandings = pgTable('published_landings', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  conversation_id: uuid('conversation_id').notNull().references(() => chatConversations.id, { onDelete: 'cascade' }),
+  message_id: uuid('message_id').notNull().references(() => chatConversationMessages.id, { onDelete: 'cascade' }),
+  user_id: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  deployment_id: uuid('deployment_id').references(() => chatProjectDeployments.id, { onDelete: 'set null' }),
+  type: publishedLandingTypeEnum('type').notNull().default('preview_html'),
+  status: publishedLandingStatusEnum('status').notNull().default('active'),
+  subdomain: varchar('subdomain').notNull(),
+  title: varchar('title'),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex('published_landings_message_idx').on(table.message_id),
+  uniqueIndex('published_landings_subdomain_idx').on(table.subdomain),
+  index('published_landings_conversation_idx').on(table.conversation_id),
+  index('published_landings_status_idx').on(table.status),
+  index('published_landings_user_idx').on(table.user_id, table.created_at),
 ]);
 
 export const chatConversationViewers = pgTable('chat_conversation_viewers', {
