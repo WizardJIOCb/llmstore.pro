@@ -781,6 +781,18 @@ export function ChatsPage() {
     },
     [messages, debugThinkingForActiveChat, optimisticMessageForActiveChat],
   );
+  const partialRuntimeChatIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (
+      activeChat?.id
+      && activeChat.pending_run
+      && isPendingRunLive(activeChat.pending_run)
+      && displayedMessages.some((message) => message.role === 'assistant')
+    ) {
+      ids.add(activeChat.id);
+    }
+    return ids;
+  }, [activeChat?.id, activeChat?.pending_run, displayedMessages]);
   const activePreviewMessageIds = useMemo(
     () => messages.filter(hasHtmlPreviewMessage).map((message) => message.id),
     [messages],
@@ -2701,9 +2713,14 @@ export function ChatsPage() {
           )}
           {activeRuntimeChatIds.has(chat.id) && (
             <span
-              className="h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-500 shadow-[0_0_0_3px_rgba(34,197,94,0.16)] animate-pulse"
-              aria-label="Runtime выполняется"
-              title="Runtime выполняется"
+              className={cn(
+                'h-2.5 w-2.5 shrink-0 rounded-full animate-pulse',
+                partialRuntimeChatIds.has(chat.id)
+                  ? 'bg-amber-500 shadow-[0_0_0_3px_rgba(245,158,11,0.18)]'
+                  : 'bg-emerald-500 shadow-[0_0_0_3px_rgba(34,197,94,0.16)]',
+              )}
+              aria-label={partialRuntimeChatIds.has(chat.id) ? 'Run ещё дособирает финальный результат' : 'Runtime выполняется'}
+              title={partialRuntimeChatIds.has(chat.id) ? 'Run ещё дособирает финальный результат' : 'Runtime выполняется'}
             />
           )}
         </div>

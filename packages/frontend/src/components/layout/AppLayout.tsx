@@ -208,8 +208,15 @@ export function AppLayout() {
   const routeTransitionKey = `${location.pathname}${location.search}${location.hash}`;
   const activeMenuClass = 'bg-[hsl(222.2deg_53.33%_74.69%_/_10%)]';
   const profileBaseLabel = user?.name || user?.email || 'Профиль';
+  const compactHeaderRubBalance = profile
+    ? formatRub(profile.balance_rub, {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+      symbolPosition: 'prefix',
+    }).replace(/[\s\u00A0\u202F]/g, '')
+    : null;
   const profileBalanceLabel = profile
-    ? `(${formatRub(profile.balance_rub, { minimumFractionDigits: 0, maximumFractionDigits: 0, symbolPosition: 'prefix' })} / ${formatUsd(profile.balance_usd)})`
+    ? `(${compactHeaderRubBalance} / ${formatUsd(profile.balance_usd)})`
     : null;
   const profileLabel = [profileBaseLabel, profileBalanceLabel].filter(Boolean).join(' ');
   const visibleNavItems = navItems.filter((item) => !item.requiresAuth || isAuthenticated);
