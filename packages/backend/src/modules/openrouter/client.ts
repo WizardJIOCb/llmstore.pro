@@ -58,6 +58,15 @@ export class OpenRouterClient {
         usage: data.usage,
       }, 'OpenRouter chat completion response');
 
+      if (!Array.isArray(data.choices) || data.choices.length === 0) {
+        logger.error({
+          model: params.model,
+          responseId: data.id,
+          hasChoicesArray: Array.isArray(data.choices),
+        }, 'OpenRouter returned response without choices');
+        throw new AppError(502, 'EMPTY_RESPONSE', 'OpenRouter returned no choices');
+      }
+
       return data;
     } catch (err) {
       if (err instanceof AxiosError && err.code === 'ERR_CANCELED') {

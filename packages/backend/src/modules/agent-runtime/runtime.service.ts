@@ -599,6 +599,18 @@ function extractAssistantTextFromMessage(message: unknown): string {
   return '';
 }
 
+function requireFirstChoice(
+  response: { choices?: ChatCompletionChoice[] | null },
+  errorMessage: string,
+): ChatCompletionChoice {
+  const choice = Array.isArray(response.choices) ? response.choices[0] : null;
+  if (!choice) {
+    throw new AppError(502, 'EMPTY_RESPONSE', errorMessage);
+  }
+
+  return choice;
+}
+
 function extractJsonObjectFromAssistantContent(content: string): Record<string, unknown> | null {
   const normalized = content.replace(/\r\n/g, '\n').trim();
   if (!normalized) return null;
@@ -2492,10 +2504,10 @@ ${agent.description.trim()}`);
       totalUsage.total_tokens += response.usage.total_tokens;
     }
 
-    const choice = response.choices[0];
-    if (!choice) {
-      throw new AppError(502, 'EMPTY_RESPONSE', 'LLM returned no choices during sectional landing assembly');
-    }
+    const choice = requireFirstChoice(
+      response,
+      'LLM returned no choices during sectional landing assembly',
+    );
 
     return extractAssistantTextFromMessage(choice.message);
   };
@@ -2675,10 +2687,10 @@ ${agent.description.trim()}`);
       totalUsage.total_tokens += continuationResponse.usage.total_tokens;
     }
 
-    const continuationChoice = continuationResponse.choices[0];
-    if (!continuationChoice) {
-      throw new AppError(502, 'EMPTY_RESPONSE', 'LLM returned no continuation choices');
-    }
+    const continuationChoice = requireFirstChoice(
+      continuationResponse,
+      'LLM returned no continuation choices',
+    );
 
     const chunk = extractAssistantTextFromMessage(continuationChoice.message);
     logger.info({
@@ -2740,10 +2752,7 @@ ${agent.description.trim()}`);
         totalUsage.total_tokens += response.usage.total_tokens;
       }
 
-      const choice = response.choices[0];
-      if (!choice) {
-        throw new AppError(502, 'EMPTY_RESPONSE', 'LLM returned no choices');
-      }
+      const choice = requireFirstChoice(response, 'LLM returned no choices');
 
       const assistantMessage = choice.message;
       logger.info({
