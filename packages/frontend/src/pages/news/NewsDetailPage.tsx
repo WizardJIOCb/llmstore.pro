@@ -109,9 +109,8 @@ export function NewsDetailPage() {
 
             <div className="mt-6 flex flex-wrap gap-3">
               {displayDate && (
-                <span className="flex flex-col rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-700">
-                  <span>{displayDate.date}</span>
-                  <span className="text-xs text-slate-500">{displayDate.time}</span>
+                <span className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-700">
+                  {displayDate.date}, {displayDate.time}
                 </span>
               )}
               <span className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-700">

@@ -626,7 +626,6 @@ export function ChatsPage() {
   const transferDialogTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const messageEnterCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollAnimationFrameRef = useRef<number | null>(null);
-  const chatsListEventSourceRef = useRef<EventSource | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
   const previousMessageCountRef = useRef(0);
@@ -963,32 +962,6 @@ export function ChatsPage() {
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('mobile-chat-active', { detail: Boolean(activeChatId) }));
   }, [activeChatId]);
-
-  useEffect(() => {
-    const source = new EventSource('/api/chats/updates', { withCredentials: true });
-    chatsListEventSourceRef.current = source;
-
-    const syncChatsList = () => {
-      void queryClient.invalidateQueries({ queryKey: ['chats'] });
-      if (safeActiveChatId) {
-        void queryClient.invalidateQueries({ queryKey: ['chats', safeActiveChatId] });
-        void queryClient.invalidateQueries({ queryKey: ['chats', safeActiveChatId, 'stats'] });
-      }
-    };
-
-    source.addEventListener('chat-list.updated', syncChatsList);
-    source.onerror = () => {
-      void queryClient.invalidateQueries({ queryKey: ['chats'] });
-    };
-
-    return () => {
-      source.removeEventListener('chat-list.updated', syncChatsList);
-      source.close();
-      if (chatsListEventSourceRef.current === source) {
-        chatsListEventSourceRef.current = null;
-      }
-    };
-  }, [queryClient, safeActiveChatId]);
 
   useEffect(() => {
     setStreamEvents([]);
@@ -1518,7 +1491,6 @@ export function ChatsPage() {
 
   useEffect(() => {
     return () => {
-      chatsListEventSourceRef.current?.close();
       if (shareToastTimerRef.current) clearTimeout(shareToastTimerRef.current);
       if (createDialogTimerRef.current) clearTimeout(createDialogTimerRef.current);
       if (deleteDialogTimerRef.current) clearTimeout(deleteDialogTimerRef.current);

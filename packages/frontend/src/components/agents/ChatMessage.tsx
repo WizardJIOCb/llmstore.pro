@@ -4,7 +4,7 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Pencil, Trash2 } from 'lucide-react';
 import type { CodingReport, CodingReportProject, ProjectRunResult, ToolTrace } from '../../lib/api/agents';
-import type { ProjectDeployment } from '../../lib/api/chats';
+import type { ProjectDeployment, PublishedLanding } from '../../lib/api/chats';
 import { cn } from '../../lib/utils';
 import { ToolTracePanel } from './ToolTracePanel';
 import { ChatCodeBlock, ChatInlineCode } from './ChatCodeBlock';
@@ -41,6 +41,11 @@ interface ChatMessageProps {
   onStartProjectDeployment?: () => Promise<ProjectDeployment>;
   onReinstallProjectDeploymentWebhook?: () => Promise<ProjectDeployment>;
   onStopProjectDeployment?: () => Promise<ProjectDeployment>;
+  publishedLanding?: PublishedLanding | null;
+  publishingLanding?: boolean;
+  onPublishLanding?: () => Promise<PublishedLanding>;
+  onUpdateLanding?: (payload: { subdomain: string }) => Promise<PublishedLanding>;
+  onUnpublishLanding?: () => Promise<void>;
   canEditMessage?: boolean;
   onEditMessage?: () => Promise<void> | void;
   canDeleteMessage?: boolean;
@@ -1622,6 +1627,11 @@ export function ChatMessage({
   onStartProjectDeployment,
   onReinstallProjectDeploymentWebhook,
   onStopProjectDeployment,
+  publishedLanding,
+  publishingLanding = false,
+  onPublishLanding,
+  onUpdateLanding,
+  onUnpublishLanding,
   canEditMessage = false,
   onEditMessage,
   canDeleteMessage = false,

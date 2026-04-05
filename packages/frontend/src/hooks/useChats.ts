@@ -1,5 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { chatsApi, type ChatAccess, type ChatAttachment, type ChatListItem, type ChatMode } from '../lib/api/chats';
+import {
+  chatsApi,
+  type ChatAccess,
+  type ChatAttachment,
+  type ChatListItem,
+  type ChatMode,
+} from '../lib/api/chats';
 
 export function useChatsList(enabled = true) {
   return useQuery({
@@ -45,9 +51,9 @@ export function useChatAgents() {
   });
 }
 
-export function useChat(chatId: string | undefined) {
+export function useChat(chatId: string | undefined, options?: { adminView?: boolean }) {
   return useQuery({
-    queryKey: ['chats', chatId],
+    queryKey: ['chats', chatId, options?.adminView ? 'admin-view' : 'default-view'],
     queryFn: () => chatsApi.get(chatId!),
     enabled: !!chatId,
   });
@@ -105,6 +111,18 @@ export function useDeleteChat() {
     onSuccess: (_data, chatId) => {
       qc.invalidateQueries({ queryKey: ['chats'] });
       qc.removeQueries({ queryKey: ['chats', chatId] });
+    },
+  });
+}
+
+export function useTransferChat() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ chatId, identifier }: { chatId: string; identifier: string }) =>
+      chatsApi.transfer(chatId, identifier),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['chats'] });
+      qc.removeQueries({ queryKey: ['chats', vars.chatId] });
     },
   });
 }
@@ -174,9 +192,9 @@ export function useImportChatBundle() {
   });
 }
 
-export function useChatStats(chatId: string | undefined, enabled = true) {
+export function useChatStats(chatId: string | undefined, enabled = true, options?: { adminView?: boolean }) {
   return useQuery({
-    queryKey: ['chats', chatId, 'stats'],
+    queryKey: ['chats', chatId, 'stats', options?.adminView ? 'admin-view' : 'default-view'],
     queryFn: () => chatsApi.stats(chatId!),
     enabled: !!chatId && enabled,
   });

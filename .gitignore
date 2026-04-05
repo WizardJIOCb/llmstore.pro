@@ -15,5 +15,7 @@ packages/backend/drizzle/meta/*
 !packages/backend/drizzle/meta/_journal.json
 stuff/
 nginx-llmstore.b64
+tmp/
+uploads/
 
 packages/backend/uploads/

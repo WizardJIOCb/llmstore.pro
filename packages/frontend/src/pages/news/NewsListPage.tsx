@@ -90,9 +90,8 @@ export function NewsListPage() {
                       </p>
                       <div className="mt-6 flex flex-wrap gap-3">
                         {leadDate && (
-                          <span className="flex flex-col rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-700">
-                            <span>{leadDate.date}</span>
-                            <span className="text-xs text-slate-500">{leadDate.time}</span>
+                          <span className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-700">
+                            {leadDate.date}, {leadDate.time}
                           </span>
                         )}
                         <span className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-700">
@@ -104,12 +103,20 @@ export function NewsListPage() {
                             className="font-medium text-slate-900 hover:text-primary"
                           />
                         </span>
-                        <span className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-700">
+                        <button
+                          type="button"
+                          className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-700 transition hover:bg-slate-100"
+                          onClick={() => openArticle(lead.slug, '#comment-form')}
+                        >
                           {lead.comments_count} комментариев
-                        </span>
-                        <span className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-700">
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-700 transition hover:bg-slate-100"
+                          onClick={() => openArticle(lead.slug)}
+                        >
                           {lead.views_count ?? 0} просмотров
-                        </span>
+                        </button>
                       </div>
                       <div className="mt-8 flex flex-wrap gap-3">
                         <Button onClick={() => openArticle(lead.slug)}>Открыть новость</Button>
@@ -191,12 +198,20 @@ export function NewsListPage() {
                           />
                         </p>
                         <div className="mt-4 flex flex-wrap gap-3">
-                          <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700">
+                          <button
+                            type="button"
+                            className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
+                            onClick={() => openArticle(article.slug, '#comment-form')}
+                          >
                             {article.comments_count} комментариев
-                          </span>
-                          <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700">
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
+                            onClick={() => openArticle(article.slug)}
+                          >
                             {article.views_count ?? 0} просмотров
-                          </span>
+                          </button>
                           <button
                             type="button"
                             className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100"

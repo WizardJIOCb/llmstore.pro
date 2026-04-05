@@ -5,6 +5,7 @@ interface NewsLightboxProps {
   images: NewsImage[];
   index: number;
   onClose: () => void;
+  onSelect?: (index: number | null) => void;
   onPrev?: () => void;
   onNext?: () => void;
 }
@@ -25,7 +26,7 @@ function ChevronRightIcon() {
   );
 }
 
-export function NewsLightbox({ images, index, onClose, onPrev, onNext }: NewsLightboxProps) {
+export function NewsLightbox({ images, index, onClose, onSelect, onPrev, onNext }: NewsLightboxProps) {
   const activeImage = images[index];
   const hasMultiple = images.length > 1;
 
@@ -39,7 +40,10 @@ export function NewsLightbox({ images, index, onClose, onPrev, onNext }: NewsLig
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
+      if (event.key === 'Escape') {
+        onSelect?.(null);
+        onClose();
+      }
       if (event.key === 'ArrowLeft' && hasMultiple) handlePrev();
       if (event.key === 'ArrowRight' && hasMultiple) handleNext();
     };
@@ -57,7 +61,10 @@ export function NewsLightbox({ images, index, onClose, onPrev, onNext }: NewsLig
       <button
         type="button"
         className="absolute right-4 top-4 z-10 inline-flex items-center gap-2 rounded-full bg-[rgba(255,248,239,0.16)] px-3 py-2 text-sm font-medium text-white transition hover:bg-[rgba(255,248,239,0.26)] md:right-6 md:top-6"
-        onClick={onClose}
+        onClick={() => {
+          onSelect?.(null);
+          onClose();
+        }}
       >
         <span aria-hidden="true" className="text-xl leading-none">&times;</span>
         <span>Закрыть</span>

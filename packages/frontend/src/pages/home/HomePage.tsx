@@ -99,16 +99,37 @@ export function HomePage() {
             LLMStore.pro помогает собрать агента под задачу, выбрать модель и инструменты,
             запускать чаты с агентами и находить готовых публичных агентов в одном месте.
           </p>
-          <div className="flex flex-wrap justify-center gap-4">
+          <div className="mx-auto flex max-w-[420px] flex-col items-stretch gap-3 sm:hidden">
+            <Link
+              to="/builder/stack"
+              className="inline-flex w-full items-center justify-center rounded-md bg-primary px-6 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            >
+              Быстрый запуск агента
+            </Link>
             <Link
               to="/tools"
-              className="inline-flex items-center justify-center rounded-md bg-primary px-6 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+              className="inline-flex w-full items-center justify-center rounded-md border border-input bg-background px-6 py-3 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
+            >
+              Инструменты
+            </Link>
+            <Link
+              to="/gallery"
+              className="inline-flex w-full items-center justify-center rounded-md border border-input bg-background px-6 py-3 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
+            >
+              Галерея
+            </Link>
+          </div>
+
+          <div className="mx-auto hidden max-w-[760px] grid-cols-3 gap-4 sm:grid">
+            <Link
+              to="/tools"
+              className="inline-flex items-center justify-center rounded-md border border-input bg-background px-6 py-3 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
             >
               Инструменты
             </Link>
             <Link
               to="/builder/stack"
-              className="inline-flex items-center justify-center rounded-md border border-input bg-background px-6 py-3 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
+              className="inline-flex items-center justify-center rounded-md bg-primary px-6 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
             >
               Быстрый запуск агента
             </Link>

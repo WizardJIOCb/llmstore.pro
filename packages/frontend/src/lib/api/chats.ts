@@ -141,6 +141,13 @@ export interface ChatListItem {
   last_message_at: string;
   created_at: string;
   updated_at: string;
+  owner_name?: string | null;
+  owner_username?: string | null;
+  owner_email?: string | null;
+  is_admin_view?: boolean;
+  has_site_preview?: boolean;
+  has_published_landing?: boolean;
+  has_active_deployment?: boolean;
 }
 
 export interface ChatMessage {
@@ -304,6 +311,29 @@ export interface ChatBundleExport {
   payload: unknown;
 }
 
+export interface PublishedLanding {
+  id?: string;
+  slug?: string;
+  subdomain?: string | null;
+  title?: string | null;
+  description?: string | null;
+  url: string;
+  site_url?: string | null;
+  preview_url?: string | null;
+  is_published?: boolean;
+  updated_at?: string | null;
+}
+
+export interface TransferChatResult {
+  chat_id: string;
+  transferred_to: {
+    id?: string;
+    name?: string | null;
+    username?: string | null;
+    email: string;
+  };
+}
+
 function resolveBundleFilename(contentDisposition: string | undefined, fallback: string): string {
   if (!contentDisposition) return fallback;
 
@@ -356,6 +386,11 @@ export const chatsApi = {
     },
   ) => apiClient.patch<{ data: ChatListItem }>(`/chats/${chatId}`, payload).then((r) => r.data.data),
 
+  transfer: (chatId: string, identifier: string) =>
+    apiClient
+      .post<{ data: TransferChatResult }>(`/chats/${chatId}/transfer`, { identifier })
+      .then((r) => r.data.data),
+
   gallery: (limit = 24) =>
     apiClient.get<{ data: GalleryPreviewItem[] }>(`/gallery/previews?limit=${encodeURIComponent(String(limit))}`).then((r) => r.data.data),
 
@@ -401,6 +436,30 @@ export const chatsApi = {
   updatePreview: (chatId: string, messageId: string, payload: { title?: string | null; html: string }) =>
     apiClient
       .patch<{ data: UpdateMessagePreviewResult }>(`/chats/${chatId}/messages/${messageId}/preview`, payload)
+      .then((r) => r.data.data),
+
+  getPublishedLanding: (chatId: string, messageId: string) =>
+    apiClient
+      .get<{ data: PublishedLanding | null }>(`/chats/${chatId}/messages/${messageId}/landing`)
+      .then((r) => r.data.data),
+
+  publishLanding: (chatId: string, messageId: string) =>
+    apiClient
+      .post<{ data: PublishedLanding }>(`/chats/${chatId}/messages/${messageId}/landing`)
+      .then((r) => r.data.data),
+
+  updateLanding: (
+    chatId: string,
+    messageId: string,
+    payload: { title?: string | null; slug?: string | null; subdomain?: string | null; description?: string | null },
+  ) =>
+    apiClient
+      .patch<{ data: PublishedLanding }>(`/chats/${chatId}/messages/${messageId}/landing`, payload)
+      .then((r) => r.data.data),
+
+  unpublishLanding: (chatId: string, messageId: string) =>
+    apiClient
+      .delete<{ data: { ok: true } }>(`/chats/${chatId}/messages/${messageId}/landing`)
       .then((r) => r.data.data),
 
   runProject: (chatId: string, messageId: string) =>

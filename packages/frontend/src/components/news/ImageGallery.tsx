@@ -4,9 +4,10 @@ import { NewsLightbox } from './NewsLightbox';
 
 interface ImageGalleryProps {
   images: NewsImage[];
+  onImageClick?: (index: number) => void;
 }
 
-export function ImageGallery({ images }: ImageGalleryProps) {
+export function ImageGallery({ images, onImageClick }: ImageGalleryProps) {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
   const close = useCallback(() => setLightboxIndex(null), []);
@@ -29,7 +30,13 @@ export function ImageGallery({ images }: ImageGalleryProps) {
             key={img.filename}
             type="button"
             className="aspect-square overflow-hidden rounded-lg cursor-pointer hover:opacity-80 transition-opacity"
-            onClick={() => setLightboxIndex(idx)}
+            onClick={() => {
+              if (onImageClick) {
+                onImageClick(idx);
+                return;
+              }
+              setLightboxIndex(idx);
+            }}
           >
             <img
               src={img.url}
