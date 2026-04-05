@@ -621,6 +621,7 @@ export function ChatsPage() {
 
   const menuRef = useRef<HTMLDivElement>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
+  const messagesContentRef = useRef<HTMLDivElement | null>(null);
   const assistantSlotNodeRef = useRef<HTMLDivElement | null>(null);
   const shareToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const createDialogTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1537,6 +1538,88 @@ export function ChatsPage() {
       observer?.disconnect();
     };
   }, [assistantResponseSlotForActiveChat?.actualMessageId]);
+
+  useEffect(() => {
+    const container = messagesScrollRef.current;
+    const content = messagesContentRef.current;
+    if (!container || !content) return;
+    if (!assistantResponseSlotForActiveChat) return;
+
+    let frameId: number | null = null;
+    let timeoutId: number | null = null;
+
+    const scrollToBottom = () => {
+      const targetTop = Math.max(0, container.scrollHeight - container.clientHeight);
+      container.scrollTop = targetTop;
+    };
+
+    const scheduleScroll = () => {
+      if (frameId != null) cancelAnimationFrame(frameId);
+      if (timeoutId != null) window.clearTimeout(timeoutId);
+
+      frameId = requestAnimationFrame(scrollToBottom);
+      timeoutId = window.setTimeout(scrollToBottom, 120);
+    };
+
+    const resizeObserver = new ResizeObserver(() => {
+      scheduleScroll();
+    });
+    resizeObserver.observe(content);
+    if (assistantSlotNodeRef.current) {
+      resizeObserver.observe(assistantSlotNodeRef.current);
+    }
+
+    const mutationObserver = new MutationObserver(() => {
+      scheduleScroll();
+    });
+    mutationObserver.observe(content, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+
+    scheduleScroll();
+
+    return () => {
+      resizeObserver.disconnect();
+      mutationObserver.disconnect();
+      if (frameId != null) cancelAnimationFrame(frameId);
+      if (timeoutId != null) window.clearTimeout(timeoutId);
+    };
+  }, [
+    assistantResponseSlotForActiveChat,
+    streamEvents.length,
+    displayedMessages.length,
+  ]);
+
+  useEffect(() => {
+    if (!activeChat?.id) return;
+    if (optimisticMessageForActiveChat) return;
+    if (assistantResponseSlotForActiveChat) return;
+    if (isAwaitingLateReply) return;
+
+    const lastMessage = messages[messages.length - 1];
+    if (!lastMessage) {
+      markChatRuntimeIdle(activeChat.id);
+      return;
+    }
+
+    if (lastMessage.role === 'assistant') {
+      markChatRuntimeIdle(activeChat.id);
+      return;
+    }
+
+    const lastCreatedAtMs = Date.parse(lastMessage.created_at);
+    if (Number.isNaN(lastCreatedAtMs) || (Date.now() - lastCreatedAtMs) > PENDING_REPLY_RECOVERY_WINDOW_MS) {
+      markChatRuntimeIdle(activeChat.id);
+    }
+  }, [
+    activeChat?.id,
+    messages,
+    optimisticMessageForActiveChat,
+    assistantResponseSlotForActiveChat,
+    isAwaitingLateReply,
+  ]);
 
   useEffect(() => {
     if (!isPropertiesOpen || !activeChat) return;
@@ -2784,7 +2867,8 @@ export function ChatsPage() {
             )}
           </div>
 
-          <div ref={messagesScrollRef} className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4 pt-2 pb-4 md:py-4 space-y-4">
+          <div ref={messagesScrollRef} className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4 pt-2 pb-4 md:py-4">
+            <div ref={messagesContentRef} className="space-y-4">
             {isAdminForeignChat && (
               <div className="mx-auto max-w-3xl rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                 Открыт чат другого пользователя в режиме только для чтения. Владелец: {activeChatOwnerLabel}.
@@ -3125,6 +3209,7 @@ export function ChatsPage() {
                 )}
               </div>
             )}
+            </div>
           </div>
 
           {localError && (
