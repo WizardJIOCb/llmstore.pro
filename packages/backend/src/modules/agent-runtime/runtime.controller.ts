@@ -596,7 +596,8 @@ export async function sendChatMessage(req: Request<{ chatId: string }>, res: Res
       req.body.attachments,
       req.session.userRole,
     );
-    res.status(201).json({ data: result });
+    const statusCode = result && typeof result === 'object' && 'processing' in result && result.processing ? 202 : 201;
+    res.status(statusCode).json({ data: result });
   } catch (err) {
     next(err);
   }

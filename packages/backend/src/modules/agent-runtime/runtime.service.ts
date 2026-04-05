@@ -441,6 +441,9 @@ interface StartRunOptions {
   strict_preview_edit?: StrictPreviewEditOptions | null;
   charge_usage?: boolean;
   deployment_id?: string | null;
+  sync_conversation_id?: string | null;
+  skip_sync_user_message?: boolean;
+  sync_chat_title?: string | null;
 }
 
 interface RunResult {
@@ -1930,34 +1933,39 @@ export async function startRun(
   let syncedConversationId: string | null = null;
 
   if (syncToChats) {
-    const [existingConversation] = await db
-      .select({ id: chatConversations.id })
-      .from(chatConversations)
-      .where(
-        and(
-          eq(chatConversations.user_id, userId),
-          eq(chatConversations.mode, 'agent'),
-          eq(chatConversations.agent_id, agentId),
-        ),
-      )
-      .orderBy(desc(chatConversations.last_message_at))
-      .limit(1);
-
-    if (existingConversation) {
+    if (options.sync_conversation_id) {
+      const existingConversation = await getConversationForUser(options.sync_conversation_id, userId);
       syncedConversationId = existingConversation.id;
     } else {
-      const [createdConversation] = await db.insert(chatConversations).values({
-        user_id: userId,
-        mode: 'agent',
-        agent_id: agentId,
-        title: (latestUserMessage || 'Новый чат').slice(0, 500),
-        model_external_id: modelId,
-        last_message_at: new Date(),
-      }).returning({ id: chatConversations.id });
-      syncedConversationId = createdConversation.id;
+      const [existingConversation] = await db
+        .select({ id: chatConversations.id })
+        .from(chatConversations)
+        .where(
+          and(
+            eq(chatConversations.user_id, userId),
+            eq(chatConversations.mode, 'agent'),
+            eq(chatConversations.agent_id, agentId),
+          ),
+        )
+        .orderBy(desc(chatConversations.last_message_at))
+        .limit(1);
+
+      if (existingConversation) {
+        syncedConversationId = existingConversation.id;
+      } else {
+        const [createdConversation] = await db.insert(chatConversations).values({
+          user_id: userId,
+          mode: 'agent',
+          agent_id: agentId,
+          title: (options.sync_chat_title?.trim() || latestUserMessage || 'Новый чат').slice(0, 500),
+          model_external_id: modelId,
+          last_message_at: new Date(),
+        }).returning({ id: chatConversations.id });
+        syncedConversationId = createdConversation.id;
+      }
     }
 
-    if (latestUserMessage) {
+    if (latestUserMessage && !options.skip_sync_user_message) {
       await db.insert(chatConversationMessages).values({
         conversation_id: syncedConversationId,
         role: 'user',
@@ -2539,7 +2547,7 @@ ${agent.description.trim()}`);
     }
 
     await db.update(chatConversations).set({
-      title: latestUserMessage ? compactTitle(latestUserMessage) : undefined,
+      title: options.sync_chat_title?.trim() || (latestUserMessage ? compactTitle(latestUserMessage) : undefined),
       model_external_id: modelId,
       last_message_at: new Date(),
       updated_at: new Date(),
@@ -4996,12 +5004,13 @@ export async function sendChatMessage(
     created_at: new Date().toISOString(),
   };
 
-  await db.insert(chatConversationMessages).values({
+  const [userMessageRow] = await db.insert(chatConversationMessages).values({
     conversation_id: chatId,
     role: 'user',
     content_text: trimmedContent,
     usage_json: attachmentMetas.length > 0 ? ({ attachments: attachmentMetas } as Record<string, unknown>) : null,
-  });
+  }).returning();
+  const persistedUserMessage = toConversationMessage(userMessageRow, usdToRubRate);
   emitChatEvent('chat.message.accepted', {
     mode: chat.mode,
     has_attachments: attachmentMetas.length > 0,
@@ -5037,6 +5046,8 @@ export async function sendChatMessage(
       ? `\n\nКонтекст текущего preview:\n${latestPreviewContext}`
       : '';
     const userModelText = `${trimmedContent}${attachmentContext}${previewContext}`.trim();
+    const isDefaultTitle = chat.title === 'Новый чат';
+    const nextTitle = isDefaultTitle ? compactTitle(trimmedContent || 'Вложение') : chat.title;
 
     const previousMessages = await getConversationMessages(chatId);
     const historyForModel = [
@@ -5051,14 +5062,23 @@ export async function sendChatMessage(
       }
       await ensureAgentIsVisibleForUser(chat.agent_id, userId, userRole);
 
-      const result = await startRun(chat.agent_id, userId, {
+      await db.update(chatConversations).set({
+        title: nextTitle,
+        last_message_at: new Date(),
+        updated_at: new Date(),
+      }).where(eq(chatConversations.id, chatId));
+
+      void startRun(chat.agent_id, userId, {
         messages: historyForModel
           .filter((m) => m.role === 'user' || m.role === 'assistant')
           .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
         model_external_id: null,
       }, {
-        sync_to_chats: false,
-        charge_usage: false,
+        sync_to_chats: true,
+        sync_conversation_id: chatId,
+        skip_sync_user_message: true,
+        sync_chat_title: nextTitle,
+        charge_usage: true,
         on_event: emitChatEvent,
         strict_preview_edit: strictPreviewEdit && latestPreviewSnapshot
           ? {
@@ -5067,47 +5087,35 @@ export async function sendChatMessage(
             preview_title: latestPreviewSnapshot.title ?? null,
           }
           : null,
+      }).catch((error) => {
+        const message = error instanceof Error ? error.message : 'Во время выполнения произошла ошибка.';
+        logger.error({ chatId, userId, agentId: chat.agent_id, error }, 'Background agent chat run failed');
+        emitChatEvent('chat.run.failed', {
+          mode: chat.mode,
+          error: message,
+          label: 'Выполнение завершилось с ошибкой',
+          detail: message,
+        });
       });
 
-      if (result.status !== 'completed') {
-        throw new AppError(
-          502,
-          'AGENT_RUNTIME_FAILED',
-          result.error_message ?? 'Агент не смог сформировать ответ. Попробуйте изменить запрос.',
-        );
-      }
-
-      const toolNames = Array.from(
-        new Set(
-          (result.tool_traces ?? [])
-            .map((trace) => (typeof trace.tool_name === 'string' ? trace.tool_name.trim() : ''))
-            .filter((name) => name.length > 0),
-        ),
-      );
-
-      assistantText = result.output || '(пустой ответ)';
-      runId = result.run_id;
-      latencyMs = result.latency_ms;
-      if (result.usage) {
-        usagePayload = {
-          ...(result.usage as unknown as Record<string, unknown>),
-          tool_names: toolNames,
-          tool_traces: result.tool_traces,
-          coding_report: result.coding_report ?? null,
-        };
-      } else {
-        usagePayload = (
-          toolNames.length > 0
-          || (result.tool_traces?.length ?? 0) > 0
-          || result.coding_report
-        )
-          ? {
-            tool_names: toolNames,
-            tool_traces: result.tool_traces,
-            coding_report: result.coding_report ?? null,
-          }
-          : null;
-      }
+      return {
+        processing: true,
+        pending_run: {
+          status: 'starting',
+          label: 'Агент начал выполнение задачи',
+          detail: 'Сообщение принято. Живой прогресс и частичный результат будут появляться прямо в чате.',
+        },
+        user_message: persistedUserMessage,
+        assistant_message: null,
+        chat: {
+          id: chat.id,
+          title: nextTitle,
+          mode: chat.mode,
+          agent_id: chat.agent_id ?? null,
+          model_external_id: chat.model_external_id ?? null,
+          share_token: chat.share_token ?? null,
+        },
+      };
     } else if (canUseChatTools) {
       const selectedTools = await getActiveToolSummariesByIds(chatToolSettings.tool_ids);
       if (selectedTools.length === 0) {
@@ -5134,14 +5142,23 @@ export async function sendChatMessage(
           .where(eq(chatConversations.id, chat.id));
       }
 
-      const result = await startRun(toolAgentId, userId, {
+      await db.update(chatConversations).set({
+        title: nextTitle,
+        last_message_at: new Date(),
+        updated_at: new Date(),
+      }).where(eq(chatConversations.id, chatId));
+
+      void startRun(toolAgentId, userId, {
         messages: historyForModel
           .filter((m) => m.role === 'user' || m.role === 'assistant')
           .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
         model_external_id: chat.model_external_id ?? DEFAULT_GENERAL_MODEL,
       }, {
-        sync_to_chats: false,
-        charge_usage: false,
+        sync_to_chats: true,
+        sync_conversation_id: chatId,
+        skip_sync_user_message: true,
+        sync_chat_title: nextTitle,
+        charge_usage: true,
         on_event: emitChatEvent,
         strict_preview_edit: strictPreviewEdit && latestPreviewSnapshot
           ? {
@@ -5150,47 +5167,35 @@ export async function sendChatMessage(
             preview_title: latestPreviewSnapshot.title ?? null,
           }
           : null,
+      }).catch((error) => {
+        const message = error instanceof Error ? error.message : 'Во время выполнения произошла ошибка.';
+        logger.error({ chatId, userId, toolAgentId, error }, 'Background tool chat run failed');
+        emitChatEvent('chat.run.failed', {
+          mode: chat.mode,
+          error: message,
+          label: 'Выполнение завершилось с ошибкой',
+          detail: message,
+        });
       });
 
-      if (result.status !== 'completed') {
-        throw new AppError(
-          502,
-          'CHAT_TOOL_RUNTIME_FAILED',
-          result.error_message ?? 'Чат с инструментами не смог сформировать ответ. Попробуйте уточнить запрос.',
-        );
-      }
-
-      const toolNames = Array.from(
-        new Set(
-          (result.tool_traces ?? [])
-            .map((trace) => (typeof trace.tool_name === 'string' ? trace.tool_name.trim() : ''))
-            .filter((name) => name.length > 0),
-        ),
-      );
-
-      assistantText = result.output || '(пустой ответ)';
-      runId = result.run_id;
-      latencyMs = result.latency_ms;
-      if (result.usage) {
-        usagePayload = {
-          ...(result.usage as unknown as Record<string, unknown>),
-          tool_names: toolNames,
-          tool_traces: result.tool_traces,
-          coding_report: result.coding_report ?? null,
-        };
-      } else {
-        usagePayload = (
-          toolNames.length > 0
-          || (result.tool_traces?.length ?? 0) > 0
-          || result.coding_report
-        )
-          ? {
-            tool_names: toolNames,
-            tool_traces: result.tool_traces,
-            coding_report: result.coding_report ?? null,
-          }
-          : null;
-      }
+      return {
+        processing: true,
+        pending_run: {
+          status: 'starting',
+          label: 'Агент начал выполнение задачи',
+          detail: 'Сообщение принято. Живой прогресс и частичный результат будут появляться прямо в чате.',
+        },
+        user_message: persistedUserMessage,
+        assistant_message: null,
+        chat: {
+          id: chat.id,
+          title: nextTitle,
+          mode: chat.mode,
+          agent_id: chat.agent_id ?? null,
+          model_external_id: chat.model_external_id ?? null,
+          share_token: chat.share_token ?? null,
+        },
+      };
     } else {
       const model = normalizeOpenRouterModelId(chat.model_external_id || DEFAULT_GENERAL_MODEL);
       const startedAt = Date.now();
@@ -5283,7 +5288,9 @@ export async function sendChatMessage(
   }
 
   return {
-    user_message: userMessage,
+    processing: false,
+    pending_run: null,
+    user_message: persistedUserMessage,
     assistant_message: {
       id: assistantRow.id,
       role: 'assistant' as const,

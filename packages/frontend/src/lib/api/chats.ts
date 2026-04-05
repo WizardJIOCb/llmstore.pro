@@ -227,8 +227,14 @@ export interface GalleryReactionState {
 }
 
 export interface SendMessageResult {
+  processing?: boolean;
+  pending_run?: {
+    status: string;
+    label: string;
+    detail: string;
+  } | null;
   user_message: ChatMessage;
-  assistant_message: ChatMessage;
+  assistant_message: ChatMessage | null;
   chat: {
     id: string;
     title: string;

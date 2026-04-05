@@ -1083,10 +1083,10 @@ export function ChatsPage() {
               return prev;
             });
 
-            if (
-              eventName === 'chat.message.accepted'
-              || eventName === 'chat.run.started'
-              || eventName === 'chat.run.tool.started'
+          if (
+                eventName === 'chat.message.accepted'
+                || eventName === 'chat.run.started'
+                || eventName === 'chat.run.tool.started'
             ) {
               clearTransportTimeoutNotice();
               markChatRuntimeActive(safeActiveChatId);
@@ -1114,6 +1114,17 @@ export function ChatsPage() {
                 clearTransportTimeoutNotice();
               }
               markChatRuntimeIdle(safeActiveChatId);
+            }
+
+            if (
+              eventName === 'chat.message.accepted'
+              || eventName === 'chat.message.completed'
+              || eventName === 'chat.run.failed'
+              || (eventName === 'chat.run.status' && payload.status === 'continuing_output')
+            ) {
+              void queryClient.invalidateQueries({ queryKey: ['chats', safeActiveChatId] });
+              void queryClient.invalidateQueries({ queryKey: ['chats'] });
+              void queryClient.invalidateQueries({ queryKey: ['profile'] });
             }
           }
         } catch {
@@ -2270,7 +2281,7 @@ export function ChatsPage() {
         if (!prev) return prev;
 
         const nextMessages = prev.messages.filter((message) => (
-          message.id !== result.user_message.id && message.id !== result.assistant_message.id
+          message.id !== result.user_message.id && (!result.assistant_message || message.id !== result.assistant_message.id)
         ));
 
         return {
@@ -2279,13 +2290,31 @@ export function ChatsPage() {
             ...prev.chat,
             ...result.chat,
           },
-          messages: [...nextMessages, result.user_message, result.assistant_message],
+          messages: result.assistant_message
+            ? [...nextMessages, result.user_message, result.assistant_message]
+            : [...nextMessages, result.user_message],
         };
       });
 
+      if (!result.assistant_message) {
+        setAssistantResponseSlot((prev) => (
+          prev && prev.chatId === chatId
+            ? {
+              ...prev,
+              label: result.pending_run?.label ?? 'Агент работает',
+              detail: result.pending_run?.detail ?? 'Сообщение принято. Живой прогресс и частичный результат будут появляться прямо в чате.',
+            }
+            : prev
+        ));
+        setOptimisticPendingMessage((prev) => (prev?.chatId === chatId ? null : prev));
+        markChatRuntimeActive(chatId);
+        return;
+      }
+
+      const assistantMessage = result.assistant_message;
       setAssistantResponseSlot((prev) => (
         prev && prev.chatId === chatId
-          ? { ...prev, actualMessageId: result.assistant_message.id }
+          ? { ...prev, actualMessageId: assistantMessage.id }
           : prev
       ));
       setOptimisticPendingMessage((prev) => (prev?.chatId === chatId ? null : prev));
