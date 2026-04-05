@@ -1520,6 +1520,40 @@ function looksLikeHtmlPreviewPayload(content: string): boolean {
   return /```html|<!doctype html|<html[\s>]|<body[\s>]|<head[\s>]/i.test(content);
 }
 
+function extractBestHtmlDocument(content: string): string {
+  const normalized = stripContinuationNarration(content).replace(/\r\n/g, '\n').trim();
+  const starts = [...normalized.matchAll(/<!doctype\s+html|<html[\s>]/gi)]
+    .map((match) => match.index)
+    .filter((index): index is number => typeof index === 'number');
+  if (starts.length === 0) return normalized;
+
+  let bestHtml = normalized;
+  let bestScore = -1;
+
+  for (let i = 0; i < starts.length; i += 1) {
+    const startIndex = starts[i];
+    const nextStartIndex = starts[i + 1] ?? normalized.length;
+    const candidateTail = normalized.slice(startIndex, nextStartIndex).trim();
+    if (!candidateTail) continue;
+
+    const closeMatch = [...candidateTail.matchAll(/<\/html>/gi)].pop();
+    const html = (
+      closeMatch && closeMatch.index != null
+        ? candidateTail.slice(0, closeMatch.index + closeMatch[0].length)
+        : candidateTail
+    ).trim();
+    if (!html) continue;
+
+    const score = (/<\/html>\s*$/i.test(html) ? 10 : 0) + html.length;
+    if (score > bestScore) {
+      bestScore = score;
+      bestHtml = html;
+    }
+  }
+
+  return bestHtml;
+}
+
 function isRecoveredPreviewIncomplete(content: string, report?: CodingReport | null): boolean {
   if (report?.preview?.type === 'html' && report.preview.html) {
     const html = report.preview.html.trim();
@@ -1547,11 +1581,12 @@ function normalizePreview(value: unknown): CodingReportPreview | null | undefine
   }
 
   const html = clampText(stripContinuationNarration(String(preview.html ?? '')), 50_000);
-  if (!html) return null;
+  const normalizedHtml = html ? clampText(extractBestHtmlDocument(html), 50_000) : undefined;
+  if (!normalizedHtml) return null;
   return {
     type,
     title: clampText(preview.title, 200),
-    html,
+    html: normalizedHtml,
   };
 }
 
