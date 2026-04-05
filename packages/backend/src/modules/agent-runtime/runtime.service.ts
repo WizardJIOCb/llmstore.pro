@@ -1396,10 +1396,10 @@ function applyCodingReportToContent(content: string, report: CodingReport): stri
 
 function forceStandardPreviewFavicon(html: string): string {
   const faviconMarkup = `
-<link rel="icon" type="image/x-icon" href="/favicon.ico">
-<link rel="icon" type="image/png" href="/icon.png">
-<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
-<link rel="manifest" href="/site.webmanifest">`;
+<link rel="icon" type="image/x-icon" href="/preview-favicon.ico">
+<link rel="icon" type="image/png" href="/preview-icon.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/preview-apple-touch-icon.png">
+<link rel="manifest" href="/preview.webmanifest">`;
 
   const cleaned = html
     .replace(/<link\b[^>]*\brel\s*=\s*["'][^"']*\b(?:shortcut\s+icon|icon|apple-touch-icon|apple-touch-icon-precomposed|mask-icon)\b[^"']*["'][^>]*>\s*/gi, '')
