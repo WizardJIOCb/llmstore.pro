@@ -17,16 +17,20 @@ interface MilestoneItem {
   title: string;
   status: MilestoneStatus;
   description: string;
+  ctaLabel: string;
+  ctaHref: string;
 }
 
 interface StatusMeta {
   label: string;
+  eyebrow: string;
   title: string;
   description: string;
   icon: LucideIcon;
   badgeClassName: string;
   sectionClassName: string;
   cardClassName: string;
+  accentClassName: string;
 }
 
 interface FocusCard {
@@ -35,146 +39,173 @@ interface FocusCard {
   description: string;
 }
 
+interface RouteCard {
+  title: string;
+  description: string;
+  href: string;
+  ctaLabel: string;
+}
+
 const milestones: MilestoneItem[] = [
   {
     id: 1,
     title: 'Coding Agents Preview',
     status: 'done',
-    description:
-      'LLMStore уже умеет больше, чем просто чат с моделью. Мы двигаемся в сторону coding agents, которые не только отвечают текстом, но и реально помогают собирать, запускать и править проекты.',
+    description: 'LLMStore уже вышел за рамки обычного чата и двигается к агентам, которые помогают собирать и править проекты.',
+    ctaLabel: 'Читать релизы',
+    ctaHref: '/news',
   },
   {
     id: 2,
     title: 'Preview Editor Upgrade',
     status: 'done',
-    description:
-      'Прокачали Preview Editor: авто-Beautify при первом открытии, более удобное расположение действий и в целом более приятная работа с HTML-preview. Редактор стал меньше раздражать и больше помогать.',
+    description: 'Preview Editor стал чище и удобнее: авто-Beautify, лучшее расположение действий и меньше трения в HTML-preview.',
+    ctaLabel: 'Открыть новости',
+    ctaHref: '/news',
   },
   {
     id: 3,
     title: 'Project Gallery',
     status: 'done',
-    description:
-      'Появилась галерея проектов, чтобы runnable и demo-истории не терялись в хаосе. Теперь проекты можно не только запускать, но и нормально показывать, смотреть и переиспользовать.',
+    description: 'Галерея собрала runnable и demo-проекты в одно место, чтобы их можно было нормально смотреть и переиспользовать.',
+    ctaLabel: 'Открыть gallery',
+    ctaHref: '/gallery',
   },
   {
     id: 4,
     title: 'Balance, Usage & History',
     status: 'done',
-    description:
-      'Добавили более внятную работу с балансом, историей запросов и расходом токенов. Хочется не магию "где-то что-то списалось", а нормальное понимание, что именно происходило и сколько это стоило.',
+    description: 'Баланс, история запросов и расход токенов стали прозрачнее и понятнее без эффекта "где-то что-то списалось".',
+    ctaLabel: 'Смотреть оплату',
+    ctaHref: '/pricing',
   },
   {
     id: 5,
     title: 'Private Links & Sharing',
     status: 'done',
-    description:
-      'Сделали приватные ссылки и более удобный шаринг. Проекты, превью и результаты работы теперь проще показывать точечно, без лишнего мусора и лишних открытых дверей.',
+    description: 'Приватные ссылки и шаринг упростили точечный показ проектов, превью и результатов работы.',
+    ctaLabel: 'Смотреть gallery',
+    ctaHref: '/gallery',
   },
   {
     id: 6,
     title: 'Reactions & Small UX Fixes',
     status: 'done',
-    description:
-      'Докрутили реакции и пачку мелких UX-улучшений. Не самая громкая часть продукта, но именно такие штуки делают сервис живым, а не просто набором экранов.',
+    description: 'Реакции и мелкие UX-фиксы сделали сервис живее и приятнее в ежедневном использовании.',
+    ctaLabel: 'Открыть релизы',
+    ctaHref: '/news',
   },
   {
     id: 7,
     title: 'Agent Chat Tools',
     status: 'inProgress',
-    description:
-      'Следующий нормальный шаг — полноценные инструменты внутри чата. Не просто "агент подумал", а агент реально может работать с файлами, командами, проектом и контекстом задачи.',
+    description: 'Следующий шаг: агент внутри чата должен работать с файлами, командами и проектным контекстом, а не только отвечать текстом.',
+    ctaLabel: 'Открыть инструменты',
+    ctaHref: '/tools',
   },
   {
     id: 8,
     title: 'Runnable Project Bundles',
     status: 'inProgress',
-    description:
-      'LLMStore движется к формату Project Bundle: готовая связка проекта, окружения и логики запуска. Чтобы можно было открыть, понять, запустить и не тратить полдня на ручную сборку по кускам.',
+    description: 'Project Bundle должен собирать проект, окружение и запуск в один понятный runnable-формат.',
+    ctaLabel: 'Смотреть demo',
+    ctaHref: '/gallery',
   },
   {
     id: 9,
     title: 'Fix From Error Flow',
     status: 'inProgress',
-    description:
-      'Хотим довести до ума сценарий, где после ошибки не начинается цирк с ручными правками, а можно быстро дать агенту исправить проблему по логам и контексту. Ошибка должна быть не тупиком, а частью рабочего цикла.',
+    description: 'После ошибки агент должен чинить проблему по логам и контексту, а не отправлять пользователя в ручной цирк.',
+    ctaLabel: 'Читать подробнее',
+    ctaHref: '/guides',
   },
   {
     id: 10,
     title: 'Deploy for Bots & Webhooks',
     status: 'inProgress',
-    description:
-      'Двигаем нормальный deploy для webhook-ботов и похожих сценариев. С логами, статусами, историей запусков и без ощущения, что ты опять руками собираешь серверную магию из палок.',
+    description: 'Двигаем deploy для webhook-ботов и похожих сценариев с логами, статусами и историей запусков.',
+    ctaLabel: 'Читать гайды',
+    ctaHref: '/guides',
   },
   {
     id: 11,
     title: 'Workspace per Chat / Project',
     status: 'planned',
-    description:
-      'У каждого чата или проекта должен быть свой workspace: файлы, состояние, история действий, окружение. Без этого агентность быстро упирается в игрушечный режим.',
+    description: 'Каждому чату или проекту нужен свой workspace с файлами, состоянием и историей действий.',
+    ctaLabel: 'Читать roadmap',
+    ctaHref: '/guides',
   },
   {
     id: 12,
     title: 'GitHub Import & Project Forks',
     status: 'planned',
-    description:
-      'Импорт проектов из GitHub, форки runnable-проектов и удобный старт от чужой заготовки. Чтобы LLMStore был не только про "создать с нуля", но и про "быстро подхватить и развить".',
+    description: 'Импорт из GitHub и форки нужны, чтобы не стартовать с нуля каждый раз.',
+    ctaLabel: 'Смотреть gallery',
+    ctaHref: '/gallery',
   },
   {
     id: 13,
     title: 'Model Routing & Cost Control',
     status: 'planned',
-    description:
-      'Нужен умный роутинг моделей и нормальный контроль расходов. Какая модель лучше под код, какая дешевле, где fallback, сколько сожрёт запуск — всё это должно быть видно, а не угадываться по звёздам.',
+    description: 'Выбор модели, fallback и стоимость запуска должны быть видимыми, а не угадываться по звёздам.',
+    ctaLabel: 'Смотреть цены',
+    ctaHref: '/pricing',
   },
   {
     id: 14,
     title: 'Templates for Real Use Cases',
     status: 'planned',
-    description:
-      'Готовые шаблоны под реальные задачи: Telegram-боты, лендинги, вебхуки, мини-сервисы, research-агенты, code helpers. Людям нужен не "AI ради AI", а быстрый путь к рабочему результату.',
+    description: 'Нужны готовые шаблоны под ботов, лендинги, вебхуки, мини-сервисы и code helpers.',
+    ctaLabel: 'Читать гайды',
+    ctaHref: '/guides',
   },
   {
     id: 15,
     title: 'Shareable Demos & Public Project Pages',
     status: 'planned',
-    description:
-      'Хотим, чтобы проекты было удобно показывать другим: демо-страницы, публичные карточки, запуск примеров, быстрый форк. Если проект нельзя нормально показать, он почти не существует.',
+    description: 'Проекты должно быть легко показывать: демо-страницы, публичные карточки, запуск примеров и быстрый форк.',
+    ctaLabel: 'Открыть gallery',
+    ctaHref: '/gallery',
   },
   {
     id: 16,
     title: 'Logs, Runs & Observability',
     status: 'planned',
-    description:
-      'Нужна внятная наблюдаемость: история раннов, логи, ошибки, токены, время выполнения, статусы деплоя. Когда проект исполняется, прозрачность становится не "фичей", а базовой необходимостью.',
+    description: 'История раннов, логи, ошибки и статусы должны стать базовым слоем платформы, а не бонусом.',
+    ctaLabel: 'Читать подробнее',
+    ctaHref: '/guides',
   },
   {
     id: 17,
     title: 'Secrets & Safe Execution',
     status: 'planned',
-    description:
-      'Работа с секретами, переменными окружения и безопасным запуском должна быть встроенной частью платформы. Чем ближе LLMStore к реальному продакшену, тем меньше права на бардак.',
+    description: 'Секреты, env-переменные и безопасный запуск должны быть встроены по умолчанию.',
+    ctaLabel: 'Читать гайды',
+    ctaHref: '/guides',
   },
   {
     id: 18,
     title: 'Team Workspaces',
     status: 'planned',
-    description:
-      'Дальше — командный режим: общие workspace, совместная работа, история изменений, доступы. Пока фокус на core-механике, но без этого платформа не вырастет в серьёзный инструмент.',
+    description: 'Общие workspace, доступы и история изменений нужны для нормального командного режима.',
+    ctaLabel: 'Читать roadmap',
+    ctaHref: '/guides',
   },
   {
     id: 19,
     title: 'Telegram-first Integrations',
     status: 'research',
-    description:
-      'Интеграции с Telegram выглядят как один из самых живых сценариев для LLMStore. Агент, который можно быстро собрать, запустить и подключить к реальному каналу общения — это уже не демка, а полезная штука.',
+    description: 'Telegram выглядит как один из самых живых сценариев для runnable-агентов и быстрых полезных запусков.',
+    ctaLabel: 'Читать гайды',
+    ctaHref: '/guides',
   },
   {
     id: 20,
     title: 'Local + Cloud Hybrid Flow',
     status: 'research',
-    description:
-      'Интересный вектор — связка локальных моделей и облачных провайдеров в одном рабочем сценарии. Где-то важна цена, где-то скорость, где-то приватность. Хочется дать гибкость, а не навязывать один путь.',
+    description: 'Локальные и облачные модели хочется собрать в один гибкий сценарий без навязывания одного пути.',
+    ctaLabel: 'Открыть инструменты',
+    ctaHref: '/tools',
   },
 ];
 
@@ -182,20 +213,65 @@ const focusCards: FocusCard[] = [
   {
     eyebrow: 'Следующий фокус',
     title: 'Tools inside chat',
-    description:
-      'Агент внутри чата должен не только отвечать, но и реально работать с файлами, командами и контекстом проекта.',
+    description: 'Агент внутри чата должен не только отвечать, но и реально работать с файлами, командами и контекстом проекта.',
   },
   {
     eyebrow: 'Runnable flow',
     title: 'Bundles + deploy',
-    description:
-      'Связка Project Bundles, deploy для ботов и webhook-сценариев и более внятный путь от идеи до запуска.',
+    description: 'Project Bundles, deploy и более внятный путь от идеи до запуска в одном рабочем контуре.',
   },
   {
     eyebrow: 'Рабочий цикл',
-    title: 'Run → error → fix → share',
-    description:
-      'Нормальный цикл разработки: запустил, увидел ошибку, быстро починил через агента и сразу показал результат.',
+    title: 'Run -> error -> fix -> share',
+    description: 'Нужен нормальный цикл: запустил, увидел ошибку, быстро починил через агента и показал результат.',
+  },
+];
+
+const currentRouteCards: RouteCard[] = [
+  {
+    title: 'Посмотреть runnable-проекты',
+    description: 'Галерея уже показывает, как результаты выглядят в живом виде, а не только в виде описания.',
+    href: '/gallery',
+    ctaLabel: 'Открыть gallery',
+  },
+  {
+    title: 'Почитать релизы и изменения',
+    description: 'Новости дают фактуру: что уже вышло, что менялось и как продукт реально двигается по шагам.',
+    href: '/news',
+    ctaLabel: 'Открыть новости',
+  },
+  {
+    title: 'Изучить инструменты и сценарии',
+    description: 'Гайды и раздел инструментов помогают понять, как это использовать в реальном рабочем потоке.',
+    href: '/guides',
+    ctaLabel: 'Читать гайды',
+  },
+];
+
+const nextStepCards: RouteCard[] = [
+  {
+    title: 'Галерея runnable-проектов',
+    description: 'Посмотреть, что уже можно открыть, показать и переиспользовать.',
+    href: '/gallery',
+    ctaLabel: 'Открыть',
+  },
+  {
+    title: 'Новости релизов',
+    description: 'Понять, какие обновления уже ушли в прод и как меняется продукт.',
+    href: '/news',
+    ctaLabel: 'Читать',
+  },
+  {
+    title: 'Гайды по агентам',
+    description: 'Быстрее схватить сценарии использования, а не только список возможностей.',
+    href: '/guides',
+    ctaLabel: 'Изучить',
+  },
+  {
+    title: 'Инструменты агентов',
+    description: 'Увидеть, какие tool-like возможности уже формируют следующий слой платформы.',
+    href: '/tools',
+    ctaLabel: 'Открыть',
   },
 ];
 
@@ -204,44 +280,53 @@ const statusOrder: MilestoneStatus[] = ['done', 'inProgress', 'planned', 'resear
 const statusMeta: Record<MilestoneStatus, StatusMeta> = {
   done: {
     label: 'Done',
+    eyebrow: 'Shipped',
     title: 'Уже сделано',
-    description: 'То, что уже shipped или частично shipped и уже двигает продукт вперёд.',
+    description: 'То, что уже shipped или partially shipped и уже двигает продукт вперёд.',
     icon: CheckCircle2,
     badgeClassName: 'border border-emerald-200 bg-emerald-100 text-emerald-800',
     sectionClassName: 'border-emerald-200/80 bg-emerald-50/70',
-    cardClassName: 'border-emerald-100 bg-white/85',
+    cardClassName: 'border-emerald-100 bg-white/92',
+    accentClassName: 'text-emerald-700',
   },
   inProgress: {
     label: 'In Progress',
+    eyebrow: 'Current focus',
     title: 'Сейчас в работе',
-    description: 'Ближайшие продуктовые шаги, которые уже превращаются из идеи в рабочий контур.',
+    description: 'Это главный фокус сейчас: ближайшие шаги, которые уже превращаются из идеи в рабочий контур.',
     icon: Clock3,
     badgeClassName: 'border border-sky-200 bg-sky-100 text-sky-800',
-    sectionClassName: 'border-sky-200/80 bg-sky-50/75',
-    cardClassName: 'border-sky-100 bg-white/85',
+    sectionClassName:
+      'border-sky-300/90 bg-[linear-gradient(180deg,rgba(224,242,254,0.95),rgba(240,249,255,0.9))] ring-1 ring-sky-200/70',
+    cardClassName: 'border-sky-200 bg-white/95',
+    accentClassName: 'text-sky-700',
   },
   planned: {
     label: 'Planned',
+    eyebrow: 'Next layer',
     title: 'Запланировано',
     description: 'Следующий слой платформы, без которого агентность быстро упрётся в потолок.',
     icon: Compass,
     badgeClassName: 'border border-amber-200 bg-amber-100 text-amber-900',
     sectionClassName: 'border-amber-200/80 bg-amber-50/80',
-    cardClassName: 'border-amber-100 bg-white/90',
+    cardClassName: 'border-amber-100 bg-white/92',
+    accentClassName: 'text-amber-700',
   },
   research: {
     label: 'Research',
+    eyebrow: 'Research',
     title: 'Исследуем',
-    description: 'Направления, которые уже выглядят перспективно, но требуют аккуратной проверки и формализации.',
+    description: 'Направления, которые уже выглядят перспективно, но ещё требуют аккуратной проверки.',
     icon: Search,
     badgeClassName: 'border border-violet-200 bg-violet-100 text-violet-800',
     sectionClassName: 'border-violet-200/80 bg-violet-50/75',
-    cardClassName: 'border-violet-100 bg-white/90',
+    cardClassName: 'border-violet-100 bg-white/92',
+    accentClassName: 'text-violet-700',
   },
 };
 
 const summaryText =
-  'LLMStore развивается из каталога AI-инструментов в рабочую платформу для runnable AI-проектов, coding agents и deploy-сценариев. Мы уже двигаем Preview Editor, галерею, баланс, приватные ссылки и первые agent-like возможности. Следующий фокус — tools inside chat, Project Bundles, deploy, логи, workspace и нормальный цикл "запустил → получил ошибку → быстро починил → показал результат".';
+  'LLMStore развивается из каталога AI-инструментов в рабочую платформу для runnable AI-проектов, coding agents и deploy-сценариев. Уже есть Preview Editor, gallery, баланс, приватные ссылки и первые agent-like возможности. Следующий фокус: tools inside chat, Project Bundles, deploy, логи, workspace и нормальный цикл "запустил -> получил ошибку -> быстро починил -> показал результат".';
 
 function getItemsByStatus(status: MilestoneStatus) {
   return milestones.filter((item) => item.status === status);
@@ -291,7 +376,7 @@ export function MilestonesPage() {
               </div>
             </div>
 
-            <Card className="rounded-[28px] border-white/80 bg-white/85 p-6 shadow-[0_30px_80px_-36px_rgba(15,23,42,0.45)] backdrop-blur">
+            <Card className="rounded-[28px] border-white/80 bg-white/88 p-6 shadow-[0_30px_80px_-36px_rgba(15,23,42,0.45)] backdrop-blur">
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <p className="text-sm uppercase tracking-[0.22em] text-slate-400">Hero / intro</p>
@@ -302,7 +387,7 @@ export function MilestonesPage() {
                 </div>
               </div>
 
-              <p className="mt-6 text-base leading-7 text-slate-600">{summaryText}</p>
+              <p className="mt-6 text-[15px] leading-7 text-slate-600 md:text-base">{summaryText}</p>
 
               <div className="mt-7 grid gap-3 sm:grid-cols-2">
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
@@ -332,11 +417,11 @@ export function MilestonesPage() {
           {focusCards.map((card) => (
             <Card
               key={card.title}
-              className="rounded-[24px] border-white/80 bg-white/85 p-6 shadow-[0_18px_55px_-35px_rgba(15,23,42,0.4)] backdrop-blur"
+              className="rounded-[24px] border-white/80 bg-white/88 p-6 shadow-[0_18px_55px_-35px_rgba(15,23,42,0.4)] backdrop-blur"
             >
               <p className="text-xs uppercase tracking-[0.22em] text-slate-400">{card.eyebrow}</p>
               <h2 className="mt-3 text-xl font-semibold text-slate-950">{card.title}</h2>
-              <p className="mt-3 text-sm leading-6 text-slate-600">{card.description}</p>
+              <p className="mt-3 text-[15px] leading-7 text-slate-600">{card.description}</p>
             </Card>
           ))}
         </div>
@@ -347,8 +432,8 @@ export function MilestonesPage() {
           <p className="text-sm uppercase tracking-[0.22em] text-slate-400">Roadmap by status</p>
           <h2 className="mt-3 text-3xl font-bold tracking-tight text-slate-950">Что уже есть, что делаем сейчас и что дальше</h2>
           <p className="mt-4 text-base leading-7 text-slate-600">
-            Ниже весь список milestones в том порядке, который читается честно: сначала shipped-часть, потом активная
-            работа, потом запланированные блоки и отдельным слоем исследовательские направления.
+            Ниже весь список milestones в порядке, который читается честно: сначала shipped-часть, потом активная работа,
+            потом запланированные блоки и отдельным слоем исследовательские направления.
           </p>
         </div>
 
@@ -357,21 +442,32 @@ export function MilestonesPage() {
             const meta = statusMeta[status];
             const Icon = meta.icon;
             const items = getItemsByStatus(status);
+            const isCurrentFocus = status === 'inProgress';
 
             return (
               <section key={status}>
                 <Card className={`rounded-[30px] border p-6 shadow-[0_24px_70px_-44px_rgba(15,23,42,0.35)] ${meta.sectionClassName}`}>
                   <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                     <div className="max-w-2xl">
-                      <div className="flex items-center gap-3">
+                      <div className="flex flex-wrap items-center gap-3">
                         <div className="rounded-2xl bg-white/85 p-3 text-slate-900 shadow-sm">
                           <Icon className="h-5 w-5" />
                         </div>
                         <Badge className={`rounded-full px-3 py-1 text-[11px] font-semibold ${meta.badgeClassName}`}>
                           {meta.label}
                         </Badge>
+                        {isCurrentFocus ? (
+                          <Badge className="rounded-full border border-sky-300 bg-sky-600 px-3 py-1 text-[11px] font-semibold text-white">
+                            Главный фокус сейчас
+                          </Badge>
+                        ) : null}
                       </div>
-                      <h3 className="mt-4 text-2xl font-semibold text-slate-950">{meta.title}</h3>
+                      <p className={`mt-4 text-xs font-semibold uppercase tracking-[0.22em] ${meta.accentClassName}`}>
+                        {meta.eyebrow}
+                      </p>
+                      <h3 className={`mt-2 tracking-tight text-slate-950 ${isCurrentFocus ? 'text-3xl font-bold' : 'text-2xl font-semibold'}`}>
+                        {meta.title}
+                      </h3>
                       <p className="mt-3 text-base leading-7 text-slate-600">{meta.description}</p>
                     </div>
 
@@ -391,8 +487,19 @@ export function MilestonesPage() {
                             {meta.label}
                           </Badge>
                         </div>
+
                         <h4 className="mt-4 text-xl font-semibold text-slate-950">{item.title}</h4>
-                        <p className="mt-3 text-sm leading-7 text-slate-600">{item.description}</p>
+                        <p className="mt-3 text-[15px] leading-7 text-slate-700 md:text-base">{item.description}</p>
+
+                        <div className="mt-5 border-t border-slate-200/80 pt-4">
+                          <Link
+                            to={item.ctaHref}
+                            className={`inline-flex items-center gap-2 text-sm font-semibold transition-colors hover:underline ${meta.accentClassName}`}
+                          >
+                            {item.ctaLabel}
+                            <ArrowRight className="h-4 w-4" />
+                          </Link>
+                        </div>
                       </article>
                     ))}
                   </div>
@@ -406,64 +513,48 @@ export function MilestonesPage() {
       <section className="container mx-auto px-4 pb-16 pt-8">
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
           <Card className="rounded-[30px] border-slate-200 bg-slate-950 p-8 text-white shadow-[0_30px_90px_-40px_rgba(2,6,23,0.65)]">
-            <p className="text-sm uppercase tracking-[0.22em] text-slate-400">Как читать эту страницу</p>
-            <h2 className="mt-3 text-3xl font-semibold tracking-tight">LLMStore движется в сторону рабочей агентной платформы</h2>
+            <p className="text-sm uppercase tracking-[0.22em] text-slate-400">Что уже можно попробовать</p>
+            <h2 className="mt-3 text-3xl font-semibold tracking-tight">Не просто читать milestones, а идти по живому маршруту</h2>
             <p className="mt-4 max-w-3xl text-base leading-7 text-slate-300">
-              Важная идея здесь простая: milestones должны показывать продуктовый ритм. Не набор обещаний, а понятную
-              картину того, что уже появилось, что прямо сейчас собирается и какие системные слои будут добавляться
-              дальше.
+              Если страница показывает движение продукта, то следующий шаг должен быть прикладным: открыть runnable-проект,
+              посмотреть релизы, зайти в инструменты или быстро понять сценарий через гайды.
             </p>
 
             <div className="mt-8 grid gap-4 md:grid-cols-3">
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                <CheckCircle2 className="h-5 w-5 text-emerald-300" />
-                <p className="mt-4 text-sm font-medium">Уже сделано</p>
-                <p className="mt-2 text-sm text-slate-400">
-                  Preview Editor, gallery, balance, sharing, UX и первые coding-agent шаги.
-                </p>
-              </div>
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                <Clock3 className="h-5 w-5 text-sky-300" />
-                <p className="mt-4 text-sm font-medium">В работе</p>
-                <p className="mt-2 text-sm text-slate-400">
-                  Tools inside chat, Project Bundles, fix-from-error flow и deploy для ботов и webhook-сценариев.
-                </p>
-              </div>
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                <Compass className="h-5 w-5 text-amber-300" />
-                <p className="mt-4 text-sm font-medium">Дальше по плану</p>
-                <p className="mt-2 text-sm text-slate-400">
-                  Workspace, observability, templates, team mode, safe execution и исследовательские векторы.
-                </p>
-              </div>
+              {currentRouteCards.map((card) => (
+                <div key={card.title} className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                  <p className="text-base font-semibold text-white">{card.title}</p>
+                  <p className="mt-3 text-sm leading-6 text-slate-300">{card.description}</p>
+                  <Link
+                    to={card.href}
+                    className="mt-5 inline-flex items-center gap-2 text-sm font-semibold text-white transition-colors hover:text-sky-200"
+                  >
+                    {card.ctaLabel}
+                    <ArrowRight className="h-4 w-4" />
+                  </Link>
+                </div>
+              ))}
             </div>
           </Card>
 
-          <Card className="rounded-[30px] border-slate-200 bg-white/90 p-8 shadow-[0_24px_70px_-44px_rgba(15,23,42,0.4)]">
-            <p className="text-sm uppercase tracking-[0.22em] text-slate-400">Навигация</p>
-            <h2 className="mt-3 text-2xl font-semibold text-slate-950">Что смотреть рядом</h2>
+          <Card className="rounded-[30px] border-slate-200 bg-white/92 p-8 shadow-[0_24px_70px_-44px_rgba(15,23,42,0.4)]">
+            <p className="text-sm uppercase tracking-[0.22em] text-slate-400">Следующий шаг</p>
+            <h2 className="mt-3 text-2xl font-semibold text-slate-950">Куда идти дальше</h2>
             <div className="mt-6 space-y-3">
-              <Link
-                to="/gallery"
-                className="flex items-center justify-between rounded-2xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
-              >
-                Галерея проектов
-                <ArrowRight className="h-4 w-4" />
-              </Link>
-              <Link
-                to="/news"
-                className="flex items-center justify-between rounded-2xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
-              >
-                Новости
-                <ArrowRight className="h-4 w-4" />
-              </Link>
-              <Link
-                to="/guides"
-                className="flex items-center justify-between rounded-2xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
-              >
-                Guides / articles
-                <ArrowRight className="h-4 w-4" />
-              </Link>
+              {nextStepCards.map((card) => (
+                <Link
+                  key={card.title}
+                  to={card.href}
+                  className="block rounded-2xl border border-slate-200 bg-white px-4 py-4 transition-colors hover:bg-slate-50"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-semibold text-slate-900">{card.title}</p>
+                    <ArrowRight className="h-4 w-4 text-slate-500" />
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">{card.description}</p>
+                  <p className="mt-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">{card.ctaLabel}</p>
+                </Link>
+              ))}
             </div>
           </Card>
         </div>
