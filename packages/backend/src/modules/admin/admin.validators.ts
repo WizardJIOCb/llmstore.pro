@@ -25,6 +25,13 @@ const adminChartsQuerySchema = z.object({
 
 export const validateAdminChartsQuery = validate(adminChartsQuerySchema, 'query');
 
+const adminRuntimesQuerySchema = z.object({
+  search: z.string().max(200).optional(),
+  status: z.enum(['all', 'deploying', 'running', 'stopped', 'failed']).optional(),
+});
+
+export const validateAdminRuntimesQuery = validate(adminRuntimesQuerySchema, 'query');
+
 const taxonomyCreateSchema = z.object({
   name: z.string().min(1).max(255),
   slug: z.string().min(1).max(255).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),

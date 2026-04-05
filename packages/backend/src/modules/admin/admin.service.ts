@@ -25,6 +25,12 @@ import {
 } from '../../lib/app-settings.js';
 import { openRouterClient } from '../openrouter/index.js';
 import { logger } from '../../lib/logger.js';
+import {
+  listProjectDeploymentsForAdmin,
+  startProjectDeploymentAsAdmin,
+  stopProjectDeploymentAsAdmin,
+  type AdminProjectDeploymentRecord,
+} from '../agent-runtime/project-deployments.service.js';
 
 // ─── Admin catalog list (offset pagination) ─────────────────
 
@@ -781,6 +787,11 @@ interface AdminAgentsQuery {
   search?: string;
   status?: string;
   owner_id?: string;
+}
+
+interface AdminRuntimesQuery {
+  search?: string;
+  status?: string;
 }
 
 export async function resetUserPassword(adminUserId: string, id: string, password: string) {
@@ -1620,6 +1631,18 @@ async function getOpenRouterDashboardStatus() {
       },
     };
   }
+}
+
+export async function listRuntimes(query: AdminRuntimesQuery): Promise<{ items: AdminProjectDeploymentRecord[]; total: number }> {
+  return listProjectDeploymentsForAdmin(query);
+}
+
+export async function startRuntime(id: string): Promise<AdminProjectDeploymentRecord> {
+  return startProjectDeploymentAsAdmin(id);
+}
+
+export async function stopRuntime(id: string): Promise<AdminProjectDeploymentRecord> {
+  return stopProjectDeploymentAsAdmin(id);
 }
 
 export async function getDashboardStats() {

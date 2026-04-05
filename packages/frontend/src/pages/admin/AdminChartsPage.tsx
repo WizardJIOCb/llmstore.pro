@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AdminLayout } from '../../components/admin/AdminLayout';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/Card';
@@ -312,13 +312,37 @@ function MultiSeriesChart<T extends DatePoint>({
 }) {
   const [visibleKeys, setVisibleKeys] = useState<string[]>(defaultVisibleKeys);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const [isPointerInside, setIsPointerInside] = useState(false);
+  const [pointerPosition, setPointerPosition] = useState<{ x: number; y: number } | null>(null);
+  const [chartHeightPx, setChartHeightPx] = useState(320);
+  const chartContainerRef = useRef<HTMLDivElement | null>(null);
+  const [chartPixelWidth, setChartPixelWidth] = useState(920);
 
   const activeSeries = series.filter((item) => visibleKeys.includes(item.key));
-  const width = 920;
-  const height = 320;
-  const padding = { top: 18, right: 16, bottom: 42, left: 64 };
+  const width = Math.max(chartPixelWidth, 320);
+  const height = chartHeightPx;
+  const padding = { top: 18, right: 18, bottom: 42, left: 56 };
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
+
+  useEffect(() => {
+    const node = chartContainerRef.current;
+    if (!node || typeof window === 'undefined') return;
+
+    const updateWidth = () => {
+      const nextWidth = Math.round(node.getBoundingClientRect().width);
+      setChartPixelWidth((current) => (current === nextWidth || nextWidth <= 0 ? current : nextWidth));
+    };
+
+    updateWidth();
+
+    const observer = new window.ResizeObserver(() => {
+      updateWidth();
+    });
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
 
   let minValue = 0;
   let maxValue = 0;
@@ -354,6 +378,22 @@ function MultiSeriesChart<T extends DatePoint>({
   const zeroY = yScale(0);
   const selectedIndex = hoveredIndex ?? (data.length > 0 ? data.length - 1 : null);
   const selectedPoint = selectedIndex !== null ? data[selectedIndex] : null;
+  const tooltipWidth = 260;
+  const tooltipGap = 18;
+  const tooltipHeight = 132;
+  const tooltipAnchorX = pointerPosition
+    ? pointerPosition.x
+    : selectedIndex !== null
+      ? xScale(selectedIndex)
+      : width / 2;
+  const tooltipAnchorY = pointerPosition ? pointerPosition.y : padding.top + 12;
+  const showTooltipOnRight = tooltipAnchorX < width * 0.55;
+  const tooltipLeftPx = clamp(
+    showTooltipOnRight ? tooltipAnchorX + tooltipGap : tooltipAnchorX - tooltipGap,
+    showTooltipOnRight ? 12 : tooltipWidth + 12,
+    showTooltipOnRight ? width - tooltipWidth - 12 : width - 12,
+  );
+  const tooltipTopPx = clamp(tooltipAnchorY - tooltipHeight / 2, 12, height - tooltipHeight - 12);
 
   function buildPath(item: SeriesDefinition<T>) {
     let path = '';
@@ -375,26 +415,48 @@ function MultiSeriesChart<T extends DatePoint>({
         <CardDescription>{description}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="flex flex-wrap gap-2">
-          {series.map((item) => {
-            const isActive = visibleKeys.includes(item.key);
-            return (
-              <button
-                key={item.key}
-                type="button"
-                onClick={() => setVisibleKeys((current) => toggleKey(current, item.key))}
-                className={cn(
-                  'rounded-full border px-3 py-1.5 text-xs font-medium transition-colors',
-                  isActive
-                    ? 'border-foreground/20 bg-foreground text-background'
-                    : 'border-border bg-background text-foreground/80 hover:border-foreground/20 hover:bg-accent',
-                )}
-              >
-                <span className="mr-2 inline-block h-2.5 w-2.5 rounded-full align-middle" style={{ backgroundColor: item.color }} />
-                {item.label}
-              </button>
-            );
-          })}
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex flex-wrap gap-2">
+            {series.map((item) => {
+              const isActive = visibleKeys.includes(item.key);
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => setVisibleKeys((current) => toggleKey(current, item.key))}
+                  className={cn(
+                    'rounded-full border px-3 py-1.5 text-xs font-medium transition-colors',
+                    isActive
+                      ? 'border-foreground/20 bg-foreground text-background'
+                      : 'border-border bg-background text-foreground/80 hover:border-foreground/20 hover:bg-accent',
+                  )}
+                >
+                  <span className="mr-2 inline-block h-2.5 w-2.5 rounded-full align-middle" style={{ backgroundColor: item.color }} />
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setChartHeightPx((current) => clamp(current - 40, 240, 480))}
+              aria-label={`Уменьшить высоту графика ${title}`}
+            >
+              −
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setChartHeightPx((current) => clamp(current + 40, 240, 480))}
+              aria-label={`Увеличить высоту графика ${title}`}
+            >
+              +
+            </Button>
+          </div>
         </div>
 
         {data.length === 0 || activeSeries.length === 0 ? (
@@ -404,16 +466,34 @@ function MultiSeriesChart<T extends DatePoint>({
         ) : (
           <>
             <div
-              className="relative"
-              onMouseLeave={() => setHoveredIndex(null)}
-              onMouseMove={(event) => {
+              ref={chartContainerRef}
+              className="relative w-full overflow-hidden"
+              onPointerLeave={() => {
+                setHoveredIndex(null);
+                setIsPointerInside(false);
+                setPointerPosition(null);
+              }}
+              onPointerMove={(event) => {
                 const rect = event.currentTarget.getBoundingClientRect();
-                const ratio = clamp((event.clientX - rect.left) / rect.width, 0, 1);
+                const rawPointerX = clamp(event.clientX - rect.left, 0, rect.width);
+                const pointerX = clamp(rawPointerX, padding.left, width - padding.right);
+                const ratio = clamp((pointerX - padding.left) / Math.max(chartWidth, 1), 0, 1);
+                const yRatio = clamp((event.clientY - rect.top) / rect.height, 0, 1);
+                const pointerY = clamp(yRatio * height, padding.top, height - padding.bottom);
                 const nextIndex = Math.round(ratio * (data.length - 1));
                 setHoveredIndex(nextIndex);
+                setIsPointerInside(true);
+                setPointerPosition({
+                  x: pointerX,
+                  y: pointerY,
+                });
               }}
             >
-              <svg viewBox={`0 0 ${width} ${height}`} className="h-[320px] w-full overflow-visible">
+              <svg
+                viewBox={`0 0 ${width} ${height}`}
+                className="block w-full overflow-visible"
+                style={{ height: `${chartHeightPx}px` }}
+              >
                 {yTicks.map((tick) => (
                   <g key={tick}>
                     <line
@@ -481,17 +561,29 @@ function MultiSeriesChart<T extends DatePoint>({
                   />
                 ))}
 
-                {selectedIndex !== null && (
+                {pointerPosition && isPointerInside ? (
                   <line
-                    x1={xScale(selectedIndex)}
-                    x2={xScale(selectedIndex)}
+                    x1={pointerPosition.x}
+                    x2={pointerPosition.x}
                     y1={padding.top}
                     y2={height - padding.bottom}
                     stroke="currentColor"
-                    strokeOpacity={0.2}
+                    strokeOpacity={0.22}
                     strokeDasharray="4 4"
                   />
-                )}
+                ) : null}
+
+                {pointerPosition && isPointerInside ? (
+                  <line
+                    x1={padding.left}
+                    x2={width - padding.right}
+                    y1={pointerPosition.y}
+                    y2={pointerPosition.y}
+                    stroke="currentColor"
+                    strokeOpacity={0.16}
+                    strokeDasharray="4 4"
+                  />
+                ) : null}
 
                 {selectedPoint && activeSeries.map((item) => {
                   const value = item.value(selectedPoint);
@@ -510,27 +602,36 @@ function MultiSeriesChart<T extends DatePoint>({
                   );
                 })}
               </svg>
-            </div>
 
-            {selectedPoint && (
-              <div className="rounded-lg border bg-muted/30 p-4">
-                <div className="mb-3 flex items-center justify-between gap-4">
-                  <p className="text-sm font-medium">{formatDayLabel(selectedPoint.date)}</p>
-                  <p className="text-xs text-muted-foreground">{selectedPoint.date}</p>
-                </div>
-                <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-                  {activeSeries.map((item) => (
-                    <div key={item.key} className="rounded-lg border bg-background px-3 py-2 text-sm">
-                      <div className="mb-1 flex items-center gap-2">
-                        <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} />
-                        <span className="text-muted-foreground">{item.label}</span>
-                      </div>
-                      <div className="font-medium">{item.formatValue(item.value(selectedPoint))}</div>
+              {selectedPoint && isPointerInside ? (
+                <div
+                  className={cn(
+                    'pointer-events-none absolute z-10 w-[260px] max-w-[calc(100%-1.5rem)] rounded-xl border bg-background/95 p-3 shadow-xl backdrop-blur',
+                    showTooltipOnRight ? 'translate-x-0' : '-translate-x-full',
+                  )}
+                  style={{ left: `${tooltipLeftPx}px`, top: `${tooltipTopPx}px` }}
+                >
+                  <div className="mb-3 flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">{formatDayLabel(selectedPoint.date)}</p>
+                      <p className="text-xs text-muted-foreground">{selectedPoint.date}</p>
                     </div>
-                  ))}
+                  </div>
+
+                  <div className="space-y-2">
+                    {activeSeries.map((item) => (
+                      <div key={item.key} className="flex items-center justify-between gap-3 text-sm">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: item.color }} />
+                          <span className="truncate text-muted-foreground">{item.label}</span>
+                        </div>
+                        <span className="shrink-0 font-medium text-foreground">{item.formatValue(item.value(selectedPoint))}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
+              ) : null}
+            </div>
           </>
         )}
       </CardContent>

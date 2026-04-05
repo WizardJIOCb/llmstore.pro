@@ -4,10 +4,11 @@ import type { Request } from 'express';
 import { mkdir, readFile, rm, writeFile } from 'fs/promises';
 import net from 'net';
 import path from 'path';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, ilike, or, sql, type SQL } from 'drizzle-orm';
 import { db } from '../../config/database.js';
 import { env } from '../../config/env.js';
 import { UPLOADS_DIR } from '../../config/upload.js';
+import { users } from '../../db/schema/auth.js';
 import { agents } from '../../db/schema/agents.js';
 import { usageLedger } from '../../db/schema/analytics.js';
 import { agentRuns, chatConversations, chatConversationMessages, chatProjectDeployments } from '../../db/schema/runtime.js';
@@ -66,6 +67,22 @@ export interface ProjectDeploymentRecord {
   updated_at: string;
   last_started_at: string | null;
   last_stopped_at: string | null;
+}
+
+export interface AdminProjectDeploymentRecord extends ProjectDeploymentRecord {
+  conversation_id: string;
+  message_id: string;
+  owner_user_id: string;
+  owner_name: string | null;
+  owner_username: string | null;
+  owner_email: string;
+  chat_title: string;
+  chat_share_token: string | null;
+}
+
+interface AdminProjectDeploymentsQuery {
+  search?: string;
+  status?: string;
 }
 
 interface DeploymentRuntime {
@@ -372,6 +389,49 @@ async function getDeploymentWithAgentMeta(deploymentId: string, userId: string) 
   return row;
 }
 
+async function getDeploymentWithAdminMeta(deploymentId: string) {
+  const [row] = await db
+    .select({
+      id: chatProjectDeployments.id,
+      conversation_id: chatProjectDeployments.conversation_id,
+      message_id: chatProjectDeployments.message_id,
+      user_id: chatProjectDeployments.user_id,
+      linked_agent_id: chatProjectDeployments.linked_agent_id,
+      title: chatProjectDeployments.title,
+      runtime: chatProjectDeployments.runtime,
+      entrypoint: chatProjectDeployments.entrypoint,
+      public_token: chatProjectDeployments.public_token,
+      deployment_secret: chatProjectDeployments.deployment_secret,
+      env_json: chatProjectDeployments.env_json,
+      status: chatProjectDeployments.status,
+      last_error: chatProjectDeployments.last_error,
+      last_exit_code: chatProjectDeployments.last_exit_code,
+      last_signal: chatProjectDeployments.last_signal,
+      last_started_at: chatProjectDeployments.last_started_at,
+      last_stopped_at: chatProjectDeployments.last_stopped_at,
+      created_at: chatProjectDeployments.created_at,
+      updated_at: chatProjectDeployments.updated_at,
+      linked_agent_name: agents.name,
+      owner_name: users.name,
+      owner_username: users.username,
+      owner_email: users.email,
+      chat_title: chatConversations.title,
+      chat_share_token: chatConversations.share_token,
+    })
+    .from(chatProjectDeployments)
+    .innerJoin(chatConversations, eq(chatConversations.id, chatProjectDeployments.conversation_id))
+    .innerJoin(users, eq(users.id, chatProjectDeployments.user_id))
+    .leftJoin(agents, eq(agents.id, chatProjectDeployments.linked_agent_id))
+    .where(eq(chatProjectDeployments.id, deploymentId))
+    .limit(1);
+
+  if (!row) {
+    throw new NotFoundError('Deployment not found');
+  }
+
+  return row;
+}
+
 async function getDeploymentRunInsights(deploymentId: string): Promise<ProjectDeploymentRecord['run_stats'] & { recent_runs: ProjectDeploymentRecord['recent_runs'] }> {
   const usdToRubRate = await getUsdToRubRate();
 
@@ -445,6 +505,56 @@ async function toProjectDeploymentRecord(
 
   return {
     id: row.id,
+    status: (row.status as ProjectDeploymentStatus) ?? 'stopped',
+    title: row.title,
+    runtime,
+    entrypoint: row.entrypoint ?? null,
+    env: normalizeDeploymentEnv(row.env_json),
+    webhook_url: buildWebhookUrl(row.public_token),
+    linked_agent_id: row.linked_agent_id ?? null,
+    linked_agent_name: row.linked_agent_name ?? null,
+    agent_run_url: row.linked_agent_id ? buildAgentRunUrl(row.public_token) : null,
+    last_error: row.last_error ?? null,
+    last_exit_code: row.last_exit_code ?? null,
+    last_signal: row.last_signal ?? null,
+    live_stdout: live?.stdout ?? '',
+    live_stderr: live?.stderr ?? '',
+    run_stats: {
+      total_runs: insights.total_runs,
+      completed_runs: insights.completed_runs,
+      failed_runs: insights.failed_runs,
+      total_prompt_tokens: insights.total_prompt_tokens,
+      total_completion_tokens: insights.total_completion_tokens,
+      total_tokens: insights.total_tokens,
+      total_cost_usd: insights.total_cost_usd,
+      total_cost_rub: insights.total_cost_rub,
+      last_run_at: insights.last_run_at,
+    },
+    recent_runs: insights.recent_runs,
+    created_at: row.created_at.toISOString(),
+    updated_at: row.updated_at.toISOString(),
+    last_started_at: row.last_started_at?.toISOString() ?? null,
+    last_stopped_at: row.last_stopped_at?.toISOString() ?? null,
+  };
+}
+
+async function toAdminProjectDeploymentRecord(
+  row: Awaited<ReturnType<typeof getDeploymentWithAdminMeta>>,
+): Promise<AdminProjectDeploymentRecord> {
+  const runtime = row.runtime === 'python' ? 'python' : 'node';
+  const live = deploymentRuntimes.get(row.id);
+  const insights = await getDeploymentRunInsights(row.id);
+
+  return {
+    id: row.id,
+    conversation_id: row.conversation_id,
+    message_id: row.message_id,
+    owner_user_id: row.user_id,
+    owner_name: row.owner_name ?? null,
+    owner_username: row.owner_username ?? null,
+    owner_email: row.owner_email,
+    chat_title: row.chat_title,
+    chat_share_token: row.chat_share_token ?? null,
     status: (row.status as ProjectDeploymentStatus) ?? 'stopped',
     title: row.title,
     runtime,
@@ -977,4 +1087,60 @@ export async function readProjectDeploymentLogs(
     // noop
   }
   return { stdout: trimOutput(stdout), stderr: trimOutput(stderr) };
+}
+
+export async function listProjectDeploymentsForAdmin(
+  query: AdminProjectDeploymentsQuery = {},
+): Promise<{ items: AdminProjectDeploymentRecord[]; total: number }> {
+  const conditions: SQL[] = [];
+
+  if (query.status && query.status !== 'all') {
+    conditions.push(eq(chatProjectDeployments.status, query.status));
+  }
+
+  if (query.search?.trim()) {
+    const term = `%${query.search.trim()}%`;
+    conditions.push(or(
+      ilike(chatProjectDeployments.title, term),
+      ilike(chatProjectDeployments.runtime, term),
+      ilike(chatProjectDeployments.entrypoint, term),
+      ilike(chatConversations.title, term),
+      ilike(users.email, term),
+      ilike(users.username, term),
+      ilike(users.name, term),
+      ilike(agents.name, term),
+    )!);
+  }
+
+  const where = conditions.length > 0 ? and(...conditions) : undefined;
+
+  const rows = await db
+    .select({ id: chatProjectDeployments.id })
+    .from(chatProjectDeployments)
+    .innerJoin(chatConversations, eq(chatConversations.id, chatProjectDeployments.conversation_id))
+    .innerJoin(users, eq(users.id, chatProjectDeployments.user_id))
+    .leftJoin(agents, eq(agents.id, chatProjectDeployments.linked_agent_id))
+    .where(where)
+    .orderBy(desc(chatProjectDeployments.updated_at));
+
+  const items = await Promise.all(
+    rows.map(async ({ id }) => toAdminProjectDeploymentRecord(await getDeploymentWithAdminMeta(id))),
+  );
+
+  return {
+    items,
+    total: items.length,
+  };
+}
+
+export async function startProjectDeploymentAsAdmin(deploymentId: string): Promise<AdminProjectDeploymentRecord> {
+  const deployment = await getDeploymentWithAdminMeta(deploymentId);
+  await startDeploymentInternal(deployment.id, deployment.user_id);
+  return toAdminProjectDeploymentRecord(await getDeploymentWithAdminMeta(deployment.id));
+}
+
+export async function stopProjectDeploymentAsAdmin(deploymentId: string): Promise<AdminProjectDeploymentRecord> {
+  const deployment = await getDeploymentWithAdminMeta(deploymentId);
+  await stopDeploymentInternal(deployment.id, deployment.user_id);
+  return toAdminProjectDeploymentRecord(await getDeploymentWithAdminMeta(deployment.id));
 }

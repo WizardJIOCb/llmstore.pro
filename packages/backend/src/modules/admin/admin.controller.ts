@@ -291,6 +291,33 @@ export async function listAllAgents(req: Request, res: Response, next: NextFunct
 
 // ─── News ───────────────────────────────────────────────────
 
+export async function listRuntimes(req: Request, res: Response, next: NextFunction) {
+  try {
+    const result = await adminService.listRuntimes(req.query as any);
+    res.json({ data: result.items, meta: { total: result.total } });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function startRuntime(req: Request<IdParams>, res: Response, next: NextFunction) {
+  try {
+    const runtime = await adminService.startRuntime(req.params.id);
+    res.json({ data: runtime });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function stopRuntime(req: Request<IdParams>, res: Response, next: NextFunction) {
+  try {
+    const runtime = await adminService.stopRuntime(req.params.id);
+    res.json({ data: runtime });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function listNews(req: Request, res: Response, next: NextFunction) {
   try {
     const result = await newsService.listForAdmin(req.query as any);

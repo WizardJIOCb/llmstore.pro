@@ -5,6 +5,7 @@ import {
   type AdminUsersParams,
   type AdminAgentsParams,
   type AdminDashboardChartsParams,
+  type AdminRuntimesParams,
 } from '../lib/api/admin';
 
 export function useAdminDashboardStats() {
@@ -24,6 +25,16 @@ export function useAdminDashboardCharts(params: AdminDashboardChartsParams) {
     queryKey: ['admin', 'dashboard', 'charts', params],
     queryFn: () => adminApi.getDashboardCharts(params),
     placeholderData: (previousData) => previousData,
+  });
+}
+
+export function useAdminRuntimes(params: AdminRuntimesParams) {
+  return useQuery({
+    queryKey: ['admin', 'runtimes', params],
+    queryFn: () => adminApi.listRuntimes(params),
+    placeholderData: (previousData) => previousData,
+    refetchInterval: 5_000,
+    refetchIntervalInBackground: true,
   });
 }
 
@@ -228,6 +239,26 @@ export function useDeleteAdminTool() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'tools'] });
       queryClient.invalidateQueries({ queryKey: ['builtin-tools'] });
+    },
+  });
+}
+
+export function useStartAdminRuntime() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => adminApi.startRuntime(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'runtimes'] });
+    },
+  });
+}
+
+export function useStopAdminRuntime() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => adminApi.stopRuntime(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'runtimes'] });
     },
   });
 }

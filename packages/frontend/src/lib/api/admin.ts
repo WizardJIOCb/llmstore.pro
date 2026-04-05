@@ -24,6 +24,11 @@ export interface AdminAgentsParams {
   owner_id?: string;
 }
 
+export interface AdminRuntimesParams {
+  search?: string;
+  status?: 'all' | 'deploying' | 'running' | 'stopped' | 'failed';
+}
+
 export interface AdminDashboardChartsParams {
   date_from?: string;
   date_to?: string;
@@ -229,6 +234,61 @@ export interface AdminDashboardCharts {
   }>;
 }
 
+export interface AdminRuntimeRecentRun {
+  id: string;
+  status: string;
+  input_summary: string | null;
+  output_summary: string | null;
+  error_message: string | null;
+  latency_ms: number | null;
+  started_at: string;
+  completed_at: string | null;
+  total_tokens: number;
+  estimated_cost_usd: number;
+}
+
+export interface AdminRuntimeItem {
+  id: string;
+  conversation_id: string;
+  message_id: string;
+  owner_user_id: string;
+  owner_name: string | null;
+  owner_username: string | null;
+  owner_email: string;
+  chat_title: string;
+  chat_share_token: string | null;
+  status: 'deploying' | 'running' | 'stopped' | 'failed';
+  title: string;
+  runtime: 'node' | 'python';
+  entrypoint: string | null;
+  env: Record<string, string>;
+  webhook_url: string;
+  linked_agent_id: string | null;
+  linked_agent_name: string | null;
+  agent_run_url: string | null;
+  last_error: string | null;
+  last_exit_code: number | null;
+  last_signal: string | null;
+  live_stdout: string;
+  live_stderr: string;
+  run_stats: {
+    total_runs: number;
+    completed_runs: number;
+    failed_runs: number;
+    total_prompt_tokens: number;
+    total_completion_tokens: number;
+    total_tokens: number;
+    total_cost_usd: number;
+    total_cost_rub: number;
+    last_run_at: string | null;
+  };
+  recent_runs: AdminRuntimeRecentRun[];
+  created_at: string;
+  updated_at: string;
+  last_started_at: string | null;
+  last_stopped_at: string | null;
+}
+
 export const adminApi = {
   // Dashboard
   getDashboardStats: () =>
@@ -236,6 +296,15 @@ export const adminApi = {
 
   getDashboardCharts: (params: AdminDashboardChartsParams) =>
     apiClient.get<{ data: AdminDashboardCharts }>('/admin/dashboard/charts', { params }).then((r) => r.data.data),
+
+  listRuntimes: (params: AdminRuntimesParams) =>
+    apiClient.get<{ data: AdminRuntimeItem[]; meta: { total: number } }>('/admin/runtimes', { params }).then((r) => r.data),
+
+  startRuntime: (id: string) =>
+    apiClient.post<{ data: AdminRuntimeItem }>(`/admin/runtimes/${id}/start`).then((r) => r.data.data),
+
+  stopRuntime: (id: string) =>
+    apiClient.post<{ data: AdminRuntimeItem }>(`/admin/runtimes/${id}/stop`).then((r) => r.data.data),
 
   // Settings
   getSettings: () =>

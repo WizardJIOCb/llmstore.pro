@@ -4,7 +4,7 @@ import {
   validateCreateItem, validateUpdateItem, validateAdminListQuery,
   validateTaxonomyCreate, validateTaxonomyUpdate,
   validateCreateTool, validateUpdateTool,
-  validateUpdateAdminSettings, validateAdminChartsQuery, validateResetUserPassword,
+  validateUpdateAdminSettings, validateAdminChartsQuery, validateAdminRuntimesQuery, validateResetUserPassword,
 } from './admin.validators.js';
 import { validateCreateNews, validateUpdateNews, validateAdminNewsListQuery } from '../news/news.validators.js';
 import { requireRole } from '../../middleware/auth-guard.js';
@@ -18,6 +18,9 @@ router.use(requireRole('admin', 'curator'));
 // Dashboard stats
 router.get('/dashboard/stats', controller.getDashboardStats);
 router.get('/dashboard/charts', validateAdminChartsQuery, controller.getDashboardCharts);
+router.get('/runtimes', validateAdminRuntimesQuery, controller.listRuntimes);
+router.post('/runtimes/:id/start', controller.startRuntime);
+router.post('/runtimes/:id/stop', controller.stopRuntime);
 
 // Global settings (admin only)
 router.get('/settings', requireRole('admin'), controller.getAdminSettings);

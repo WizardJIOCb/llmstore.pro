@@ -10,16 +10,17 @@ const adminNav = [
   { to: '/admin/tools', label: 'Инструменты' },
   { to: '/admin/users', label: 'Пользователи' },
   { to: '/admin/agents', label: 'Агенты' },
+  { to: '/admin/runtimes', label: 'RunTime' },
 ];
 
 export function AdminLayout({ children }: { children: React.ReactNode }) {
   const { pathname } = useLocation();
 
   return (
-    <div className="container mx-auto px-4 py-8">
+    <div className="container mx-auto w-full px-4 py-8">
       <div className="mb-6">
-        <h1 className="mb-4 text-3xl font-bold">Админ-панель</h1>
-        <nav className="flex gap-1 border-b">
+        <h1 className="mb-4 text-3xl font-bold tracking-tight text-slate-950">Админ-панель</h1>
+        <nav className="flex flex-wrap gap-x-1 gap-y-2 border-b border-slate-200 pb-px">
           {adminNav.map((item) => {
             const isActive = item.exact
               ? pathname === item.to
@@ -31,8 +32,8 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                 className={cn(
                   'border-b-2 -mb-px px-4 py-2 text-sm font-medium transition-colors',
                   isActive
-                    ? 'border-primary text-primary'
-                    : 'border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30',
+                    ? 'border-slate-950 text-slate-950'
+                    : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-900',
                 )}
               >
                 {item.label}
