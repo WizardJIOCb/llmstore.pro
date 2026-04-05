@@ -62,6 +62,7 @@ function formatViews(value: number): string {
 function GalleryMilestonePreviewCard({ item }: { item: GalleryPreviewItem }) {
   const previewUrl = useMemo(() => buildGalleryPreviewUrl(item), [item]);
   const title = item.preview_title || item.project_title || item.chat_title;
+  const chatUrl = item.chat_url || `/chats?chat=${encodeURIComponent(item.chat_id)}`;
 
   if (!previewUrl) return null;
 
@@ -104,13 +105,26 @@ function GalleryMilestonePreviewCard({ item }: { item: GalleryPreviewItem }) {
           {item.author_username ? ` • @${item.author_username}` : ''}
         </p>
 
-        <Link
-          to="/gallery"
-          className="inline-flex items-center gap-2 text-sm font-semibold text-white transition-colors hover:text-sky-200"
-        >
-          Открыть в gallery
-          <ArrowRight className="h-4 w-4" />
-        </Link>
+        <div className="flex flex-wrap gap-2 pt-1">
+          <a
+            href={previewUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/8 px-3 py-2 text-sm font-semibold text-white transition-colors hover:border-sky-300/40 hover:text-sky-200"
+          >
+            Открыть preview
+            <ArrowRight className="h-4 w-4" />
+          </a>
+          <a
+            href={chatUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-transparent px-3 py-2 text-sm font-semibold text-slate-200 transition-colors hover:border-white/25 hover:text-white"
+          >
+            Перейти в чат
+            <ArrowRight className="h-4 w-4" />
+          </a>
+        </div>
       </div>
     </article>
   );
