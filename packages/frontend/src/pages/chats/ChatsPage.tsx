@@ -406,6 +406,11 @@ interface LiveChatEvent {
   tool_name?: string;
   ts?: string;
   error?: string;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  estimated_cost?: string;
+  usd_to_rub_rate?: number;
 }
 
 declare global {
@@ -1029,6 +1034,11 @@ export function ChatsPage() {
       tool_name?: string;
       ts?: string;
       error?: string;
+      prompt_tokens?: number;
+      completion_tokens?: number;
+      total_tokens?: number;
+      estimated_cost?: string;
+      usd_to_rub_rate?: number;
     }) => {
       if (eventName === 'connected') {
         setStreamConnected(true);
@@ -1046,6 +1056,11 @@ export function ChatsPage() {
           tool_name: payload.tool_name,
           ts: payload.ts,
           error: payload.error,
+          prompt_tokens: payload.prompt_tokens,
+          completion_tokens: payload.completion_tokens,
+          total_tokens: payload.total_tokens,
+          estimated_cost: payload.estimated_cost,
+          usd_to_rub_rate: payload.usd_to_rub_rate,
         },
       ]);
     };
@@ -1061,6 +1076,11 @@ export function ChatsPage() {
             tool_name?: string;
             ts?: string;
             error?: string;
+            prompt_tokens?: number;
+            completion_tokens?: number;
+            total_tokens?: number;
+            estimated_cost?: string;
+            usd_to_rub_rate?: number;
           };
           pushEvent(eventName, payload);
 
@@ -1448,6 +1468,50 @@ export function ChatsPage() {
       }
     };
   }, [assistantResponseSlotForActiveChat, streamEvents.length]);
+
+  useEffect(() => {
+    const container = messagesScrollRef.current;
+    if (!assistantResponseSlotForActiveChat || !container) return;
+
+    let frameId: number | null = null;
+    let timeoutId: number | null = null;
+
+    const scrollToBottom = () => {
+      const targetTop = Math.max(0, container.scrollHeight - container.clientHeight);
+      container.scrollTo({ top: targetTop, behavior: 'smooth' });
+    };
+
+    const scheduleScroll = () => {
+      if (frameId != null) cancelAnimationFrame(frameId);
+      if (timeoutId != null) window.clearTimeout(timeoutId);
+
+      frameId = requestAnimationFrame(scrollToBottom);
+      timeoutId = window.setTimeout(scrollToBottom, 120);
+    };
+
+    const resizeObserver = new ResizeObserver(() => {
+      scheduleScroll();
+    });
+    resizeObserver.observe(container);
+
+    const mutationObserver = new MutationObserver(() => {
+      scheduleScroll();
+    });
+    mutationObserver.observe(container, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+
+    scheduleScroll();
+
+    return () => {
+      resizeObserver.disconnect();
+      mutationObserver.disconnect();
+      if (frameId != null) cancelAnimationFrame(frameId);
+      if (timeoutId != null) window.clearTimeout(timeoutId);
+    };
+  }, [assistantResponseSlotForActiveChat?.chatId, assistantResponseSlotForActiveChat?.actualMessageId, streamEvents.length]);
 
   useEffect(() => {
     if (assistantResponseSlotForActiveChat) return;

@@ -1098,6 +1098,43 @@ function recoverHtmlPreviewFromMarkdown(
   };
 }
 
+function recoverHtmlPreviewFromLooseContent(
+  content: string,
+  report?: CodingReport | null,
+): { preview: CodingReportPreview; cleanText: string; incomplete: boolean } | null {
+  const normalized = content.replace(/\r\n/g, '\n');
+  const startMatch = normalized.match(/<!doctype\s+html|<html[\s>]/i);
+  if (!startMatch || startMatch.index == null) return null;
+
+  const startIndex = startMatch.index;
+  const before = normalized.slice(0, startIndex).trim();
+  const htmlTail = stripContinuationNarration(normalized.slice(startIndex));
+  if (!looksLikeHtmlPreviewPayload(htmlTail)) return null;
+
+  const closingMatches = [...htmlTail.matchAll(/<\/html>/gi)];
+  const lastClosingMatch = closingMatches[closingMatches.length - 1];
+  const htmlEnd = lastClosingMatch && lastClosingMatch.index != null
+    ? lastClosingMatch.index + lastClosingMatch[0].length
+    : htmlTail.length;
+
+  const html = htmlTail.slice(0, htmlEnd).trim();
+  const after = stripContinuationNarration(htmlTail.slice(htmlEnd)).trim();
+  const cleanText = [before, after].filter(Boolean).join('\n\n').trim();
+  const incomplete = !/<\/html>\s*$/i.test(html);
+
+  return {
+    preview: {
+      type: 'html',
+      title: extractHtmlTitleFromDocument(html)
+        ?? clampText(report?.summary, 200)
+        ?? 'Recovered preview',
+      html,
+    },
+    cleanText,
+    incomplete,
+  };
+}
+
 function looksLikeHtmlPreviewPayload(content: string): boolean {
   return /```html|<!doctype html|<html[\s>]|<body[\s>]|<head[\s>]/i.test(content);
 }
@@ -1552,7 +1589,10 @@ function normalizeAssistantChatPayload(
     : recoverProjectBundleFromMarkdown(parsed.cleanText || content, codingReport);
   const recoveredPreview = codingReport?.preview
     ? null
-    : recoverHtmlPreviewFromMarkdown(parsed.cleanText || content, codingReport);
+    : (
+      recoverHtmlPreviewFromMarkdown(parsed.cleanText || content, codingReport)
+      ?? recoverHtmlPreviewFromLooseContent(parsed.cleanText || content, codingReport)
+    );
 
   if (recoveredProject) {
     codingReport = {
@@ -2087,7 +2127,30 @@ ${agent.description.trim()}`);
 
   // 7. Update run to running
   await db.update(agentRuns).set({ status: 'running' }).where(eq(agentRuns.id, run.id));
-  emitEvent('chat.run.started', {
+  let totalUsage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+  let usageEventRateCache: number | null = null;
+  const getUsageEventPayload = async () => {
+    const usdToRubRate = usageEventRateCache ?? await getUsdToRubRate();
+    usageEventRateCache = usdToRubRate;
+    return {
+      prompt_tokens: totalUsage.prompt_tokens,
+      completion_tokens: totalUsage.completion_tokens,
+      total_tokens: totalUsage.total_tokens,
+      estimated_cost: estimateCost(modelId, totalUsage.prompt_tokens, totalUsage.completion_tokens),
+      usd_to_rub_rate: usdToRubRate,
+    };
+  };
+  const emitRunEvent = async (
+    eventName: string,
+    payload: Record<string, unknown>,
+  ) => {
+    emitEvent(eventName, {
+      ...payload,
+      ...(await getUsageEventPayload()),
+    });
+  };
+
+  await emitRunEvent('chat.run.started', {
     run_id: run.id,
     agent_id: agentId,
     model: modelId,
@@ -2096,7 +2159,7 @@ ${agent.description.trim()}`);
       ? `Подготовил задачу и подключил ${toolParams.length} инструмент(а/ов).`
       : 'Подготовил задачу и отправил её модели.',
   });
-  emitEvent('chat.run.status', {
+  await emitRunEvent('chat.run.status', {
     run_id: run.id,
     status: 'running',
     label: 'Агент начал выполнение задачи',
@@ -2104,7 +2167,6 @@ ${agent.description.trim()}`);
   });
 
   const toolTraces: ToolTrace[] = [];
-  let totalUsage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
   let finalOutput = '';
   let codingReport: CodingReport | null = null;
   let runStatus: 'completed' | 'failed' = 'completed';
@@ -2186,7 +2248,7 @@ ${agent.description.trim()}`);
     currentOutput: string,
     continuationIndex: number,
   ): Promise<{ chunk: string; finishReason: ChatCompletionChoice['finish_reason'] }> => {
-    emitEvent('chat.run.status', {
+    await emitRunEvent('chat.run.status', {
       run_id: run.id,
       status: 'continuing_output',
       continuation_index: continuationIndex,
@@ -2234,7 +2296,7 @@ ${agent.description.trim()}`);
       chunkLength: chunk.trim().length,
       responseMaxTokens,
     }, 'LLM continuation response received');
-    emitEvent('chat.run.status', {
+    await emitRunEvent('chat.run.status', {
       run_id: run.id,
       status: 'continuing_output',
       continuation_index: continuationIndex,
@@ -2257,7 +2319,7 @@ ${agent.description.trim()}`);
     // 8. Main loop
     for (let iteration = 0; iteration < maxIterations; iteration++) {
       logger.info({ runId: run.id, iteration, messageCount: messages.length, hasTools: toolParams.length > 0 }, 'Runtime loop iteration');
-      emitEvent('chat.run.status', {
+      await emitRunEvent('chat.run.status', {
         run_id: run.id,
         status: 'thinking',
         iteration: iteration + 1,
@@ -2307,7 +2369,7 @@ ${agent.description.trim()}`);
         messages.push(assistantMessage);
 
         await db.update(agentRuns).set({ status: 'tool_executing' }).where(eq(agentRuns.id, run.id));
-        emitEvent('chat.run.status', {
+        await emitRunEvent('chat.run.status', {
           run_id: run.id,
           status: 'tool_executing',
           iteration: iteration + 1,
@@ -2335,7 +2397,7 @@ ${agent.description.trim()}`);
             tool_input: toolInput,
             status: 'running',
           }).returning();
-          emitEvent('chat.run.tool.started', {
+          await emitRunEvent('chat.run.tool.started', {
             run_id: run.id,
             tool_call_id: toolCall.id,
             tool_name: toolSlug,
@@ -2370,7 +2432,7 @@ ${agent.description.trim()}`);
               status: 'success',
               duration_ms: execResult.duration_ms,
             };
-            emitEvent('chat.run.tool.finished', {
+            await emitRunEvent('chat.run.tool.finished', {
               run_id: run.id,
               tool_call_id: toolCall.id,
               tool_name: toolSlug,
@@ -2404,7 +2466,7 @@ ${agent.description.trim()}`);
               duration_ms: 0,
               error: errMsg,
             };
-            emitEvent('chat.run.tool.finished', {
+            await emitRunEvent('chat.run.tool.finished', {
               run_id: run.id,
               tool_call_id: toolCall.id,
               tool_name: toolSlug,
@@ -2420,7 +2482,7 @@ ${agent.description.trim()}`);
         }
 
         await db.update(agentRuns).set({ status: 'continuing' }).where(eq(agentRuns.id, run.id));
-        emitEvent('chat.run.status', {
+        await emitRunEvent('chat.run.status', {
           run_id: run.id,
           status: 'continuing',
           iteration: iteration + 1,
@@ -2602,7 +2664,7 @@ ${agent.description.trim()}`);
   }
 
   if (runStatus === 'completed') {
-    emitEvent('chat.run.completed', {
+    await emitRunEvent('chat.run.completed', {
       run_id: run.id,
       latency_ms: latencyMs,
       tool_count: toolTraces.length,
@@ -2613,7 +2675,7 @@ ${agent.description.trim()}`);
         : 'Ответ собран и готов к сохранению в чат.',
     });
   } else {
-    emitEvent('chat.run.failed', {
+    await emitRunEvent('chat.run.failed', {
       run_id: run.id,
       error: errorMessage ?? 'Unknown error',
       label: 'Выполнение завершилось с ошибкой',

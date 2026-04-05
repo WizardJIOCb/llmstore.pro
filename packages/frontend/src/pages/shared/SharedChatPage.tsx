@@ -8,6 +8,7 @@ import { Spinner } from '../../components/ui/Spinner';
 import { Button } from '../../components/ui/Button';
 import { apiClient } from '../../lib/api-client';
 import { chatsApi, type ChatAttachment, type ChatPendingRunState, type CodingReport } from '../../lib/api/chats';
+import { cn } from '../../lib/utils';
 import { useAuth } from '../../hooks/useAuth';
 import { useProfile } from '../../hooks/useProfile';
 
@@ -65,6 +66,21 @@ interface LiveSharedEvent {
   tool_name?: string;
   ts?: string;
   error?: string;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  estimated_cost?: string;
+  usd_to_rub_rate?: number;
+}
+
+function isPendingRunTerminal(pendingRun?: ChatPendingRunState | null): boolean {
+  if (!pendingRun) return false;
+  if (pendingRun.is_terminal != null) return pendingRun.is_terminal;
+  return ['completed', 'failed', 'cancelled'].includes((pendingRun.status ?? '').trim().toLowerCase());
+}
+
+function isPendingRunLive(pendingRun?: ChatPendingRunState | null): boolean {
+  return Boolean(pendingRun) && !isPendingRunTerminal(pendingRun);
 }
 
 function downloadChatBundle(filename: string, payload: unknown) {
@@ -264,12 +280,12 @@ export function SharedChatPage() {
     refetchInterval: (query) => {
       const sharedData = query.state.data as SharedPageData | undefined;
       if (sendFixMessageMutation.isPending) return 4_000;
-      return sharedData && (shouldRefetchSharedChat(sharedData) || Boolean(sharedData.pendingRun)) ? 4_000 : false;
+      return sharedData && (shouldRefetchSharedChat(sharedData) || isPendingRunLive(sharedData.pendingRun)) ? 4_000 : false;
     },
   });
 
   const isPendingSharedReply = useMemo(
-    () => Boolean(data && (shouldRefetchSharedChat(data) || data.pendingRun)),
+    () => Boolean(data && (shouldRefetchSharedChat(data) || isPendingRunLive(data.pendingRun))),
     [data],
   );
 
@@ -301,6 +317,11 @@ export function SharedChatPage() {
       tool_name?: string;
       ts?: string;
       error?: string;
+      prompt_tokens?: number;
+      completion_tokens?: number;
+      total_tokens?: number;
+      estimated_cost?: string;
+      usd_to_rub_rate?: number;
     }) => {
       if (eventName === 'connected') {
         setStreamConnected(true);
@@ -318,6 +339,11 @@ export function SharedChatPage() {
           tool_name: payload.tool_name,
           ts: payload.ts,
           error: payload.error,
+          prompt_tokens: payload.prompt_tokens,
+          completion_tokens: payload.completion_tokens,
+          total_tokens: payload.total_tokens,
+          estimated_cost: payload.estimated_cost,
+          usd_to_rub_rate: payload.usd_to_rub_rate,
         },
       ]));
     };
@@ -333,6 +359,11 @@ export function SharedChatPage() {
             tool_name?: string;
             ts?: string;
             error?: string;
+            prompt_tokens?: number;
+            completion_tokens?: number;
+            total_tokens?: number;
+            estimated_cost?: string;
+            usd_to_rub_rate?: number;
           };
           pushEvent(eventName, payload);
         } catch {
@@ -370,22 +401,6 @@ export function SharedChatPage() {
     };
   }, [data?.pendingRun?.run_id, isPendingSharedReply, token]);
 
-  if (isLoading) {
-    return (
-      <div className="flex justify-center py-16">
-        <Spinner />
-      </div>
-    );
-  }
-
-  if (error || !data) {
-    return (
-      <div className="container mx-auto px-4 py-16 text-center">
-        <p className="text-muted-foreground">Чат не найден или ссылка недействительна.</p>
-      </div>
-    );
-  }
-
   const exportChat = async () => {
     if (!token) return;
     setIsExporting(true);
@@ -415,8 +430,9 @@ export function SharedChatPage() {
     });
   };
 
-  const canManageSharedChat = Boolean(profile) && Boolean(data.chatId) && data.isOwner === true;
-  const lastMessage = data.messages[data.messages.length - 1];
+  const messages = data?.messages ?? [];
+  const canManageSharedChat = Boolean(profile) && Boolean(data?.chatId) && data?.isOwner === true;
+  const lastMessage = messages[messages.length - 1];
   const latestEvent = streamEvents[streamEvents.length - 1];
   const pendingLabel = latestEvent?.event === 'chat.run.failed'
     ? 'Ответ не получен'
@@ -424,15 +440,15 @@ export function SharedChatPage() {
       ? 'Ответ почти готов'
       : latestEvent?.event === 'chat.run.tool.started'
         ? 'Инструменты работают'
-        : data.pendingRun?.label || 'Агент работает';
+        : data?.pendingRun?.label || 'Агент работает';
   const pendingDetail = latestEvent?.error
     || latestEvent?.detail
     || latestEvent?.label
-    || data.pendingRun?.detail
+    || data?.pendingRun?.detail
     || 'Собираю ответ, выполняю инструменты и автоматически обновлю страницу, когда сообщение появится.';
   const displayedStreamEvents = streamEvents.length > 0
     ? streamEvents
-    : (data.pendingRun
+    : (data?.pendingRun
       ? [{
         id: `pending-${data.pendingRun.run_id}`,
         event: 'pending.snapshot',
@@ -444,8 +460,15 @@ export function SharedChatPage() {
         error: data.pendingRun.error ?? undefined,
       } satisfies LiveSharedEvent]
       : []);
+  const terminalNotice = data?.pendingRun && isPendingRunTerminal(data.pendingRun) && data.pendingRun.result_status && data.pendingRun.result_status !== 'success'
+    ? {
+      tone: data.pendingRun.result_status === 'failed_no_result' ? 'destructive' : 'warning',
+      label: data.pendingRun.label,
+      detail: data.pendingRun.detail,
+    }
+    : null;
   const pendingAssistantSignature = useMemo(() => {
-    const assistantMessages = data.messages.filter((message) => message.role === 'assistant');
+    const assistantMessages = messages.filter((message) => message.role === 'assistant');
     const lastAssistantMessage = assistantMessages[assistantMessages.length - 1];
     if (!lastAssistantMessage) return 'none';
 
@@ -459,19 +482,19 @@ export function SharedChatPage() {
       toolTraceCount,
       lastAssistantMessage.created_at ?? 'no-ts',
     ].join(':');
-  }, [data.messages]);
+  }, [messages]);
   const pendingUserMessageIndex = useMemo(() => {
     if (!isPendingSharedReply) return -1;
 
     let lastUserIndex = -1;
-    data.messages.forEach((message, index) => {
+    messages.forEach((message, index) => {
       if (message.role === 'user') {
         lastUserIndex = index;
       }
     });
 
     return lastUserIndex;
-  }, [data.messages, isPendingSharedReply]);
+  }, [messages, isPendingSharedReply]);
 
   useEffect(() => {
     const nextCount = displayedStreamEvents.length;
@@ -549,6 +572,22 @@ export function SharedChatPage() {
     };
   }, [isPendingSharedReply, pendingAssistantSignature, displayedStreamEvents.length]);
 
+  if (isLoading) {
+    return (
+      <div className="flex justify-center py-16">
+        <Spinner />
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <div className="container mx-auto px-4 py-16 text-center">
+        <p className="text-muted-foreground">Чат не найден или ссылка недействительна.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="container mx-auto max-w-3xl px-4 py-8">
       <div className="mb-6 flex items-start justify-between gap-3">
@@ -560,6 +599,20 @@ export function SharedChatPage() {
           {isExporting ? 'Экспорт...' : 'Экспортировать чат'}
         </Button>
       </div>
+
+      {terminalNotice && (
+        <div
+          className={cn(
+            'mb-4 rounded-xl border px-4 py-3 text-sm',
+            terminalNotice.tone === 'destructive'
+              ? 'border-destructive/20 bg-destructive/10 text-destructive'
+              : 'border-amber-200 bg-amber-50 text-amber-900',
+          )}
+        >
+          <p className="font-medium">{terminalNotice.label}</p>
+          <p className="mt-1 text-xs opacity-80">{terminalNotice.detail}</p>
+        </div>
+      )}
 
       {false && isPendingSharedReply && lastMessage?.role === 'user' && (
         <div className="mb-6 space-y-3">
