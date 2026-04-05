@@ -7,6 +7,8 @@ import { NotFoundError } from '../../middleware/error-handler.js';
 
 const HEARTBEAT_MS = 15_000;
 const subscribers = new Map<string, Set<SSEEmitter>>();
+const eventHistory = new Map<string, Array<{ event: string; data: Record<string, unknown> }>>();
+const MAX_EVENT_HISTORY = 32;
 
 function getStreamKey(chatId: string, userId: string) {
   return `chat:${userId}:${chatId}`;
@@ -39,6 +41,24 @@ function attachEmitter(setKey: string, emitter: SSEEmitter) {
   });
 }
 
+function rememberEvent(key: string, event: string, data: Record<string, unknown>) {
+  const history = eventHistory.get(key) ?? [];
+  history.push({ event, data });
+  if (history.length > MAX_EVENT_HISTORY) {
+    history.splice(0, history.length - MAX_EVENT_HISTORY);
+  }
+  eventHistory.set(key, history);
+}
+
+function replayEventHistory(key: string, emitter: SSEEmitter) {
+  const history = eventHistory.get(key);
+  if (!history || history.length === 0) return;
+
+  for (const item of history) {
+    emitter.send(item.event, item.data);
+  }
+}
+
 export async function openChatEventStream(chatId: string, userId: string, res: Response) {
   const [chat] = await db
     .select({ id: chatConversations.id })
@@ -51,12 +71,14 @@ export async function openChatEventStream(chatId: string, userId: string, res: R
   }
 
   const emitter = new SSEEmitter(res);
-  attachEmitter(getStreamKey(chatId, userId), emitter);
+  const streamKey = getStreamKey(chatId, userId);
+  attachEmitter(streamKey, emitter);
 
   emitter.send('connected', {
     chat_id: chatId,
     ts: new Date().toISOString(),
   });
+  replayEventHistory(streamKey, emitter);
 }
 
 export async function openSharedChatEventStream(token: string, res: Response) {
@@ -71,36 +93,46 @@ export async function openSharedChatEventStream(token: string, res: Response) {
   }
 
   const emitter = new SSEEmitter(res);
-  attachEmitter(getSharedStreamKey(token), emitter);
+  const streamKey = getSharedStreamKey(token);
+  attachEmitter(streamKey, emitter);
 
   emitter.send('connected', {
     share_token: token,
     ts: new Date().toISOString(),
   });
+  replayEventHistory(streamKey, emitter);
 }
 
 export function publishChatEvent(chatId: string, userId: string, event: string, data: Record<string, unknown>) {
-  const set = subscribers.get(getStreamKey(chatId, userId));
+  const streamKey = getStreamKey(chatId, userId);
+  const payload = {
+    ...data,
+    chat_id: chatId,
+    ts: new Date().toISOString(),
+  };
+  rememberEvent(streamKey, event, payload);
+
+  const set = subscribers.get(streamKey);
   if (!set || set.size === 0) return;
 
   for (const emitter of set) {
-    emitter.send(event, {
-      ...data,
-      chat_id: chatId,
-      ts: new Date().toISOString(),
-    });
+    emitter.send(event, payload);
   }
 }
 
 export function publishSharedChatEvent(token: string, event: string, data: Record<string, unknown>) {
-  const set = subscribers.get(getSharedStreamKey(token));
+  const streamKey = getSharedStreamKey(token);
+  const payload = {
+    ...data,
+    share_token: token,
+    ts: new Date().toISOString(),
+  };
+  rememberEvent(streamKey, event, payload);
+
+  const set = subscribers.get(streamKey);
   if (!set || set.size === 0) return;
 
   for (const emitter of set) {
-    emitter.send(event, {
-      ...data,
-      share_token: token,
-      ts: new Date().toISOString(),
-    });
+    emitter.send(event, payload);
   }
 }
