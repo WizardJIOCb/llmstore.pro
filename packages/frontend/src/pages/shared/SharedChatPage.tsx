@@ -203,6 +203,7 @@ export function SharedChatPage() {
   const streamRunKeyRef = useRef<string | null>(null);
   const pendingProgressAnchorRef = useRef<HTMLDivElement | null>(null);
   const messagesEndAnchorRef = useRef<HTMLDivElement | null>(null);
+  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const previousDisplayedEventsCountRef = useRef(0);
 
   const updateSharedPreviewMutation = useMutation({
@@ -507,6 +508,55 @@ export function SharedChatPage() {
     };
   }, [displayedStreamEvents.length, isPendingSharedReply, pendingAssistantSignature]);
 
+  useEffect(() => {
+    if (!isPendingSharedReply) return;
+
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    let frameId: number | null = null;
+    let timeoutId: number | null = null;
+
+    const scrollToBottom = () => {
+      const targetTop = Math.max(
+        document.documentElement.scrollHeight,
+        document.body.scrollHeight,
+      );
+      window.scrollTo({ top: targetTop, behavior: 'smooth' });
+    };
+
+    const scheduleScroll = () => {
+      if (frameId != null) cancelAnimationFrame(frameId);
+      if (timeoutId != null) window.clearTimeout(timeoutId);
+
+      frameId = requestAnimationFrame(scrollToBottom);
+      timeoutId = window.setTimeout(scrollToBottom, 120);
+    };
+
+    const resizeObserver = new ResizeObserver(() => {
+      scheduleScroll();
+    });
+    resizeObserver.observe(container);
+
+    const mutationObserver = new MutationObserver(() => {
+      scheduleScroll();
+    });
+    mutationObserver.observe(container, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+
+    scheduleScroll();
+
+    return () => {
+      resizeObserver.disconnect();
+      mutationObserver.disconnect();
+      if (frameId != null) cancelAnimationFrame(frameId);
+      if (timeoutId != null) window.clearTimeout(timeoutId);
+    };
+  }, [isPendingSharedReply, pendingAssistantSignature, displayedStreamEvents.length]);
+
   return (
     <div className="container mx-auto max-w-3xl px-4 py-8">
       <div className="mb-6 flex items-start justify-between gap-3">
@@ -572,7 +622,7 @@ export function SharedChatPage() {
         </div>
       )}
 
-      <div className="space-y-4">
+      <div ref={messagesContainerRef} className="space-y-4">
         {data.messages.map((msg, index) => (
           <div key={msg.id ?? index} className="space-y-3">
           <ChatMessage
