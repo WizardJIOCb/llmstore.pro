@@ -168,7 +168,7 @@ export function AgentsHubPage() {
 
   return (
     <div className="container mx-auto max-w-4xl px-4 py-8">
-      <div className="flex items-center justify-between mb-6">
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold">Агенты</h1>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -177,8 +177,8 @@ export function AgentsHubPage() {
               : 'Поиск по всем доступным агентам для чата: вашим и публичным агентам других пользователей.'}
           </p>
         </div>
-        <Link to="/builder/stack">
-          <Button>Создать агента</Button>
+        <Link to="/builder/stack" className="w-full sm:w-auto">
+          <Button className="w-full sm:w-auto">Создать агента</Button>
         </Link>
       </div>
 

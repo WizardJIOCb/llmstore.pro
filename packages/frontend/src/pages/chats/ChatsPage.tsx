@@ -1,6 +1,7 @@
 ﻿import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
+import { Globe } from 'lucide-react';
 import { ChatInput } from '../../components/agents/ChatInput';
 import { ChatMessage } from '../../components/agents/ChatMessage';
 import { ChatThinkingBubble } from '../../components/agents/ChatThinkingBubble';
@@ -20,6 +21,7 @@ import {
   useDeleteChatMessage,
   useTruncateChatFromMessage,
   useSendChatMessage,
+  useTransferChat,
   useUpdateChatMessagePreview,
   useUploadChatFiles,
   useShareChatById,
@@ -28,6 +30,7 @@ import {
 } from '../../hooks/useChats';
 import { useBuiltinTools } from '../../hooks/useAgents';
 import { useAppSettings } from '../../hooks/useAppSettings';
+import { useAuth } from '../../hooks/useAuth';
 import { useProfile } from '../../hooks/useProfile';
 import { chatsApi } from '../../lib/api/chats';
 import { UserLink } from '../../components/users/UserLink';
@@ -40,6 +43,7 @@ import type {
   ChatMessage as ChatMessageType,
   ChatMode,
   CodingReport,
+  PublishedLanding,
   ToolTrace,
 } from '../../lib/api/chats';
 import { cn, formatRub, formatUsd } from '../../lib/utils';
@@ -59,6 +63,14 @@ type LocalNoticeAction = {
   onClick: () => void;
 };
 const PENDING_REPLY_RECOVERY_WINDOW_MS = 5 * 60_000;
+const DIALOG_CLOSE_ANIMATION_MS = 200;
+const EMPTY_MESSAGES: ChatMessageType[] = [];
+const LAST_CHAT_SELECTION_STORAGE_KEY = 'llmstore.last-chat-selection';
+
+interface PersistedChatSelection {
+  activeChatId: string | null;
+  adminViewChatId: string | null;
+}
 
 const GENERAL_MODELS: GeneralModelOption[] = [
   {
@@ -125,6 +137,36 @@ const CHAT_ACCESS_OPTIONS = [
   { value: 'restricted', label: 'Ограниченный' },
 ];
 
+function ChatPrivacyIcon({ access, className }: { access: ChatAccess; className?: string }) {
+  if (access === 'public') return null;
+
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M8 10V7a4 4 0 1 1 8 0v3" strokeLinecap="round" strokeLinejoin="round" />
+      <rect x="5" y="10" width="14" height="10" rx="2.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function getChatPrivacyQuickActionLabel(access: ChatAccess): string {
+  return access === 'public' ? 'Сделать приватным' : 'Сделать публичным';
+}
+
+function getChatPrivacyTitle(access: ChatAccess): string {
+  return access === 'restricted' ? 'Ограниченный чат' : 'Приватный чат';
+}
+
+function getChatWebsiteTitle(chat: Pick<ChatListItem, 'has_site_preview' | 'has_published_landing'>): string {
+  return chat.has_published_landing ? 'Сайт опубликован' : 'Есть лендинг или сайт';
+}
+
 function formatDate(iso: string): string {
   const date = new Date(iso);
   return new Intl.DateTimeFormat('ru-RU', {
@@ -169,6 +211,14 @@ function formatAgentPricing(agent: ChatAgentOption): string | null {
 }
 
 function getChatListMeta(chat: ChatListItem): string {
+  if (chat.is_admin_view) {
+    const ownerLabel = chat.owner_name?.trim()
+      || (chat.owner_username ? `@${chat.owner_username}` : '')
+      || chat.owner_email?.trim()
+      || 'другого пользователя';
+    return `Чужой чат • ${ownerLabel}`;
+  }
+
   if (chat.mode === 'agent') {
     const parts = ['Агент'];
     if (chat.agent_name?.trim()) parts.push(chat.agent_name.trim());
@@ -181,6 +231,13 @@ function getChatListMeta(chat: ChatListItem): string {
   }
 
   return 'Общение';
+}
+
+function getChatOwnerLabel(chat: Pick<ChatListItem, 'owner_name' | 'owner_username' | 'owner_email'>): string {
+  return chat.owner_name?.trim()
+    || (chat.owner_username ? `@${chat.owner_username}` : '')
+    || chat.owner_email?.trim()
+    || 'другой пользователь';
 }
 
 function formatGeneralModelPricing(model: GeneralModelOption): string {
@@ -317,6 +374,12 @@ function extractCodingReport(value: Record<string, unknown> | null, content?: st
   return null;
 }
 
+function hasHtmlPreviewMessage(message: ChatMessageType): boolean {
+  if (message.role !== 'assistant') return false;
+  const preview = extractCodingReport(message.usage, message.content)?.preview;
+  return preview?.type === 'html' && typeof preview.html === 'string' && preview.html.length > 0;
+}
+
 function formatChatPreview(preview: string | null): string | null {
   if (!preview) return preview;
   const cleaned = preview.replace(/<dev-report>\s*[\s\S]*?(?:\s*<\/dev-report>|$)/gi, '').trim();
@@ -325,7 +388,10 @@ function formatChatPreview(preview: string | null): string | null {
   return summaryMatch?.[1] ?? preview;
 }
 
-type MenuItem = { kind: 'chat'; id: string } | null;
+type MenuItem =
+  | { kind: 'chat'; id: string }
+  | { kind: 'active-chat-actions' }
+  | null;
 
 interface LiveChatEvent {
   id: string;
@@ -400,7 +466,74 @@ function inferOptimisticAttachmentKind(file: File): ChatAttachment['kind'] {
   return 'file';
 }
 
+function readPersistedChatSelection(): PersistedChatSelection {
+  if (typeof window === 'undefined') {
+    return { activeChatId: null, adminViewChatId: null };
+  }
+
+  try {
+    const raw = window.localStorage.getItem(LAST_CHAT_SELECTION_STORAGE_KEY);
+    if (!raw) {
+      return { activeChatId: null, adminViewChatId: null };
+    }
+
+    const parsed = JSON.parse(raw) as {
+      activeChatId?: unknown;
+      adminViewChatId?: unknown;
+    };
+
+    return {
+      activeChatId: typeof parsed.activeChatId === 'string' && parsed.activeChatId.trim()
+        ? parsed.activeChatId.trim()
+        : null,
+      adminViewChatId: typeof parsed.adminViewChatId === 'string' && parsed.adminViewChatId.trim()
+        ? parsed.adminViewChatId.trim()
+        : null,
+    };
+  } catch {
+    return { activeChatId: null, adminViewChatId: null };
+  }
+}
+
+function writePersistedChatSelection(selection: PersistedChatSelection) {
+  if (typeof window === 'undefined') return;
+
+  try {
+    window.localStorage.setItem(LAST_CHAT_SELECTION_STORAGE_KEY, JSON.stringify(selection));
+  } catch {
+    // Ignore storage write issues and keep chat UX working.
+  }
+}
+
+function snapScrollContainerToBottom(container: HTMLDivElement | null, passes = 3) {
+  if (!container || typeof window === 'undefined') return;
+
+  const apply = () => {
+    container.scrollTop = container.scrollHeight;
+  };
+
+  apply();
+
+  let pass = 0;
+  const step = () => {
+    apply();
+    pass += 1;
+    if (pass < passes) {
+      window.requestAnimationFrame(step);
+    }
+  };
+
+  window.requestAnimationFrame(step);
+  window.setTimeout(apply, 90);
+}
+
 export function ChatsPage() {
+  const initialChatSelectionRef = useRef<PersistedChatSelection | null>(null);
+  if (!initialChatSelectionRef.current) {
+    initialChatSelectionRef.current = readPersistedChatSelection();
+  }
+
+  const { isAdmin } = useAuth();
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const { data: chats, isLoading: chatsLoading } = useChatsList();
@@ -411,6 +544,7 @@ export function ChatsPage() {
   const createChatMutation = useCreateChat();
   const updateChatMutation = useUpdateChat();
   const deleteChatMutation = useDeleteChat();
+  const transferChatMutation = useTransferChat();
   const deleteChatMessageMutation = useDeleteChatMessage();
   const truncateChatFromMessageMutation = useTruncateChatFromMessage();
   const shareChatMutation = useShareChatById();
@@ -420,15 +554,25 @@ export function ChatsPage() {
   const importChatBundleMutation = useImportChatBundle();
 
   const [search, setSearch] = useState('');
-  const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const [activeChatId, setActiveChatId] = useState<string | null>(initialChatSelectionRef.current.activeChatId);
   const [openMenu, setOpenMenu] = useState<MenuItem>(null);
   const [localError, setLocalError] = useState<string | null>(null);
   const [localNoticeTone, setLocalNoticeTone] = useState<'error' | 'warning'>('error');
   const [localNoticeAction, setLocalNoticeAction] = useState<LocalNoticeAction | null>(null);
   const [shareToastVisible, setShareToastVisible] = useState(false);
+  const [adminViewChatId, setAdminViewChatId] = useState<string | null>(initialChatSelectionRef.current.adminViewChatId);
   const [isPropertiesOpen, setIsPropertiesOpen] = useState(false);
+  const [isPropertiesClosing, setIsPropertiesClosing] = useState(false);
   const [isTopUpOpen, setIsTopUpOpen] = useState(false);
+  const [isTopUpClosing, setIsTopUpClosing] = useState(false);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  const [isCreateDialogClosing, setIsCreateDialogClosing] = useState(false);
+  const [deleteDialogChat, setDeleteDialogChat] = useState<ChatListItem | null>(null);
+  const [deleteDialogClosing, setDeleteDialogClosing] = useState(false);
+  const [transferDialogChat, setTransferDialogChat] = useState<ChatListItem | null>(null);
+  const [transferDialogClosing, setTransferDialogClosing] = useState(false);
+  const [transferIdentifier, setTransferIdentifier] = useState('');
+  const [transferDialogError, setTransferDialogError] = useState<string | null>(null);
   const [isDesktop, setIsDesktop] = useState(() => window.matchMedia('(min-width: 768px)').matches);
   const [newChatMode, setNewChatMode] = useState<'general' | 'agent'>('general');
   const [newChatAgentId, setNewChatAgentId] = useState('');
@@ -445,6 +589,7 @@ export function ChatsPage() {
   const [streamEvents, setStreamEvents] = useState<LiveChatEvent[]>([]);
   const [streamConnected, setStreamConnected] = useState(false);
   const [isAwaitingLateReply, setIsAwaitingLateReply] = useState(false);
+  const [runtimeActiveChatIds, setRuntimeActiveChatIds] = useState<string[]>([]);
   const [isQuickPromptsOpen, setIsQuickPromptsOpen] = useState(false);
   const [optimisticPendingMessage, setOptimisticPendingMessage] = useState<{
     chatId: string;
@@ -467,24 +612,72 @@ export function ChatsPage() {
     actualMessageId: string | null;
   } | null>(null);
   const [enteringMessageIds, setEnteringMessageIds] = useState<string[]>([]);
+  const [publishedLandingByMessageId, setPublishedLandingByMessageId] = useState<Record<string, PublishedLanding | null>>({});
+  const [landingActionMessageIds, setLandingActionMessageIds] = useState<string[]>([]);
 
   const menuRef = useRef<HTMLDivElement>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const assistantSlotNodeRef = useRef<HTMLDivElement | null>(null);
   const shareToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const createDialogTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const deleteDialogTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const propertiesDialogTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const topUpDialogTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const transferDialogTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const messageEnterCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollAnimationFrameRef = useRef<number | null>(null);
+  const chatsListEventSourceRef = useRef<EventSource | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
   const previousMessageCountRef = useRef(0);
+  const previousStreamEventsCountRef = useRef(0);
   const initializedAnimatedChatIdsRef = useRef<Set<string>>(new Set());
   const animatedMessageIdsRef = useRef<Set<string>>(new Set());
   const lateReplyRecoveryAttemptedRef = useRef<Set<string>>(new Set());
   const messageNodeRefs = useRef(new Map<string, HTMLDivElement>());
   const messageVisualKeyByIdRef = useRef(new Map<string, string>());
   const knownChatIds = useMemo(() => new Set((chats ?? []).map((chat) => chat.id)), [chats]);
+  const markChatRuntimeActive = (chatId: string) => {
+    setRuntimeActiveChatIds((prev) => (prev.includes(chatId) ? prev : [...prev, chatId]));
+  };
+  const markChatRuntimeIdle = (chatId: string) => {
+    setRuntimeActiveChatIds((prev) => prev.filter((id) => id !== chatId));
+  };
+  const activeRuntimeChatIds = useMemo(() => {
+    const ids = new Set(runtimeActiveChatIds);
+
+    if (optimisticPendingMessage?.chatId) {
+      ids.add(optimisticPendingMessage.chatId);
+    }
+
+    if (assistantResponseSlot?.chatId && !assistantResponseSlot.actualMessageId) {
+      ids.add(assistantResponseSlot.chatId);
+    }
+
+    for (const chat of chats ?? []) {
+      if (chat.has_active_deployment) {
+        ids.add(chat.id);
+      }
+    }
+
+    return ids;
+  }, [
+    assistantResponseSlot?.actualMessageId,
+    assistantResponseSlot?.chatId,
+    chats,
+    optimisticPendingMessage?.chatId,
+    runtimeActiveChatIds,
+  ]);
   const requestedChatId = searchParams.get('chat');
-  const safeActiveChatId = activeChatId && (chats == null || chats.length === 0 || knownChatIds.has(activeChatId))
+  const requestedAdminChatId = searchParams.get('admin_chat_id');
+  const activeAdminViewChatId = isAdmin ? (requestedAdminChatId ?? adminViewChatId) : null;
+  const isAdminRequestedChat = Boolean(activeAdminViewChatId);
+  const safeActiveChatId = activeChatId && (
+    chats == null
+    || chats.length === 0
+    || knownChatIds.has(activeChatId)
+    || (isAdminRequestedChat && activeChatId === activeAdminViewChatId)
+  )
     ? activeChatId
     : null;
   const filteredNewChatAgents = useMemo(() => {
@@ -505,14 +698,23 @@ export function ChatsPage() {
   }, [agents, newChatAgentSearch]);
   const visibleNewChatAgents = filteredNewChatAgents.slice(0, 24);
 
-  const { data: activeChatData, isLoading: activeChatLoading, error: activeChatError } = useChat(safeActiveChatId ?? undefined);
+  const { data: activeChatData, isLoading: activeChatLoading, error: activeChatError } = useChat(
+    safeActiveChatId ?? undefined,
+    { adminView: Boolean(isAdminRequestedChat && safeActiveChatId === activeAdminViewChatId) },
+  );
   const { data: activeChatStats, isLoading: chatStatsLoading } = useChatStats(
     safeActiveChatId ?? undefined,
     isPropertiesOpen,
+    { adminView: Boolean(isAdminRequestedChat && safeActiveChatId === activeAdminViewChatId) },
   );
   const activeChat = activeChatData?.chat ?? null;
+  const activeChatMenuTarget: ChatListItem | null = activeChat
+    ? { ...activeChat, last_message_preview: null }
+    : null;
+  const isAdminForeignChat = Boolean(activeChat?.is_admin_view);
+  const activeChatOwnerLabel = activeChat ? getChatOwnerLabel(activeChat) : '';
   const isActiveChatResolved = Boolean(safeActiveChatId && activeChat?.id === safeActiveChatId);
-  const messages = activeChatData?.messages ?? [];
+  const messages = activeChatData?.messages ?? EMPTY_MESSAGES;
   const debugThinkingForActiveChat = debugThinkingPreview && debugThinkingPreview.chatId === activeChat?.id
     ? debugThinkingPreview
     : null;
@@ -547,6 +749,11 @@ export function ChatsPage() {
     },
     [messages, debugThinkingForActiveChat, optimisticMessageForActiveChat],
   );
+  const activePreviewMessageIds = useMemo(
+    () => messages.filter(hasHtmlPreviewMessage).map((message) => message.id),
+    [messages],
+  );
+  const mobileChatActionButtonClass = 'flex w-full items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-left text-sm font-medium text-slate-900 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60';
 
   const showLocalError = (message: string, action: LocalNoticeAction | null = null) => {
     setLocalNoticeTone('error');
@@ -566,10 +773,64 @@ export function ChatsPage() {
   }, [localError]);
 
   useEffect(() => {
+    if (!activeChatId) return;
+
+    writePersistedChatSelection({
+      activeChatId,
+      adminViewChatId: activeChatId === adminViewChatId ? adminViewChatId : null,
+    });
+  }, [activeChatId, adminViewChatId]);
+
+  useEffect(() => {
     if (!safeActiveChatId || !activeChatError) return;
     if (getApiErrorCode(activeChatError) !== 'NOT_FOUND') return;
     setActiveChatId(isDesktop ? chats?.[0]?.id ?? null : null);
   }, [activeChatError, chats, isDesktop, safeActiveChatId]);
+
+  useEffect(() => {
+    if (!activeChat || isAdminForeignChat) {
+      setPublishedLandingByMessageId((prev) => (Object.keys(prev).length === 0 ? prev : {}));
+      return;
+    }
+
+    if (activePreviewMessageIds.length === 0) {
+      setPublishedLandingByMessageId((prev) => (Object.keys(prev).length === 0 ? prev : {}));
+      return;
+    }
+
+    let cancelled = false;
+
+    void Promise.all(
+      activePreviewMessageIds.map(async (messageId) => {
+        try {
+          const landing = await chatsApi.getPublishedLanding(activeChat.id, messageId);
+          return [messageId, landing] as const;
+        } catch (error) {
+          if (getApiErrorStatus(error) === 404) {
+            return [messageId, null] as const;
+          }
+          throw error;
+        }
+      }),
+    )
+      .then((entries) => {
+        if (cancelled) return;
+        const nextState: Record<string, PublishedLanding | null> = {};
+        entries.forEach(([messageId, landing]) => {
+          nextState[messageId] = landing;
+        });
+        setPublishedLandingByMessageId(nextState);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPublishedLandingByMessageId((prev) => (Object.keys(prev).length === 0 ? prev : {}));
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeChat, activePreviewMessageIds, isAdminForeignChat]);
 
   useEffect(() => {
     const media = window.matchMedia('(min-width: 768px)');
@@ -594,10 +855,29 @@ export function ChatsPage() {
   }, [requestedChatId, chats, searchParams, setSearchParams]);
 
   useEffect(() => {
+    if (!isAdmin || !requestedAdminChatId) return;
+    setAdminViewChatId(requestedAdminChatId);
+    setActiveChatId(requestedAdminChatId);
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete('admin_chat_id');
+    setSearchParams(nextParams, { replace: true });
+  }, [isAdmin, requestedAdminChatId, searchParams, setSearchParams]);
+
+  useEffect(() => {
+    if (!activeChatId || !adminViewChatId) return;
+    if (activeChatId !== adminViewChatId) return;
+    if (activeChat?.is_admin_view) return;
+    if (knownChatIds.has(activeChatId)) {
+      setAdminViewChatId(null);
+    }
+  }, [activeChat?.is_admin_view, activeChatId, adminViewChatId, knownChatIds]);
+
+  useEffect(() => {
     if (!chats || chats.length === 0 || !activeChatId) return;
+    if (isAdminForeignChat) return;
     if (chats.some((chat) => chat.id === activeChatId)) return;
     setActiveChatId(isDesktop ? chats[0]?.id ?? null : null);
-  }, [activeChatId, chats, isDesktop]);
+  }, [activeChatId, chats, isAdminForeignChat, isDesktop]);
 
   useEffect(() => {
     const showDebugThinking = (
@@ -672,8 +952,43 @@ export function ChatsPage() {
   }, []);
 
   useEffect(() => {
+    const handler = () => {
+      openCreateDialog();
+    };
+
+    window.addEventListener('open-create-chat', handler);
+    return () => window.removeEventListener('open-create-chat', handler);
+  }, []);
+
+  useEffect(() => {
     window.dispatchEvent(new CustomEvent('mobile-chat-active', { detail: Boolean(activeChatId) }));
   }, [activeChatId]);
+
+  useEffect(() => {
+    const source = new EventSource('/api/chats/updates', { withCredentials: true });
+    chatsListEventSourceRef.current = source;
+
+    const syncChatsList = () => {
+      void queryClient.invalidateQueries({ queryKey: ['chats'] });
+      if (safeActiveChatId) {
+        void queryClient.invalidateQueries({ queryKey: ['chats', safeActiveChatId] });
+        void queryClient.invalidateQueries({ queryKey: ['chats', safeActiveChatId, 'stats'] });
+      }
+    };
+
+    source.addEventListener('chat-list.updated', syncChatsList);
+    source.onerror = () => {
+      void queryClient.invalidateQueries({ queryKey: ['chats'] });
+    };
+
+    return () => {
+      source.removeEventListener('chat-list.updated', syncChatsList);
+      source.close();
+      if (chatsListEventSourceRef.current === source) {
+        chatsListEventSourceRef.current = null;
+      }
+    };
+  }, [queryClient, safeActiveChatId]);
 
   useEffect(() => {
     setStreamEvents([]);
@@ -683,6 +998,7 @@ export function ChatsPage() {
       !safeActiveChatId
       || !isActiveChatResolved
       || !activeChat
+      || isAdminForeignChat
       || (activeChat.mode !== 'agent' && (activeChat.tool_ids?.length ?? 0) === 0)
     ) {
       eventSourceRef.current?.close();
@@ -723,13 +1039,42 @@ export function ChatsPage() {
       source.addEventListener(eventName, (raw) => {
         const message = raw as MessageEvent<string>;
         try {
-          pushEvent(eventName, JSON.parse(message.data) as {
+          const payload = JSON.parse(message.data) as {
             label?: string;
             status?: string;
             tool_name?: string;
             ts?: string;
             error?: string;
-          });
+          };
+          pushEvent(eventName, payload);
+
+          if (safeActiveChatId) {
+            if (
+              eventName === 'chat.message.accepted'
+              || eventName === 'chat.run.started'
+              || eventName === 'chat.run.tool.started'
+            ) {
+              markChatRuntimeActive(safeActiveChatId);
+            }
+
+            if (eventName === 'chat.run.status') {
+              const status = payload.status?.trim();
+              if (status === 'completed' || status === 'failed' || status === 'cancelled') {
+                markChatRuntimeIdle(safeActiveChatId);
+              } else {
+                markChatRuntimeActive(safeActiveChatId);
+              }
+            }
+
+            if (
+              eventName === 'chat.message.completed'
+              || eventName === 'chat.run.completed'
+              || eventName === 'chat.run.failed'
+              || eventName === 'chat.run.skipped'
+            ) {
+              markChatRuntimeIdle(safeActiveChatId);
+            }
+          }
         } catch {
           pushEvent(eventName, { label: eventName });
         }
@@ -746,6 +1091,7 @@ export function ChatsPage() {
       'chat.run.tool.finished',
       'chat.run.completed',
       'chat.run.failed',
+      'chat.run.skipped',
     ].forEach(bind);
 
     source.onerror = () => {
@@ -762,13 +1108,81 @@ export function ChatsPage() {
         eventSourceRef.current = null;
       }
     };
-  }, [activeChat?.id, activeChat?.mode, activeChat?.tool_ids?.length, isActiveChatResolved, safeActiveChatId]);
+  }, [activeChat?.id, activeChat?.mode, activeChat?.tool_ids?.length, isActiveChatResolved, isAdminForeignChat, safeActiveChatId]);
+
+  const setLandingActionBusy = (messageId: string, isBusy: boolean) => {
+    setLandingActionMessageIds((prev) => (
+      isBusy
+        ? (prev.includes(messageId) ? prev : [...prev, messageId])
+        : prev.filter((id) => id !== messageId)
+    ));
+  };
+
+  const publishMessageLanding = async (chatId: string, messageId: string) => {
+    setLandingActionBusy(messageId, true);
+    try {
+      const landing = await chatsApi.publishLanding(chatId, messageId);
+      setPublishedLandingByMessageId((prev) => ({ ...prev, [messageId]: landing }));
+      await queryClient.invalidateQueries({ queryKey: ['chats'] });
+      return landing;
+    } catch (error) {
+      throw new Error(getApiErrorMessage(error) ?? 'Не удалось опубликовать лендинг');
+    } finally {
+      setLandingActionBusy(messageId, false);
+    }
+  };
+
+  const unpublishMessageLanding = async (chatId: string, messageId: string) => {
+    setLandingActionBusy(messageId, true);
+    try {
+      await chatsApi.unpublishLanding(chatId, messageId);
+      setPublishedLandingByMessageId((prev) => ({ ...prev, [messageId]: null }));
+      await queryClient.invalidateQueries({ queryKey: ['chats'] });
+    } catch (error) {
+      throw new Error(getApiErrorMessage(error) ?? 'Не удалось снять публикацию');
+    } finally {
+      setLandingActionBusy(messageId, false);
+    }
+  };
+
+  const updateMessageLanding = async (chatId: string, messageId: string, payload: { subdomain: string }) => {
+    setLandingActionBusy(messageId, true);
+    try {
+      const landing = await chatsApi.updateLanding(chatId, messageId, payload);
+      setPublishedLandingByMessageId((prev) => ({ ...prev, [messageId]: landing }));
+      await queryClient.invalidateQueries({ queryKey: ['chats'] });
+      return landing;
+    } catch (error) {
+      throw new Error(getApiErrorMessage(error) ?? 'Не удалось изменить URL сайта');
+    } finally {
+      setLandingActionBusy(messageId, false);
+    }
+  };
 
   useEffect(() => {
     const handler = () => setActiveChatId(null);
     window.addEventListener('show-chat-list', handler);
     return () => window.removeEventListener('show-chat-list', handler);
   }, []);
+
+  useEffect(() => {
+    const handler = () => {
+      if (!activeChatId) return;
+
+      const container = messagesScrollRef.current;
+      if (!container) return;
+
+      if (scrollAnimationFrameRef.current) {
+        cancelAnimationFrame(scrollAnimationFrameRef.current);
+        scrollAnimationFrameRef.current = null;
+      }
+
+      snapScrollContainerToBottom(container, 4);
+    };
+
+    window.addEventListener('scroll-chat-to-bottom', handler);
+    return () => window.removeEventListener('scroll-chat-to-bottom', handler);
+  }, [activeChatId]);
 
   useEffect(() => {
     if (!openMenu) return;
@@ -795,6 +1209,38 @@ export function ChatsPage() {
     messages.forEach((message) => animatedMessageIdsRef.current.add(message.id));
     setEnteringMessageIds([]);
   }, [activeChat?.id, activeChatLoading, messages]);
+
+  useEffect(() => {
+    if (!activeChat?.id || activeChatLoading) return;
+
+    const container = messagesScrollRef.current;
+    if (!container) return;
+
+    if (scrollAnimationFrameRef.current) {
+      cancelAnimationFrame(scrollAnimationFrameRef.current);
+      scrollAnimationFrameRef.current = null;
+    }
+
+    snapScrollContainerToBottom(container, 4);
+
+    if (typeof ResizeObserver === 'undefined') {
+      return;
+    }
+
+    const observer = new ResizeObserver(() => {
+      snapScrollContainerToBottom(container, 2);
+    });
+    observer.observe(container);
+
+    const disconnectTimer = window.setTimeout(() => {
+      observer.disconnect();
+    }, 420);
+
+    return () => {
+      observer.disconnect();
+      window.clearTimeout(disconnectTimer);
+    };
+  }, [activeChat?.id, activeChatLoading, displayedMessages.length]);
 
   useEffect(() => {
     const nextMessageIds = displayedMessages.map((message) => message.id);
@@ -867,6 +1313,65 @@ export function ChatsPage() {
       }
     };
   }, [optimisticMessageForActiveChat?.id]);
+
+  useEffect(() => {
+    const container = messagesScrollRef.current;
+    const previousCount = previousStreamEventsCountRef.current;
+    const nextCount = streamEvents.length;
+
+    previousStreamEventsCountRef.current = nextCount;
+
+    if (!assistantResponseSlotForActiveChat || !container) return;
+    if (nextCount === 0 || nextCount <= previousCount) return;
+
+    const distanceFromBottom = Math.max(
+      0,
+      container.scrollHeight - container.clientHeight - container.scrollTop,
+    );
+
+    if (distanceFromBottom > 220) {
+      return;
+    }
+
+    if (scrollAnimationFrameRef.current) {
+      cancelAnimationFrame(scrollAnimationFrameRef.current);
+      scrollAnimationFrameRef.current = null;
+    }
+
+    const startTop = container.scrollTop;
+    const targetTop = Math.max(0, container.scrollHeight - container.clientHeight);
+    if (targetTop <= startTop + 1) {
+      return;
+    }
+
+    const startTime = performance.now();
+    const duration = 340;
+
+    const step = (now: number) => {
+      const elapsed = now - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 4);
+
+      container.scrollTop = startTop + ((targetTop - startTop) * eased);
+
+      if (progress < 1) {
+        scrollAnimationFrameRef.current = requestAnimationFrame(step);
+        return;
+      }
+
+      container.scrollTop = targetTop;
+      scrollAnimationFrameRef.current = null;
+    };
+
+    scrollAnimationFrameRef.current = requestAnimationFrame(step);
+
+    return () => {
+      if (scrollAnimationFrameRef.current) {
+        cancelAnimationFrame(scrollAnimationFrameRef.current);
+        scrollAnimationFrameRef.current = null;
+      }
+    };
+  }, [assistantResponseSlotForActiveChat, streamEvents.length]);
 
   useEffect(() => {
     if (assistantResponseSlotForActiveChat) return;
@@ -1013,28 +1518,41 @@ export function ChatsPage() {
 
   useEffect(() => {
     return () => {
+      chatsListEventSourceRef.current?.close();
       if (shareToastTimerRef.current) clearTimeout(shareToastTimerRef.current);
+      if (createDialogTimerRef.current) clearTimeout(createDialogTimerRef.current);
+      if (deleteDialogTimerRef.current) clearTimeout(deleteDialogTimerRef.current);
+      if (propertiesDialogTimerRef.current) clearTimeout(propertiesDialogTimerRef.current);
+      if (topUpDialogTimerRef.current) clearTimeout(topUpDialogTimerRef.current);
+      if (transferDialogTimerRef.current) clearTimeout(transferDialogTimerRef.current);
       if (messageEnterCleanupTimerRef.current) clearTimeout(messageEnterCleanupTimerRef.current);
       if (scrollAnimationFrameRef.current) cancelAnimationFrame(scrollAnimationFrameRef.current);
     };
   }, []);
 
   const filteredChats = useMemo(() => {
-    if (!chats) return [];
-    if (!search.trim()) return chats;
+    const baseChats = [...(chats ?? [])];
+    if (activeChat?.is_admin_view && !baseChats.some((chat) => chat.id === activeChat.id)) {
+      baseChats.unshift({
+        ...activeChat,
+        last_message_preview: messages[messages.length - 1]?.content ?? null,
+        message_count: messages.length,
+      });
+    }
+
+    if (!search.trim()) return baseChats;
     const q = search.trim().toLowerCase();
-    return chats.filter((chat) => {
+    return baseChats.filter((chat) => {
       const title = (chat.title || '').toLowerCase();
       const preview = (chat.last_message_preview || '').toLowerCase();
-      return title.includes(q) || preview.includes(q);
+      const owner = getChatOwnerLabel(chat).toLowerCase();
+      return title.includes(q) || preview.includes(q) || owner.includes(q);
     });
-  }, [chats, search]);
+  }, [activeChat, chats, messages, search]);
 
   const draftChats = filteredChats.filter((chat) => chat.message_count === 0);
   const regularChats = filteredChats.filter((chat) => chat.message_count > 0);
-  const showMobileList = !isDesktop && !activeChatId;
-  const showSidebar = isDesktop || showMobileList;
-  const showChatPane = isDesktop || !!activeChatId;
+  const isMobileChatOpen = !isDesktop && Boolean(activeChatId);
 
   const modeOptions = useMemo(
     () => [
@@ -1237,7 +1755,58 @@ export function ChatsPage() {
     });
   }, [activeChat?.id, assistantResponseSlotForActiveChat, messages, optimisticMessageForActiveChat]);
 
-  const createNewChat = async () => setIsCreateDialogOpen(true);
+  const openCreateDialog = () => {
+    if (createDialogTimerRef.current) clearTimeout(createDialogTimerRef.current);
+    setIsCreateDialogClosing(false);
+    setIsCreateDialogOpen(true);
+  };
+
+  const closeCreateDialog = () => {
+    if (createChatMutation.isPending || !isCreateDialogOpen) return;
+    setIsCreateDialogClosing(true);
+    if (createDialogTimerRef.current) clearTimeout(createDialogTimerRef.current);
+    createDialogTimerRef.current = setTimeout(() => {
+      setIsCreateDialogOpen(false);
+      setIsCreateDialogClosing(false);
+      createDialogTimerRef.current = null;
+    }, DIALOG_CLOSE_ANIMATION_MS);
+  };
+
+  const openPropertiesDialog = () => {
+    if (propertiesDialogTimerRef.current) clearTimeout(propertiesDialogTimerRef.current);
+    setIsPropertiesClosing(false);
+    setIsPropertiesOpen(true);
+  };
+
+  const closePropertiesDialog = () => {
+    if (propertiesSaving || !isPropertiesOpen) return;
+    setIsPropertiesClosing(true);
+    if (propertiesDialogTimerRef.current) clearTimeout(propertiesDialogTimerRef.current);
+    propertiesDialogTimerRef.current = setTimeout(() => {
+      setIsPropertiesOpen(false);
+      setIsPropertiesClosing(false);
+      propertiesDialogTimerRef.current = null;
+    }, DIALOG_CLOSE_ANIMATION_MS);
+  };
+
+  const openTopUpDialog = () => {
+    if (topUpDialogTimerRef.current) clearTimeout(topUpDialogTimerRef.current);
+    setIsTopUpClosing(false);
+    setIsTopUpOpen(true);
+  };
+
+  const closeTopUpDialog = () => {
+    if (!isTopUpOpen) return;
+    setIsTopUpClosing(true);
+    if (topUpDialogTimerRef.current) clearTimeout(topUpDialogTimerRef.current);
+    topUpDialogTimerRef.current = setTimeout(() => {
+      setIsTopUpOpen(false);
+      setIsTopUpClosing(false);
+      topUpDialogTimerRef.current = null;
+    }, DIALOG_CLOSE_ANIMATION_MS);
+  };
+
+  const createNewChat = async () => openCreateDialog();
 
   const triggerImportChat = () => {
     importFileInputRef.current?.click();
@@ -1285,7 +1854,9 @@ export function ChatsPage() {
         model_external_id: newChatMode === 'general' ? newChatModel : null,
       });
       setActiveChatId(created.id);
+      if (createDialogTimerRef.current) clearTimeout(createDialogTimerRef.current);
       setIsCreateDialogOpen(false);
+      setIsCreateDialogClosing(false);
       setNewChatMode('general');
       setNewChatAgentId('');
       setNewChatAgentSearch('');
@@ -1327,15 +1898,88 @@ export function ChatsPage() {
     }
   };
 
+  const requestDeleteChat = (chat: ChatListItem) => {
+    if (deleteDialogTimerRef.current) clearTimeout(deleteDialogTimerRef.current);
+    setDeleteDialogClosing(false);
+    setDeleteDialogChat(chat);
+    setOpenMenu(null);
+  };
+
+  const requestTransferChat = (chat: ChatListItem) => {
+    if (transferDialogTimerRef.current) clearTimeout(transferDialogTimerRef.current);
+    setTransferDialogClosing(false);
+    setTransferDialogError(null);
+    setTransferIdentifier('');
+    setTransferDialogChat(chat);
+    setOpenMenu(null);
+  };
+
+  const closeDeleteDialog = () => {
+    if (deleteChatMutation.isPending || !deleteDialogChat) return;
+    setDeleteDialogClosing(true);
+    if (deleteDialogTimerRef.current) clearTimeout(deleteDialogTimerRef.current);
+    deleteDialogTimerRef.current = setTimeout(() => {
+      setDeleteDialogChat(null);
+      setDeleteDialogClosing(false);
+      deleteDialogTimerRef.current = null;
+    }, DIALOG_CLOSE_ANIMATION_MS);
+  };
+
+  const closeTransferDialog = () => {
+    if (transferChatMutation.isPending || !transferDialogChat) return;
+    setTransferDialogClosing(true);
+    if (transferDialogTimerRef.current) clearTimeout(transferDialogTimerRef.current);
+    transferDialogTimerRef.current = setTimeout(() => {
+      setTransferDialogChat(null);
+      setTransferDialogClosing(false);
+      setTransferIdentifier('');
+      setTransferDialogError(null);
+      transferDialogTimerRef.current = null;
+    }, DIALOG_CLOSE_ANIMATION_MS);
+  };
+
   const deleteChat = async (chatId: string) => {
     setLocalError(null);
     try {
       await deleteChatMutation.mutateAsync(chatId);
       if (activeChatId === chatId) setActiveChatId(null);
+      if (deleteDialogTimerRef.current) clearTimeout(deleteDialogTimerRef.current);
+      setDeleteDialogChat(null);
+      setDeleteDialogClosing(false);
     } catch {
       showLocalError('Не удалось удалить чат');
-    } finally {
-      setOpenMenu(null);
+    }
+  };
+
+  const transferChat = async () => {
+    if (!transferDialogChat) return;
+
+    const identifier = transferIdentifier.trim();
+    if (!identifier) {
+      setTransferDialogError('Укажите логин или email аккаунта');
+      return;
+    }
+
+    setTransferDialogError(null);
+    setLocalError(null);
+
+    try {
+      const result = await transferChatMutation.mutateAsync({
+        chatId: transferDialogChat.id,
+        identifier,
+      });
+      if (activeChatId === transferDialogChat.id) {
+        setActiveChatId(null);
+      }
+      if (transferDialogTimerRef.current) clearTimeout(transferDialogTimerRef.current);
+      setTransferDialogChat(null);
+      setTransferDialogClosing(false);
+      setTransferIdentifier('');
+      showLocalWarning(
+        `Чат передан аккаунту ${result.transferred_to.name?.trim() || (result.transferred_to.username ? `@${result.transferred_to.username}` : result.transferred_to.email)}`,
+      );
+    } catch (error) {
+      setTransferDialogError(getApiErrorMessage(error) ?? 'Не удалось передать чат');
     }
   };
 
@@ -1355,11 +1999,25 @@ export function ChatsPage() {
     }
   };
 
+  const toggleChatPrivacy = async (chat: ChatListItem) => {
+    setLocalError(null);
+    try {
+      await updateChatMutation.mutateAsync({
+        chatId: chat.id,
+        access: chat.access === 'public' ? 'private' : 'public',
+      });
+    } catch {
+      showLocalError('Не удалось изменить приватность чата');
+    } finally {
+      setOpenMenu(null);
+    }
+  };
+
   const openProperties = (chatId: string) => {
     setActiveChatId(chatId);
     setOpenMenu(null);
     setPropertiesError(null);
-    setIsPropertiesOpen(true);
+    openPropertiesDialog();
   };
 
   const togglePropertiesTool = (toolId: string) => {
@@ -1397,7 +2055,9 @@ export function ChatsPage() {
         access: propertiesAccess,
         access_identifiers: accessIdentifiers,
       });
+      if (propertiesDialogTimerRef.current) clearTimeout(propertiesDialogTimerRef.current);
       setIsPropertiesOpen(false);
+      setIsPropertiesClosing(false);
     } catch (error) {
       setPropertiesError(getApiErrorMessage(error) ?? 'Не удалось сохранить свойства чата');
     } finally {
@@ -1450,6 +2110,7 @@ export function ChatsPage() {
     startedAt: string,
     options: { trackAwaitingState?: boolean } = {},
   ) => {
+    markChatRuntimeActive(chatId);
     const trackAwaitingState = options.trackAwaitingState ?? true;
     if (trackAwaitingState) {
       setIsAwaitingLateReply(true);
@@ -1475,6 +2136,7 @@ export function ChatsPage() {
 
         if (hasAssistantReply) {
           setLocalError(null);
+          markChatRuntimeIdle(chatId);
           if (trackAwaitingState) {
             setIsAwaitingLateReply(false);
           }
@@ -1488,12 +2150,13 @@ export function ChatsPage() {
     if (trackAwaitingState) {
       setIsAwaitingLateReply(false);
     }
+    markChatRuntimeIdle(chatId);
     return false;
   };
 
   async function performSendMessage(input: { chatId: string; content: string; files?: File[] }) {
     if (!hasAvailableBalance) {
-      setIsTopUpOpen(true);
+      openTopUpDialog();
       showLocalError('У вас не осталось баланса. Скоро вы сможете пополнить его на сайте, а пока можете написать Родиону.');
       return;
     }
@@ -1534,6 +2197,7 @@ export function ChatsPage() {
       detail: 'Собираю ответ, инструменты и preview, если он нужен.',
       actualMessageId: null,
     });
+    markChatRuntimeActive(chatId);
 
     try {
       const attachments = files.length > 0 ? await uploadFilesMutation.mutateAsync(files) : [];
@@ -1567,13 +2231,15 @@ export function ChatsPage() {
           : prev
       ));
       setOptimisticPendingMessage((prev) => (prev?.chatId === chatId ? null : prev));
+      markChatRuntimeIdle(chatId);
     } catch (err) {
       setOptimisticPendingMessage((prev) => (prev?.chatId === chatId ? null : prev));
       const code = getApiErrorCode(err);
       const status = getApiErrorStatus(err);
       if (code === 'INSUFFICIENT_BALANCE') {
         setAssistantResponseSlot((prev) => (prev?.chatId === chatId ? null : prev));
-        setIsTopUpOpen(true);
+        markChatRuntimeIdle(chatId);
+        openTopUpDialog();
         showLocalError(getApiErrorMessage(err) || 'У вас не осталось баланса. Скоро вы сможете пополнить его на сайте.');
         return;
       }
@@ -1582,6 +2248,7 @@ export function ChatsPage() {
         const recovered = await recoverLateAssistantReply(chatId, startedAt);
         if (!recovered) {
           setAssistantResponseSlot((prev) => (prev?.chatId === chatId ? null : prev));
+          markChatRuntimeIdle(chatId);
           showLocalError(
             'Провайдер слишком долго отвечал, и запрос оборвался по таймауту. Попробуйте ещё раз или выберите более быстрый агент.',
             {
@@ -1598,17 +2265,20 @@ export function ChatsPage() {
         return;
       }
       setAssistantResponseSlot((prev) => (prev?.chatId === chatId ? null : prev));
+      markChatRuntimeIdle(chatId);
       showLocalError(err instanceof Error ? err.message : 'Не удалось отправить сообщение');
     }
   }
 
   const sendMessage = async (content: string, files: File[] = []) => {
     if (!activeChat) return;
+    if (isAdminForeignChat) return;
     await performSendMessage({ chatId: activeChat.id, content, files });
   };
 
   const editMessage = async (messageId: string, content: string) => {
     if (!activeChat) return;
+    if (isAdminForeignChat) return;
 
     setLocalError(null);
     setStreamEvents([]);
@@ -1655,16 +2325,57 @@ export function ChatsPage() {
       )}
     >
       <button type="button" onClick={() => setActiveChatId(chat.id)} className="w-full pr-8 text-left">
-        <p className="truncate text-sm font-medium">{chat.title}</p>
+        <div className="flex items-center gap-1 pr-2">
+          {chat.access !== 'public' && (
+            <span
+              className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-slate-500"
+              aria-label={getChatPrivacyTitle(chat.access)}
+              title={getChatPrivacyTitle(chat.access)}
+            >
+              <ChatPrivacyIcon access={chat.access} className="h-3.5 w-3.5" />
+            </span>
+          )}
+          {chat.has_site_preview && (
+            <span
+              className={cn(
+                'inline-flex h-4 w-4 shrink-0 items-center justify-center',
+                chat.has_published_landing ? 'text-emerald-600' : 'text-slate-500',
+              )}
+              aria-label={getChatWebsiteTitle(chat)}
+              title={getChatWebsiteTitle(chat)}
+            >
+              <Globe className="h-3.5 w-3.5" />
+            </span>
+          )}
+          <p className="min-w-0 flex-1 truncate text-sm font-medium">{chat.title}</p>
+          {chat.is_admin_view && (
+            <span className="shrink-0 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+              Чужой чат
+            </span>
+          )}
+          {activeRuntimeChatIds.has(chat.id) && (
+            <span
+              className="h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-500 shadow-[0_0_0_3px_rgba(34,197,94,0.16)] animate-pulse"
+              aria-label="Runtime выполняется"
+              title="Runtime выполняется"
+            />
+          )}
+        </div>
         <p className="truncate text-[11px] text-muted-foreground">
           {getChatListMeta(chat)}
         </p>
+        {chat.is_admin_view && (
+          <p className="truncate text-[11px] text-amber-700">
+            Владелец: {getChatOwnerLabel(chat)}
+          </p>
+        )}
         <p className="truncate text-xs text-muted-foreground">
           {formatChatPreview(chat.last_message_preview) || (chat.mode === 'general' ? 'Общение' : 'Чат с ботом')}
         </p>
         <p className="text-xs text-muted-foreground">{formatDate(chat.last_message_at)}</p>
       </button>
 
+      {!chat.is_admin_view && (
       <div className="absolute right-2 top-2" ref={openMenu?.kind === 'chat' && openMenu.id === chat.id ? menuRef : null}>
         <button
           type="button"
@@ -1688,7 +2399,23 @@ export function ChatsPage() {
             <button type="button" className="w-full rounded px-2 py-1.5 text-left text-sm hover:bg-accent" onClick={() => exportChatBundle(chat.id)}>
               Экспортировать
             </button>
-            <button type="button" className="w-full rounded px-2 py-1.5 text-left text-sm hover:bg-accent" onClick={() => deleteChat(chat.id)}>
+            <button
+              type="button"
+              className="w-full rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+              onClick={() => toggleChatPrivacy(chat)}
+              disabled={updateChatMutation.isPending}
+            >
+              {getChatPrivacyQuickActionLabel(chat.access)}
+            </button>
+            <button
+              type="button"
+              className="w-full rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+              onClick={() => requestTransferChat(chat)}
+              disabled={transferChatMutation.isPending}
+            >
+              Передать
+            </button>
+            <button type="button" className="w-full rounded px-2 py-1.5 text-left text-sm hover:bg-accent" onClick={() => requestDeleteChat(chat)}>
               Удалить
             </button>
             <button type="button" className="w-full rounded px-2 py-1.5 text-left text-sm hover:bg-accent" onClick={() => shareChat(chat.id)}>
@@ -1697,11 +2424,12 @@ export function ChatsPage() {
           </div>
         )}
       </div>
+      )}
     </div>
   );
 
   return (
-    <div className="flex h-full min-h-0 w-full max-w-full flex-col overflow-x-hidden px-4 py-4">
+    <div className="flex h-[calc(100dvh-4rem)] min-h-[calc(100dvh-4rem)] w-full max-w-full flex-col overflow-x-hidden px-4 py-4">
       <input
         ref={importFileInputRef}
         type="file"
@@ -1714,9 +2442,18 @@ export function ChatsPage() {
         Ссылка скопирована
       </div>
 
-      <div className="mx-auto flex min-h-0 w-full max-w-full flex-1 overflow-hidden rounded-xl border bg-white">
-        {showSidebar && (
-        <aside className={cn('flex min-w-0 w-full shrink-0 flex-col', isDesktop ? 'max-w-xs border-r' : 'max-w-none')}>
+      <div className={cn('mx-auto flex min-h-0 w-full max-w-full flex-1 overflow-hidden rounded-xl border bg-white', !isDesktop && 'relative')}>
+        <aside
+          className={cn(
+            'flex min-w-0 w-full shrink-0 flex-col',
+            isDesktop
+              ? 'max-w-xs border-r'
+              : 'absolute inset-0 z-10 max-w-none bg-white transition-[transform,opacity,filter] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]',
+            !isDesktop && (isMobileChatOpen
+              ? '-translate-x-[18%] opacity-0 blur-[2px] pointer-events-none'
+              : 'translate-x-0 opacity-100'),
+          )}
+        >
           <div className="border-b p-3 space-y-3">
             <div className="grid grid-cols-2 gap-2">
               <Button className="w-full" onClick={createNewChat} disabled={createChatMutation.isPending}>Новый чат</Button>
@@ -1730,56 +2467,224 @@ export function ChatsPage() {
             {sidebarLoading && <div className="flex justify-center py-8"><Spinner /></div>}
             {!sidebarLoading && draftChats.length > 0 && <section className="space-y-1"><p className="px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Черновики</p>{draftChats.map(renderChatRow)}</section>}
             {!sidebarLoading && regularChats.length > 0 && <section className="space-y-1"><p className="px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Чаты</p>{regularChats.map(renderChatRow)}</section>}
-            {!sidebarLoading && (!chats || chats.length === 0) && <div className="p-2 text-sm text-muted-foreground space-y-2"><p>У вас пока нет чатов.</p><button type="button" className="text-primary hover:underline" onClick={createNewChat}>Создать первый чат</button></div>}
+            {!sidebarLoading && (!chats || chats.length === 0) && (
+              <div className="flex min-h-full flex-1 items-center">
+                <div className="w-full rounded-2xl border border-dashed border-slate-300 bg-slate-50/80 p-4 text-center shadow-sm">
+                <p className="text-sm font-medium text-slate-900">У вас пока нет чатов</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Создайте первый чат и начните общение или работу с агентом.
+                </p>
+                <Button className="mt-4 w-full" onClick={createNewChat} disabled={createChatMutation.isPending}>
+                  {createChatMutation.isPending ? 'Создаю...' : 'Создать первый чат'}
+                </Button>
+                </div>
+              </div>
+            )}
           </div>
         </aside>
-        )}
 
-        {showChatPane && (
-        <section className="flex min-w-0 w-full max-w-full flex-1 flex-col overflow-x-hidden">
+        <section
+          className={cn(
+            'flex min-w-0 w-full max-w-full flex-1 flex-col overflow-x-hidden',
+            !isDesktop && 'absolute inset-0 z-20 bg-white transition-[transform,opacity,filter] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]',
+            !isDesktop && (isMobileChatOpen
+              ? 'translate-x-0 opacity-100'
+              : 'translate-x-full opacity-0 blur-[2px] pointer-events-none'),
+          )}
+        >
           <div className="flex flex-col gap-3 border-b px-4 py-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="min-w-0 flex-1">
-              <h1 className="truncate font-semibold">{activeChat?.title ?? 'Чаты'}</h1>
-              <p className="truncate text-xs text-muted-foreground">
-                {activeChat?.mode === 'general'
-                  ? `OpenRouter: ${activeChat?.model_external_id ?? 'openai/gpt-4o-mini'}`
-                  : activeAgentName
-                    ? `Агент: ${activeAgentName}`
-                    : 'Чат с агентом'}
-              </p>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1 space-y-0.5">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    {activeChat && activeChat.access !== 'public' && (
+                      <span
+                        className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-slate-600"
+                        aria-label={getChatPrivacyTitle(activeChat.access)}
+                        title={getChatPrivacyTitle(activeChat.access)}
+                      >
+                        <ChatPrivacyIcon access={activeChat.access} className="h-3.5 w-3.5" />
+                      </span>
+                    )}
+                    <h1 className="truncate font-semibold">{activeChat?.title ?? 'Чаты'}</h1>
+                    {activeChat && activeChat.access !== 'public' && !isAdminForeignChat && (
+                      <Badge variant="outline" className="border-slate-300 bg-slate-50 text-slate-700">
+                        {activeChat.access === 'restricted' ? 'Ограниченный' : 'Приватный'}
+                      </Badge>
+                    )}
+                    {isAdminForeignChat && (
+                      <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-800">
+                        Чужой чат
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="truncate text-[11px] leading-4 text-muted-foreground">
+                    {isAdminForeignChat
+                      ? `Чужой чат • ${activeChatOwnerLabel}`
+                      : activeChat?.mode === 'general'
+                      ? `OpenRouter: ${activeChat?.model_external_id ?? 'openai/gpt-4o-mini'}`
+                      : activeAgentName
+                        ? `Агент: ${activeAgentName}`
+                        : 'Чат с агентом'}
+                  </p>
+                </div>
+                {activeChat && !isAdminForeignChat && (
+                  <div className="relative md:hidden" ref={openMenu?.kind === 'active-chat-actions' ? menuRef : null}>
+                    <button
+                      type="button"
+                      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 shadow-sm transition-colors hover:bg-slate-50 hover:text-slate-900"
+                      onClick={() => setOpenMenu((prev) => (prev?.kind === 'active-chat-actions' ? null : { kind: 'active-chat-actions' }))}
+                      aria-label="Действия текущего чата"
+                    >
+                      ...
+                    </button>
+                    {openMenu?.kind === 'active-chat-actions' && (
+                      <div className="absolute right-0 top-11 z-30 w-[min(18rem,calc(100vw-2rem))] rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
+                        <button
+                          type="button"
+                          className={mobileChatActionButtonClass}
+                          onClick={() => {
+                            if (!activeChatMenuTarget) return;
+                            void renameChat(activeChatMenuTarget);
+                          }}
+                        >
+                          Переименовать
+                          <span className="text-xs text-slate-400">↗</span>
+                        </button>
+                        <button
+                          type="button"
+                          className={`${mobileChatActionButtonClass} mt-2`}
+                          onClick={() => {
+                            if (!activeChatMenuTarget) return;
+                            openProperties(activeChatMenuTarget.id);
+                          }}
+                        >
+                          Свойства
+                          <span className="text-xs text-slate-400">↗</span>
+                        </button>
+                        <button
+                          type="button"
+                          className={`${mobileChatActionButtonClass} mt-2`}
+                          onClick={() => {
+                            setOpenMenu(null);
+                            exportChatBundle(activeChat.id);
+                          }}
+                        >
+                          Экспорт
+                          <span className="text-xs text-slate-400">↗</span>
+                        </button>
+                        <button
+                          type="button"
+                          className={`${mobileChatActionButtonClass} mt-2`}
+                          onClick={() => {
+                            setOpenMenu(null);
+                            void shareChat(activeChat.id);
+                          }}
+                          disabled={shareChatMutation.isPending}
+                        >
+                          <span>{shareChatMutation.isPending ? 'Поделиться...' : 'Поделиться'}</span>
+                          <span className="text-xs text-slate-400">↗</span>
+                        </button>
+                        <button
+                          type="button"
+                          className={`${mobileChatActionButtonClass} mt-2`}
+                          onClick={() => {
+                            if (!activeChatMenuTarget) return;
+                            void toggleChatPrivacy(activeChatMenuTarget);
+                          }}
+                          disabled={updateChatMutation.isPending}
+                        >
+                          <span>{activeChatMenuTarget ? getChatPrivacyQuickActionLabel(activeChatMenuTarget.access) : 'Изменить приватность'}</span>
+                          <span className="text-xs text-slate-400">↗</span>
+                        </button>
+                        <button
+                          type="button"
+                          className={`${mobileChatActionButtonClass} mt-2`}
+                          onClick={() => {
+                            if (!activeChatMenuTarget) return;
+                            requestTransferChat(activeChatMenuTarget);
+                          }}
+                          disabled={transferChatMutation.isPending}
+                        >
+                          Передать
+                          <span className="text-xs text-slate-400">↗</span>
+                        </button>
+                        <button
+                          type="button"
+                          className={`${mobileChatActionButtonClass} mt-2 border-red-200 bg-red-50 text-red-700 hover:border-red-300 hover:bg-red-100`}
+                          onClick={() => {
+                            if (!activeChatMenuTarget) return;
+                            requestDeleteChat(activeChatMenuTarget);
+                          }}
+                        >
+                          Удалить
+                          <span className="text-xs text-red-300">↗</span>
+                        </button>
+                        <div className="mt-2 space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3 shadow-sm">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                            Список агентов
+                          </p>
+                          <Select
+                            options={modeOptions}
+                            value={activeModeValue}
+                            onChange={(e) => {
+                              handleModeChange(e.target.value);
+                              setOpenMenu(null);
+                            }}
+                            className="w-full bg-white"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
             {activeChat && (
-              <div className="flex w-full flex-wrap items-center gap-2 xl:w-auto xl:justify-end">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => exportChatBundle(activeChat.id)}
-                >
-                  Экспорт
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => shareChat(activeChat.id)}
-                  disabled={shareChatMutation.isPending}
-                >
-                  Поделиться
-                </Button>
-                <Select
-                  options={modeOptions}
-                  value={activeModeValue}
-                  onChange={(e) => handleModeChange(e.target.value)}
-                  wrapperClassName="min-w-0 flex-1 basis-full md:basis-auto md:max-w-[420px] xl:max-w-none"
-                  className="min-w-0 w-full xl:w-64"
-                />
+              <div className="hidden w-full flex-wrap items-center gap-2 md:flex xl:w-auto xl:justify-end">
+                {!isAdminForeignChat ? (
+                  <>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => exportChatBundle(activeChat.id)}
+                    >
+                      Экспорт
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => shareChat(activeChat.id)}
+                      disabled={shareChatMutation.isPending}
+                    >
+                      Поделиться
+                    </Button>
+                    <Select
+                      options={modeOptions}
+                      value={activeModeValue}
+                      onChange={(e) => handleModeChange(e.target.value)}
+                      wrapperClassName="min-w-0 flex-1 basis-full md:basis-auto md:max-w-[420px] xl:max-w-none"
+                      className="min-w-0 w-full xl:w-64"
+                    />
+                  </>
+                ) : (
+                  <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                    Чужой чат открыт только для чтения
+                  </div>
+                )}
               </div>
             )}
           </div>
 
-          <div ref={messagesScrollRef} className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 space-y-4">
+          <div ref={messagesScrollRef} className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4 pt-2 pb-4 md:py-4 space-y-4">
+            {isAdminForeignChat && (
+              <div className="mx-auto max-w-3xl rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                Открыт чат другого пользователя в режиме только для чтения. Владелец: {activeChatOwnerLabel}.
+              </div>
+            )}
             {activeChatLoading && displayedMessages.length === 0 && <div className="flex justify-center py-8"><Spinner /></div>}
             {!activeChatLoading && activeChat && displayedMessages.length === 0 && (
-              <div className="py-8">
+              <div className="py-3 md:py-8">
                 {activeChat.mode === 'agent' && (activeAgentName || activeStarterPrompts.length > 0 || activeAgentDescription) ? (
                   <div className="mx-auto max-w-3xl rounded-xl border bg-muted/20 p-5 space-y-4">
                     <div>
@@ -1794,9 +2699,17 @@ export function ChatsPage() {
                     {activeStarterPrompts.length > 0 && (
                       <div className="space-y-2">
                         <p className="text-xs uppercase tracking-wide text-muted-foreground">Примеры сообщений</p>
-                        <div className="flex flex-wrap gap-2">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
                           {activeStarterPrompts.map((prompt, idx) => (
-                            <Button key={`${prompt}-${idx}`} type="button" variant="outline" size="sm" disabled={isSubmittingMessage || !hasAvailableBalance} onClick={() => sendMessage(prompt)}>
+                            <Button
+                              key={`${prompt}-${idx}`}
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-auto w-full justify-start whitespace-normal rounded-xl border-slate-300 bg-white px-3 py-2.5 text-left text-[13px] leading-5 text-slate-800 shadow-sm hover:bg-slate-50 sm:w-auto sm:max-w-full"
+                              disabled={isSubmittingMessage || !hasAvailableBalance || isAdminForeignChat}
+                              onClick={() => sendMessage(prompt)}
+                            >
                               {prompt}
                             </Button>
                           ))}
@@ -1815,7 +2728,7 @@ export function ChatsPage() {
                           value={activeChat.model_external_id ?? 'openai/gpt-4o-mini'}
                           options={generalModelOptions}
                           onChange={(e) => updateActiveGeneralModel(e.target.value)}
-                          disabled={updateChatMutation.isPending}
+                          disabled={updateChatMutation.isPending || isAdminForeignChat}
                           className="w-full"
                         />
                       </div>
@@ -1912,8 +2825,9 @@ export function ChatsPage() {
                       ? `/api/shared/chats/${activeChat.share_token}/messages/${msg.id}/preview`
                       : `/api/chats/${activeChat.id}/messages/${msg.id}/preview`)
                     : undefined}
-                  canEditPreview={msg.role === 'assistant' && Boolean(activeChat)}
+                  canEditPreview={msg.role === 'assistant' && Boolean(activeChat) && !isAdminForeignChat}
                   onSavePreview={msg.role === 'assistant' && activeChat
+                    && !isAdminForeignChat
                     ? async (payload) => {
                       try {
                         await updatePreviewMutation.mutateAsync({
@@ -1926,41 +2840,64 @@ export function ChatsPage() {
                       }
                     }
                     : undefined}
-                  canRunProject={msg.role === 'assistant' && Boolean(activeChat)}
+                  canRunProject={msg.role === 'assistant' && Boolean(activeChat) && !isAdminForeignChat}
                   onRunProject={msg.role === 'assistant' && activeChat
+                    && !isAdminForeignChat
                     ? async () => {
                       const result = await chatsApi.runProject(activeChat.id, msg.id);
                       syncProjectRunCount(activeChat.id, msg.id, result.project_run_count);
                       return result;
                     }
                     : undefined}
-                  canManageDeployment={msg.role === 'assistant' && Boolean(activeChat)}
+                  canManageDeployment={msg.role === 'assistant' && Boolean(activeChat) && !isAdminForeignChat}
                   onLoadProjectDeployment={msg.role === 'assistant' && activeChat
+                    && !isAdminForeignChat
                     ? async () => chatsApi.getProjectDeployment(activeChat.id, msg.id)
                     : undefined}
                   onUpsertProjectDeployment={msg.role === 'assistant' && activeChat
+                    && !isAdminForeignChat
                     ? async (payload) => chatsApi.upsertProjectDeployment(activeChat.id, msg.id, payload)
                     : undefined}
                   onStartProjectDeployment={msg.role === 'assistant' && activeChat
+                    && !isAdminForeignChat
                     ? async () => chatsApi.startProjectDeployment(activeChat.id, msg.id)
                     : undefined}
                   onReinstallProjectDeploymentWebhook={msg.role === 'assistant' && activeChat
+                    && !isAdminForeignChat
                     ? async () => chatsApi.reinstallProjectDeploymentWebhook(activeChat.id, msg.id)
                     : undefined}
                   onStopProjectDeployment={msg.role === 'assistant' && activeChat
+                    && !isAdminForeignChat
                     ? async () => chatsApi.stopProjectDeployment(activeChat.id, msg.id)
                     : undefined}
+                  publishedLanding={msg.role === 'assistant' ? (publishedLandingByMessageId[msg.id] ?? null) : undefined}
+                  publishingLanding={msg.role === 'assistant' ? landingActionMessageIds.includes(msg.id) : undefined}
+                  onPublishLanding={msg.role === 'assistant' && activeChat
+                    && !isAdminForeignChat
+                    ? async () => publishMessageLanding(activeChat.id, msg.id)
+                    : undefined}
+                  onUpdateLanding={msg.role === 'assistant' && activeChat
+                    && !isAdminForeignChat
+                    ? async (payload) => updateMessageLanding(activeChat.id, msg.id, payload)
+                    : undefined}
+                  onUnpublishLanding={msg.role === 'assistant' && activeChat
+                    && !isAdminForeignChat
+                    ? async () => unpublishMessageLanding(activeChat.id, msg.id)
+                    : undefined}
                   onFixProjectError={msg.role === 'assistant' && activeChat
+                    && !isAdminForeignChat
                     ? async (prompt) => sendMessage(prompt)
                     : undefined}
-                  canEditMessage={canEditUserMessage}
+                  canEditMessage={canEditUserMessage && !isAdminForeignChat}
                   onEditMessage={canEditUserMessage
+                    && !isAdminForeignChat
                     ? async () => {
                       await editMessage(msg.id, msg.content);
                     }
                     : undefined}
-                  canDeleteMessage={Boolean(activeChat) && !msg.id.startsWith('optimistic-') && !msg.id.startsWith('debug-fake-')}
+                  canDeleteMessage={Boolean(activeChat) && !isAdminForeignChat && !msg.id.startsWith('optimistic-') && !msg.id.startsWith('debug-fake-')}
                   onDeleteMessage={activeChat
+                    && !isAdminForeignChat
                     && !msg.id.startsWith('optimistic-')
                     && !msg.id.startsWith('debug-fake-')
                     ? async () => {
@@ -2012,8 +2949,9 @@ export function ChatsPage() {
                           ? `/api/shared/chats/${activeChat.share_token}/messages/${assistantSlotResolvedMessage.id}/preview`
                           : `/api/chats/${activeChat.id}/messages/${assistantSlotResolvedMessage.id}/preview`)
                         : undefined}
-                      canEditPreview={Boolean(activeChat)}
+                      canEditPreview={Boolean(activeChat) && !isAdminForeignChat}
                       onSavePreview={activeChat
+                        && !isAdminForeignChat
                         ? async (payload) => {
                           try {
                             await updatePreviewMutation.mutateAsync({
@@ -2026,35 +2964,57 @@ export function ChatsPage() {
                           }
                         }
                         : undefined}
-                      canRunProject={Boolean(activeChat)}
+                      canRunProject={Boolean(activeChat) && !isAdminForeignChat}
                       onRunProject={activeChat
+                        && !isAdminForeignChat
                         ? async () => {
                           const result = await chatsApi.runProject(activeChat.id, assistantSlotResolvedMessage.id);
                           syncProjectRunCount(activeChat.id, assistantSlotResolvedMessage.id, result.project_run_count);
                           return result;
                         }
                         : undefined}
-                      canManageDeployment={Boolean(activeChat)}
+                      canManageDeployment={Boolean(activeChat) && !isAdminForeignChat}
                       onLoadProjectDeployment={activeChat
+                        && !isAdminForeignChat
                         ? async () => chatsApi.getProjectDeployment(activeChat.id, assistantSlotResolvedMessage.id)
                         : undefined}
                       onUpsertProjectDeployment={activeChat
+                        && !isAdminForeignChat
                         ? async (payload) => chatsApi.upsertProjectDeployment(activeChat.id, assistantSlotResolvedMessage.id, payload)
                         : undefined}
                       onStartProjectDeployment={activeChat
+                        && !isAdminForeignChat
                         ? async () => chatsApi.startProjectDeployment(activeChat.id, assistantSlotResolvedMessage.id)
                         : undefined}
                       onReinstallProjectDeploymentWebhook={activeChat
+                        && !isAdminForeignChat
                         ? async () => chatsApi.reinstallProjectDeploymentWebhook(activeChat.id, assistantSlotResolvedMessage.id)
                         : undefined}
                       onStopProjectDeployment={activeChat
+                        && !isAdminForeignChat
                         ? async () => chatsApi.stopProjectDeployment(activeChat.id, assistantSlotResolvedMessage.id)
                         : undefined}
+                      publishedLanding={publishedLandingByMessageId[assistantSlotResolvedMessage.id] ?? null}
+                      publishingLanding={landingActionMessageIds.includes(assistantSlotResolvedMessage.id)}
+                      onPublishLanding={activeChat
+                        && !isAdminForeignChat
+                        ? async () => publishMessageLanding(activeChat.id, assistantSlotResolvedMessage.id)
+                        : undefined}
+                      onUpdateLanding={activeChat
+                        && !isAdminForeignChat
+                        ? async (payload) => updateMessageLanding(activeChat.id, assistantSlotResolvedMessage.id, payload)
+                        : undefined}
+                      onUnpublishLanding={activeChat
+                        && !isAdminForeignChat
+                        ? async () => unpublishMessageLanding(activeChat.id, assistantSlotResolvedMessage.id)
+                        : undefined}
                       onFixProjectError={activeChat
+                        && !isAdminForeignChat
                         ? async (prompt) => sendMessage(prompt)
                         : undefined}
-                      canDeleteMessage={Boolean(activeChat)}
+                      canDeleteMessage={Boolean(activeChat) && !isAdminForeignChat}
                       onDeleteMessage={activeChat
+                        && !isAdminForeignChat
                         ? async () => {
                           try {
                             await deleteChatMessageMutation.mutateAsync({
@@ -2122,23 +3082,18 @@ export function ChatsPage() {
           )}
 
           <div className="border-t px-4 py-3 space-y-3">
-            {canShowQuickPrompts && displayedMessages.length > 0 && (
-              <div className="flex justify-end">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 px-2 text-[11px] font-normal text-muted-foreground hover:text-foreground"
-                  onClick={() => setIsQuickPromptsOpen((prev) => !prev)}
-                >
-                  {isQuickPromptsOpen ? 'Скрыть подсказки' : 'Подсказки'}
-                </Button>
-              </div>
-            )}
             {canShowQuickPrompts && displayedMessages.length > 0 && isQuickPromptsOpen && (
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
                 {activeStarterPrompts.map((prompt, idx) => (
-                  <Button key={`quick-${prompt}-${idx}`} type="button" variant="outline" size="sm" disabled={isSubmittingMessage || !hasAvailableBalance} onClick={() => sendMessage(prompt)}>
+                  <Button
+                    key={`quick-${prompt}-${idx}`}
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-auto w-full justify-start whitespace-normal rounded-xl border-slate-300 bg-white px-3 py-2.5 text-left text-[13px] leading-5 text-slate-800 shadow-sm hover:bg-slate-50 sm:w-auto sm:max-w-full"
+                    disabled={isSubmittingMessage || !hasAvailableBalance || isAdminForeignChat}
+                    onClick={() => sendMessage(prompt)}
+                  >
                     {prompt}
                   </Button>
                 ))}
@@ -2158,30 +3113,49 @@ export function ChatsPage() {
               onSend={sendMessage}
               allowAttachments
               prefill={composerPrefill}
-              disabled={!activeChat || isSubmittingMessage || !hasAvailableBalance}
+              quickAction={canShowQuickPrompts && displayedMessages.length > 0 ? {
+                label: isQuickPromptsOpen ? 'Скрыть подсказки' : 'Показать подсказки',
+                onClick: () => setIsQuickPromptsOpen((prev) => !prev),
+                active: isQuickPromptsOpen,
+                disabled: !activeChat || isAdminForeignChat || isSubmittingMessage || !hasAvailableBalance,
+              } : null}
+              disabled={!activeChat || isAdminForeignChat || isSubmittingMessage || !hasAvailableBalance}
               placeholder={
                 !activeChat
                   ? 'Сначала выберите чат'
-                  : hasAvailableBalance
+                  : isAdminForeignChat
+                    ? 'Чат другого пользователя открыт только для чтения'
+                    : hasAvailableBalance
                     ? 'Введите сообщение...'
                     : 'Баланс закончился'
               }
             />
           </div>
         </section>
-        )}
       </div>
 
       {isTopUpOpen && (
-        <div className="fixed inset-0 z-[85] flex items-center justify-center bg-black/40 p-4" onClick={() => setIsTopUpOpen(false)}>
-          <div className="w-full max-w-md rounded-xl border bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div
+          className={cn(
+            'fixed inset-0 z-[85] flex items-center justify-center bg-black/40 p-4',
+            isTopUpClosing ? 'animate-[fadeOut_200ms_ease-in_forwards]' : 'animate-[fadeIn_180ms_ease-out]',
+          )}
+          onClick={closeTopUpDialog}
+        >
+          <div
+            className={cn(
+              'w-full max-w-md rounded-xl border bg-white shadow-2xl',
+              isTopUpClosing ? 'animate-[zoomOut_200ms_ease-in_forwards]' : 'animate-[zoomIn_220ms_ease-out]',
+            )}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="border-b px-5 py-4"><h3 className="text-lg font-semibold">Недостаточно баланса</h3></div>
             <div className="px-5 py-4">
               <TopUpHelp settings={appSettings} />
             </div>
             <div className="border-t px-5 py-4 flex items-center justify-end gap-2">
-              <Button variant="outline" size="sm" onClick={() => setIsTopUpOpen(false)}>Закрыть</Button>
-              <Link to="/profile" onClick={() => setIsTopUpOpen(false)}><Button size="sm">Открыть профиль</Button></Link>
+              <Button variant="outline" size="sm" onClick={closeTopUpDialog}>Закрыть</Button>
+              <Link to="/profile" onClick={closeTopUpDialog}><Button size="sm">Открыть профиль</Button></Link>
             </div>
           </div>
         </div>
@@ -2189,11 +3163,17 @@ export function ChatsPage() {
 
       {isCreateDialogOpen && (
         <div
-          className="fixed inset-0 z-[86] flex items-center justify-center bg-black/50 p-4"
-          onClick={() => setIsCreateDialogOpen(false)}
+          className={cn(
+            'fixed inset-0 z-[86] flex items-start justify-center overflow-y-auto bg-black/50 px-4 pb-6 pt-10 sm:items-center sm:p-4',
+            isCreateDialogClosing ? 'animate-[fadeOut_200ms_ease-in_forwards]' : 'animate-[fadeIn_180ms_ease-out]',
+          )}
+          onClick={closeCreateDialog}
         >
           <div
-            className="w-full max-w-xl rounded-2xl border bg-white shadow-2xl"
+            className={cn(
+              'flex w-full max-w-xl max-h-[calc(100dvh-2.5rem)] flex-col rounded-2xl border bg-white shadow-2xl sm:max-h-[calc(100dvh-4rem)]',
+              isCreateDialogClosing ? 'animate-[zoomOut_200ms_ease-in_forwards]' : 'animate-[zoomIn_220ms_ease-out]',
+            )}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="border-b px-6 py-5">
@@ -2203,7 +3183,7 @@ export function ChatsPage() {
               </p>
             </div>
 
-            <div className="px-6 py-5 space-y-5">
+            <div className="space-y-5 overflow-y-auto px-6 py-5">
               <div className="rounded-xl border bg-muted/20 p-4 space-y-2">
                 <p className="text-sm font-medium">Режим чата</p>
                 <Select
@@ -2325,7 +3305,7 @@ export function ChatsPage() {
             </div>
 
             <div className="border-t px-6 py-4 flex items-center justify-end gap-2 bg-muted/10 rounded-b-2xl">
-              <Button variant="outline" size="sm" onClick={() => setIsCreateDialogOpen(false)}>
+              <Button variant="outline" size="sm" onClick={closeCreateDialog}>
                 Отмена
               </Button>
               <Button
@@ -2339,12 +3319,146 @@ export function ChatsPage() {
           </div>
         </div>
       )}
+      {deleteDialogChat && (
+        <div
+          className={cn(
+            'fixed inset-0 z-[87] flex items-center justify-center bg-black/50 p-4',
+            deleteDialogClosing ? 'animate-[fadeOut_200ms_ease-in_forwards]' : 'animate-[fadeIn_180ms_ease-out]',
+          )}
+          onClick={closeDeleteDialog}
+        >
+          <div
+            className={cn(
+              'w-full max-w-md rounded-2xl border bg-white shadow-2xl',
+              deleteDialogClosing ? 'animate-[zoomOut_200ms_ease-in_forwards]' : 'animate-[zoomIn_220ms_ease-out]',
+            )}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="border-b px-6 py-5">
+              <h3 className="text-xl font-semibold">Удалить чат?</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Чат <span className="font-medium text-foreground">«{deleteDialogChat.title}»</span> будет удалён без возможности восстановления.
+              </p>
+            </div>
+
+            <div className="px-6 py-5 space-y-3">
+              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                Будут удалены сообщения, превью и история этого чата.
+              </div>
+            </div>
+
+            <div className="border-t px-6 py-4 flex items-center justify-end gap-2 bg-muted/10 rounded-b-2xl">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={closeDeleteDialog}
+                disabled={deleteChatMutation.isPending}
+              >
+                Отмена
+              </Button>
+              <Button
+                size="sm"
+                className="bg-red-600 text-white hover:bg-red-700"
+                onClick={() => void deleteChat(deleteDialogChat.id)}
+                disabled={deleteChatMutation.isPending}
+              >
+                {deleteChatMutation.isPending ? 'Удаляю...' : 'Удалить чат'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+      {transferDialogChat && (
+        <div
+          className={cn(
+            'fixed inset-0 z-[88] flex items-center justify-center bg-black/50 p-4',
+            transferDialogClosing ? 'animate-[fadeOut_200ms_ease-in_forwards]' : 'animate-[fadeIn_180ms_ease-out]',
+          )}
+          onClick={closeTransferDialog}
+        >
+          <div
+            className={cn(
+              'w-full max-w-md rounded-2xl border bg-white shadow-2xl',
+              transferDialogClosing ? 'animate-[zoomOut_200ms_ease-in_forwards]' : 'animate-[zoomIn_220ms_ease-out]',
+            )}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="border-b px-6 py-5">
+              <h3 className="text-xl font-semibold">Передать чат?</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Чат <span className="font-medium text-foreground">«{transferDialogChat.title}»</span> будет передан на другой аккаунт и исчезнет из вашего списка.
+              </p>
+            </div>
+
+            <div className="space-y-4 px-6 py-5">
+              <div className="space-y-2">
+                <label htmlFor="transfer-chat-identifier" className="text-sm font-medium">
+                  Логин или email получателя
+                </label>
+                <Input
+                  id="transfer-chat-identifier"
+                  value={transferIdentifier}
+                  onChange={(e) => setTransferIdentifier(e.target.value)}
+                  placeholder="@login или user@example.com"
+                  autoFocus
+                  disabled={transferChatMutation.isPending}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      void transferChat();
+                    }
+                  }}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Можно указать `@username`, `username` или email аккаунта, которому нужно передать проект.
+                </p>
+              </div>
+
+              {transferDialogError && (
+                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {transferDialogError}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 rounded-b-2xl border-t bg-muted/10 px-6 py-4">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={closeTransferDialog}
+                disabled={transferChatMutation.isPending}
+              >
+                Отмена
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => void transferChat()}
+                disabled={transferChatMutation.isPending}
+              >
+                {transferChatMutation.isPending ? 'Передаю...' : 'Передать чат'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
       {isPropertiesOpen && activeChat && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4" onClick={() => setIsPropertiesOpen(false)}>
-          <div className="w-full max-w-3xl rounded-xl border bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div
+          className={cn(
+            'fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4',
+            isPropertiesClosing ? 'animate-[fadeOut_200ms_ease-in_forwards]' : 'animate-[fadeIn_180ms_ease-out]',
+          )}
+          onClick={closePropertiesDialog}
+        >
+          <div
+            className={cn(
+              'w-full max-w-3xl rounded-xl border bg-white shadow-2xl',
+              isPropertiesClosing ? 'animate-[zoomOut_200ms_ease-in_forwards]' : 'animate-[zoomIn_220ms_ease-out]',
+            )}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="border-b px-5 py-4 flex items-start justify-between gap-4">
               <div><h2 className="text-lg font-semibold">Свойства чата</h2><p className="text-sm text-muted-foreground">{activeChat.title}</p></div>
-              <Button variant="ghost" size="sm" onClick={() => setIsPropertiesOpen(false)}>Закрыть</Button>
+              <Button variant="ghost" size="sm" onClick={closePropertiesDialog}>Закрыть</Button>
             </div>
             <div className="p-5 space-y-5 max-h-[70vh] overflow-y-auto">
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
@@ -2549,114 +3663,114 @@ export function ChatsPage() {
                   <div className="space-y-1">
                     <p className="text-sm font-medium">Инструменты чата</p>
                     <p className="text-xs text-muted-foreground">
-                      В обычном режиме можно быстро подключить инструменты, чтобы чат умел ходить в интернет,
-                      делать HTTP-запросы и вызывать другие встроенные функции.
+                      Подключите дополнительные инструменты для этого чата. В обычном режиме они работают напрямую,
+                      а в режиме агента добавляются поверх инструментов самого агента.
                     </p>
                   </div>
 
-                  {propertiesModeView !== 'general' ? (
-                    <div className="rounded-lg border bg-muted/20 px-3 py-3 text-sm text-muted-foreground">
-                      Сейчас выбран режим агента. Инструменты будут браться из самого агента, а выбранные здесь
-                      chat-tools снова заработают после возврата в режим “Общение”.
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                      <div className="space-y-2">
-                        <p className="text-xs uppercase tracking-wide text-muted-foreground">Подключено сейчас</p>
-                        {propertiesSelectedTools.length > 0 ? (
-                          <div className="flex flex-wrap gap-2">
-                            {propertiesSelectedTools.map((tool) => (
-                              <Badge key={tool.id} variant="outline" className="gap-1 rounded-full px-3 py-1">
-                                <span>{tool.name}</span>
-                                <button
-                                  type="button"
-                                  className="text-muted-foreground transition hover:text-foreground"
-                                  onClick={() => togglePropertiesTool(tool.id)}
-                                >
-                                  ×
-                                </button>
-                              </Badge>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="text-sm text-muted-foreground">
-                            Пока ничего не подключено. Чат будет отвечать как обычная модель без tool calling.
-                          </p>
-                        )}
+                  <div className="space-y-4">
+                    {propertiesModeView !== 'general' && (
+                      <div className="rounded-lg border bg-muted/20 px-3 py-3 text-sm text-muted-foreground">
+                        Сейчас выбран режим агента. Эти инструменты будут доступны как дополнительные:
+                        агент сможет использовать и свои встроенные tools, и выбранные здесь chat-tools.
                       </div>
+                    )}
 
-                      {quickConnectTools.length > 0 && (
-                        <div className="space-y-2">
-                          <p className="text-xs uppercase tracking-wide text-muted-foreground">Быстро подключить</p>
-                          <div className="flex flex-wrap gap-2">
-                            {quickConnectTools.map((tool) => {
-                              const isSelected = propertiesToolIds.includes(tool.id);
-                              return (
-                                <Button
-                                  key={tool.id}
-                                  type="button"
-                                  size="sm"
-                                  variant={isSelected ? 'primary' : 'outline'}
-                                  onClick={() => togglePropertiesTool(tool.id)}
-                                >
-                                  {isSelected ? 'Отключить' : 'Подключить'} {tool.name}
-                                </Button>
-                              );
-                            })}
-                          </div>
+                    <div className="space-y-2">
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Подключено сейчас</p>
+                      {propertiesSelectedTools.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {propertiesSelectedTools.map((tool) => (
+                            <Badge key={tool.id} variant="outline" className="gap-1 rounded-full px-3 py-1">
+                              <span>{tool.name}</span>
+                              <button
+                                type="button"
+                                className="text-muted-foreground transition hover:text-foreground"
+                                onClick={() => togglePropertiesTool(tool.id)}
+                              >
+                                ×
+                              </button>
+                            </Badge>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">
+                          Пока ничего не подключено. Будут доступны только встроенные возможности выбранной модели или агента.
+                        </p>
+                      )}
+                    </div>
+
+                    {quickConnectTools.length > 0 && (
+                      <div className="space-y-2">
+                        <p className="text-xs uppercase tracking-wide text-muted-foreground">Быстро подключить</p>
+                        <div className="flex flex-wrap gap-2">
+                          {quickConnectTools.map((tool) => {
+                            const isSelected = propertiesToolIds.includes(tool.id);
+                            return (
+                              <Button
+                                key={tool.id}
+                                type="button"
+                                size="sm"
+                                variant={isSelected ? 'primary' : 'outline'}
+                                onClick={() => togglePropertiesTool(tool.id)}
+                              >
+                                {isSelected ? 'Отключить' : 'Подключить'} {tool.name}
+                              </Button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-xs uppercase tracking-wide text-muted-foreground">Все доступные инструменты</p>
+                        <p className="text-xs text-muted-foreground">{propertiesToolIds.length} выбрано</p>
+                      </div>
+                      {propertiesAvailableTools.length > 0 ? (
+                        <div className="max-h-64 space-y-2 overflow-y-auto rounded-xl border bg-background p-2">
+                          {propertiesAvailableTools.map((tool) => {
+                            const isSelected = propertiesToolIds.includes(tool.id);
+                            return (
+                              <button
+                                key={tool.id}
+                                type="button"
+                                onClick={() => togglePropertiesTool(tool.id)}
+                                className={cn(
+                                  'w-full rounded-lg border px-3 py-3 text-left transition-colors',
+                                  isSelected
+                                    ? 'border-primary bg-primary/8 shadow-sm'
+                                    : 'border-border bg-background hover:border-primary/30 hover:bg-accent/40',
+                                )}
+                              >
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <p className="text-sm font-medium text-foreground">{tool.name}</p>
+                                    <p className="mt-1 break-all text-xs text-muted-foreground">{tool.slug}</p>
+                                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                                      {tool.description || 'Без дополнительного описания'}
+                                    </p>
+                                  </div>
+                                  <Badge variant={isSelected ? 'success' : 'secondary'}>
+                                    {isSelected ? 'Подключен' : 'Выключен'}
+                                  </Badge>
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="rounded-lg border bg-background px-3 py-4 text-sm text-muted-foreground">
+                          Сейчас нет доступных инструментов.
                         </div>
                       )}
-
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between gap-3">
-                          <p className="text-xs uppercase tracking-wide text-muted-foreground">Все доступные инструменты</p>
-                          <p className="text-xs text-muted-foreground">{propertiesToolIds.length} выбрано</p>
-                        </div>
-                        {propertiesAvailableTools.length > 0 ? (
-                          <div className="max-h-64 space-y-2 overflow-y-auto rounded-xl border bg-background p-2">
-                            {propertiesAvailableTools.map((tool) => {
-                              const isSelected = propertiesToolIds.includes(tool.id);
-                              return (
-                                <button
-                                  key={tool.id}
-                                  type="button"
-                                  onClick={() => togglePropertiesTool(tool.id)}
-                                  className={cn(
-                                    'w-full rounded-lg border px-3 py-3 text-left transition-colors',
-                                    isSelected
-                                      ? 'border-primary bg-primary/8 shadow-sm'
-                                      : 'border-border bg-background hover:border-primary/30 hover:bg-accent/40',
-                                  )}
-                                >
-                                  <div className="flex items-start justify-between gap-3">
-                                    <div className="min-w-0">
-                                      <p className="text-sm font-medium text-foreground">{tool.name}</p>
-                                      <p className="mt-1 break-all text-xs text-muted-foreground">{tool.slug}</p>
-                                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                                        {tool.description || 'Без дополнительного описания'}
-                                      </p>
-                                    </div>
-                                    <Badge variant={isSelected ? 'success' : 'secondary'}>
-                                      {isSelected ? 'Подключен' : 'Выключен'}
-                                    </Badge>
-                                  </div>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        ) : (
-                          <div className="rounded-lg border bg-background px-3 py-4 text-sm text-muted-foreground">
-                            Сейчас нет доступных инструментов.
-                          </div>
-                        )}
-                      </div>
-
-                      <p className="text-xs text-muted-foreground">
-                        Например, если включить <span className="font-mono">http-request</span>, чат сможет сам
-                        сходить по URL и принести ответ в диалог.
-                      </p>
                     </div>
-                  )}
+
+                    <p className="text-xs text-muted-foreground">
+                      Например, если включить <span className="font-mono">web-search-cascade</span>, агент сможет
+                      сначала собрать информацию из интернета, а потом использовать её в ответе или в генерации лендинга.
+                    </p>
+                  </div>
                 </div>
               </div>
 
@@ -2748,7 +3862,7 @@ export function ChatsPage() {
                 {propertiesError ?? ''}
               </div>
               <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={() => setIsPropertiesOpen(false)}>Отмена</Button>
+              <Button variant="outline" size="sm" onClick={closePropertiesDialog}>Отмена</Button>
               <Button size="sm" onClick={saveProperties} disabled={propertiesSaving}>{propertiesSaving ? 'Сохраняю...' : 'Сохранить'}</Button>
               </div>
             </div>

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
+import { CircleHelp } from 'lucide-react';
 import { Button } from '../ui/Button';
 
 interface ChatInputProps {
@@ -8,10 +9,18 @@ interface ChatInputProps {
   placeholder?: string;
   allowAttachments?: boolean;
   prefill?: { text: string; token: number } | null;
+  quickAction?: {
+    label: string;
+    onClick: () => void;
+    active?: boolean;
+    disabled?: boolean;
+  } | null;
 }
 
-const MAX_TEXTAREA_HEIGHT = 220;
-const MIN_TEXTAREA_HEIGHT = 88;
+const DESKTOP_MAX_TEXTAREA_HEIGHT = 220;
+const DESKTOP_MIN_TEXTAREA_HEIGHT = 88;
+const MOBILE_MAX_TEXTAREA_HEIGHT = 72;
+const MOBILE_MIN_TEXTAREA_HEIGHT = 24;
 
 export function ChatInput({
   onSend,
@@ -19,20 +28,34 @@ export function ChatInput({
   placeholder = 'Введите сообщение...',
   allowAttachments = false,
   prefill = null,
+  quickAction = null,
 }: ChatInputProps) {
   const [value, setValue] = useState('');
   const [files, setFiles] = useState<File[]>([]);
+  const [isMobile, setIsMobile] = useState(() => window.matchMedia('(max-width: 767px)').matches);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 767px)');
+    const handleChange = (event: MediaQueryListEvent) => setIsMobile(event.matches);
+    setIsMobile(media.matches);
+    media.addEventListener('change', handleChange);
+    return () => media.removeEventListener('change', handleChange);
+  }, []);
 
   useEffect(() => {
     const textarea = textareaRef.current;
     if (!textarea) return;
 
+    const minHeight = isMobile ? MOBILE_MIN_TEXTAREA_HEIGHT : DESKTOP_MIN_TEXTAREA_HEIGHT;
+    const maxHeight = isMobile ? MOBILE_MAX_TEXTAREA_HEIGHT : DESKTOP_MAX_TEXTAREA_HEIGHT;
+
     textarea.style.height = '0px';
-    const nextHeight = Math.min(textarea.scrollHeight, MAX_TEXTAREA_HEIGHT);
-    textarea.style.height = `${Math.max(nextHeight, MIN_TEXTAREA_HEIGHT)}px`;
-  }, [value]);
+    const nextHeight = Math.min(textarea.scrollHeight, maxHeight);
+    textarea.style.height = `${Math.max(nextHeight, minHeight)}px`;
+    textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
+  }, [isMobile, value]);
 
   useEffect(() => {
     if (!prefill) return;
@@ -119,8 +142,8 @@ export function ChatInput({
             onKeyDown={handleKeyDown}
             placeholder={placeholder}
             disabled={disabled}
-            rows={3}
-            className="block min-h-[88px] w-full resize-none border-0 bg-transparent px-0 py-0 text-[15px] leading-6 placeholder:text-muted-foreground focus:outline-none focus:ring-0 disabled:opacity-50"
+            rows={isMobile ? 1 : 3}
+            className="block min-h-6 w-full resize-none border-0 bg-transparent px-0 py-0 text-[15px] leading-6 placeholder:text-muted-foreground focus:outline-none focus:ring-0 disabled:opacity-50 md:min-h-[88px]"
           />
         </div>
 
@@ -138,6 +161,20 @@ export function ChatInput({
                 className="h-9 w-9 rounded-full border border-border/70 text-base font-semibold"
               >
                 +
+              </Button>
+            )}
+            {quickAction && (
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={quickAction.onClick}
+                disabled={disabled || quickAction.disabled}
+                size="icon"
+                aria-label={quickAction.label}
+                title={quickAction.label}
+                className="h-9 w-9 rounded-full border border-border/70 text-base font-semibold"
+              >
+                <CircleHelp className={`h-4 w-4 ${quickAction.active ? 'text-primary' : ''}`} />
               </Button>
             )}
             <p className="hidden text-xs text-muted-foreground sm:block">

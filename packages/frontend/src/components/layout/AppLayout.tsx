@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Shield } from 'lucide-react';
+import { Menu, Shield } from 'lucide-react';
 import { Link, useLocation, useNavigate, useOutlet } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useChatsList } from '../../hooks/useChats';
@@ -11,6 +11,21 @@ import { RouteTransitionShell, type RouteTransitionMode } from './RouteTransitio
 const DEFAULT_ROUTE_TRANSITION_MODE: RouteTransitionMode = 'soft';
 const MOBILE_MENU_CLOSE_MS = 220;
 const MOBILE_MENU_ITEM_STAGGER_MS = 28;
+const LAST_CHAT_SELECTION_STORAGE_KEY = 'llmstore.last-chat-selection';
+
+function hasPersistedActiveChat(): boolean {
+  if (typeof window === 'undefined') return false;
+
+  try {
+    const raw = window.localStorage.getItem(LAST_CHAT_SELECTION_STORAGE_KEY);
+    if (!raw) return false;
+
+    const parsed = JSON.parse(raw) as { activeChatId?: unknown };
+    return typeof parsed.activeChatId === 'string' && parsed.activeChatId.trim().length > 0;
+  } catch {
+    return false;
+  }
+}
 
 const navItems = [
   { label: 'Новости', href: '/news' },
@@ -30,10 +45,12 @@ export function AppLayout() {
   const outlet = useOutlet();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isMobileMenuClosing, setIsMobileMenuClosing] = useState(false);
-  const [isMobileChatOpen, setIsMobileChatOpen] = useState(false);
+  const [isMobileChatOpen, setIsMobileChatOpen] = useState(
+    () => window.location.pathname.startsWith('/chats') && hasPersistedActiveChat(),
+  );
   const mobileMenuTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isChatsPage = location.pathname.startsWith('/chats');
-  const { data: chats } = useChatsList(isChatsPage && isMobileMenuOpen);
+  const { data: chats } = useChatsList(isAuthenticated);
 
   const clearMobileMenuTimer = () => {
     if (mobileMenuTimerRef.current) {
@@ -56,6 +73,15 @@ export function AppLayout() {
       setIsMobileMenuClosing(false);
       mobileMenuTimerRef.current = null;
     }, MOBILE_MENU_CLOSE_MS);
+  };
+
+  const toggleMobileMenu = () => {
+    if (isMobileMenuOpen && !isMobileMenuClosing) {
+      closeMobileMenu();
+      return;
+    }
+
+    openMobileMenu();
   };
 
   const handleLogout = async () => {
@@ -88,6 +114,17 @@ export function AppLayout() {
     closeMobileMenu();
   };
 
+  const openMobileChatsSection = () => {
+    if (!isChatsPage) {
+      closeMobileMenu();
+      navigate('/chats');
+      return;
+    }
+
+    window.dispatchEvent(new CustomEvent('show-chat-list'));
+    closeMobileMenu();
+  };
+
   useEffect(() => {
     const handler = (event: Event) => {
       const custom = event as CustomEvent<boolean>;
@@ -98,9 +135,31 @@ export function AppLayout() {
     return () => window.removeEventListener('mobile-chat-active', handler as EventListener);
   }, []);
 
+  useEffect(() => {
+    if (!isChatsPage) {
+      setIsMobileChatOpen(false);
+      return;
+    }
+
+    if (hasPersistedActiveChat()) {
+      setIsMobileChatOpen(true);
+    }
+  }, [isChatsPage, location.key]);
+
   useEffect(() => () => clearMobileMenuTimer(), []);
 
+  useEffect(() => {
+    if (!isMobileMenuOpen) return;
+    closeMobileMenu();
+  }, [location.pathname, location.search]);
+
   const goToMobileChatsList = () => {
+    try {
+      window.localStorage.removeItem(LAST_CHAT_SELECTION_STORAGE_KEY);
+    } catch {
+      // Ignore storage issues and still return to the chat list.
+    }
+
     if (!isChatsPage) {
       navigate('/chats');
       return;
@@ -145,19 +204,20 @@ export function AppLayout() {
   const profileLabel = [profileBaseLabel, profileBalanceLabel].filter(Boolean).join(' ');
   const visibleNavItems = navItems.filter((item) => !item.requiresAuth || isAuthenticated);
 
-  const mobileNavActions = visibleNavItems.map((item) => ({
+  const mobileNavActions = visibleNavItems.map((item, index) => ({
     key: item.href,
     render: item.href === '/chats' ? (
       <button
         type="button"
+        onClick={openMobileChatsSection}
         className={cn(
-          'mobile-popover-item group flex w-full items-center justify-between rounded-[18px] border px-3.5 py-2.5 text-left text-sm font-medium transition-colors',
+          'mobile-popover-item group flex w-full items-center justify-between rounded-[18px] border px-3 py-2.5 text-left text-[0.98rem] font-medium leading-tight tracking-[-0.015em] transition-all',
           isMobileMenuClosing ? 'mobile-popover-item--out' : 'mobile-popover-item--in',
           isNavItemActive(item.href)
-            ? 'border-slate-200 bg-slate-100 text-slate-950'
-            : 'border-slate-200/80 bg-white/80 text-slate-700 hover:bg-slate-50 hover:text-slate-950',
+            ? 'border-cyan-300/60 bg-[linear-gradient(135deg,rgba(16,24,40,0.95),rgba(16,40,48,0.92))] text-white shadow-[0_0_0_1px_rgba(103,232,249,0.35),0_0_34px_rgba(45,212,191,0.22)]'
+            : 'border-transparent bg-transparent text-white/88 hover:text-white',
         )}
-        onClick={openChatsSection}
+        style={{ animationDelay: `${index * MOBILE_MENU_ITEM_STAGGER_MS}ms` }}
       >
         <span>{item.label}</span>
         <span className="text-xs text-slate-400 transition-transform group-hover:translate-x-0.5">↗</span>
@@ -166,13 +226,13 @@ export function AppLayout() {
       <Link
         to={item.href}
         className={cn(
-          'mobile-popover-item group flex w-full items-center justify-between rounded-[18px] border px-3.5 py-2.5 text-sm font-medium transition-colors',
+          'mobile-popover-item group flex w-full items-center justify-between rounded-[18px] border px-3 py-2.5 text-[0.98rem] font-medium leading-tight tracking-[-0.015em] transition-all',
           isMobileMenuClosing ? 'mobile-popover-item--out' : 'mobile-popover-item--in',
           isNavItemActive(item.href)
-            ? 'border-slate-200 bg-slate-100 text-slate-950'
-            : 'border-slate-200/80 bg-white/80 text-slate-700 hover:bg-slate-50 hover:text-slate-950',
+            ? 'border-cyan-300/60 bg-[linear-gradient(135deg,rgba(16,24,40,0.95),rgba(16,40,48,0.92))] text-white shadow-[0_0_0_1px_rgba(103,232,249,0.35),0_0_34px_rgba(45,212,191,0.22)]'
+            : 'border-transparent bg-transparent text-white/88 hover:text-white',
         )}
-        onClick={closeMobileMenu}
+        style={{ animationDelay: `${index * MOBILE_MENU_ITEM_STAGGER_MS}ms` }}
       >
         <span>{item.label}</span>
         <span className="text-xs text-slate-400 transition-transform group-hover:translate-x-0.5">↗</span>
@@ -185,22 +245,22 @@ export function AppLayout() {
 
   return (
     <div className={cn('min-h-screen flex flex-col', isChatsPage && 'h-screen overflow-hidden')}>
-      <header className="sticky top-0 z-50 border-b bg-white">
-        <div className="container mx-auto flex h-16 items-center justify-between px-4">
-          <Link to="/" className="relative top-[-2px] inline-flex items-center gap-2.5 text-xl font-bold text-primary">
+      <header className="sticky top-0 z-50 border-b border-slate-200 bg-white md:border-slate-200 md:bg-white">
+        <div className="container mx-auto flex h-16 items-center justify-between bg-[radial-gradient(circle_at_top_right,rgba(45,212,191,0.18),transparent_34%),linear-gradient(135deg,#0b1220,#111827_58%,#0f172a)] px-4 text-white md:bg-none md:text-inherit">
+          <Link to="/" className="relative top-[-2px] inline-flex items-center gap-2.5 text-xl font-bold text-white md:text-primary">
             <img
               src="/site-icon-192.png"
               alt="LLMStore.pro"
-              className="h-10 w-10 object-cover shadow-sm"
+              className="h-9 w-9 rounded-lg object-cover shadow-[0_0_0_1px_rgba(255,255,255,0.12)] md:h-10 md:w-10 md:rounded-none md:shadow-sm"
             />
-            <span>LLMStore.pro</span>
+            <span className="tracking-[-0.04em]">LLMStore.pro</span>
           </Link>
 
           <div className="flex items-center gap-2 md:hidden">
             {isChatsPage && isMobileChatOpen && (
               <button
                 type="button"
-                className="rounded-md border px-3 py-1.5 text-sm"
+                className="inline-flex items-center gap-2 rounded-full border border-cyan-300/45 bg-[linear-gradient(135deg,rgba(12,20,34,0.96),rgba(15,32,44,0.9))] px-4 py-2 text-sm font-semibold tracking-[-0.02em] text-white shadow-[0_0_0_1px_rgba(103,232,249,0.18),0_0_28px_rgba(45,212,191,0.18),inset_0_1px_0_rgba(255,255,255,0.08)] transition-transform active:scale-[0.98]"
                 onClick={goToMobileChatsList}
                 aria-label="Назад к списку чатов"
               >
@@ -209,17 +269,14 @@ export function AppLayout() {
             )}
             <button
               type="button"
-              className={cn('header-menu-toggle', isMobileMenuIconOpen && 'is-open')}
-              onClick={openMobileMenu}
+              className="inline-flex items-center gap-2 rounded-full border border-cyan-300/45 bg-[linear-gradient(135deg,rgba(12,20,34,0.96),rgba(15,32,44,0.9))] px-4 py-2 text-lg font-semibold tracking-[-0.02em] text-white shadow-[0_0_0_1px_rgba(103,232,249,0.18),0_0_28px_rgba(45,212,191,0.18),inset_0_1px_0_rgba(255,255,255,0.08)] transition-transform active:scale-[0.98]"
+              onClick={toggleMobileMenu}
               aria-label="Открыть меню"
               aria-expanded={isMobileMenuOpen}
             >
               <span className="sr-only">Меню</span>
-              <span className="header-menu-toggle__box" aria-hidden="true">
-                <span className="header-menu-toggle__bar header-menu-toggle__bar--1" />
-                <span className="header-menu-toggle__bar header-menu-toggle__bar--2" />
-                <span className="header-menu-toggle__bar header-menu-toggle__bar--3" />
-              </span>
+              <Menu className="h-5 w-5 text-cyan-200" />
+              <span aria-hidden="true">Меню</span>
             </button>
           </div>
 
@@ -301,21 +358,22 @@ export function AppLayout() {
       {isMobileMenuOpen && (
         <div
           className={cn(
-            'fixed inset-0 z-[60] md:hidden',
+            'fixed inset-x-0 bottom-0 top-16 z-40 md:hidden',
             isMobileMenuClosing ? 'animate-[fadeOut_220ms_ease-in_forwards]' : 'animate-[fadeIn_180ms_ease-out]',
           )}
           onClick={closeMobileMenu}
         >
-          <div className="absolute inset-0 bg-[rgba(15,23,42,0.32)] backdrop-blur-[2px]" />
-          <div className="mobile-popover-shell pointer-events-none absolute inset-x-3 top-3 flex justify-end">
+          <div className="absolute inset-0 bg-[rgba(3,7,18,0.72)] backdrop-blur-[10px]" />
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_78%_22%,rgba(45,212,191,0.2),transparent_24%),radial-gradient(circle_at_72%_54%,rgba(103,232,249,0.14),transparent_22%),radial-gradient(circle_at_38%_70%,rgba(255,255,255,0.08),transparent_14%),radial-gradient(circle_at_64%_78%,rgba(255,255,255,0.08),transparent_12%),linear-gradient(180deg,rgba(7,12,24,0.96),rgba(6,10,20,0.98))]" />
+          <div className="mobile-popover-shell pointer-events-none absolute inset-x-0 top-0 flex justify-end">
             <div
               className={cn(
-                'mobile-popover-panel pointer-events-auto w-full max-w-[21rem] max-h-[calc(100dvh-1rem)] overflow-y-auto rounded-[24px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.97))] p-3 shadow-[0_28px_90px_-34px_rgba(15,23,42,0.45)]',
+                'mobile-popover-panel pointer-events-auto h-full w-full overflow-y-auto border-t border-white/10 bg-transparent px-4 pb-4 pt-3 text-white [&_p]:text-white/80 [&_a]:text-white [&_button]:text-white',
                 isMobileMenuClosing ? 'mobile-popover-panel--out' : 'mobile-popover-panel--in',
               )}
               onClick={(event) => event.stopPropagation()}
             >
-              <div className="mb-3 flex items-start justify-between gap-3">
+              <div className="mb-3 flex items-start justify-between gap-3 text-white">
                 <div>
                   <p className="text-[11px] uppercase tracking-[0.22em] text-slate-400">Навигация</p>
                   <p className="mt-0.5 text-[1.6rem] font-semibold leading-none text-slate-950">Меню</p>
@@ -323,7 +381,7 @@ export function AppLayout() {
                 <Button variant="ghost" size="sm" onClick={closeMobileMenu}>Закрыть</Button>
               </div>
 
-              <nav className="space-y-1.5">
+              <nav className="max-w-[24rem] space-y-1">
                 {mobileNavActions.map((item, index) => (
                   <div
                     key={item.key}
@@ -335,13 +393,13 @@ export function AppLayout() {
               </nav>
 
               {isChatsPage && (
-                <div className="mt-4 rounded-[20px] border border-slate-200/80 bg-white/75 p-3">
+                <div className="mt-4 rounded-[22px] border border-white/10 bg-white/[0.04] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
                   <div className="mobile-popover-item mobile-popover-item--in" style={{ animationDelay: `${mobileActionDelayBase * MOBILE_MENU_ITEM_STAGGER_MS}ms` }}>
                     <p className="text-xs uppercase tracking-[0.22em] text-slate-400">Список чатов</p>
                   </div>
                   {(!chats || chats.length === 0) ? (
                     <div
-                      className="mobile-popover-item mobile-popover-item--in mt-3 space-y-3"
+                      className="mobile-popover-item mobile-popover-item--in mt-2 space-y-2"
                       style={{ animationDelay: `${(mobileActionDelayBase + 1) * MOBILE_MENU_ITEM_STAGGER_MS}ms` }}
                     >
                       <p className="text-sm text-slate-600">Пока нет чатов</p>
@@ -362,13 +420,13 @@ export function AppLayout() {
                       </Button>
                     </div>
                   ) : (
-                    <div className="mt-2.5 max-h-36 space-y-1.5 overflow-y-auto pr-1">
+                    <div className="mt-2 max-h-32 space-y-1 overflow-y-auto pr-1">
                       {chats.map((chat, index) => (
                         <button
                           key={chat.id}
                           type="button"
                           className={cn(
-                            'mobile-popover-item flex w-full rounded-[18px] border border-slate-200/80 bg-white px-3 py-2 text-left text-[0.92rem] text-slate-700 transition-colors hover:bg-slate-50 hover:text-slate-950',
+                            'mobile-popover-item flex w-full rounded-[18px] border border-white/10 bg-white/[0.03] px-3 py-2 text-left text-[0.96rem] text-white/78 transition-colors hover:bg-white/[0.06] hover:text-white',
                             isMobileMenuClosing ? 'mobile-popover-item--out' : 'mobile-popover-item--in',
                           )}
                           style={{ animationDelay: `${(mobileActionDelayBase + 1 + index) * MOBILE_MENU_ITEM_STAGGER_MS}ms` }}
@@ -382,24 +440,26 @@ export function AppLayout() {
                 </div>
               )}
 
-              <div className="mt-4 border-t border-slate-200/80 pt-3">
+              <div className="mt-4 border-t border-white/12 pt-4">
                 {isAuthenticated ? (
                   <div className="space-y-1.5">
-                    <div
+                    <Link
+                      to="/profile"
                       className={cn(
-                        'mobile-popover-item rounded-[18px] border border-slate-200/80 bg-white/80 px-3.5 py-2.5 text-sm text-slate-700',
+                        'mobile-popover-item block rounded-[18px] border border-cyan-300/20 bg-[linear-gradient(135deg,rgba(12,20,34,0.78),rgba(15,32,44,0.62))] px-3.5 py-2.5 text-sm font-medium text-cyan-100 transition-colors hover:border-cyan-300/40 hover:text-white',
                         isMobileMenuClosing ? 'mobile-popover-item--out' : 'mobile-popover-item--in',
                       )}
                       style={{ animationDelay: `${(mobileActionDelayBase + 2) * MOBILE_MENU_ITEM_STAGGER_MS}ms` }}
+                      onClick={closeMobileMenu}
                     >
                       {profileLabel}
-                    </div>
+                    </Link>
 
                     {isAdmin && (
                       <Link
                         to="/admin"
                         className={cn(
-                          'mobile-popover-item flex w-full rounded-[18px] border border-slate-200/80 bg-white/80 px-3.5 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:text-slate-950',
+                          'mobile-popover-item flex w-full rounded-[18px] border border-transparent px-3 py-2.5 text-[0.98rem] font-medium leading-tight tracking-[-0.015em] text-white/82 transition-colors hover:text-white',
                           isMobileMenuClosing ? 'mobile-popover-item--out' : 'mobile-popover-item--in',
                         )}
                         style={{ animationDelay: `${(mobileActionDelayBase + 3) * MOBILE_MENU_ITEM_STAGGER_MS}ms` }}
@@ -409,26 +469,14 @@ export function AppLayout() {
                       </Link>
                     )}
 
-                    <Link
-                      to="/profile"
-                      className={cn(
-                        'mobile-popover-item flex w-full rounded-[18px] border border-slate-200/80 bg-white/80 px-3.5 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:text-slate-950',
-                        isMobileMenuClosing ? 'mobile-popover-item--out' : 'mobile-popover-item--in',
-                      )}
-                      style={{ animationDelay: `${(mobileActionDelayBase + 4) * MOBILE_MENU_ITEM_STAGGER_MS}ms` }}
-                      onClick={closeMobileMenu}
-                    >
-                      Профиль
-                    </Link>
-
                     <div
                       className={cn(
                         'mobile-popover-item',
                         isMobileMenuClosing ? 'mobile-popover-item--out' : 'mobile-popover-item--in',
                       )}
-                      style={{ animationDelay: `${(mobileActionDelayBase + 5) * MOBILE_MENU_ITEM_STAGGER_MS}ms` }}
+                      style={{ animationDelay: `${(mobileActionDelayBase + 4) * MOBILE_MENU_ITEM_STAGGER_MS}ms` }}
                     >
-                      <Button className="w-full rounded-[18px]" variant="outline" size="sm" onClick={handleLogout}>Выйти</Button>
+                      <Button className="w-full rounded-[18px] border-cyan-300/35 bg-[linear-gradient(135deg,rgba(12,20,34,0.94),rgba(15,32,44,0.88))] text-white shadow-[0_0_0_1px_rgba(103,232,249,0.14),0_0_22px_rgba(45,212,191,0.12),inset_0_1px_0_rgba(255,255,255,0.06)] hover:border-cyan-300/50 hover:bg-[linear-gradient(135deg,rgba(16,26,42,0.98),rgba(18,40,54,0.94))] hover:text-white" variant="outline" size="sm" onClick={handleLogout}>Выйти</Button>
                     </div>
                   </div>
                 ) : (
@@ -440,7 +488,15 @@ export function AppLayout() {
                       )}
                       style={{ animationDelay: `${(mobileActionDelayBase + 2) * MOBILE_MENU_ITEM_STAGGER_MS}ms` }}
                     >
-                      <Link to="/login" onClick={closeMobileMenu}><Button className="w-full" variant="ghost" size="sm">Войти</Button></Link>
+                      <Link to="/login" onClick={closeMobileMenu}>
+                        <Button
+                          className="w-full rounded-[18px] border border-white/12 bg-[linear-gradient(135deg,rgba(12,20,34,0.82),rgba(15,32,44,0.68))] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] hover:border-cyan-300/28 hover:bg-[linear-gradient(135deg,rgba(16,26,42,0.94),rgba(18,40,54,0.88))] hover:text-white"
+                          variant="outline"
+                          size="sm"
+                        >
+                          Войти
+                        </Button>
+                      </Link>
                     </div>
                     <div
                       className={cn(
@@ -449,7 +505,15 @@ export function AppLayout() {
                       )}
                       style={{ animationDelay: `${(mobileActionDelayBase + 3) * MOBILE_MENU_ITEM_STAGGER_MS}ms` }}
                     >
-                      <Link to="/register" onClick={closeMobileMenu}><Button className="w-full" variant="outline" size="sm">Регистрация</Button></Link>
+                      <Link to="/register" onClick={closeMobileMenu}>
+                        <Button
+                          className="w-full rounded-[18px] border-cyan-300/35 bg-[linear-gradient(135deg,rgba(12,20,34,0.94),rgba(15,32,44,0.88))] text-white shadow-[0_0_0_1px_rgba(103,232,249,0.14),0_0_22px_rgba(45,212,191,0.12),inset_0_1px_0_rgba(255,255,255,0.06)] hover:border-cyan-300/50 hover:bg-[linear-gradient(135deg,rgba(16,26,42,0.98),rgba(18,40,54,0.94))] hover:text-white"
+                          variant="outline"
+                          size="sm"
+                        >
+                          Регистрация
+                        </Button>
+                      </Link>
                     </div>
                   </div>
                 )}
@@ -490,3 +554,5 @@ export function AppLayout() {
     </div>
   );
 }
+
+
