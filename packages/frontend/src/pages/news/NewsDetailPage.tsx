@@ -128,11 +128,13 @@ export function NewsDetailPage() {
               className="group mt-8 block w-full overflow-hidden rounded-[28px] border border-slate-200 bg-slate-50 text-left"
               onClick={() => setIsLeadImageOpen(true)}
             >
-              <img
-                src={leadImage.url}
-                alt={article.title}
-                className="h-auto w-full object-contain transition duration-300 group-hover:scale-[1.01]"
-              />
+              <div className="flex justify-center px-4 py-4 md:px-6 md:py-6">
+                <img
+                  src={leadImage.url}
+                  alt={article.title}
+                  className="mx-auto h-auto w-auto max-w-full object-contain transition duration-300 group-hover:scale-[1.01]"
+                />
+              </div>
               <div className="flex items-center justify-between gap-4 border-t border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
                 <span className="truncate">Нажмите, чтобы открыть изображение полностью</span>
                 <span className="shrink-0 text-xs uppercase tracking-[0.18em] text-slate-400">Full size</span>
