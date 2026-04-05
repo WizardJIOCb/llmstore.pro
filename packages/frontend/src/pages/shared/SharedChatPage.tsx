@@ -331,7 +331,7 @@ export function SharedChatPage() {
       }
 
       setStreamEvents((prev) => ([
-        ...prev.slice(-11),
+        ...prev.slice(-47),
         {
           id: `${eventName}-${payload.ts ?? Date.now()}-${prev.length}`,
           event: eventName,
@@ -501,6 +501,13 @@ export function SharedChatPage() {
 
     return lastUserIndex;
   }, [messages, isPendingSharedReply]);
+  const pendingAssistantMessageIndex = useMemo(() => {
+    if (!isPendingSharedReply || !lastAssistantMessageId) return -1;
+
+    return messages.findIndex((message) => (
+      message.role === 'assistant' && message.id === lastAssistantMessageId
+    ));
+  }, [messages, isPendingSharedReply, lastAssistantMessageId]);
 
   useEffect(() => {
     const nextCount = displayedStreamEvents.length;
@@ -750,7 +757,7 @@ export function SharedChatPage() {
               <p className="mt-1 text-xs opacity-80">{LIVE_PARTIAL_RESULT_NOTICE}</p>
             </div>
           )}
-          {isPendingSharedReply && index === pendingUserMessageIndex && (
+          {isPendingSharedReply && index === pendingAssistantMessageIndex && (
             <div ref={pendingProgressAnchorRef} className="space-y-3">
               <ChatThinkingBubble
                 label={pendingLabel}
@@ -765,7 +772,22 @@ export function SharedChatPage() {
               />
             </div>
           )}
-          </div>
+          {isPendingSharedReply && index === pendingUserMessageIndex && pendingAssistantMessageIndex === -1 && (
+            <div ref={pendingProgressAnchorRef} className="space-y-3">
+              <ChatThinkingBubble
+                label={pendingLabel}
+                detail={pendingDetail}
+                startedAt={data.pendingRun?.started_at ?? lastMessage?.created_at ?? null}
+              />
+              <ChatLiveProgressPanel
+                events={displayedStreamEvents}
+                connected={streamConnected}
+                connectedLabel="SSE подключен"
+                disconnectedLabel="Ожидаю переподключение к SSE"
+              />
+            </div>
+          )}
+                    </div>
         ))}
         <div ref={messagesEndAnchorRef} aria-hidden="true" />
       </div>

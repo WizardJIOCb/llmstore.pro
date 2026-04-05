@@ -8,7 +8,7 @@ import { NotFoundError } from '../../middleware/error-handler.js';
 const HEARTBEAT_MS = 15_000;
 const subscribers = new Map<string, Set<SSEEmitter>>();
 const eventHistory = new Map<string, Array<{ event: string; data: Record<string, unknown> }>>();
-const MAX_EVENT_HISTORY = 32;
+const MAX_EVENT_HISTORY = 96;
 
 function getStreamKey(chatId: string, userId: string) {
   return `chat:${userId}:${chatId}`;

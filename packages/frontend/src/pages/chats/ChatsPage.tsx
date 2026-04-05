@@ -1059,7 +1059,7 @@ export function ChatsPage() {
       }
 
       setStreamEvents((prev) => [
-        ...prev.slice(-19),
+        ...prev.slice(-47),
         {
           id: `${eventName}-${payload.ts ?? Date.now()}-${prev.length}`,
           event: eventName,
@@ -3282,6 +3282,20 @@ export function ChatsPage() {
                       <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                         <p className="font-medium">Промежуточный результат</p>
                         <p className="mt-1 text-xs opacity-80">{LIVE_PARTIAL_RESULT_NOTICE}</p>
+                      </div>
+                    )}
+                    {activeChat?.pending_run && isPendingRunLive(activeChat.pending_run) && (
+                      <div className="mb-3 space-y-3">
+                        <ChatThinkingBubble
+                          label={assistantResponseSlotForActiveChat.label}
+                          detail={assistantResponseSlotForActiveChat.detail}
+                          startedAt={assistantResponseSlotForActiveChat.startedAt}
+                        />
+                        <ChatLiveProgressPanel
+                          events={streamEvents}
+                          connected={streamConnected}
+                          trailing={isSubmittingMessage ? <ChatLiveProgressTrailingBusy /> : null}
+                        />
                       </div>
                     )}
                     <ChatMessage
