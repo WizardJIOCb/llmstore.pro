@@ -2065,6 +2065,76 @@ ${agent.description.trim()}`);
   let errorMessage: string | undefined;
   let gotTerminalAssistantMessage = false;
   let finalOutputWasTruncated = false;
+  let partialAssistantMessageId: string | null = null;
+
+  const persistPartialAssistantOutput = async (
+    rawOutput: string,
+    options?: { markTruncated?: boolean },
+  ) => {
+    if (!syncToChats || !syncedConversationId) return;
+    if (!rawOutput.trim()) return;
+
+    let nextContent = rawOutput;
+    let nextCodingReport: CodingReport | null = null;
+
+    const parsed = extractCodingReport(rawOutput);
+    nextContent = parsed.cleanText;
+    nextCodingReport = parsed.report;
+
+    if (!nextContent && nextCodingReport?.summary) {
+      nextContent = nextCodingReport.summary;
+    }
+
+    if (!nextContent) {
+      nextContent = extractPartialCodingSummary(rawOutput) ?? rawOutput;
+    }
+
+    if (!nextContent.trim()) return;
+
+    if (options?.markTruncated) {
+      nextContent = `${nextContent.trim()}\n\n[Ответ всё ещё был обрезан по лимиту длины. Можно попросить продолжить или сузить задачу.]`;
+    }
+
+    const usagePayload = totalUsage.total_tokens > 0
+      ? {
+        ...totalUsage,
+        estimated_cost: estimateCost(modelId, totalUsage.prompt_tokens, totalUsage.completion_tokens),
+        model: modelId,
+        usd_to_rub_rate: await getUsdToRubRate(),
+        tool_traces: toolTraces,
+        coding_report: nextCodingReport,
+      }
+      : (
+        toolTraces.length > 0 || nextCodingReport
+          ? {
+            tool_traces: toolTraces,
+            coding_report: nextCodingReport,
+          }
+          : null
+      );
+
+    const nextLatencyMs = Date.now() - startTime;
+
+    if (!partialAssistantMessageId) {
+      const [inserted] = await db.insert(chatConversationMessages).values({
+        conversation_id: syncedConversationId,
+        role: 'assistant',
+        content_text: nextContent,
+        run_id: run.id,
+        usage_json: usagePayload as Record<string, unknown> | null,
+        latency_ms: nextLatencyMs,
+      }).returning({ id: chatConversationMessages.id });
+
+      partialAssistantMessageId = inserted?.id ?? null;
+      return;
+    }
+
+    await db.update(chatConversationMessages).set({
+      content_text: nextContent,
+      usage_json: usagePayload as Record<string, unknown> | null,
+      latency_ms: nextLatencyMs,
+    }).where(eq(chatConversationMessages.id, partialAssistantMessageId));
+  };
 
   const continueFinalAssistantOutput = async (
     currentOutput: string,
@@ -2326,6 +2396,7 @@ ${agent.description.trim()}`);
       ) => finishReason === 'length' || isRecoveredPreviewIncomplete(output);
 
       if (finalOutput && shouldContinueLongOutput(finalOutput, choice.finish_reason)) {
+        await persistPartialAssistantOutput(finalOutput, { markTruncated: true });
         finalOutputWasTruncated = true;
         for (let continuationIndex = 1; continuationIndex <= MAX_FINAL_OUTPUT_CONTINUATIONS; continuationIndex += 1) {
           const continuation = await continueFinalAssistantOutput(finalOutput, continuationIndex);
@@ -2336,11 +2407,16 @@ ${agent.description.trim()}`);
           finalOutput = mergeAssistantOutputChunks(finalOutput, chunk);
           combinedAssistantOutput = finalOutput;
           finalFinishReason = continuation.finishReason;
+          await persistPartialAssistantOutput(finalOutput, {
+            markTruncated: shouldContinueLongOutput(finalOutput, continuation.finishReason),
+          });
           if (!shouldContinueLongOutput(finalOutput, continuation.finishReason)) {
             finalOutputWasTruncated = false;
             break;
           }
         }
+      } else if (finalOutput) {
+        await persistPartialAssistantOutput(finalOutput);
       }
       if (finalOutput) {
         const parsed = extractCodingReport(finalOutput);
@@ -2444,14 +2520,22 @@ ${agent.description.trim()}`);
       );
 
     if (runStatus === 'completed' && finalOutput.trim().length > 0) {
-      await db.insert(chatConversationMessages).values({
-        conversation_id: syncedConversationId,
-        role: 'assistant',
-        content_text: finalOutput,
-        run_id: run.id,
-        usage_json: usagePayload as Record<string, unknown> | null,
-        latency_ms: latencyMs,
-      });
+      if (partialAssistantMessageId) {
+        await db.update(chatConversationMessages).set({
+          content_text: finalOutput,
+          usage_json: usagePayload as Record<string, unknown> | null,
+          latency_ms: latencyMs,
+        }).where(eq(chatConversationMessages.id, partialAssistantMessageId));
+      } else {
+        await db.insert(chatConversationMessages).values({
+          conversation_id: syncedConversationId,
+          role: 'assistant',
+          content_text: finalOutput,
+          run_id: run.id,
+          usage_json: usagePayload as Record<string, unknown> | null,
+          latency_ms: latencyMs,
+        });
+      }
     }
 
     await db.update(chatConversations).set({
