@@ -40,6 +40,7 @@ interface SharedMessageItem {
   usage?: Record<string, unknown> | null;
   project_run_count?: number | null;
   attachments?: ChatAttachment[];
+  created_at?: string;
 }
 
 interface SharedPageData {
@@ -178,6 +179,18 @@ export function SharedChatPage() {
     },
   });
 
+  const shouldRefetchSharedChat = (sharedData?: SharedPageData) => {
+    if (!sharedData || sharedData.messages.length === 0) return false;
+
+    const lastMessage = sharedData.messages[sharedData.messages.length - 1];
+    if (!lastMessage || lastMessage.role !== 'user' || !lastMessage.created_at) return false;
+
+    const ageMs = Date.now() - Date.parse(lastMessage.created_at);
+    if (Number.isNaN(ageMs)) return false;
+
+    return ageMs <= 10 * 60_000;
+  };
+
   const { data, isLoading, error } = useQuery({
     queryKey: ['shared-chat-any', token],
     queryFn: async () => {
@@ -200,6 +213,7 @@ export function SharedChatPage() {
             usage: m.usage ?? null,
             project_run_count: m.project_run_count ?? 0,
             attachments: extractAttachments(m.usage ?? null),
+            created_at: m.created_at,
           })),
         };
       } catch {
@@ -215,6 +229,11 @@ export function SharedChatPage() {
       }
     },
     enabled: !!token,
+    refetchInterval: (query) => {
+      const sharedData = query.state.data as SharedPageData | undefined;
+      if (sendFixMessageMutation.isPending) return 4_000;
+      return shouldRefetchSharedChat(sharedData) ? 4_000 : false;
+    },
   });
 
   if (isLoading) {

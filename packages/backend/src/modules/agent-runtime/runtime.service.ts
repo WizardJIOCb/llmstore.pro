@@ -1746,7 +1746,6 @@ export async function startRun(
   const modelId = normalizeOpenRouterModelId(
     input.model_external_id ?? runtimeConfig.model_external_id ?? DEFAULT_MODEL,
   );
-  const llmTimeoutMs = isCodingModel(modelId) ? CODING_AGENT_OPENROUTER_TIMEOUT_MS : undefined;
   const maxIterations = runtimeConfig.max_iterations ?? DEFAULT_MAX_ITERATIONS;
   const effectiveTemperature = strictPreviewEdit
     ? Math.min(runtimeConfig.temperature ?? 0.3, 0.05)
@@ -1857,6 +1856,7 @@ ${agent.description.trim()}`);
       parameters: t.input_schema,
     },
   }));
+  const llmTimeoutMs = resolveAgentOpenRouterTimeoutMs(modelId, toolParams.length);
 
   logger.info({ runId: run.id, agentId, toolCount: toolParams.length, toolNames: tools.map(t => t.slug) }, 'Starting agent run');
 
@@ -2539,7 +2539,22 @@ const DEFAULT_GENERAL_MODEL = 'openai/gpt-4o-mini';
 const CHAT_TOOL_RUNTIME_AGENT_SLUG_PREFIX = 'chat-tool-runtime-';
 const MAX_CHAT_TOOL_IDS = 64;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const CODING_AGENT_OPENROUTER_TIMEOUT_MS = 120_000;
+const AGENT_OPENROUTER_TIMEOUT_MS = 3 * 60_000;
+const TOOL_AGENT_OPENROUTER_TIMEOUT_MS = 8 * 60_000;
+const CODING_AGENT_OPENROUTER_TIMEOUT_MS = 8 * 60_000;
+const GENERAL_CHAT_OPENROUTER_TIMEOUT_MS = 3 * 60_000;
+
+function resolveAgentOpenRouterTimeoutMs(modelId: string, toolCount: number): number {
+  if (isCodingModel(modelId)) {
+    return CODING_AGENT_OPENROUTER_TIMEOUT_MS;
+  }
+
+  if (toolCount > 0) {
+    return TOOL_AGENT_OPENROUTER_TIMEOUT_MS;
+  }
+
+  return AGENT_OPENROUTER_TIMEOUT_MS;
+}
 
 type ChatMode = 'general' | 'agent';
 
@@ -4667,6 +4682,8 @@ export async function sendChatMessage(
           ],
           temperature: 0.5,
           max_tokens: 2048,
+        }, {
+          timeoutMs: GENERAL_CHAT_OPENROUTER_TIMEOUT_MS,
         });
         latencyMs = Date.now() - startedAt;
         const rawAssistant = response.choices?.[0]?.message?.content;

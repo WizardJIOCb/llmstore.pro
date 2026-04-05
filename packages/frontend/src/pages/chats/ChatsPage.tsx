@@ -63,6 +63,8 @@ type LocalNoticeAction = {
   onClick: () => void;
 };
 const PENDING_REPLY_RECOVERY_WINDOW_MS = 5 * 60_000;
+const TIMEOUT_REPLY_RECOVERY_WINDOW_MS = 12_000;
+const TIMEOUT_REPLY_RECOVERY_ATTEMPT_MS = 4_000;
 const DIALOG_CLOSE_ANIMATION_MS = 200;
 const EMPTY_MESSAGES: ChatMessageType[] = [];
 const LAST_CHAT_SELECTION_STORAGE_KEY = 'llmstore.last-chat-selection';
@@ -1022,6 +1024,42 @@ export function ChatsPage() {
           pushEvent(eventName, payload);
 
           if (safeActiveChatId) {
+            setAssistantResponseSlot((prev) => {
+              if (!prev || prev.chatId !== safeActiveChatId || prev.actualMessageId) {
+                return prev;
+              }
+
+              if (eventName === 'chat.run.failed') {
+                return {
+                  ...prev,
+                  label: 'Ответ не получен',
+                  detail: payload.error?.trim() || payload.label?.trim() || 'Выполнение завершилось с ошибкой.',
+                };
+              }
+
+              if (eventName === 'chat.run.completed' || eventName === 'chat.message.completed') {
+                return {
+                  ...prev,
+                  label: 'Ответ почти готов',
+                  detail: payload.label?.trim() || 'Финализирую сообщение и сохраняю результат.',
+                };
+              }
+
+              if (
+                eventName === 'chat.run.started'
+                || eventName === 'chat.run.status'
+                || eventName === 'chat.run.tool.started'
+              ) {
+                return {
+                  ...prev,
+                  label: eventName === 'chat.run.tool.started' ? 'Инструменты работают' : 'Агент работает',
+                  detail: payload.label?.trim() || payload.tool_name?.trim() || prev.detail,
+                };
+              }
+
+              return prev;
+            });
+
             if (
               eventName === 'chat.message.accepted'
               || eventName === 'chat.run.started'
@@ -2080,21 +2118,27 @@ export function ChatsPage() {
   const recoverLateAssistantReply = async (
     chatId: string,
     startedAt: string,
-    options: { trackAwaitingState?: boolean } = {},
+    options: {
+      trackAwaitingState?: boolean;
+      windowMs?: number;
+      attemptIntervalMs?: number;
+    } = {},
   ) => {
     markChatRuntimeActive(chatId);
     const trackAwaitingState = options.trackAwaitingState ?? true;
+    const windowMs = options.windowMs ?? PENDING_REPLY_RECOVERY_WINDOW_MS;
+    const attemptIntervalMs = options.attemptIntervalMs ?? 4_000;
     if (trackAwaitingState) {
       setIsAwaitingLateReply(true);
     }
 
     const startedAtMs = Date.parse(startedAt);
     const deadline = Number.isNaN(startedAtMs)
-      ? Date.now() + PENDING_REPLY_RECOVERY_WINDOW_MS
-      : startedAtMs + PENDING_REPLY_RECOVERY_WINDOW_MS;
+      ? Date.now() + windowMs
+      : startedAtMs + windowMs;
 
     while (Date.now() < deadline) {
-      await sleep(4_000);
+      await sleep(attemptIntervalMs);
 
       try {
         const latest = await chatsApi.get(chatId);
@@ -2216,13 +2260,25 @@ export function ChatsPage() {
         return;
       }
       if (status === 504) {
-        showLocalWarning('Ответ от модели занял слишком много времени. Проверяю, не завершился ли он в фоне...');
-        const recovered = await recoverLateAssistantReply(chatId, startedAt);
+        setAssistantResponseSlot((prev) => (
+          prev?.chatId === chatId
+            ? {
+              ...prev,
+              label: 'Провайдер отвечает слишком долго',
+              detail: 'Коротко проверяю, не успел ли ответ всё-таки сохраниться после таймаута.',
+            }
+            : prev
+        ));
+        showLocalWarning('Ответ от модели занял слишком много времени. Коротко проверяю, не завершился ли он в фоне...');
+        const recovered = await recoverLateAssistantReply(chatId, startedAt, {
+          windowMs: TIMEOUT_REPLY_RECOVERY_WINDOW_MS,
+          attemptIntervalMs: TIMEOUT_REPLY_RECOVERY_ATTEMPT_MS,
+        });
         if (!recovered) {
           setAssistantResponseSlot((prev) => (prev?.chatId === chatId ? null : prev));
           markChatRuntimeIdle(chatId);
           showLocalError(
-            'Провайдер слишком долго отвечал, и запрос оборвался по таймауту. Попробуйте ещё раз или выберите более быстрый агент.',
+            'Провайдер не успел вернуть ответ вовремя. Мы остановили ожидание честно, без вечного “думаю”. Попробуйте ещё раз, упростите задачу или выберите более быстрый агент.',
             {
               label: 'Повторить',
               onClick: () => {

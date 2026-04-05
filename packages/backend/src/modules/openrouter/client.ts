@@ -11,7 +11,7 @@ import type {
 
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1';
 const DEFAULT_TIMEOUT = 60_000;
-const MAX_TIMEOUT = 180_000;
+const MAX_TIMEOUT = 15 * 60_000;
 
 function normalizeTimeoutMs(timeoutMs?: number): number {
   if (!Number.isFinite(timeoutMs) || (timeoutMs ?? 0) <= 0) {
