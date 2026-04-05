@@ -209,7 +209,7 @@ const milestones: MilestoneItem[] = [
     status: 'done',
     description: 'Двигаем deploy для webhook-ботов и похожих сценариев с логами, статусами и историей запусков.',
     ctaLabel: 'Читать гайды',
-    ctaHref: 'https://llmstore.pro/guides/fast-telegram-bot-deploy',
+    ctaHref: '/guides',
   },
   {
     id: 11,
@@ -281,7 +281,7 @@ const milestones: MilestoneItem[] = [
     status: 'research',
     description: 'Telegram выглядит как один из самых живых сценариев для runnable-агентов и быстрых полезных запусков.',
     ctaLabel: 'Читать гайды',
-    ctaHref: '/guides',
+    ctaHref: 'https://llmstore.pro/guides/fast-telegram-bot-deploy',
   },
   {
     id: 20,
