@@ -8,6 +8,7 @@ import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { Spinner } from '../../components/ui/Spinner';
 import { Textarea } from '../../components/ui/Textarea';
+import { RichNewsEditor } from '../../components/admin/RichNewsEditor';
 
 const STATUS_OPTIONS = [
   { value: 'draft', label: 'Черновик' },
@@ -152,12 +153,13 @@ export function AdminNewsFormPage() {
 
           <div>
             <label className="text-sm font-medium">Содержание *</label>
-            <Textarea
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              placeholder="Текст новости..."
-              rows={12}
-            />
+            <div className="mt-2">
+              <RichNewsEditor
+                value={content}
+                onChange={setContent}
+                placeholder="Текст новости..."
+              />
+            </div>
           </div>
 
           <div>

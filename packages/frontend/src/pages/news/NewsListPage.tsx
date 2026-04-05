@@ -5,23 +5,7 @@ import { UserLink } from '../../components/users/UserLink';
 import { Button } from '../../components/ui/Button';
 import { Spinner } from '../../components/ui/Spinner';
 import type { NewsArticle } from '../../lib/api/news';
-
-function formatLongDate(value: string | null): string | null {
-  if (!value) return null;
-  return new Date(value).toLocaleDateString('ru-RU', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  });
-}
-
-function formatShortDate(value: string | null): string {
-  if (!value) return 'Черновик';
-  return new Date(value).toLocaleDateString('ru-RU', {
-    day: '2-digit',
-    month: 'short',
-  });
-}
+import { formatNewsDateParts } from '../../lib/newsDates';
 
 function getExcerpt(article: NewsArticle): string {
   return article.excerpt || (article.content.length > 220 ? `${article.content.slice(0, 220)}...` : article.content);
@@ -38,6 +22,7 @@ export function NewsListPage() {
   const meta = data?.meta ?? { total: 0, page: 1, per_page: perPage, total_pages: 1 };
   const lead = items[0];
   const feed = items.slice(1);
+  const leadDate = formatNewsDateParts(lead?.published_at ?? null);
 
   const openArticle = (slug: string, hash?: string) => {
     navigate(`/news/${slug}${hash ?? ''}`);
@@ -104,9 +89,10 @@ export function NewsListPage() {
                         {getExcerpt(lead)}
                       </p>
                       <div className="mt-6 flex flex-wrap gap-3">
-                        {formatLongDate(lead.published_at) && (
-                          <span className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-700">
-                            {formatLongDate(lead.published_at)}
+                        {leadDate && (
+                          <span className="flex flex-col rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-700">
+                            <span>{leadDate.date}</span>
+                            <span className="text-xs text-slate-500">{leadDate.time}</span>
                           </span>
                         )}
                         <span className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-700">
@@ -172,7 +158,14 @@ export function NewsListPage() {
                     <div className="grid gap-5 lg:grid-cols-[88px_minmax(0,1fr)_160px] lg:items-start">
                       <div className="flex items-start gap-3 lg:block">
                         <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Дата</div>
-                        <div className="mt-1 text-sm font-medium text-slate-900">{formatShortDate(article.published_at)}</div>
+                        {formatNewsDateParts(article.published_at, { shortMonth: true }) ? (
+                          <>
+                            <div className="mt-1 text-sm font-medium text-slate-900">{formatNewsDateParts(article.published_at, { shortMonth: true })?.date}</div>
+                            <div className="mt-1 text-xs text-slate-500">{formatNewsDateParts(article.published_at, { shortMonth: true })?.time}</div>
+                          </>
+                        ) : (
+                          <div className="mt-1 text-sm font-medium text-slate-900">Черновик</div>
+                        )}
                       </div>
 
                       <div className="min-w-0">

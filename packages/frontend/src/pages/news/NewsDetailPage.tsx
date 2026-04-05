@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { useNewsArticle } from '../../hooks/useNews';
 import {
@@ -12,17 +12,10 @@ import { useAuth } from '../../hooks/useAuth';
 import { ImageGallery } from '../../components/news/ImageGallery';
 import { NewsLightbox } from '../../components/news/NewsLightbox';
 import { NewsCommentsPanel } from '../../components/news/NewsCommentsPanel';
+import { RichNewsContent } from '../../components/news/RichNewsContent';
 import { Spinner } from '../../components/ui/Spinner';
 import { UserLink } from '../../components/users/UserLink';
-
-function formatDisplayDate(value: string | null): string | null {
-  if (!value) return null;
-  return new Date(value).toLocaleDateString('ru-RU', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  });
-}
+import { formatNewsDateParts } from '../../lib/newsDates';
 
 function scrollToElement(id: string) {
   requestAnimationFrame(() => {
@@ -43,13 +36,34 @@ export function NewsDetailPage() {
   const deleteComment = useDeleteNewsComment(slug || '');
   const likeComment = useLikeNewsComment(slug || '');
   const unlikeComment = useUnlikeNewsComment(slug || '');
-  const [isLeadImageOpen, setIsLeadImageOpen] = useState(false);
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const leadImageFrameRef = useRef<HTMLDivElement | null>(null);
+  const leadImageRef = useRef<HTMLImageElement | null>(null);
+  const [leadImageShouldFill, setLeadImageShouldFill] = useState(false);
+  const leadImage = article?.images[0] ?? null;
+
+  const updateLeadImageLayout = useCallback(() => {
+    const frame = leadImageFrameRef.current;
+    const image = leadImageRef.current;
+    if (!frame || !image || image.naturalWidth <= 0) return;
+
+    const availableWidth = frame.clientWidth;
+    setLeadImageShouldFill(image.naturalWidth >= availableWidth - 8);
+  }, []);
 
   useEffect(() => {
     if (!article || !location.hash) return;
     if (location.hash === '#comments') scrollToElement('comments');
     if (location.hash === '#comment-form') scrollToElement('comment-form');
   }, [article, location.hash]);
+
+  useEffect(() => {
+    if (!leadImage) return;
+
+    const handleResize = () => updateLeadImageLayout();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [leadImage, updateLeadImageLayout]);
 
   if (isLoading) {
     return (
@@ -70,8 +84,7 @@ export function NewsDetailPage() {
     );
   }
 
-  const displayDate = formatDisplayDate(article.published_at);
-  const leadImage = article.images[0] ?? null;
+  const displayDate = formatNewsDateParts(article.published_at);
   const initialComposerOpen = location.hash === '#comment-form';
   const resolvedCommentsCount = commentsLoading ? article.comments_count : comments.length;
 
@@ -96,8 +109,9 @@ export function NewsDetailPage() {
 
             <div className="mt-6 flex flex-wrap gap-3">
               {displayDate && (
-                <span className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-700">
-                  {displayDate}
+                <span className="flex flex-col rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-700">
+                  <span>{displayDate.date}</span>
+                  <span className="text-xs text-slate-500">{displayDate.time}</span>
                 </span>
               )}
               <span className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-700">
@@ -126,13 +140,17 @@ export function NewsDetailPage() {
             <button
               type="button"
               className="group mt-8 block w-full overflow-hidden rounded-[28px] border border-slate-200 bg-slate-50 text-left"
-              onClick={() => setIsLeadImageOpen(true)}
+              onClick={() => setLightboxIndex(0)}
             >
-              <div className="flex justify-center px-4 py-4 md:px-6 md:py-6">
+              <div ref={leadImageFrameRef} className="flex justify-center px-4 py-4 md:px-6 md:py-6">
                 <img
+                  ref={leadImageRef}
                   src={leadImage.url}
                   alt={article.title}
-                  className="mx-auto h-auto w-auto max-w-full object-contain transition duration-300 group-hover:scale-[1.01]"
+                  className={leadImageShouldFill
+                    ? 'h-auto w-full max-w-full object-contain transition duration-300 group-hover:scale-[1.01]'
+                    : 'mx-auto h-auto w-auto max-w-full object-contain transition duration-300 group-hover:scale-[1.01]'}
+                  onLoad={updateLeadImageLayout}
                 />
               </div>
               <div className="flex items-center justify-between gap-4 border-t border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
@@ -143,16 +161,15 @@ export function NewsDetailPage() {
           )}
 
           <div className="mt-10 min-w-0">
-            <div className="prose prose-neutral max-w-none text-[16px] leading-8">
-              {article.content.split('\n').map((paragraph, index) => (
-                paragraph.trim() ? <p key={index}>{paragraph}</p> : <br key={index} />
-              ))}
-            </div>
+            <RichNewsContent content={article.content} />
 
             {article.images.length > 1 && (
               <div className="mt-10">
                 <h3 className="mb-4 text-lg font-semibold text-slate-950">Дополнительные изображения</h3>
-                <ImageGallery images={article.images.slice(1)} />
+                <ImageGallery
+                  images={article.images.slice(1)}
+                  onImageClick={(index) => setLightboxIndex(index + 1)}
+                />
               </div>
             )}
 
@@ -174,11 +191,18 @@ export function NewsDetailPage() {
         </article>
       </div>
 
-      {leadImage && isLeadImageOpen && (
+      {article.images.length > 0 && lightboxIndex !== null && (
         <NewsLightbox
-          images={[leadImage]}
-          index={0}
-          onClose={() => setIsLeadImageOpen(false)}
+          images={article.images}
+          index={lightboxIndex}
+          onClose={() => setLightboxIndex(null)}
+          onSelect={setLightboxIndex}
+          onPrev={() => setLightboxIndex((current) => (
+            current !== null && current > 0 ? current - 1 : article.images.length - 1
+          ))}
+          onNext={() => setLightboxIndex((current) => (
+            current !== null && current < article.images.length - 1 ? current + 1 : 0
+          ))}
         />
       )}
     </div>
