@@ -1,5 +1,6 @@
 ﻿import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useDeleteGalleryReaction, useGalleryPreviews, useSetGalleryReaction } from '../../hooks/useChats';
 import { chatsApi } from '../../lib/api/chats';
@@ -192,6 +193,14 @@ function buildSearchText(item: GalleryPreviewItem): string {
     .toLowerCase();
 }
 
+function buildGalleryChatTarget(item: GalleryPreviewItem, currentUserId?: string | null): string {
+  if (currentUserId && item.owner_user_id === currentUserId) {
+    return `/chats?chat=${encodeURIComponent(item.chat_id)}`;
+  }
+
+  return item.chat_url;
+}
+
 function GalleryArtifactFrame({
   item,
   projectRunCount,
@@ -267,6 +276,8 @@ export function GalleryPage() {
     message_id?: string;
   };
 
+  const resultsTopRef = useRef<HTMLDivElement | null>(null);
+  const previousPageRef = useRef(1);
   const [pageSize, setPageSize] = useState(4);
   const [currentPage, setCurrentPage] = useState(1);
   const [search, setSearch] = useState('');
@@ -325,6 +336,13 @@ export function GalleryPage() {
       setCurrentPage(totalPages);
     }
   }, [currentPage, totalPages]);
+
+  useEffect(() => {
+    if (previousPageRef.current !== currentPage) {
+      resultsTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    previousPageRef.current = currentPage;
+  }, [currentPage]);
 
   const getDisplayedProjectRunCount = (item: GalleryPreviewItem): number =>
     projectRunCounts[item.message_id] ?? item.project_run_count ?? 0;
@@ -436,145 +454,161 @@ export function GalleryPage() {
         )}
 
         {!isLoading && !error && filteredItems.length > 0 && (
-          <div className="grid gap-6 md:grid-cols-2">
-            {currentItems.map((item) => (
-              <article key={item.message_id} className="overflow-hidden rounded-2xl border bg-white shadow-sm">
-                <div className="aspect-[16/10] border-b bg-slate-50">
-                  <GalleryArtifactFrame item={item} projectRunCount={getDisplayedProjectRunCount(item)} />
-                </div>
+          <div ref={resultsTopRef} className="grid gap-6 md:grid-cols-2">
+            {currentItems.map((item) => {
+              const previewUrl = buildGalleryPreviewUrl(item);
+              const displayTitle = item.project_title || item.preview_title || item.chat_title;
 
-                <div className="space-y-4 p-5">
-                  <div className="space-y-2">
-                    <div className="flex flex-wrap gap-2">
-                      <span className="rounded-full border bg-muted/20 px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                        {formatKindLabel(item.kind)}
-                      </span>
-                      {item.project_runtime ? (
+              return (
+                <article key={item.message_id} className="overflow-hidden rounded-2xl border bg-white shadow-sm">
+                  <div className="aspect-[16/10] border-b bg-slate-50">
+                    <GalleryArtifactFrame item={item} projectRunCount={getDisplayedProjectRunCount(item)} />
+                  </div>
+
+                  <div className="space-y-4 p-5">
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap gap-2">
                         <span className="rounded-full border bg-muted/20 px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                          {formatProjectRuntime(item.project_runtime)}
+                          {formatKindLabel(item.kind)}
                         </span>
+                        {item.project_runtime ? (
+                          <span className="rounded-full border bg-muted/20 px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                            {formatProjectRuntime(item.project_runtime)}
+                          </span>
+                        ) : null}
+                      </div>
+                      {previewUrl ? (
+                        <a
+                          href={previewUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="block line-clamp-2 text-lg font-semibold transition-colors hover:text-primary"
+                        >
+                          {displayTitle}
+                        </a>
+                      ) : (
+                        <p className="line-clamp-2 text-lg font-semibold">
+                          {displayTitle}
+                        </p>
+                      )}
+                      {(item.preview_title && item.preview_title !== item.chat_title) || item.project_entrypoint ? (
+                        <p className="line-clamp-2 text-sm text-muted-foreground">
+                          {[
+                            item.preview_title && item.preview_title !== item.chat_title ? item.preview_title : null,
+                            item.project_entrypoint ? `Entrypoint: ${item.project_entrypoint}` : null,
+                          ]
+                            .filter((value): value is string => Boolean(value))
+                            .join(' • ')}
+                        </p>
                       ) : null}
                     </div>
-                    <p className="line-clamp-2 text-lg font-semibold">
-                      {item.project_title || item.preview_title || item.chat_title}
-                    </p>
-                    {(item.preview_title && item.preview_title !== item.chat_title) || item.project_entrypoint ? (
-                      <p className="line-clamp-2 text-sm text-muted-foreground">
-                        {[
-                          item.preview_title && item.preview_title !== item.chat_title ? item.preview_title : null,
-                          item.project_entrypoint ? `Entrypoint: ${item.project_entrypoint}` : null,
-                        ]
-                          .filter((value): value is string => Boolean(value))
-                          .join(' • ')}
-                      </p>
-                    ) : null}
-                  </div>
 
-                  <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                    <span className="rounded-full border bg-muted/20 px-2.5 py-1">
-                      Автор:{' '}
-                      <UserLink
-                        username={item.author_username}
-                        name={item.author_name}
-                        fallback="Пользователь"
-                        className="text-foreground hover:text-primary hover:underline"
-                      />
-                    </span>
-                    <span className="rounded-full border bg-muted/20 px-2.5 py-1">
-                      Всего: {formatViews(item.total_view_count)}
-                    </span>
-                    <span className="rounded-full border bg-muted/20 px-2.5 py-1">
-                      Уникальных: {formatViews(item.unique_view_count ?? item.view_count)}
-                    </span>
-                    <span className="rounded-full border bg-muted/20 px-2.5 py-1">
-                      {formatDate(item.created_at)}
-                    </span>
-                    <span className="rounded-full border bg-muted/20 px-2.5 py-1">
-                      Стоимость: {formatUsdCost(item.total_usd_cost)} ({formatRubCost(item.total_rub_cost)})
-                    </span>
-                    {item.project_file_count > 0 ? (
+                    <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
                       <span className="rounded-full border bg-muted/20 px-2.5 py-1">
-                        Файлов: {item.project_file_count}
+                        Автор:{' '}
+                        <UserLink
+                          username={item.author_username}
+                          name={item.author_name}
+                          fallback="Пользователь"
+                          className="text-foreground hover:text-primary hover:underline"
+                        />
                       </span>
-                    ) : null}
-                    {(item.kind === 'project' || item.kind === 'hybrid') && (
                       <span className="rounded-full border bg-muted/20 px-2.5 py-1">
-                        Запусков: {formatViews(getDisplayedProjectRunCount(item))}
+                        Всего: {formatViews(item.total_view_count)}
                       </span>
-                    )}
-                    {formatModelName(item.model) && (
                       <span className="rounded-full border bg-muted/20 px-2.5 py-1">
-                        Модель: {formatModelName(item.model)}
+                        Уникальных: {formatViews(item.unique_view_count ?? item.view_count)}
                       </span>
-                    )}
-                  </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    {REACTION_OPTIONS.map((reaction) => {
-                      const count = item.reaction_counts?.[reaction.type] ?? 0;
-                      const isActive = item.my_reaction === reaction.type;
-                      const isBusy = setReactionMutation.isPending || deleteReactionMutation.isPending;
-
-                      return (
-                        <button
-                          key={reaction.type}
-                          type="button"
-                          title={currentUser ? reaction.label : 'Нужна авторизация'}
-                          disabled={!currentUser || isBusy}
-                          onClick={() => {
-                            if (!currentUser || isBusy) return;
-                            if (isActive) {
-                              deleteReactionMutation.mutate(item.chat_id);
-                              return;
-                            }
-                            setReactionMutation.mutate({ chatId: item.chat_id, reactionType: reaction.type });
-                          }}
-                          className={[
-                            'inline-flex items-center gap-2 rounded-full border px-2.5 py-1.5 text-xs font-medium transition-all',
-                            getReactionAccentClasses(reaction.type, isActive),
-                            !currentUser ? 'cursor-default opacity-70' : '',
-                          ].join(' ')}
-                        >
-                          <span aria-hidden="true" className={getReactionEmojiBubbleClasses(reaction.type, isActive)}>
-                            {reaction.emoji}
-                          </span>
-                          <span>{count}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <Link to={item.chat_url}>
-                      <Button size="sm">Перейти в чат</Button>
-                    </Link>
-                    {(item.kind === 'project' || item.kind === 'hybrid') && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        disabled={!currentUser || runningMessageId === item.message_id}
-                        onClick={() => { void runGalleryProject(item); }}
-                        title={currentUser ? 'Запустить проект' : 'Нужна авторизация для запуска'}
-                      >
-                        {runningMessageId === item.message_id ? 'Запускаю...' : 'Запустить'}
-                      </Button>
-                    )}
-                    {item.preview_url ? (
-                      <a href={item.preview_url} target="_blank" rel="noopener noreferrer">
-                        <Button variant="outline" size="sm">Открыть preview</Button>
-                      </a>
-                    ) : null}
-                  </div>
-
-                  {runError?.message_id === item.message_id ? (
-                    <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-                      {runError.message}
+                      <span className="rounded-full border bg-muted/20 px-2.5 py-1">
+                        {formatDate(item.created_at)}
+                      </span>
+                      <span className="rounded-full border bg-muted/20 px-2.5 py-1">
+                        Стоимость: {formatUsdCost(item.total_usd_cost)} ({formatRubCost(item.total_rub_cost)})
+                      </span>
+                      {item.project_file_count > 0 ? (
+                        <span className="rounded-full border bg-muted/20 px-2.5 py-1">
+                          Файлов: {item.project_file_count}
+                        </span>
+                      ) : null}
+                      {(item.kind === 'project' || item.kind === 'hybrid') && (
+                        <span className="rounded-full border bg-muted/20 px-2.5 py-1">
+                          Запусков: {formatViews(getDisplayedProjectRunCount(item))}
+                        </span>
+                      )}
+                      {formatModelName(item.model) && (
+                        <span className="rounded-full border bg-muted/20 px-2.5 py-1">
+                          Модель: {formatModelName(item.model)}
+                        </span>
+                      )}
                     </div>
-                  ) : null}
-                </div>
-              </article>
-            ))}
+
+                    <div className="flex flex-wrap gap-2">
+                      {REACTION_OPTIONS.map((reaction) => {
+                        const count = item.reaction_counts?.[reaction.type] ?? 0;
+                        const isActive = item.my_reaction === reaction.type;
+                        const isBusy = setReactionMutation.isPending || deleteReactionMutation.isPending;
+
+                        return (
+                          <button
+                            key={reaction.type}
+                            type="button"
+                            title={currentUser ? reaction.label : 'Нужна авторизация'}
+                            disabled={!currentUser || isBusy}
+                            onClick={() => {
+                              if (!currentUser || isBusy) return;
+                              if (isActive) {
+                                deleteReactionMutation.mutate(item.chat_id);
+                                return;
+                              }
+                              setReactionMutation.mutate({ chatId: item.chat_id, reactionType: reaction.type });
+                            }}
+                            className={[
+                              'inline-flex items-center gap-2 rounded-full border px-2.5 py-1.5 text-xs font-medium transition-all',
+                              getReactionAccentClasses(reaction.type, isActive),
+                              !currentUser ? 'cursor-default opacity-70' : '',
+                            ].join(' ')}
+                          >
+                            <span aria-hidden="true" className={getReactionEmojiBubbleClasses(reaction.type, isActive)}>
+                              {reaction.emoji}
+                            </span>
+                            <span>{count}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <Link to={buildGalleryChatTarget(item, currentUser?.id ?? null)}>
+                        <Button size="sm">Перейти в чат</Button>
+                      </Link>
+                      {(item.kind === 'project' || item.kind === 'hybrid') && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={!currentUser || runningMessageId === item.message_id}
+                          onClick={() => { void runGalleryProject(item); }}
+                          title={currentUser ? 'Запустить проект' : 'Нужна авторизация для запуска'}
+                        >
+                          {runningMessageId === item.message_id ? 'Запускаю...' : 'Запустить'}
+                        </Button>
+                      )}
+                      {previewUrl ? (
+                        <a href={previewUrl} target="_blank" rel="noopener noreferrer">
+                          <Button variant="outline" size="sm">Открыть preview</Button>
+                        </a>
+                      ) : null}
+                    </div>
+
+                    {runError?.message_id === item.message_id ? (
+                      <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                        {runError.message}
+                      </div>
+                    ) : null}
+                  </div>
+                </article>
+              );
+            })}
           </div>
         )}
 
