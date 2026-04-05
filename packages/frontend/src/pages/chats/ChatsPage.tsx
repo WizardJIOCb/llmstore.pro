@@ -478,6 +478,7 @@ function isPendingRunProblematicTerminal(pendingRun?: ChatPendingRunState | null
 
 const LONG_RUN_FAILED_NO_RESULT_NOTICE = 'Run завершился без финального результата. Ответ в чат не доехал полностью.';
 const LONG_RUN_PARTIAL_NOTICE = 'Run завершился, но итоговый результат сохранился только частично. Лучше упростить задачу или попросить продолжить точечно.';
+const LIVE_PARTIAL_RESULT_NOTICE = 'Это промежуточный результат. Пока pending_run активен, чат ещё не завершён.';
 
 function isLongRunTerminalNotice(value: string | null | undefined): boolean {
   return value === LONG_RUN_FAILED_NO_RESULT_NOTICE || value === LONG_RUN_PARTIAL_NOTICE;
@@ -2682,6 +2683,15 @@ export function ChatsPage() {
         activeChatId === chat.id ? 'bg-accent text-foreground' : 'hover:bg-accent/60',
       )}
     >
+      {(() => {
+        const livePendingRun = activeChatId === chat.id && activeChat?.pending_run && isPendingRunLive(activeChat.pending_run)
+          ? activeChat.pending_run
+          : null;
+        const previewText = livePendingRun
+          ? `${livePendingRun.label}. Чат ещё не завершён.`
+          : (formatChatPreview(chat.last_message_preview) || (chat.mode === 'general' ? 'Общение' : 'Чат с ботом'));
+        return (
+          <>
       <button type="button" onClick={() => setActiveChatId(chat.id)} className="w-full pr-8 text-left">
         <div className="flex items-center gap-1 pr-2">
           {chat.access !== 'public' && (
@@ -2733,7 +2743,7 @@ export function ChatsPage() {
           </p>
         )}
         <p className="truncate text-xs text-muted-foreground">
-          {formatChatPreview(chat.last_message_preview) || (chat.mode === 'general' ? 'Общение' : 'Чат с ботом')}
+          {previewText}
         </p>
         <p className="text-xs text-muted-foreground">{formatDate(chat.last_message_at)}</p>
       </button>
@@ -2788,6 +2798,9 @@ export function ChatsPage() {
         )}
       </div>
       )}
+          </>
+        );
+      })()}
     </div>
   );
 
@@ -3265,6 +3278,12 @@ export function ChatsPage() {
               >
                 {assistantSlotResolvedMessage ? (
                   <>
+                    {activeChat?.pending_run && isPendingRunLive(activeChat.pending_run) && (
+                      <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                        <p className="font-medium">Промежуточный результат</p>
+                        <p className="mt-1 text-xs opacity-80">{LIVE_PARTIAL_RESULT_NOTICE}</p>
+                      </div>
+                    )}
                     <ChatMessage
                       role={assistantSlotResolvedMessage.role}
                       content={assistantSlotResolvedMessage.content}

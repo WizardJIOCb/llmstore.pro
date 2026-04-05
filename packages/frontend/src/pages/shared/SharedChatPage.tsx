@@ -199,6 +199,8 @@ function shouldRefetchSharedChat(sharedData?: SharedPageData) {
   return ageMs <= 10 * 60_000;
 }
 
+const LIVE_PARTIAL_RESULT_NOTICE = '\u042d\u0442\u043e \u043f\u0440\u043e\u043c\u0435\u0436\u0443\u0442\u043e\u0447\u043d\u044b\u0439 \u0440\u0435\u0437\u0443\u043b\u044c\u0442\u0430\u0442. \u041f\u043e\u043a\u0430 pending_run \u0430\u043a\u0442\u0438\u0432\u0435\u043d, \u0447\u0430\u0442 \u0435\u0449\u0451 \u043d\u0435 \u0437\u0430\u0432\u0435\u0440\u0448\u0451\u043d.';
+
 export function SharedChatPage() {
   const { token } = useParams<{ token: string }>();
   const queryClient = useQueryClient();
@@ -431,6 +433,10 @@ export function SharedChatPage() {
   };
 
   const messages = data?.messages ?? [];
+  const lastAssistantMessageId = useMemo(() => {
+    const assistantMessages = messages.filter((message) => message.role === 'assistant');
+    return assistantMessages[assistantMessages.length - 1]?.id;
+  }, [messages]);
   const canManageSharedChat = Boolean(profile) && Boolean(data?.chatId) && data?.isOwner === true;
   const lastMessage = messages[messages.length - 1];
   const latestEvent = streamEvents[streamEvents.length - 1];
@@ -738,6 +744,12 @@ export function SharedChatPage() {
               }
               : undefined}
           />
+          {isPendingSharedReply && msg.role === 'assistant' && msg.id && msg.id === lastAssistantMessageId && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              <p className="font-medium">{'\u041f\u0440\u043e\u043c\u0435\u0436\u0443\u0442\u043e\u0447\u043d\u044b\u0439 \u0440\u0435\u0437\u0443\u043b\u044c\u0442\u0430\u0442'}</p>
+              <p className="mt-1 text-xs opacity-80">{LIVE_PARTIAL_RESULT_NOTICE}</p>
+            </div>
+          )}
           {isPendingSharedReply && index === pendingUserMessageIndex && (
             <div ref={pendingProgressAnchorRef} className="space-y-3">
               <ChatThinkingBubble
