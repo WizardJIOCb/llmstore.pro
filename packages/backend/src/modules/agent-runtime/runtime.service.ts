@@ -1344,7 +1344,18 @@ function extractCodingReport(content: string): { cleanText: string; report: Codi
           .trim()
         : ''
     );
-  const cleanText = [before, after].filter(Boolean).join('\n\n').trim();
+  let cleanText = [before, after].filter(Boolean).join('\n\n').trim();
+
+  // If a dev-report block was truncated and we failed to recover valid JSON,
+  // do not discard the whole assistant response. Preserve the raw content so
+  // the user still receives the partial result instead of an empty message.
+  if (!cleanText && !report) {
+    cleanText = content
+      .replace(/<dev-report>\s*/i, '')
+      .replace(/\s*<\/dev-report>/i, '')
+      .trim();
+  }
+
   return { cleanText, report };
 }
 
@@ -2052,13 +2063,20 @@ ${agent.description.trim()}`);
 
       // No tool calls: final answer
       gotTerminalAssistantMessage = true;
-      finalOutput = extractAssistantTextFromMessage(assistantMessage);
+      const rawAssistantOutput = extractAssistantTextFromMessage(assistantMessage);
+      finalOutput = rawAssistantOutput;
       if (finalOutput) {
         const parsed = extractCodingReport(finalOutput);
         finalOutput = parsed.cleanText;
         codingReport = parsed.report;
         if (!finalOutput && codingReport?.summary) {
           finalOutput = codingReport.summary;
+        }
+        if (!finalOutput && rawAssistantOutput) {
+          finalOutput = rawAssistantOutput;
+        }
+        if (choice.finish_reason === 'length' && finalOutput) {
+          finalOutput = `${finalOutput.trim()}\n\n[Ответ был обрезан по лимиту длины. Можно попросить продолжить или упростить задачу.]`;
         }
       }
       if (!finalOutput) {
