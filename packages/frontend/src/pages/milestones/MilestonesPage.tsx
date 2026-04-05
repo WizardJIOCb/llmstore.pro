@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
   ArrowRight,
@@ -8,6 +9,8 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { useGalleryPreviews } from '../../hooks/useChats';
+import type { GalleryPreviewItem } from '../../lib/api/chats';
 import { Badge, Card } from '../../components/ui';
 
 type MilestoneStatus = 'done' | 'inProgress' | 'planned' | 'research';
@@ -44,6 +47,79 @@ interface RouteCard {
   description: string;
   href: string;
   ctaLabel: string;
+}
+
+function buildGalleryPreviewUrl(item: GalleryPreviewItem): string | null {
+  if (!item.preview_url) return null;
+  try {
+    const url = new URL(item.preview_url, window.location.origin);
+    url.searchParams.set('gallery', '1');
+    url.searchParams.set('previewId', `milestones-${item.message_id}`);
+    return url.toString();
+  } catch {
+    return item.preview_url;
+  }
+}
+
+function formatViews(value: number): string {
+  return new Intl.NumberFormat('ru-RU').format(value);
+}
+
+function GalleryMilestonePreviewCard({ item }: { item: GalleryPreviewItem }) {
+  const previewUrl = useMemo(() => buildGalleryPreviewUrl(item), [item]);
+  const title = item.preview_title || item.project_title || item.chat_title;
+
+  if (!previewUrl) return null;
+
+  return (
+    <article className="overflow-hidden rounded-[24px] border border-white/10 bg-white/6 shadow-[0_20px_40px_-32px_rgba(15,23,42,0.8)]">
+      <div className="aspect-[16/10] border-b border-white/10 bg-white">
+        {item.preview_type === 'html' ? (
+          <iframe
+            title={title}
+            src={previewUrl}
+            className="h-full w-full bg-white"
+            sandbox="allow-scripts"
+            loading="lazy"
+            referrerPolicy="no-referrer"
+          />
+        ) : (
+          <a
+            href={previewUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex h-full items-center justify-center bg-[linear-gradient(135deg,#0f172a,#1e293b)] p-6 text-center text-sm font-medium text-slate-100"
+          >
+            Открыть preview
+          </a>
+        )}
+      </div>
+
+      <div className="space-y-3 p-4">
+        <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+          <span className="rounded-full border border-white/10 bg-white/6 px-2.5 py-1">Preview</span>
+          <span className="rounded-full border border-white/10 bg-white/6 px-2.5 py-1">
+            {formatViews(item.total_view_count)} просмотров
+          </span>
+        </div>
+
+        <h3 className="line-clamp-2 text-base font-semibold text-white">{title}</h3>
+
+        <p className="line-clamp-2 text-sm leading-6 text-slate-300">
+          {item.author_name}
+          {item.author_username ? ` • @${item.author_username}` : ''}
+        </p>
+
+        <Link
+          to="/gallery"
+          className="inline-flex items-center gap-2 text-sm font-semibold text-white transition-colors hover:text-sky-200"
+        >
+          Открыть в gallery
+          <ArrowRight className="h-4 w-4" />
+        </Link>
+      </div>
+    </article>
+  );
 }
 
 const milestones: MilestoneItem[] = [
@@ -97,6 +173,14 @@ const milestones: MilestoneItem[] = [
   },
   {
     id: 7,
+    title: 'YooKassa Payment Setup',
+    status: 'inProgress',
+    description: 'Подключаем ЮKassa для платёжки: сейчас идёт оформление нужных документов, прохождение шагов через Госуслуги и подготовка к официальной работе платёжной системы.',
+    ctaLabel: 'Смотреть оплату',
+    ctaHref: '/pricing',
+  },
+  {
+    id: 8,
     title: 'Agent Chat Tools',
     status: 'inProgress',
     description: 'Следующий шаг: агент внутри чата должен работать с файлами, командами и проектным контекстом, а не только отвечать текстом.',
@@ -104,25 +188,17 @@ const milestones: MilestoneItem[] = [
     ctaHref: '/tools',
   },
   {
-    id: 8,
-    title: 'Runnable Project Bundles',
-    status: 'inProgress',
-    description: 'Project Bundle должен собирать проект, окружение и запуск в один понятный runnable-формат.',
+    id: 9,
+    title: 'Runnable Project Bundles + Fix From Error',
+    status: 'done',
+    description: 'Project Bundle должен собирать проект, окружение и запуск в один runnable-формат, а после ошибки агент должен быстро чинить проблему по логам и контексту без ручного цирка.',
     ctaLabel: 'Смотреть demo',
     ctaHref: '/gallery',
   },
   {
-    id: 9,
-    title: 'Fix From Error Flow',
-    status: 'inProgress',
-    description: 'После ошибки агент должен чинить проблему по логам и контексту, а не отправлять пользователя в ручной цирк.',
-    ctaLabel: 'Читать подробнее',
-    ctaHref: '/guides',
-  },
-  {
     id: 10,
     title: 'Deploy for Bots & Webhooks',
-    status: 'inProgress',
+    status: 'done',
     description: 'Двигаем deploy для webhook-ботов и похожих сценариев с логами, статусами и историей запусков.',
     ctaLabel: 'Читать гайды',
     ctaHref: '/guides',
@@ -333,12 +409,21 @@ function getItemsByStatus(status: MilestoneStatus) {
 }
 
 export function MilestonesPage() {
+  const { data: galleryItems } = useGalleryPreviews(60);
   const counts = {
     done: getItemsByStatus('done').length,
     inProgress: getItemsByStatus('inProgress').length,
     planned: getItemsByStatus('planned').length,
     research: getItemsByStatus('research').length,
   };
+  const topGalleryPreviews = useMemo(
+    () =>
+      (galleryItems ?? [])
+        .filter((item) => (item.kind === 'preview' || item.kind === 'hybrid') && Boolean(item.preview_url))
+        .sort((a, b) => b.total_view_count - a.total_view_count)
+        .slice(0, 3),
+    [galleryItems],
+  );
 
   return (
     <div className="overflow-hidden bg-[linear-gradient(180deg,#f7fbff_0%,#ffffff_36%,#f8fafc_100%)]">
@@ -519,6 +604,14 @@ export function MilestonesPage() {
               Если страница показывает движение продукта, то следующий шаг должен быть прикладным: открыть runnable-проект,
               посмотреть релизы, зайти в инструменты или быстро понять сценарий через гайды.
             </p>
+
+            {topGalleryPreviews.length > 0 ? (
+              <div className="mt-8 grid gap-4 xl:grid-cols-3">
+                {topGalleryPreviews.map((item) => (
+                  <GalleryMilestonePreviewCard key={item.message_id} item={item} />
+                ))}
+              </div>
+            ) : null}
 
             <div className="mt-8 grid gap-4 md:grid-cols-3">
               {currentRouteCards.map((card) => (
