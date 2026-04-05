@@ -399,6 +399,7 @@ interface LiveChatEvent {
   id: string;
   event: string;
   label: string;
+  detail?: string;
   status?: string;
   tool_name?: string;
   ts?: string;
@@ -986,6 +987,7 @@ export function ChatsPage() {
 
     const pushEvent = (eventName: string, payload: {
       label?: string;
+      detail?: string;
       status?: string;
       tool_name?: string;
       ts?: string;
@@ -1002,6 +1004,7 @@ export function ChatsPage() {
           id: `${eventName}-${payload.ts ?? Date.now()}-${prev.length}`,
           event: eventName,
           label: payload.label || eventName,
+          detail: payload.detail,
           status: payload.status,
           tool_name: payload.tool_name,
           ts: payload.ts,
@@ -1016,6 +1019,7 @@ export function ChatsPage() {
         try {
           const payload = JSON.parse(message.data) as {
             label?: string;
+            detail?: string;
             status?: string;
             tool_name?: string;
             ts?: string;
@@ -1033,7 +1037,7 @@ export function ChatsPage() {
                 return {
                   ...prev,
                   label: 'Ответ не получен',
-                  detail: payload.error?.trim() || payload.label?.trim() || 'Выполнение завершилось с ошибкой.',
+                  detail: payload.error?.trim() || payload.detail?.trim() || payload.label?.trim() || 'Выполнение завершилось с ошибкой.',
                 };
               }
 
@@ -1041,7 +1045,7 @@ export function ChatsPage() {
                 return {
                   ...prev,
                   label: 'Ответ почти готов',
-                  detail: payload.label?.trim() || 'Финализирую сообщение и сохраняю результат.',
+                  detail: payload.detail?.trim() || payload.label?.trim() || 'Финализирую сообщение и сохраняю результат.',
                 };
               }
 
@@ -1049,11 +1053,16 @@ export function ChatsPage() {
                 eventName === 'chat.run.started'
                 || eventName === 'chat.run.status'
                 || eventName === 'chat.run.tool.started'
+                || eventName === 'chat.run.tool.finished'
               ) {
                 return {
                   ...prev,
-                  label: eventName === 'chat.run.tool.started' ? 'Инструменты работают' : 'Агент работает',
-                  detail: payload.label?.trim() || payload.tool_name?.trim() || prev.detail,
+                  label: eventName === 'chat.run.tool.started'
+                    ? 'Инструменты работают'
+                    : eventName === 'chat.run.tool.finished'
+                      ? 'Инструменты обновились'
+                      : 'Агент работает',
+                  detail: payload.detail?.trim() || payload.label?.trim() || payload.tool_name?.trim() || prev.detail,
                 };
               }
 
@@ -2801,6 +2810,11 @@ export function ChatsPage() {
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <p className="text-sm text-slate-900">{event.label}</p>
+                          {event.detail && (
+                            <p className="mt-1 text-xs leading-5 text-slate-600">
+                              {event.detail}
+                            </p>
+                          )}
                           {(event.tool_name || event.status || event.error) && (
                             <p className="mt-1 text-xs text-slate-500">
                               {[event.tool_name, event.status, event.error].filter(Boolean).join(' • ')}

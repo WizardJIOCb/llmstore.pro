@@ -42,6 +42,13 @@ export interface ChatCompletionParams {
   top_p?: number;
   frequency_penalty?: number;
   presence_penalty?: number;
+  provider?: {
+    sort?: 'price' | 'throughput' | 'latency' | { by: 'price' | 'throughput' | 'latency'; partition?: 'model' | 'none' };
+    allow_fallbacks?: boolean;
+    require_parameters?: boolean;
+    only?: string[];
+    ignore?: string[];
+  };
 }
 
 export interface ChatCompletionChoice {

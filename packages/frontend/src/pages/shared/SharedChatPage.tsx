@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChatMessage } from '../../components/agents/ChatMessage';
+import { ChatThinkingBubble } from '../../components/agents/ChatThinkingBubble';
 import { Spinner } from '../../components/ui/Spinner';
 import { Button } from '../../components/ui/Button';
 import { apiClient } from '../../lib/api-client';
@@ -50,6 +51,17 @@ interface SharedPageData {
   title: string;
   subtitle: string;
   messages: SharedMessageItem[];
+}
+
+interface LiveSharedEvent {
+  id: string;
+  event: string;
+  label: string;
+  detail?: string;
+  status?: string;
+  tool_name?: string;
+  ts?: string;
+  error?: string;
 }
 
 function downloadChatBundle(filename: string, payload: unknown) {
@@ -156,12 +168,28 @@ function extractAttachments(value?: Record<string, unknown> | null): ChatAttachm
     .map((item) => item as ChatAttachment);
 }
 
+function shouldRefetchSharedChat(sharedData?: SharedPageData) {
+  if (!sharedData || sharedData.messages.length === 0) return false;
+
+  const lastMessage = sharedData.messages[sharedData.messages.length - 1];
+  if (!lastMessage || lastMessage.role !== 'user' || !lastMessage.created_at) return false;
+
+  const ageMs = Date.now() - Date.parse(lastMessage.created_at);
+  if (Number.isNaN(ageMs)) return false;
+
+  return ageMs <= 10 * 60_000;
+}
+
 export function SharedChatPage() {
   const { token } = useParams<{ token: string }>();
   const queryClient = useQueryClient();
   const { isAuthenticated } = useAuth();
   const { data: profile } = useProfile(isAuthenticated);
   const [isExporting, setIsExporting] = useState(false);
+  const [streamEvents, setStreamEvents] = useState<LiveSharedEvent[]>([]);
+  const [streamConnected, setStreamConnected] = useState(false);
+  const eventSourceRef = useRef<EventSource | null>(null);
+
   const updateSharedPreviewMutation = useMutation({
     mutationFn: ({ messageId, ...payload }: { messageId: string; title?: string | null; html: string }) =>
       chatsApi.updateSharedPreview(token!, messageId, payload),
@@ -169,6 +197,7 @@ export function SharedChatPage() {
       queryClient.invalidateQueries({ queryKey: ['shared-chat-any', token] });
     },
   });
+
   const sendFixMessageMutation = useMutation({
     mutationFn: ({ chatId, content }: { chatId: string; content: string }) =>
       chatsApi.sendMessage(chatId, content),
@@ -178,18 +207,6 @@ export function SharedChatPage() {
       queryClient.invalidateQueries({ queryKey: ['profile'] });
     },
   });
-
-  const shouldRefetchSharedChat = (sharedData?: SharedPageData) => {
-    if (!sharedData || sharedData.messages.length === 0) return false;
-
-    const lastMessage = sharedData.messages[sharedData.messages.length - 1];
-    if (!lastMessage || lastMessage.role !== 'user' || !lastMessage.created_at) return false;
-
-    const ageMs = Date.now() - Date.parse(lastMessage.created_at);
-    if (Number.isNaN(ageMs)) return false;
-
-    return ageMs <= 10 * 60_000;
-  };
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['shared-chat-any', token],
@@ -206,26 +223,26 @@ export function SharedChatPage() {
           subtitle: v2.data.data.chat.is_owner
             ? 'Общий чат. Управление preview и deployment доступно владельцу.'
             : 'Общий чат только для чтения. Управление preview, deployment и секретами доступно только владельцу.',
-          messages: v2.data.data.messages.map((m): SharedMessageItem => ({
-            id: m.id,
-            role: m.role,
-            content: m.content,
-            usage: m.usage ?? null,
-            project_run_count: m.project_run_count ?? 0,
-            attachments: extractAttachments(m.usage ?? null),
-            created_at: m.created_at,
+          messages: v2.data.data.messages.map((message): SharedMessageItem => ({
+            id: message.id,
+            role: message.role,
+            content: message.content,
+            usage: message.usage ?? null,
+            project_run_count: message.project_run_count ?? 0,
+            attachments: extractAttachments(message.usage ?? null),
+            created_at: message.created_at,
           })),
-        };
+        } satisfies SharedPageData;
       } catch {
         const legacy = await apiClient.get<{ data: LegacySharedChat }>(`/shared/chat/${token}`);
         return {
           title: legacy.data.data.agent_name,
-          subtitle: 'Общий чат - только для чтения',
-          messages: legacy.data.data.messages.map((m): SharedMessageItem => ({
-            role: m.role,
-            content: m.content,
+          subtitle: 'Общий чат только для чтения.',
+          messages: legacy.data.data.messages.map((message): SharedMessageItem => ({
+            role: message.role,
+            content: message.content,
           })),
-        };
+        } satisfies SharedPageData;
       }
     },
     enabled: !!token,
@@ -235,6 +252,102 @@ export function SharedChatPage() {
       return shouldRefetchSharedChat(sharedData) ? 4_000 : false;
     },
   });
+
+  const isPendingSharedReply = useMemo(
+    () => Boolean(data && shouldRefetchSharedChat(data)),
+    [data],
+  );
+
+  useEffect(() => {
+    if (!token || !isPendingSharedReply) {
+      setStreamConnected(false);
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
+      }
+      return;
+    }
+
+    const source = new EventSource(`/api/shared/chats/${token}/events`);
+    eventSourceRef.current = source;
+    setStreamEvents([]);
+    setStreamConnected(false);
+
+    const pushEvent = (eventName: string, payload: {
+      label?: string;
+      detail?: string;
+      status?: string;
+      tool_name?: string;
+      ts?: string;
+      error?: string;
+    }) => {
+      if (eventName === 'connected') {
+        setStreamConnected(true);
+        return;
+      }
+
+      setStreamEvents((prev) => ([
+        ...prev.slice(-11),
+        {
+          id: `${eventName}-${payload.ts ?? Date.now()}-${prev.length}`,
+          event: eventName,
+          label: payload.label || eventName,
+          detail: payload.detail,
+          status: payload.status,
+          tool_name: payload.tool_name,
+          ts: payload.ts,
+          error: payload.error,
+        },
+      ]));
+    };
+
+    const bind = (eventName: string) => {
+      source.addEventListener(eventName, (raw) => {
+        const message = raw as MessageEvent<string>;
+        try {
+          const payload = JSON.parse(message.data) as {
+            label?: string;
+            detail?: string;
+            status?: string;
+            tool_name?: string;
+            ts?: string;
+            error?: string;
+          };
+          pushEvent(eventName, payload);
+        } catch {
+          pushEvent(eventName, { label: eventName });
+        }
+      });
+    };
+
+    [
+      'connected',
+      'chat.message.accepted',
+      'chat.message.completed',
+      'chat.run.started',
+      'chat.run.status',
+      'chat.run.tool.started',
+      'chat.run.tool.finished',
+      'chat.run.completed',
+      'chat.run.failed',
+      'chat.run.skipped',
+    ].forEach(bind);
+
+    source.onerror = () => {
+      setStreamConnected(false);
+      source.close();
+      if (eventSourceRef.current === source) {
+        eventSourceRef.current = null;
+      }
+    };
+
+    return () => {
+      source.close();
+      if (eventSourceRef.current === source) {
+        eventSourceRef.current = null;
+      }
+    };
+  }, [isPendingSharedReply, token]);
 
   if (isLoading) {
     return (
@@ -247,7 +360,7 @@ export function SharedChatPage() {
   if (error || !data) {
     return (
       <div className="container mx-auto px-4 py-16 text-center">
-        <p className="text-muted-foreground">Чат не найден или ссылка недействительна</p>
+        <p className="text-muted-foreground">Чат не найден или ссылка недействительна.</p>
       </div>
     );
   }
@@ -282,6 +395,19 @@ export function SharedChatPage() {
   };
 
   const canManageSharedChat = Boolean(profile) && Boolean(data.chatId) && data.isOwner === true;
+  const lastMessage = data.messages[data.messages.length - 1];
+  const latestEvent = streamEvents[streamEvents.length - 1];
+  const pendingLabel = latestEvent?.event === 'chat.run.failed'
+    ? 'Ответ не получен'
+    : latestEvent?.event === 'chat.message.completed'
+      ? 'Ответ почти готов'
+      : latestEvent?.event === 'chat.run.tool.started'
+        ? 'Инструменты работают'
+        : 'Агент работает';
+  const pendingDetail = latestEvent?.error
+    || latestEvent?.detail
+    || latestEvent?.label
+    || 'Собираю ответ, выполняю инструменты и автоматически обновлю страницу, когда сообщение появится.';
 
   return (
     <div className="container mx-auto max-w-3xl px-4 py-8">
@@ -295,10 +421,63 @@ export function SharedChatPage() {
         </Button>
       </div>
 
+      {isPendingSharedReply && lastMessage?.role === 'user' && (
+        <div className="mb-6 space-y-3">
+          <ChatThinkingBubble
+            label={pendingLabel}
+            detail={pendingDetail}
+            startedAt={lastMessage.created_at ?? null}
+          />
+          {streamEvents.length > 0 && (
+            <div className="rounded-xl border border-sky-200 bg-sky-50/80 p-4">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-sky-950">Живой процесс выполнения</p>
+                  <p className="text-xs text-sky-900/70">
+                    {streamConnected ? 'Live progress подключен' : 'Жду переподключение к live progress'}
+                  </p>
+                </div>
+              </div>
+              <div className="space-y-2">
+                {streamEvents.map((event) => (
+                  <div key={event.id} className="rounded-lg border border-sky-200/80 bg-white/80 px-3 py-2">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm text-slate-900">{event.label}</p>
+                        {event.detail && (
+                          <p className="mt-1 text-xs leading-5 text-slate-600">
+                            {event.detail}
+                          </p>
+                        )}
+                        {(event.tool_name || event.status || event.error) && (
+                          <p className="mt-1 text-xs text-slate-500">
+                            {[event.tool_name, event.status, event.error].filter(Boolean).join(' • ')}
+                          </p>
+                        )}
+                      </div>
+                      {event.ts && (
+                        <span className="shrink-0 text-[11px] text-slate-400">
+                          {new Intl.DateTimeFormat('ru-RU', {
+                            day: '2-digit',
+                            month: '2-digit',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          }).format(new Date(event.ts))}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="space-y-4">
-        {data.messages.map((msg, i) => (
+        {data.messages.map((msg, index) => (
           <ChatMessage
-            key={msg.id ?? i}
+            key={msg.id ?? index}
             role={msg.role}
             content={msg.content}
             attachments={msg.attachments ?? extractAttachments(msg.usage)}
@@ -306,75 +485,71 @@ export function SharedChatPage() {
             projectRunCount={msg.project_run_count}
             previewPageUrl={msg.role === 'assistant' && token && msg.id ? `/api/shared/chats/${token}/messages/${msg.id}/preview` : undefined}
             canEditPreview={canManageSharedChat && msg.role === 'assistant' && Boolean(msg.id)}
-	            onSavePreview={canManageSharedChat && msg.role === 'assistant' && msg.id
-	              ? async (payload) => {
-	                const messageId = msg.id!;
+            onSavePreview={canManageSharedChat && msg.role === 'assistant' && msg.id
+              ? async (payload) => {
                 try {
                   await updateSharedPreviewMutation.mutateAsync({
-                    messageId,
+                    messageId: msg.id!,
                     ...payload,
                   });
-                } catch (error) {
-                  const maybe = error as { response?: { data?: { error?: { message?: string } } } };
-                  throw new Error(maybe?.response?.data?.error?.message ?? 'Не удалось сохранить preview');
-	                }
-	              }
-	              : undefined}
-	            canRunProject={Boolean(profile) && Boolean(data.chatId) && msg.role === 'assistant' && Boolean(msg.id)}
-	            onRunProject={profile && data.chatId && msg.role === 'assistant' && msg.id
-	              ? async () => {
-                  const result = await chatsApi.runProject(data.chatId!, msg.id!);
-                  syncProjectRunCount(msg.id!, result.project_run_count);
-                  return result;
+                } catch (saveError) {
+                  throw new Error(getApiErrorMessage(saveError) ?? 'Не удалось сохранить preview');
                 }
-	              : undefined}
-	            canManageDeployment={canManageSharedChat && msg.role === 'assistant' && Boolean(msg.id)}
-	            onLoadProjectDeployment={canManageSharedChat && data.chatId && msg.role === 'assistant' && msg.id
-	              ? async () => chatsApi.getProjectDeployment(data.chatId!, msg.id!)
-	              : undefined}
-	            onUpsertProjectDeployment={canManageSharedChat && data.chatId && msg.role === 'assistant' && msg.id
-	              ? async (payload) => chatsApi.upsertProjectDeployment(data.chatId!, msg.id!, payload)
-	              : undefined}
-	            onStartProjectDeployment={canManageSharedChat && data.chatId && msg.role === 'assistant' && msg.id
-	              ? async () => chatsApi.startProjectDeployment(data.chatId!, msg.id!)
-	              : undefined}
-	            onReinstallProjectDeploymentWebhook={canManageSharedChat && data.chatId && msg.role === 'assistant' && msg.id
-	              ? async () => chatsApi.reinstallProjectDeploymentWebhook(data.chatId!, msg.id!)
-	              : undefined}
-	            onStopProjectDeployment={canManageSharedChat && data.chatId && msg.role === 'assistant' && msg.id
-	              ? async () => chatsApi.stopProjectDeployment(data.chatId!, msg.id!)
-	              : undefined}
-	            onFixProjectError={canManageSharedChat && data.chatId && msg.role === 'assistant'
-	              ? async (prompt) => {
-	                  try {
-	                    await sendFixMessageMutation.mutateAsync({
-	                      chatId: data.chatId!,
-	                      content: prompt,
-	                    });
-	                  } catch (error) {
-	                    const maybe = error as { response?: { data?: { error?: { message?: string } } } };
-	                    throw new Error(maybe?.response?.data?.error?.message ?? 'Не удалось отправить запрос на исправление');
-	                  }
-	                }
-	              : undefined}
-	            canDeleteMessage={canManageSharedChat && Boolean(msg.id)}
-		            onDeleteMessage={canManageSharedChat && data.chatId && msg.id
-		              ? async () => {
-		                try {
-		                  await chatsApi.deleteMessage(data.chatId!, msg.id!);
-		                  queryClient.invalidateQueries({ queryKey: ['shared-chat-any', token] });
-		                } catch (error) {
-	                  const maybe = error as { response?: { data?: { error?: { message?: string } } } };
-	                  throw new Error(maybe?.response?.data?.error?.message ?? 'Не удалось удалить сообщение');
-	                }
-	              }
-	              : undefined}
-	          />
+              }
+              : undefined}
+            canRunProject={Boolean(profile) && Boolean(data.chatId) && msg.role === 'assistant' && Boolean(msg.id)}
+            onRunProject={profile && data.chatId && msg.role === 'assistant' && msg.id
+              ? async () => {
+                const result = await chatsApi.runProject(data.chatId!, msg.id!);
+                syncProjectRunCount(msg.id!, result.project_run_count);
+                return result;
+              }
+              : undefined}
+            canManageDeployment={canManageSharedChat && msg.role === 'assistant' && Boolean(msg.id)}
+            onLoadProjectDeployment={canManageSharedChat && data.chatId && msg.role === 'assistant' && msg.id
+              ? async () => chatsApi.getProjectDeployment(data.chatId!, msg.id!)
+              : undefined}
+            onUpsertProjectDeployment={canManageSharedChat && data.chatId && msg.role === 'assistant' && msg.id
+              ? async (payload) => chatsApi.upsertProjectDeployment(data.chatId!, msg.id!, payload)
+              : undefined}
+            onStartProjectDeployment={canManageSharedChat && data.chatId && msg.role === 'assistant' && msg.id
+              ? async () => chatsApi.startProjectDeployment(data.chatId!, msg.id!)
+              : undefined}
+            onReinstallProjectDeploymentWebhook={canManageSharedChat && data.chatId && msg.role === 'assistant' && msg.id
+              ? async () => chatsApi.reinstallProjectDeploymentWebhook(data.chatId!, msg.id!)
+              : undefined}
+            onStopProjectDeployment={canManageSharedChat && data.chatId && msg.role === 'assistant' && msg.id
+              ? async () => chatsApi.stopProjectDeployment(data.chatId!, msg.id!)
+              : undefined}
+            onFixProjectError={canManageSharedChat && data.chatId && msg.role === 'assistant'
+              ? async (prompt) => {
+                try {
+                  await sendFixMessageMutation.mutateAsync({
+                    chatId: data.chatId!,
+                    content: prompt,
+                  });
+                } catch (fixError) {
+                  throw new Error(getApiErrorMessage(fixError) ?? 'Не удалось отправить запрос на исправление');
+                }
+              }
+              : undefined}
+            canDeleteMessage={canManageSharedChat && Boolean(msg.id)}
+            onDeleteMessage={canManageSharedChat && data.chatId && msg.id
+              ? async () => {
+                try {
+                  await chatsApi.deleteMessage(data.chatId!, msg.id!);
+                  queryClient.invalidateQueries({ queryKey: ['shared-chat-any', token] });
+                } catch (deleteError) {
+                  throw new Error(getApiErrorMessage(deleteError) ?? 'Не удалось удалить сообщение');
+                }
+              }
+              : undefined}
+          />
         ))}
       </div>
 
       {data.messages.length === 0 && (
-        <p className="py-8 text-center text-muted-foreground">Чат пуст</p>
+        <p className="py-8 text-center text-muted-foreground">Чат пуст.</p>
       )}
     </div>
   );

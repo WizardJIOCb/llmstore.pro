@@ -59,6 +59,7 @@ router.post('/chats/:chatId/messages', requireAuth, validateSendChatMessage, con
 router.get('/shared/chats/:token/messages/:messageId/preview', controller.getSharedChatMessagePreview);
 router.patch('/shared/chats/:token/messages/:messageId/preview', requireAuth, validateUpdateMessagePreview, controller.updateSharedChatMessagePreview);
 router.get('/shared/chats/:token', controller.getSharedChatById);
+router.get('/shared/chats/:token/events', controller.streamSharedChatEvents);
 router.get('/shared/chats/:token/export', controller.exportSharedChatBundle);
 
 // Runs

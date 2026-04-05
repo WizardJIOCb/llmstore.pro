@@ -622,6 +622,14 @@ export async function getSharedChatById(req: Request<{ token: string }>, res: Re
   }
 }
 
+export async function streamSharedChatEvents(req: Request<{ token: string }>, res: Response, next: NextFunction) {
+  try {
+    await runtimeService.streamSharedChatEvents(req.params.token, res);
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function exportSharedChatBundle(req: Request<{ token: string }>, res: Response, next: NextFunction) {
   try {
     const viewer = resolveViewerContext(req, res);

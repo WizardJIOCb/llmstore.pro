@@ -24,9 +24,9 @@ import { openRouterClient } from '../openrouter/index.js';
 import { executeTool } from '../tool-execution/index.js';
 import { NotFoundError, AppError } from '../../middleware/error-handler.js';
 import { logger } from '../../lib/logger.js';
-import type { ChatMessage, ToolDefinitionParam } from '../openrouter/types.js';
+import type { ChatCompletionChoice, ChatMessage, ToolDefinitionParam } from '../openrouter/types.js';
 import { UPLOADS_DIR } from '../../config/upload.js';
-import { openChatEventStream, publishChatEvent } from './chat-events.service.js';
+import { openChatEventStream, openSharedChatEventStream, publishChatEvent, publishSharedChatEvent } from './chat-events.service.js';
 import {
   getOpenRouterRequestsEnabled,
   getOpenRouterDisabledMessage,
@@ -557,6 +557,36 @@ function extractAssistantTextFromMessage(message: unknown): string {
   }
 
   return '';
+}
+
+function mergeAssistantOutputChunks(base: string, next: string): string {
+  const left = base.trimEnd();
+  const right = next.trim();
+  if (!left) return right;
+  if (!right) return left;
+  if (left.endsWith(right)) return left;
+
+  const maxOverlap = Math.min(400, left.length, right.length);
+  for (let overlap = maxOverlap; overlap >= 40; overlap -= 1) {
+    if (left.slice(-overlap) === right.slice(0, overlap)) {
+      return `${left}${right.slice(overlap)}`;
+    }
+  }
+
+  return `${left}\n${right}`;
+}
+
+function extractPartialCodingSummary(content: string): string | null {
+  const summaryMatch = content.match(/"summary"\s*:\s*"((?:\\.|[^"\\])*)"/i);
+  if (!summaryMatch) return null;
+
+  const raw = summaryMatch[1];
+  try {
+    const decoded = JSON.parse(`"${raw}"`);
+    return typeof decoded === 'string' ? decoded.trim() || null : null;
+  } catch {
+    return raw.replace(/\\"/g, '"').replace(/\\n/g, '\n').trim() || null;
+  }
 }
 
 function normalizeOpenRouterModelId(modelId: string): string {
@@ -1350,7 +1380,8 @@ function extractCodingReport(content: string): { cleanText: string; report: Codi
   // do not discard the whole assistant response. Preserve the raw content so
   // the user still receives the partial result instead of an empty message.
   if (!cleanText && !report) {
-    cleanText = content
+    cleanText = extractPartialCodingSummary(content)
+      ?? content
       .replace(/<dev-report>\s*/i, '')
       .replace(/\s*<\/dev-report>/i, '')
       .trim();
@@ -1868,6 +1899,7 @@ ${agent.description.trim()}`);
     },
   }));
   const llmTimeoutMs = resolveAgentOpenRouterTimeoutMs(modelId, toolParams.length);
+  const providerPreferences = resolveOpenRouterProviderPreferences(modelId, toolParams.length);
 
   logger.info({ runId: run.id, agentId, toolCount: toolParams.length, toolNames: tools.map(t => t.slug) }, 'Starting agent run');
 
@@ -1878,11 +1910,15 @@ ${agent.description.trim()}`);
     agent_id: agentId,
     model: modelId,
     max_iterations: maxIterations,
+    detail: toolParams.length > 0
+      ? `Подготовил задачу и подключил ${toolParams.length} инструмент(а/ов).`
+      : 'Подготовил задачу и отправил её модели.',
   });
   emitEvent('chat.run.status', {
     run_id: run.id,
     status: 'running',
     label: 'Агент начал выполнение задачи',
+    detail: 'Сейчас сформирую план, затем при необходимости запущу инструменты.',
   });
 
   const toolTraces: ToolTrace[] = [];
@@ -1892,6 +1928,69 @@ ${agent.description.trim()}`);
   let runStatus: 'completed' | 'failed' = 'completed';
   let errorMessage: string | undefined;
   let gotTerminalAssistantMessage = false;
+  let finalOutputWasTruncated = false;
+
+  const continueFinalAssistantOutput = async (
+    currentOutput: string,
+    continuationIndex: number,
+  ): Promise<{ chunk: string; finishReason: ChatCompletionChoice['finish_reason'] }> => {
+    emitEvent('chat.run.status', {
+      run_id: run.id,
+      status: 'continuing_output',
+      continuation_index: continuationIndex,
+      continuation_max: MAX_FINAL_OUTPUT_CONTINUATIONS,
+      label: `Ответ длинный, запрашиваю продолжение (${continuationIndex}/${MAX_FINAL_OUTPUT_CONTINUATIONS})`,
+      detail: 'Пытаюсь аккуратно достроить длинный ответ вместо обрезанного результата.',
+    });
+
+    const continuationPrompt = currentOutput.includes('<dev-report>')
+      ? 'Продолжай строго с места остановки. Не повторяй уже выведенный текст. Если <dev-report> ещё не закончен, сначала заверши JSON и закрой </dev-report>, затем продолжи оставшийся ответ.'
+      : 'Продолжай строго с места остановки. Не повторяй уже выведенный текст и выведи только недостающую часть ответа.';
+
+    const continuationResponse = await openRouterClient.chatCompletion({
+      model: modelId,
+      messages: [
+        ...messages,
+        { role: 'assistant', content: currentOutput },
+        { role: 'user', content: continuationPrompt },
+      ],
+      temperature: effectiveTemperature,
+      max_tokens: runtimeConfig.max_tokens ?? 4096,
+      provider: providerPreferences,
+    }, {
+      timeoutMs: llmTimeoutMs,
+    });
+
+    if (continuationResponse.usage) {
+      totalUsage.prompt_tokens += continuationResponse.usage.prompt_tokens;
+      totalUsage.completion_tokens += continuationResponse.usage.completion_tokens;
+      totalUsage.total_tokens += continuationResponse.usage.total_tokens;
+    }
+
+    const continuationChoice = continuationResponse.choices[0];
+    if (!continuationChoice) {
+      throw new AppError(502, 'EMPTY_RESPONSE', 'LLM returned no continuation choices');
+    }
+
+    const chunk = extractAssistantTextFromMessage(continuationChoice.message);
+    emitEvent('chat.run.status', {
+      run_id: run.id,
+      status: 'continuing_output',
+      continuation_index: continuationIndex,
+      continuation_max: MAX_FINAL_OUTPUT_CONTINUATIONS,
+      label: continuationChoice.finish_reason === 'length'
+        ? 'Продолжение получено, но ответ всё ещё упирается в лимит'
+        : 'Продолжение получено, собираю финальный результат',
+      detail: chunk.trim()
+        ? `Получил дополнительный фрагмент ответа длиной ${chunk.trim().length} символов.`
+        : 'Модель не вернула новый текст в продолжении.',
+    });
+
+    return {
+      chunk,
+      finishReason: continuationChoice.finish_reason,
+    };
+  };
 
   try {
     // 8. Main loop
@@ -1902,6 +2001,9 @@ ${agent.description.trim()}`);
         status: 'thinking',
         iteration: iteration + 1,
         label: `Итерация ${iteration + 1}: анализирую задачу`,
+        detail: toolParams.length > 0
+          ? 'Проверяю, нужно ли вызвать инструменты или уже можно собрать финальный ответ.'
+          : 'Собираю ответ напрямую без инструментов.',
       });
 
       const response = await openRouterClient.chatCompletion({
@@ -1911,6 +2013,7 @@ ${agent.description.trim()}`);
         tool_choice: toolParams.length > 0 ? 'auto' : undefined,
         temperature: effectiveTemperature,
         max_tokens: runtimeConfig.max_tokens ?? 4096,
+        provider: providerPreferences,
       }, {
         timeoutMs: llmTimeoutMs,
       });
@@ -1949,7 +2052,7 @@ ${agent.description.trim()}`);
           label: `Запускаю инструменты: ${assistantMessage.tool_calls.length}`,
         });
 
-        for (const toolCall of assistantMessage.tool_calls) {
+        for (const [toolIndex, toolCall] of assistantMessage.tool_calls.entries()) {
           const toolSlug = toolCall.function.name;
           let toolInput: Record<string, unknown>;
           try {
@@ -1976,6 +2079,7 @@ ${agent.description.trim()}`);
             tool_name: toolSlug,
             input: toolInput,
             label: `Запущен инструмент ${toolSlug}`,
+            detail: `Шаг ${toolIndex + 1} из ${assistantMessage.tool_calls.length}`,
           });
 
           let trace: ToolTrace;
@@ -2011,6 +2115,7 @@ ${agent.description.trim()}`);
               status: 'success',
               duration_ms: execResult.duration_ms,
               label: `Инструмент ${toolSlug} завершён успешно`,
+              detail: `Шаг ${toolIndex + 1} из ${assistantMessage.tool_calls.length} завершён за ${execResult.duration_ms} мс`,
             });
           } catch (err) {
             const errMsg = err instanceof Error ? err.message : 'Unknown error';
@@ -2045,6 +2150,7 @@ ${agent.description.trim()}`);
               duration_ms: 0,
               error: errMsg,
               label: `Инструмент ${toolSlug} завершился с ошибкой`,
+              detail: `Шаг ${toolIndex + 1} из ${assistantMessage.tool_calls.length} завершился с ошибкой`,
             });
           }
 
@@ -2057,6 +2163,7 @@ ${agent.description.trim()}`);
           status: 'continuing',
           iteration: iteration + 1,
           label: 'Обрабатываю результаты инструментов',
+          detail: 'Собираю данные от инструментов в единый финальный ответ.',
         });
                 continue; // Next iteration: LLM processes tool results
       }
@@ -2065,6 +2172,25 @@ ${agent.description.trim()}`);
       gotTerminalAssistantMessage = true;
       const rawAssistantOutput = extractAssistantTextFromMessage(assistantMessage);
       finalOutput = rawAssistantOutput;
+      let combinedAssistantOutput = rawAssistantOutput;
+      let finalFinishReason = choice.finish_reason;
+      if (finalOutput && choice.finish_reason === 'length') {
+        finalOutputWasTruncated = true;
+        for (let continuationIndex = 1; continuationIndex <= MAX_FINAL_OUTPUT_CONTINUATIONS; continuationIndex += 1) {
+          const continuation = await continueFinalAssistantOutput(finalOutput, continuationIndex);
+          const chunk = continuation.chunk.trim();
+          if (!chunk) {
+            break;
+          }
+          finalOutput = mergeAssistantOutputChunks(finalOutput, chunk);
+          combinedAssistantOutput = finalOutput;
+          finalFinishReason = continuation.finishReason;
+          if (continuation.finishReason !== 'length') {
+            finalOutputWasTruncated = false;
+            break;
+          }
+        }
+      }
       if (finalOutput) {
         const parsed = extractCodingReport(finalOutput);
         finalOutput = parsed.cleanText;
@@ -2072,11 +2198,11 @@ ${agent.description.trim()}`);
         if (!finalOutput && codingReport?.summary) {
           finalOutput = codingReport.summary;
         }
-        if (!finalOutput && rawAssistantOutput) {
-          finalOutput = rawAssistantOutput;
+        if (!finalOutput && combinedAssistantOutput) {
+          finalOutput = extractPartialCodingSummary(combinedAssistantOutput) ?? combinedAssistantOutput;
         }
-        if (choice.finish_reason === 'length' && finalOutput) {
-          finalOutput = `${finalOutput.trim()}\n\n[Ответ был обрезан по лимиту длины. Можно попросить продолжить или упростить задачу.]`;
+        if (finalOutputWasTruncated && finalOutput) {
+          finalOutput = `${finalOutput.trim()}\n\n[Ответ всё ещё был обрезан по лимиту длины. Можно попросить продолжить или сузить задачу.]`;
         }
       }
       if (!finalOutput) {
@@ -2084,7 +2210,7 @@ ${agent.description.trim()}`);
           {
             runId: run.id,
             iteration,
-            finishReason: choice.finish_reason,
+            finishReason: finalFinishReason,
             modelId,
             assistantMessage,
           },
@@ -2201,12 +2327,16 @@ ${agent.description.trim()}`);
       tool_count: toolTraces.length,
       has_preview: Boolean(codingReport?.preview),
       label: 'Агент завершил выполнение задачи',
+      detail: codingReport?.preview
+        ? 'Ответ собран, preview подготовлен и скоро будет сохранён в чат.'
+        : 'Ответ собран и готов к сохранению в чат.',
     });
   } else {
     emitEvent('chat.run.failed', {
       run_id: run.id,
       error: errorMessage ?? 'Unknown error',
       label: 'Выполнение завершилось с ошибкой',
+      detail: errorMessage ?? 'Во время выполнения произошла ошибка.',
     });
   }
 
@@ -2561,6 +2691,7 @@ const AGENT_OPENROUTER_TIMEOUT_MS = 3 * 60_000;
 const TOOL_AGENT_OPENROUTER_TIMEOUT_MS = 8 * 60_000;
 const CODING_AGENT_OPENROUTER_TIMEOUT_MS = 8 * 60_000;
 const GENERAL_CHAT_OPENROUTER_TIMEOUT_MS = 3 * 60_000;
+const MAX_FINAL_OUTPUT_CONTINUATIONS = 3;
 
 function resolveAgentOpenRouterTimeoutMs(modelId: string, toolCount: number): number {
   if (isCodingModel(modelId)) {
@@ -2572,6 +2703,17 @@ function resolveAgentOpenRouterTimeoutMs(modelId: string, toolCount: number): nu
   }
 
   return AGENT_OPENROUTER_TIMEOUT_MS;
+}
+
+function resolveOpenRouterProviderPreferences(modelId: string, toolCount: number) {
+  if (isCodingModel(modelId) || toolCount > 0) {
+    return {
+      sort: 'throughput' as const,
+      require_parameters: true,
+    };
+  }
+
+  return undefined;
 }
 
 type ChatMode = 'general' | 'agent';
@@ -4065,6 +4207,10 @@ export async function streamChatEvents(chatId: string, userId: string, res: Resp
   await openChatEventStream(chatId, userId, res);
 }
 
+export async function streamSharedChatEvents(token: string, res: Response) {
+  await openSharedChatEventStream(token, res);
+}
+
 export async function getChatStats(chatId: string, userId: string): Promise<ChatStatsResponse> {
   const chat = await getConversationForUser(chatId, userId);
   const usdToRubRate = await getUsdToRubRate();
@@ -4414,6 +4560,9 @@ export async function sendChatMessage(
   const usdToRubRate = await getUsdToRubRate();
   const emitChatEvent = (event: string, payload: Record<string, unknown>) => {
     publishChatEvent(chatId, userId, event, payload);
+    if (chat.share_token) {
+      publishSharedChatEvent(chat.share_token, event, payload);
+    }
   };
   const trimmedContent = content.trim();
   if (!trimmedContent && (attachmentsInput ?? []).length === 0) {
