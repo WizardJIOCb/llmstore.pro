@@ -36,12 +36,6 @@ interface StatusMeta {
   accentClassName: string;
 }
 
-interface FocusCard {
-  eyebrow: string;
-  title: string;
-  description: string;
-}
-
 interface RouteCard {
   title: string;
   description: string;
@@ -285,7 +279,7 @@ const milestones: MilestoneItem[] = [
   },
 ];
 
-const focusCards: FocusCard[] = [
+const focusCards = [
   {
     eyebrow: 'Следующий фокус',
     title: 'Tools inside chat',
@@ -421,7 +415,7 @@ export function MilestonesPage() {
       (galleryItems ?? [])
         .filter((item) => (item.kind === 'preview' || item.kind === 'hybrid') && Boolean(item.preview_url))
         .sort((a, b) => b.total_view_count - a.total_view_count)
-        .slice(0, 3),
+        .slice(0, 4),
     [galleryItems],
   );
 
@@ -430,7 +424,7 @@ export function MilestonesPage() {
       <section className="relative isolate">
         <div className="absolute inset-x-0 top-0 -z-10 h-[36rem] bg-[radial-gradient(circle_at_top_left,rgba(56,189,248,0.18),transparent_34%),radial-gradient(circle_at_top_right,rgba(16,185,129,0.12),transparent_30%),linear-gradient(180deg,rgba(255,255,255,0.55),rgba(255,255,255,0))]" />
         <div className="container mx-auto px-4 py-14 md:py-20">
-          <div className="grid gap-8 lg:grid-cols-[minmax(0,1.2fr)_420px] lg:items-start">
+          <div className="grid gap-8 lg:grid-cols-[minmax(0,1.2fr)_500px] lg:items-start">
             <div>
               <Badge className="rounded-full border border-sky-200 bg-white/85 px-4 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-sky-700 shadow-sm">
                 Milestones
@@ -474,41 +468,26 @@ export function MilestonesPage() {
 
               <p className="mt-6 text-[15px] leading-7 text-slate-600 md:text-base">{summaryText}</p>
 
-              <div className="mt-7 grid grid-cols-4 gap-2 sm:gap-3">
-                <div className="min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-2 py-3 text-center sm:p-4">
+              <div className="mt-7 grid grid-cols-4 gap-1.5 sm:gap-3">
+                <div className="min-w-0 rounded-2xl border border-emerald-200 bg-emerald-50 px-1.5 py-3 text-center sm:p-4">
                   <p className="text-xl font-semibold text-slate-950 sm:text-2xl">{counts.done}</p>
-                  <p className="mt-1 text-[11px] leading-tight text-slate-500 sm:text-sm">Done</p>
+                  <p className="mt-1 whitespace-nowrap text-[13px] leading-tight tracking-tight text-emerald-700 sm:text-sm">Done</p>
                 </div>
-                <div className="min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-2 py-3 text-center sm:p-4">
+                <div className="min-w-0 rounded-2xl border border-sky-200 bg-sky-50 px-1.5 py-3 text-center sm:p-4">
                   <p className="text-xl font-semibold text-slate-950 sm:text-2xl">{counts.inProgress}</p>
-                  <p className="mt-1 text-[11px] leading-tight text-slate-500 sm:text-sm">In Progress</p>
+                  <p className="mt-1 whitespace-nowrap text-[13px] leading-tight tracking-tight text-sky-700 sm:text-sm">In Progress</p>
                 </div>
-                <div className="min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-2 py-3 text-center sm:p-4">
+                <div className="min-w-0 rounded-2xl border border-amber-200 bg-amber-50 px-1.5 py-3 text-center sm:p-4">
                   <p className="text-xl font-semibold text-slate-950 sm:text-2xl">{counts.planned}</p>
-                  <p className="mt-1 text-[11px] leading-tight text-slate-500 sm:text-sm">Planned</p>
+                  <p className="mt-1 whitespace-nowrap text-[13px] leading-tight tracking-tight text-amber-700 sm:text-sm">Planned</p>
                 </div>
-                <div className="min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-2 py-3 text-center sm:p-4">
+                <div className="min-w-0 rounded-2xl border border-violet-200 bg-violet-50 px-1.5 py-3 text-center sm:p-4">
                   <p className="text-xl font-semibold text-slate-950 sm:text-2xl">{counts.research}</p>
-                  <p className="mt-1 text-[11px] leading-tight text-slate-500 sm:text-sm">Research</p>
+                  <p className="mt-1 whitespace-nowrap text-[13px] leading-tight tracking-tight text-violet-700 sm:text-sm">Research</p>
                 </div>
               </div>
             </Card>
           </div>
-        </div>
-      </section>
-
-      <section className="container mx-auto px-4 pb-8">
-        <div className="grid gap-4 md:grid-cols-3">
-          {focusCards.map((card) => (
-            <Card
-              key={card.title}
-              className="rounded-[24px] border-white/80 bg-white/88 p-6 shadow-[0_18px_55px_-35px_rgba(15,23,42,0.4)] backdrop-blur"
-            >
-              <p className="text-xs uppercase tracking-[0.22em] text-slate-400">{card.eyebrow}</p>
-              <h2 className="mt-3 text-xl font-semibold text-slate-950">{card.title}</h2>
-              <p className="mt-3 text-[15px] leading-7 text-slate-600">{card.description}</p>
-            </Card>
-          ))}
         </div>
       </section>
 
@@ -606,7 +585,7 @@ export function MilestonesPage() {
             </p>
 
             {topGalleryPreviews.length > 0 ? (
-              <div className="mt-8 grid gap-4 xl:grid-cols-3">
+              <div className="mt-8 grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
                 {topGalleryPreviews.map((item) => (
                   <GalleryMilestonePreviewCard key={item.message_id} item={item} />
                 ))}
