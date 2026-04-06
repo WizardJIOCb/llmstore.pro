@@ -2002,10 +2002,18 @@ function normalizeAssistantChatPayload(
   const usageCodingReport = sanitizeCodingReport(usage?.coding_report);
   let codingReport = parsed.report ?? usageCodingReport;
   let normalizedContent = parsed.cleanText || codingReport?.summary || '';
+  const currentPreviewHtml = codingReport?.preview?.type === 'html'
+    ? (codingReport.preview.html ?? '').trim()
+    : '';
+  const hasUsablePreview = Boolean(
+    currentPreviewHtml
+    && /<(?:!doctype\s+html|html|body|section|div|main|style|script)\b/i.test(currentPreviewHtml)
+    && currentPreviewHtml.toLowerCase() !== 'see full html below',
+  );
   const recoveredProject = codingReport?.project
     ? null
     : recoverProjectBundleFromMarkdown(parsed.cleanText || content, codingReport);
-  const recoveredPreview = codingReport?.preview
+  const recoveredPreview = hasUsablePreview
     ? null
     : (
       recoverHtmlPreviewFromMarkdown(parsed.cleanText || content, codingReport)
