@@ -993,6 +993,15 @@ function stripContinuationNarration(content: string): string {
   return cleaned.replace(/\n*\[Ответ[^\]]+\]\s*$/u, '').trim();
 }
 
+function sanitizeRecoveredHtmlPreview(html: string): string {
+  return stripContinuationNarration(html)
+    .replace(/<dev-report>[\s\S]*?<\/dev-report>/gi, '')
+    .replace(/<\/?dev-report>\s*/gi, '')
+    .replace(/^\s*(?:js|html)\s*$/gimu, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 function mergeAssistantOutputChunks(base: string, next: string): string {
   const htmlLike = looksLikeHtmlPreviewPayload(base) || looksLikeHtmlPreviewPayload(next);
   const left = (htmlLike ? stripContinuationNarration(base) : base).trimEnd();
@@ -1446,7 +1455,7 @@ function recoverHtmlPreviewFromMarkdown(
     if (/index\.html/i.test(headingContext)) score += 2;
     if (score < 5) continue;
 
-    const html = stripContinuationNarration(rawBlock);
+    const html = sanitizeRecoveredHtmlPreview(rawBlock);
     if (!html) continue;
 
     const cleanText = [
@@ -1495,7 +1504,7 @@ function recoverHtmlPreviewFromLooseContent(
   for (let i = 0; i < starts.length; i += 1) {
     const startIndex = starts[i];
     const nextStartIndex = starts[i + 1] ?? normalized.length;
-    const candidateTail = stripContinuationNarration(normalized.slice(startIndex, nextStartIndex));
+    const candidateTail = sanitizeRecoveredHtmlPreview(normalized.slice(startIndex, nextStartIndex));
     if (!looksLikeHtmlPreviewPayload(candidateTail)) continue;
 
     const closeMatch = [...candidateTail.matchAll(/<\/html>/gi)].pop();
@@ -1538,7 +1547,7 @@ function looksLikeHtmlPreviewPayload(content: string): boolean {
 }
 
 function extractBestHtmlDocument(content: string): string {
-  const normalized = stripContinuationNarration(content).replace(/\r\n/g, '\n').trim();
+  const normalized = sanitizeRecoveredHtmlPreview(content).replace(/\r\n/g, '\n').trim();
   const starts = [...normalized.matchAll(/<!doctype\s+html|<html[\s>]/gi)]
     .map((match) => match.index)
     .filter((index): index is number => typeof index === 'number');
@@ -1597,7 +1606,7 @@ function normalizePreview(value: unknown): CodingReportPreview | null | undefine
     };
   }
 
-  const html = clampText(stripContinuationNarration(String(preview.html ?? '')), 50_000);
+  const html = clampText(sanitizeRecoveredHtmlPreview(String(preview.html ?? '')), 50_000);
   const normalizedHtml = html ? clampText(extractBestHtmlDocument(html), 50_000) : undefined;
   if (!normalizedHtml) return null;
   return {
