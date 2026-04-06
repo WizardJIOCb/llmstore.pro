@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Spinner } from '../ui/Spinner';
 import { cn } from '../../lib/utils';
 
@@ -84,6 +84,46 @@ export function ChatLiveProgressPanel({
   disconnectedLabel = 'Ожидаю переподключение к SSE',
   trailing,
 }: ChatLiveProgressPanelProps) {
+  const [animatedEventIds, setAnimatedEventIds] = useState<string[]>([]);
+  const seenEventIdsRef = useRef<Set<string>>(new Set());
+  const animationTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  useEffect(() => {
+    if (seenEventIdsRef.current.size === 0) {
+      events.forEach((event) => seenEventIdsRef.current.add(event.id));
+      return;
+    }
+
+    const nextAnimatedIds: string[] = [];
+    for (const event of events) {
+      if (!seenEventIdsRef.current.has(event.id)) {
+        seenEventIdsRef.current.add(event.id);
+        nextAnimatedIds.push(event.id);
+      }
+    }
+
+    if (nextAnimatedIds.length === 0) return;
+
+    setAnimatedEventIds((prev) => [...new Set([...prev, ...nextAnimatedIds])]);
+
+    nextAnimatedIds.forEach((id) => {
+      const existingTimer = animationTimersRef.current.get(id);
+      if (existingTimer) {
+        clearTimeout(existingTimer);
+      }
+      const timer = setTimeout(() => {
+        setAnimatedEventIds((prev) => prev.filter((item) => item !== id));
+        animationTimersRef.current.delete(id);
+      }, 520);
+      animationTimersRef.current.set(id, timer);
+    });
+  }, [events]);
+
+  useEffect(() => () => {
+    animationTimersRef.current.forEach((timer) => clearTimeout(timer));
+    animationTimersRef.current.clear();
+  }, []);
+
   if (events.length === 0) return null;
 
   return (
@@ -100,8 +140,15 @@ export function ChatLiveProgressPanel({
       <div className="space-y-2">
         {events.map((event, index) => {
           const usageLabel = buildUsageLabel(event);
+          const isFresh = animatedEventIds.includes(event.id);
           return (
-            <div key={event.id} className="rounded-lg border border-sky-200/80 bg-white/80 px-3 py-2">
+            <div
+              key={event.id}
+              className={cn(
+                'rounded-lg border border-sky-200/80 bg-white/80 px-3 py-2',
+                isFresh && 'animate-[fadeIn_260ms_ease-out,zoomIn_280ms_ease-out]',
+              )}
+            >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex items-start gap-2">

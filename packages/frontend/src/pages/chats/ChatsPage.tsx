@@ -3311,20 +3311,6 @@ export function ChatsPage() {
                 {assistantSlotResolvedMessage ? (
                   <>
                     {null}
-                    {activeChat?.pending_run && isPendingRunLive(activeChat.pending_run) && (
-                      <div className="mb-3 space-y-3">
-                        <ChatLiveProgressPanel
-                          events={streamEvents}
-                          connected={streamConnected}
-                          trailing={isSubmittingMessage ? <ChatLiveProgressTrailingBusy /> : null}
-                        />
-                        <ChatThinkingBubble
-                          label={assistantResponseSlotForActiveChat.label}
-                          detail={assistantResponseSlotForActiveChat.detail}
-                          startedAt={assistantResponseSlotForActiveChat.startedAt}
-                        />
-                      </div>
-                    )}
                     <ChatMessage
                       role={assistantSlotResolvedMessage.role}
                       content={assistantSlotResolvedMessage.content}
