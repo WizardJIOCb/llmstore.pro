@@ -12,6 +12,7 @@ import type {
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1';
 const DEFAULT_TIMEOUT = 60_000;
 const MAX_TIMEOUT = 15 * 60_000;
+const NO_ENDPOINTS_FOR_PARAMETERS_MESSAGE = 'No endpoints found that can handle the requested parameters';
 
 function normalizeTimeoutMs(timeoutMs?: number): number {
   if (!Number.isFinite(timeoutMs) || (timeoutMs ?? 0) <= 0) {
@@ -44,10 +45,10 @@ export class OpenRouterClient {
     const timeoutMs = normalizeTimeoutMs(options?.timeoutMs);
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      logger.debug({ model: params.model, messageCount: params.messages.length }, 'OpenRouter chat completion request');
+    const requestCompletion = async (requestParams: ChatCompletionParams): Promise<ChatCompletionResponse> => {
+      logger.debug({ model: requestParams.model, messageCount: requestParams.messages.length }, 'OpenRouter chat completion request');
 
-      const { data } = await this.http.post<ChatCompletionResponse>('/chat/completions', params, {
+      const { data } = await this.http.post<ChatCompletionResponse>('/chat/completions', requestParams, {
         signal: controller.signal,
         timeout: timeoutMs,
       });
@@ -60,7 +61,7 @@ export class OpenRouterClient {
 
       if (!Array.isArray(data.choices) || data.choices.length === 0) {
         logger.error({
-          model: params.model,
+          model: requestParams.model,
           responseId: data.id,
           hasChoicesArray: Array.isArray(data.choices),
         }, 'OpenRouter returned response without choices');
@@ -68,6 +69,10 @@ export class OpenRouterClient {
       }
 
       return data;
+    };
+
+    try {
+      return await requestCompletion(params);
     } catch (err) {
       if (err instanceof AxiosError && err.code === 'ERR_CANCELED') {
         const message = `OpenRouter request timed out after ${Math.round(timeoutMs / 1000)}s`;
@@ -81,6 +86,49 @@ export class OpenRouterClient {
         const status = err.response?.status || 500;
 
         logger.error({ status, message, model: params.model }, 'OpenRouter API error');
+
+        if (
+          params.provider
+          && status === 404
+          && message.includes(NO_ENDPOINTS_FOR_PARAMETERS_MESSAGE)
+        ) {
+          logger.warn({
+            model: params.model,
+            provider: params.provider,
+          }, 'Retrying OpenRouter request without provider preferences after routing miss');
+
+          try {
+            return await requestCompletion({
+              ...params,
+              provider: undefined,
+            });
+          } catch (retryErr) {
+            if (retryErr instanceof AxiosError && retryErr.code === 'ERR_CANCELED') {
+              const retryMessage = `OpenRouter request timed out after ${Math.round(timeoutMs / 1000)}s`;
+              logger.error({ model: params.model, timeout_ms: timeoutMs }, 'OpenRouter retry request timeout');
+              throw new AppError(504, 'LLM_TIMEOUT', retryMessage);
+            }
+
+            if (retryErr instanceof AxiosError) {
+              const retryOrError = retryErr.response?.data as OpenRouterError | undefined;
+              const retryMessage = retryOrError?.error?.message || retryErr.message;
+              const retryStatus = retryErr.response?.status || 500;
+              logger.error({ status: retryStatus, message: retryMessage, model: params.model }, 'OpenRouter retry API error');
+              if (retryStatus === 429) {
+                throw new AppError(429, 'RATE_LIMITED', `OpenRouter rate limit: ${retryMessage}`);
+              }
+              if (retryStatus === 402) {
+                throw new AppError(402, 'INSUFFICIENT_CREDITS', `OpenRouter credits exhausted: ${retryMessage}`);
+              }
+              if (retryStatus === 400) {
+                throw new AppError(400, 'LLM_BAD_REQUEST', `OpenRouter bad request: ${retryMessage}`);
+              }
+              throw new AppError(502, 'LLM_PROVIDER_ERROR', `OpenRouter error: ${retryMessage}`);
+            }
+
+            throw retryErr;
+          }
+        }
 
         if (status === 429) {
           throw new AppError(429, 'RATE_LIMITED', `OpenRouter rate limit: ${message}`);
