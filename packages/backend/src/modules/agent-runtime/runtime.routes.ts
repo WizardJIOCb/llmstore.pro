@@ -8,12 +8,15 @@ import {
   validateUpdateChat,
   validateSendChatMessage,
   validateUpdateMessagePreview,
+  validatePublishLanding,
+  validateUpdateLanding,
   validateSetGalleryReaction,
   validateUpsertProjectDeployment,
   validateProjectDeploymentAgentRun,
 } from './runtime.validators.js';
 
 const router = Router();
+const publishedLandingRouter = Router();
 
 // Chat history (authenticated)
 router.get('/agents/:agentId/chat', requireAuth, controller.getChatHistory);
@@ -38,6 +41,10 @@ router.post('/chats/import', requireAuth, chatBundleUpload.single('file'), contr
 router.get('/chats/:chatId/export', requireAuth, controller.exportChatBundle);
 router.get('/chats/:chatId/messages/:messageId/preview', controller.getChatMessagePreview);
 router.patch('/chats/:chatId/messages/:messageId/preview', requireAuth, validateUpdateMessagePreview, controller.updateChatMessagePreview);
+router.get('/chats/:chatId/messages/:messageId/landing', requireAuth, controller.getPublishedLanding);
+router.post('/chats/:chatId/messages/:messageId/landing', requireAuth, validatePublishLanding, controller.publishChatMessageLanding);
+router.patch('/chats/:chatId/messages/:messageId/landing', requireAuth, validateUpdateLanding, controller.updatePublishedLanding);
+router.delete('/chats/:chatId/messages/:messageId/landing', requireAuth, controller.unpublishChatMessageLanding);
 router.post('/chats/:chatId/messages/:messageId/project-run', requireAuth, controller.runChatMessageProject);
 router.get('/chats/:chatId/messages/:messageId/project-deployment', requireAuth, controller.getChatMessageProjectDeployment);
 router.post('/chats/:chatId/messages/:messageId/project-deployment', requireAuth, validateUpsertProjectDeployment, controller.upsertChatMessageProjectDeployment);
@@ -68,3 +75,5 @@ router.get('/runs/:id', requireAuth, controller.getRun);
 router.get('/runs', requireAuth, controller.listRuns);
 
 export const agentRuntimeRoutes = router;
+publishedLandingRouter.get(/.*/, controller.getPublishedLandingByHost);
+export const publishedLandingRoutes = publishedLandingRouter;

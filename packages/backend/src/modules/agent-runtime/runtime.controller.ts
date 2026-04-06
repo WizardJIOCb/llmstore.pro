@@ -603,6 +603,60 @@ export async function sendChatMessage(req: Request<{ chatId: string }>, res: Res
   }
 }
 
+export async function getPublishedLanding(req: Request<{ chatId: string; messageId: string }>, res: Response, next: NextFunction) {
+  try {
+    const result = await runtimeService.getPublishedLanding(
+      req.params.chatId,
+      req.params.messageId,
+      req.session.userId!,
+    );
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function publishChatMessageLanding(req: Request<{ chatId: string; messageId: string }>, res: Response, next: NextFunction) {
+  try {
+    const result = await runtimeService.publishChatMessageLanding(
+      req.params.chatId,
+      req.params.messageId,
+      req.session.userId!,
+      req.body,
+    );
+    res.status(201).json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function updatePublishedLanding(req: Request<{ chatId: string; messageId: string }>, res: Response, next: NextFunction) {
+  try {
+    const result = await runtimeService.updatePublishedLanding(
+      req.params.chatId,
+      req.params.messageId,
+      req.session.userId!,
+      req.body,
+    );
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function unpublishChatMessageLanding(req: Request<{ chatId: string; messageId: string }>, res: Response, next: NextFunction) {
+  try {
+    await runtimeService.unpublishChatMessageLanding(
+      req.params.chatId,
+      req.params.messageId,
+      req.session.userId!,
+    );
+    res.json({ data: { ok: true } });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function uploadChatFiles(req: Request, res: Response, next: NextFunction) {
   try {
     const files = req.files as Express.Multer.File[] | undefined;
@@ -638,6 +692,44 @@ export async function exportSharedChatBundle(req: Request<{ token: string }>, re
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Content-Disposition', buildAttachmentDisposition(bundle.filename));
     res.json({ data: bundle.payload });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getPublishedLandingByHost(req: Request, res: Response, next: NextFunction) {
+  try {
+    if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/')) {
+      next();
+      return;
+    }
+
+    const hostname = req.hostname?.trim().toLowerCase();
+    const frontendHost = new URL(process.env.FRONTEND_URL || 'https://llmstore.pro').hostname.toLowerCase();
+    if (!hostname || hostname === frontendHost || !hostname.endsWith(`.${frontendHost}`)) {
+      next();
+      return;
+    }
+
+    const subdomain = hostname.slice(0, -(frontendHost.length + 1));
+    if (!subdomain) {
+      next();
+      return;
+    }
+
+    const viewer = resolveViewerContext(req, res);
+    const html = await runtimeService.getPublishedLandingHtmlBySubdomain(
+      subdomain,
+      viewer.viewerUserId,
+      viewer.viewerKey,
+      {
+        previewId: typeof req.query.previewId === 'string' ? req.query.previewId : undefined,
+      },
+    );
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store, max-age=0');
+    res.setHeader('Content-Security-Policy', PREVIEW_CSP);
+    res.send(html);
   } catch (err) {
     next(err);
   }

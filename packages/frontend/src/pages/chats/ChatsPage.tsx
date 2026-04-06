@@ -1216,10 +1216,14 @@ export function ChatsPage() {
     ));
   };
 
-  const publishMessageLanding = async (chatId: string, messageId: string) => {
+  const publishMessageLanding = async (
+    chatId: string,
+    messageId: string,
+    payload?: { subdomain?: string | null; title?: string | null },
+  ) => {
     setLandingActionBusy(messageId, true);
     try {
-      const landing = await chatsApi.publishLanding(chatId, messageId);
+      const landing = await chatsApi.publishLanding(chatId, messageId, payload);
       setPublishedLandingByMessageId((prev) => ({ ...prev, [messageId]: landing }));
       await queryClient.invalidateQueries({ queryKey: ['chats'] });
       return landing;
@@ -1243,7 +1247,11 @@ export function ChatsPage() {
     }
   };
 
-  const updateMessageLanding = async (chatId: string, messageId: string, payload: { subdomain: string }) => {
+  const updateMessageLanding = async (
+    chatId: string,
+    messageId: string,
+    payload: { subdomain?: string | null; title?: string | null; slug?: string | null; description?: string | null },
+  ) => {
     setLandingActionBusy(messageId, true);
     try {
       const landing = await chatsApi.updateLanding(chatId, messageId, payload);
@@ -3210,7 +3218,7 @@ export function ChatsPage() {
                   publishingLanding={msg.role === 'assistant' ? landingActionMessageIds.includes(msg.id) : undefined}
                   onPublishLanding={msg.role === 'assistant' && activeChat
                     && !isAdminForeignChat
-                    ? async () => publishMessageLanding(activeChat.id, msg.id)
+                    ? async (payload) => publishMessageLanding(activeChat.id, msg.id, payload)
                     : undefined}
                   onUpdateLanding={msg.role === 'assistant' && activeChat
                     && !isAdminForeignChat
@@ -3349,7 +3357,7 @@ export function ChatsPage() {
                       publishingLanding={landingActionMessageIds.includes(assistantSlotResolvedMessage.id)}
                       onPublishLanding={activeChat
                         && !isAdminForeignChat
-                        ? async () => publishMessageLanding(activeChat.id, assistantSlotResolvedMessage.id)
+                        ? async (payload) => publishMessageLanding(activeChat.id, assistantSlotResolvedMessage.id, payload)
                         : undefined}
                       onUpdateLanding={activeChat
                         && !isAdminForeignChat

@@ -15,6 +15,7 @@ import {
   chatConversationMessages,
   chatConversationViewers,
   chatConversationReactions,
+  publishedLandings,
 } from '../../db/schema/runtime.js';
 import { usageLedger } from '../../db/schema/analytics.js';
 import { users } from '../../db/schema/auth.js';
@@ -22,7 +23,7 @@ import { eq, desc, and, or, sql, asc, inArray } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import { openRouterClient } from '../openrouter/index.js';
 import { executeTool } from '../tool-execution/index.js';
-import { NotFoundError, AppError } from '../../middleware/error-handler.js';
+import { NotFoundError, AppError, ConflictError } from '../../middleware/error-handler.js';
 import { logger } from '../../lib/logger.js';
 import type { ChatCompletionChoice, ChatMessage, ToolDefinitionParam } from '../openrouter/types.js';
 import { UPLOADS_DIR } from '../../config/upload.js';
@@ -35,6 +36,7 @@ import {
   resolveStarterPromptsForAgentSlug,
 } from '../../lib/app-settings.js';
 import { chargeUserBalanceForUsage } from '../../lib/billing.js';
+import { env } from '../../config/env.js';
 
 const DEFAULT_MODEL = 'google/gemini-2.0-flash-001';
 const DEFAULT_MAX_ITERATIONS = 4;
@@ -44,6 +46,7 @@ const PROJECT_HTTP_READY_TIMEOUT_MS = 8_000;
 const PROJECT_HTTP_PROBE_INTERVAL_MS = 500;
 const PROJECT_MAX_OUTPUT_CHARS = 24_000;
 const STALE_PENDING_RUN_MS = 12 * 60_000;
+const RESERVED_LANDING_SUBDOMAINS = new Set(['www', 'api', 'admin', 'app', 'static', 'uploads']);
 
 interface ChatAttachmentInput {
   filename: string;
@@ -384,6 +387,112 @@ async function ensureChatShareToken(chatId: string, shareToken?: string | null):
     .set({ share_token: token, updated_at: new Date() })
     .where(eq(chatConversations.id, chatId));
   return token;
+}
+
+function normalizeLandingSubdomain(value: string): string {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .replace(/-{2,}/g, '-')
+    .slice(0, 63);
+
+  if (!normalized || normalized.length < 3) {
+    throw new AppError(400, 'VALIDATION_ERROR', 'Поддомен должен содержать минимум 3 латинских символа или цифры');
+  }
+
+  if (!/^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])?$/.test(normalized)) {
+    throw new AppError(400, 'VALIDATION_ERROR', 'Поддомен может содержать только латинские буквы, цифры и дефисы');
+  }
+
+  if (RESERVED_LANDING_SUBDOMAINS.has(normalized)) {
+    throw new AppError(400, 'VALIDATION_ERROR', 'Этот поддомен зарезервирован');
+  }
+
+  return normalized;
+}
+
+function buildLandingSlugSource(title?: string | null, fallback?: string): string {
+  const base = (title ?? fallback ?? 'landing')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .replace(/-{2,}/g, '-');
+  return base || 'landing';
+}
+
+async function ensureAvailableLandingSubdomain(baseTitle?: string | null, suffixSeed?: string): Promise<string> {
+  const base = normalizeLandingSubdomain(
+    buildLandingSlugSource(baseTitle, suffixSeed).slice(0, 40) || 'landing',
+  );
+
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const candidate = attempt === 0
+      ? base
+      : normalizeLandingSubdomain(`${base}-${(suffixSeed ?? uuidv4().replace(/-/g, '')).slice(0, Math.min(6 + attempt, 12))}`.slice(0, 63));
+    const [existing] = await db
+      .select({ id: publishedLandings.id })
+      .from(publishedLandings)
+      .where(eq(publishedLandings.subdomain, candidate))
+      .limit(1);
+    if (!existing) {
+      return candidate;
+    }
+  }
+
+  throw new AppError(500, 'LANDING_SUBDOMAIN_EXHAUSTED', 'Не удалось подобрать свободный поддомен');
+}
+
+function getPublishedLandingBaseUrl(): URL {
+  const fallback = env.FRONTEND_URL || 'https://llmstore.pro';
+  try {
+    return new URL(fallback);
+  } catch {
+    return new URL('https://llmstore.pro');
+  }
+}
+
+function buildPublishedLandingUrls(subdomain: string, shareToken: string, messageId: string): {
+  url: string;
+  site_url: string | null;
+  preview_url: string | null;
+} {
+  const frontendUrl = getPublishedLandingBaseUrl();
+  const host = frontendUrl.host;
+  const isLocalHost = frontendUrl.hostname === 'localhost' || frontendUrl.hostname === '127.0.0.1';
+  const previewPath = `/api/shared/chats/${shareToken}/messages/${messageId}/preview`;
+  const previewUrl = new URL(previewPath, frontendUrl).toString();
+
+  if (isLocalHost) {
+    return {
+      url: previewUrl,
+      site_url: previewUrl,
+      preview_url: previewUrl,
+    };
+  }
+
+  const siteUrl = `${frontendUrl.protocol}//${subdomain}.${host}/`;
+  return {
+    url: siteUrl,
+    site_url: siteUrl,
+    preview_url: previewUrl,
+  };
+}
+
+function resolveLandingSubdomainFromHost(hostname?: string | null): string | null {
+  if (!hostname) return null;
+  const normalizedHost = hostname.trim().toLowerCase().replace(/:\d+$/, '');
+  if (!normalizedHost) return null;
+
+  const frontendUrl = getPublishedLandingBaseUrl();
+  const baseHost = frontendUrl.hostname.trim().toLowerCase();
+  if (!baseHost || normalizedHost === baseHost) return null;
+  if (!normalizedHost.endsWith(`.${baseHost}`)) return null;
+
+  const subdomain = normalizedHost.slice(0, -(baseHost.length + 1)).trim();
+  return subdomain ? normalizeLandingSubdomain(subdomain) : null;
 }
 
 async function resolveUserIdentity(userId: string) {
@@ -3989,6 +4098,19 @@ interface ConversationMessage {
   created_at: string;
 }
 
+interface PublishedLandingResult {
+  id: string;
+  slug?: string;
+  subdomain: string | null;
+  title: string | null;
+  description?: string | null;
+  url: string;
+  site_url: string | null;
+  preview_url: string | null;
+  is_published: boolean;
+  updated_at: string | null;
+}
+
 interface ConversationDetails {
   chat: Omit<ConversationListItem, 'last_message_preview' | 'message_count'> & {
     message_count: number;
@@ -4374,6 +4496,59 @@ async function getConversationForSharedViewer(token: string, viewerUserId?: stri
 
   if (!chat) throw new NotFoundError('Ресурс не найден');
   return chat as ChatConversationRow;
+}
+
+function getHtmlPreviewForMessageRow(message: typeof chatConversationMessages.$inferSelect): {
+  title: string | null;
+  html: string;
+} {
+  const rawUsage = (message.usage_json as Record<string, unknown> | null) ?? null;
+  const normalized = normalizeAssistantChatPayload(message.content_text, rawUsage);
+  const preview = normalized.codingReport?.preview;
+
+  if (!preview || preview.type !== 'html' || !preview.html) {
+    throw new NotFoundError('Preview not found');
+  }
+
+  return {
+    title: preview.title ?? null,
+    html: preview.html,
+  };
+}
+
+function toPublishedLandingResult(
+  row: typeof publishedLandings.$inferSelect,
+  options: { shareToken: string; messageId: string },
+): PublishedLandingResult {
+  const urls = buildPublishedLandingUrls(row.subdomain, options.shareToken, options.messageId);
+  return {
+    id: row.id,
+    slug: row.subdomain,
+    subdomain: row.subdomain,
+    title: row.title ?? null,
+    description: null,
+    url: urls.url,
+    site_url: urls.site_url,
+    preview_url: urls.preview_url,
+    is_published: row.status === 'active',
+    updated_at: row.updated_at ? toIso(row.updated_at) : null,
+  };
+}
+
+async function getPublishedLandingRowForOwner(chatId: string, messageId: string, userId: string) {
+  const chat = await getConversationForUser(chatId, userId);
+  const message = await getAssistantMessageForConversation(chat.id, messageId);
+  const [landing] = await db
+    .select()
+    .from(publishedLandings)
+    .where(and(
+      eq(publishedLandings.conversation_id, chat.id),
+      eq(publishedLandings.message_id, message.id),
+      eq(publishedLandings.user_id, userId),
+    ))
+    .limit(1);
+
+  return { chat, message, landing: landing ?? null };
 }
 
 async function getConversationMessages(chatId: string): Promise<ConversationMessage[]> {
@@ -5440,7 +5615,7 @@ async function getAssistantMessageForConversation(conversationId: string, messag
     .limit(1);
 
   if (!message || message.role !== 'assistant') {
-    throw new NotFoundError('Project bundle not found');
+    throw new NotFoundError('Assistant message not found');
   }
 
   return message;
@@ -5692,6 +5867,163 @@ export async function updateSharedChatMessagePreview(
   const updated = await updatePreviewForMessageRow(message, input);
   const usdToRubRate = await getUsdToRubRate();
   return toConversationMessage(updated, usdToRubRate);
+}
+
+export async function getPublishedLanding(
+  chatId: string,
+  messageId: string,
+  userId: string,
+): Promise<PublishedLandingResult | null> {
+  const { chat, message, landing } = await getPublishedLandingRowForOwner(chatId, messageId, userId);
+  if (!landing) return null;
+  const shareToken = await ensureChatShareToken(chat.id, chat.share_token);
+  return toPublishedLandingResult(landing, { shareToken, messageId: message.id });
+}
+
+export async function publishChatMessageLanding(
+  chatId: string,
+  messageId: string,
+  userId: string,
+  input?: { subdomain?: string | null; title?: string | null },
+): Promise<PublishedLandingResult> {
+  const { chat, message, landing } = await getPublishedLandingRowForOwner(chatId, messageId, userId);
+  const preview = getHtmlPreviewForMessageRow(message);
+  const shareToken = await ensureChatShareToken(chat.id, chat.share_token);
+
+  let subdomain = input?.subdomain?.trim()
+    ? normalizeLandingSubdomain(input.subdomain)
+    : (landing?.subdomain ?? await ensureAvailableLandingSubdomain(input?.title ?? preview.title ?? chat.title, message.id.replace(/-/g, '')));
+
+  if (landing && landing.subdomain !== subdomain) {
+    const [taken] = await db
+      .select({ id: publishedLandings.id })
+      .from(publishedLandings)
+      .where(and(
+        eq(publishedLandings.subdomain, subdomain),
+        sql`${publishedLandings.id} <> ${landing.id}`,
+      ))
+      .limit(1);
+    if (taken) {
+      throw new ConflictError('Этот поддомен уже занят');
+    }
+  }
+
+  try {
+    const now = new Date();
+    const values = {
+      conversation_id: chat.id,
+      message_id: message.id,
+      user_id: userId,
+      deployment_id: null,
+      type: 'preview_html' as const,
+      status: 'active' as const,
+      subdomain,
+      title: (input?.title?.trim() || preview.title || chat.title || null),
+      updated_at: now,
+    };
+
+    const [row] = landing
+      ? await db.update(publishedLandings)
+        .set(values)
+        .where(eq(publishedLandings.id, landing.id))
+        .returning()
+      : await db.insert(publishedLandings)
+        .values({
+          ...values,
+          created_at: now,
+        })
+        .returning();
+
+    return toPublishedLandingResult(row, { shareToken, messageId: message.id });
+  } catch (error) {
+    const code = (error as { code?: string } | null)?.code;
+    if (code === '23505') {
+      throw new ConflictError('Этот поддомен уже занят');
+    }
+    throw error;
+  }
+}
+
+export async function updatePublishedLanding(
+  chatId: string,
+  messageId: string,
+  userId: string,
+  input: { subdomain?: string | null; title?: string | null },
+): Promise<PublishedLandingResult> {
+  const { chat, message, landing } = await getPublishedLandingRowForOwner(chatId, messageId, userId);
+  if (!landing) {
+    throw new NotFoundError('Landing not found');
+  }
+
+  getHtmlPreviewForMessageRow(message);
+
+  const shareToken = await ensureChatShareToken(chat.id, chat.share_token);
+  const nextSubdomain = input.subdomain?.trim()
+    ? normalizeLandingSubdomain(input.subdomain)
+    : landing.subdomain;
+
+  try {
+    const [row] = await db.update(publishedLandings)
+      .set({
+        subdomain: nextSubdomain,
+        title: input.title?.trim() || landing.title || chat.title || null,
+        status: 'active',
+        updated_at: new Date(),
+      })
+      .where(eq(publishedLandings.id, landing.id))
+      .returning();
+
+    return toPublishedLandingResult(row, { shareToken, messageId: message.id });
+  } catch (error) {
+    const code = (error as { code?: string } | null)?.code;
+    if (code === '23505') {
+      throw new ConflictError('Этот поддомен уже занят');
+    }
+    throw error;
+  }
+}
+
+export async function unpublishChatMessageLanding(
+  chatId: string,
+  messageId: string,
+  userId: string,
+): Promise<void> {
+  const { landing } = await getPublishedLandingRowForOwner(chatId, messageId, userId);
+  if (!landing) return;
+
+  await db.delete(publishedLandings).where(eq(publishedLandings.id, landing.id));
+}
+
+export async function getPublishedLandingHtmlBySubdomain(
+  subdomain: string,
+  viewerUserId?: string | null,
+  viewerKey?: string | null,
+  options?: { previewId?: string },
+): Promise<string> {
+  const normalizedSubdomain = normalizeLandingSubdomain(subdomain);
+  const [landing] = await db
+    .select()
+    .from(publishedLandings)
+    .where(and(
+      eq(publishedLandings.subdomain, normalizedSubdomain),
+      eq(publishedLandings.status, 'active'),
+    ))
+    .limit(1);
+
+  if (!landing) {
+    throw new NotFoundError('Landing not found');
+  }
+
+  const chat = await getConversationById(landing.conversation_id);
+  const message = await getAssistantMessageForConversation(landing.conversation_id, landing.message_id);
+  const preview = getHtmlPreviewForMessageRow(message);
+
+  if (chat.user_id !== viewerUserId) {
+    await registerConversationView(chat, viewerUserId, viewerKey);
+    await incrementPreviewViewCount(message.id);
+  }
+
+  return preparePreviewHtml(preview.html, { previewId: options?.previewId });
 }
 
 export async function streamChatEvents(chatId: string, userId: string, res: Response) {

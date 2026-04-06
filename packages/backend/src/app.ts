@@ -12,7 +12,7 @@ import { catalogRoutes } from './modules/catalog/index.js';
 import { adminRoutes } from './modules/admin/index.js';
 import { stackBuilderRoutes } from './modules/stack-builder/index.js';
 import { agentBuilderRoutes } from './modules/agent-builder/index.js';
-import { agentRuntimeRoutes } from './modules/agent-runtime/index.js';
+import { agentRuntimeRoutes, publishedLandingRoutes } from './modules/agent-runtime/index.js';
 import { profileRoutes } from './modules/profile/index.js';
 import { newsRoutes } from './modules/news/index.js';
 import { aliceRoutes } from './modules/alice/index.js';
@@ -65,6 +65,9 @@ export function createApp() {
     logger.debug({ method: req.method, url: req.url }, 'request');
     next();
   });
+
+  // Published landing host routes (e.g. subdomain.llmstore.pro)
+  app.use(publishedLandingRoutes);
 
   // Static files (uploads)
   app.use('/uploads', express.static(UPLOADS_DIR));

@@ -9,6 +9,7 @@ import { cn } from '../../lib/utils';
 import { ToolTracePanel } from './ToolTracePanel';
 import { ChatCodeBlock, ChatInlineCode } from './ChatCodeBlock';
 import { Button } from '../ui/Button';
+import { Input } from '../ui/Input';
 
 interface Attachment {
   filename: string;
@@ -43,8 +44,8 @@ interface ChatMessageProps {
   onStopProjectDeployment?: () => Promise<ProjectDeployment>;
   publishedLanding?: PublishedLanding | null;
   publishingLanding?: boolean;
-  onPublishLanding?: () => Promise<PublishedLanding>;
-  onUpdateLanding?: (payload: { subdomain: string }) => Promise<PublishedLanding>;
+  onPublishLanding?: (payload?: { subdomain?: string | null; title?: string | null }) => Promise<PublishedLanding>;
+  onUpdateLanding?: (payload: { subdomain?: string | null; title?: string | null; slug?: string | null; description?: string | null }) => Promise<PublishedLanding>;
   onUnpublishLanding?: () => Promise<void>;
   canEditMessage?: boolean;
   onEditMessage?: () => Promise<void> | void;
@@ -1667,6 +1668,10 @@ export function ChatMessage({
   const [editorStatus, setEditorStatus] = useState<string | null>(null);
   const [messageActionError, setMessageActionError] = useState<string | null>(null);
   const [messageActionStatus, setMessageActionStatus] = useState<string | null>(null);
+  const [landingSubdomainInput, setLandingSubdomainInput] = useState('');
+  const [landingActionError, setLandingActionError] = useState<string | null>(null);
+  const [landingActionStatus, setLandingActionStatus] = useState<string | null>(null);
+  const [landingActionBusy, setLandingActionBusy] = useState(false);
   const [deletingMessage, setDeletingMessage] = useState(false);
   const [editingMessage, setEditingMessage] = useState(false);
   const editorTextareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -1712,10 +1717,17 @@ export function ChatMessage({
   const resolvedPreviewRevision = resolvedHtmlPreview ? getStringHash(resolvedHtmlPreview.html) : undefined;
   const editorBusy = editorSaving || editorExporting;
   const messageActionBusy = deletingMessage || editingMessage;
+  const canManagePublishedLanding = Boolean(resolvedHtmlPreview && (onPublishLanding || onUpdateLanding || onUnpublishLanding));
   const onLoadProjectDeploymentRef = useRef(onLoadProjectDeployment);
   const deploymentPollingTimerRef = useRef<number | null>(null);
 
   onLoadProjectDeploymentRef.current = onLoadProjectDeployment;
+
+  useEffect(() => {
+    setLandingSubdomainInput(publishedLanding?.subdomain ?? '');
+    setLandingActionError(null);
+    setLandingActionStatus(null);
+  }, [publishedLanding?.id, publishedLanding?.subdomain]);
 
   useEffect(() => {
     if (!isEditorOpen || !previewEditor) return;
@@ -1943,6 +1955,163 @@ export function ChatMessage({
     } finally {
       setEditorExporting(false);
     }
+  };
+
+  const publishOrUpdateLanding = async () => {
+    const desiredSubdomain = landingSubdomainInput.trim().toLowerCase();
+    if (!publishedLanding?.is_published && !onPublishLanding) return;
+    if (publishedLanding?.is_published && !onUpdateLanding) return;
+
+    if (publishedLanding?.is_published && !desiredSubdomain) {
+      setLandingActionError('Укажите поддомен для опубликованного сайта');
+      setLandingActionStatus(null);
+      return;
+    }
+
+    setLandingActionBusy(true);
+    setLandingActionError(null);
+    setLandingActionStatus(null);
+
+    try {
+      const nextLanding = publishedLanding?.is_published
+        ? await onUpdateLanding?.({ subdomain: desiredSubdomain })
+        : await onPublishLanding?.({
+          subdomain: desiredSubdomain || null,
+          title: resolvedHtmlPreview?.title || previewEditor?.title || 'Landing preview',
+        });
+
+      if (nextLanding?.subdomain) {
+        setLandingSubdomainInput(nextLanding.subdomain);
+      }
+
+      setLandingActionStatus(
+        publishedLanding?.is_published
+          ? 'Поддомен обновлён'
+          : 'Сайт опубликован и привязан к поддомену',
+      );
+    } catch (error) {
+      setLandingActionError(error instanceof Error ? error.message : 'Не удалось сохранить публикацию');
+    } finally {
+      setLandingActionBusy(false);
+    }
+  };
+
+  const unpublishLanding = async () => {
+    if (!onUnpublishLanding) return;
+
+    setLandingActionBusy(true);
+    setLandingActionError(null);
+    setLandingActionStatus(null);
+    try {
+      await onUnpublishLanding();
+      setLandingActionStatus('Публикация снята');
+      setLandingSubdomainInput('');
+    } catch (error) {
+      setLandingActionError(error instanceof Error ? error.message : 'Не удалось снять публикацию');
+    } finally {
+      setLandingActionBusy(false);
+    }
+  };
+
+  const openPublishedLanding = () => {
+    const targetUrl = publishedLanding?.site_url || publishedLanding?.url;
+    if (!targetUrl) return;
+    window.open(targetUrl, '_blank', 'noopener,noreferrer');
+  };
+
+  const copyPublishedLandingUrl = async () => {
+    const targetUrl = publishedLanding?.site_url || publishedLanding?.url;
+    if (!targetUrl) return;
+
+    try {
+      await navigator.clipboard.writeText(targetUrl);
+      setLandingActionStatus('Ссылка на сайт скопирована');
+      setLandingActionError(null);
+    } catch {
+      setLandingActionError('Не удалось скопировать ссылку');
+    }
+  };
+
+  const renderPublishedLandingControls = (compact = false) => {
+    if (!canManagePublishedLanding) return null;
+
+    const publishedUrl = publishedLanding?.site_url || publishedLanding?.url || null;
+
+    return (
+      <div className={cn('rounded-lg border border-emerald-200/70 bg-emerald-50/70', compact ? 'p-3' : 'p-3')}>
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">
+                Публикация
+              </p>
+              <p className="mt-1 text-sm text-emerald-950">
+                Привяжите preview к поддомену и открывайте его как отдельный сайт.
+              </p>
+              {publishedUrl && (
+                <a
+                  href={publishedUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1 inline-block truncate text-xs text-emerald-700 underline"
+                >
+                  {publishedUrl}
+                </a>
+              )}
+            </div>
+            {publishedLanding?.is_published && (
+              <span className="inline-flex items-center rounded-full border border-emerald-300 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
+                Опубликовано
+              </span>
+            )}
+          </div>
+
+          <div className={cn('grid gap-2', compact ? 'lg:grid-cols-[minmax(0,1fr)_auto]' : 'sm:grid-cols-[minmax(0,1fr)_auto]')}>
+            <Input
+              value={landingSubdomainInput}
+              onChange={(event) => setLandingSubdomainInput(event.target.value)}
+              placeholder="например, mars-denis"
+              disabled={landingActionBusy || publishingLanding}
+            />
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => { void publishOrUpdateLanding(); }}
+              disabled={landingActionBusy || publishingLanding}
+            >
+              {landingActionBusy || publishingLanding
+                ? 'Сохраняю...'
+                : (publishedLanding?.is_published ? 'Обновить адрес' : 'Опубликовать')}
+            </Button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {publishedLanding?.is_published && publishedUrl && (
+              <>
+                <Button type="button" variant="outline" size="sm" onClick={openPublishedLanding} disabled={landingActionBusy}>
+                  Открыть сайт
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => { void copyPublishedLandingUrl(); }} disabled={landingActionBusy}>
+                  Копировать ссылку
+                </Button>
+              </>
+            )}
+            {publishedLanding?.is_published && onUnpublishLanding && (
+              <Button type="button" variant="outline" size="sm" onClick={() => { void unpublishLanding(); }} disabled={landingActionBusy}>
+                Снять публикацию
+              </Button>
+            )}
+          </div>
+
+          {landingActionError && (
+            <p className="text-xs text-rose-700">{landingActionError}</p>
+          )}
+          {landingActionStatus && (
+            <p className="text-xs text-emerald-700">{landingActionStatus}</p>
+          )}
+        </div>
+      </div>
+    );
   };
 
   const exportProjectBundle = async () => {
@@ -2902,6 +3071,9 @@ export function ChatMessage({
                       className="h-80 w-full max-w-full overflow-hidden"
                     />
                   </div>
+                  <div className="mt-3">
+                    {renderPublishedLandingControls()}
+                  </div>
                 </div>
               )}
             </div>
@@ -3248,6 +3420,10 @@ export function ChatMessage({
                 {editorError}
               </div>
             )}
+
+            <div className="border-b bg-emerald-50/40 px-4 py-3">
+              {renderPublishedLandingControls(true)}
+            </div>
 
             <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
               <div className="min-h-0 border-b lg:border-b-0 lg:border-r">

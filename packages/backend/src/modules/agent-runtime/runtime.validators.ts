@@ -52,6 +52,18 @@ const updateMessagePreviewSchema = z.object({
   html: z.string().min(1).max(50_000),
 });
 
+const publishLandingSchema = z.object({
+  subdomain: z.string().min(3).max(63).optional().nullable(),
+  title: z.string().max(255).optional().nullable(),
+});
+
+const updateLandingSchema = z.object({
+  subdomain: z.string().min(3).max(63).optional().nullable(),
+  title: z.string().max(255).optional().nullable(),
+  slug: z.string().max(255).optional().nullable(),
+  description: z.string().max(2000).optional().nullable(),
+});
+
 const upsertProjectDeploymentSchema = z.object({
   env: z.record(z.string().max(4000)).optional().default({}),
   linked_agent_id: z.string().uuid().optional().nullable(),
@@ -70,6 +82,8 @@ export const validateCreateChat = validate(createChatSchema, 'body');
 export const validateUpdateChat = validate(updateChatSchema, 'body');
 export const validateSendChatMessage = validate(sendMessageSchema, 'body');
 export const validateUpdateMessagePreview = validate(updateMessagePreviewSchema, 'body');
+export const validatePublishLanding = validate(publishLandingSchema, 'body');
+export const validateUpdateLanding = validate(updateLandingSchema, 'body');
 export const validateUpsertProjectDeployment = validate(upsertProjectDeploymentSchema, 'body');
 export const validateProjectDeploymentAgentRun = validate(projectDeploymentAgentRunSchema, 'body');
 export const validateSetGalleryReaction = validate(setGalleryReactionSchema, 'body');

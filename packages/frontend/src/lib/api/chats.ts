@@ -461,9 +461,13 @@ export const chatsApi = {
       .get<{ data: PublishedLanding | null }>(`/chats/${chatId}/messages/${messageId}/landing`)
       .then((r) => r.data.data),
 
-  publishLanding: (chatId: string, messageId: string) =>
+  publishLanding: (
+    chatId: string,
+    messageId: string,
+    payload?: { subdomain?: string | null; title?: string | null },
+  ) =>
     apiClient
-      .post<{ data: PublishedLanding }>(`/chats/${chatId}/messages/${messageId}/landing`)
+      .post<{ data: PublishedLanding }>(`/chats/${chatId}/messages/${messageId}/landing`, payload ?? {})
       .then((r) => r.data.data),
 
   updateLanding: (
