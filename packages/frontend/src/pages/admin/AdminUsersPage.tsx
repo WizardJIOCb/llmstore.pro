@@ -53,7 +53,7 @@ export function AdminUsersPage() {
   const actionMenuRef = useRef<HTMLDivElement | null>(null);
 
   // Balance modal state
-  const [balanceModal, setBalanceModal] = useState<{ userId: string; email: string } | null>(null);
+  const [balanceModal, setBalanceModal] = useState<{ userId: string; email: string; balanceUsd: string } | null>(null);
   const [balanceAmount, setBalanceAmount] = useState('');
   const [balanceDescription, setBalanceDescription] = useState('');
   const [passwordModal, setPasswordModal] = useState<{ userId: string; email: string; username: string | null } | null>(null);
@@ -280,7 +280,7 @@ export function AdminUsersPage() {
                               className="w-full rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-accent"
                               onClick={() => {
                                 setOpenActionMenuUserId(null);
-                                setBalanceModal({ userId: user.id, email: user.email });
+                                setBalanceModal({ userId: user.id, email: user.email, balanceUsd: user.balance_usd });
                               }}
                             >
                               Баланс
@@ -406,7 +406,10 @@ export function AdminUsersPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setBalanceModal(null)}>
           <div className="w-full max-w-md rounded-lg bg-background p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <h2 className="mb-4 text-lg font-semibold">Корректировка баланса</h2>
-            <p className="mb-4 text-sm text-muted-foreground">{balanceModal.email}</p>
+            <p className="text-sm text-muted-foreground">{balanceModal.email}</p>
+            <p className="mb-4 text-sm text-muted-foreground">
+              Текущий баланс: <span className="font-mono text-foreground">{formatUsd(balanceModal.balanceUsd)}</span>
+            </p>
             <div className="mb-3">
               <label className="mb-1 block text-sm font-medium">Сумма ($)</label>
               <input

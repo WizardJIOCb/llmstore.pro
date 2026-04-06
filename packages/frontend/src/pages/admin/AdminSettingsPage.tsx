@@ -501,10 +501,13 @@ export function AdminSettingsPage() {
             <h2 className="mb-2 text-lg font-semibold">Корректировка баланса</h2>
             <p className="text-sm text-muted-foreground">{balanceModal.email}</p>
             {balanceModal.username ? (
-              <p className="mb-4 text-xs text-muted-foreground"><UserLink username={balanceModal.username} name={null} className="hover:text-primary hover:underline" /></p>
+              <p className="text-xs text-muted-foreground"><UserLink username={balanceModal.username} name={null} className="hover:text-primary hover:underline" /></p>
             ) : (
-              <div className="mb-4" />
+              <div className="h-4" />
             )}
+            <p className="mb-4 text-sm text-muted-foreground">
+              Текущий баланс: <span className="font-mono text-foreground">{formatBalanceUsd(balanceModal.balance_usd)}</span>
+            </p>
 
             <div className="mb-3">
               <label className="mb-1 block text-sm font-medium">Сумма ($)</label>
