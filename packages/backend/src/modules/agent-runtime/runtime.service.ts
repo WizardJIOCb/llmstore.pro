@@ -952,8 +952,25 @@ function stripContinuationNarration(content: string): string {
 
   let cleaned = normalized
     .replace(/```(?:html)?\s*/gi, '')
-    .replace(/^\s*(?:Продолжаю с места остановки|Продолжаю строго с места остановки|Выдаю полный HTML(?:-файл)? целиком|Ниже\s+[—-]\s+полный.*HTML.*|Вот\s+полный.*HTML.*|Ниже\s+полный.*HTML.*)\s*:?\s*$/gimu, '')
+    .replace(/^\s*(?:Продолжаю с места остановки|Продолжаю строго с места остановки|Продолжаю строго с места обрыва|Продолжаю с места обрыва|Выдаю полный HTML(?:-файл)? целиком|Ниже\s+[—-]\s+полный.*HTML.*|Вот\s+полный.*HTML.*|Ниже\s+полный.*HTML.*)(?:\s*[—:-]\s*.*)?$/gimu, '')
     .replace(/\n{3,}/g, '\n\n');
+
+  cleaned = cleaned
+    .split('\n')
+    .filter((line) => {
+      const value = line.trim();
+      if (!value) return true;
+      if (
+        /^(?:Продолжаю с места остановки|Продолжаю строго с места остановки|Продолжаю строго с места обрыва|Продолжаю с места обрыва)(?:\s*[—:-]\s*.*)?$/iu.test(value)
+      ) {
+        return false;
+      }
+      if (/^после строки:\s*$/iu.test(value)) {
+        return false;
+      }
+      return true;
+    })
+    .join('\n');
 
   const lines = cleaned.split('\n');
   while (lines.length > 0) {
