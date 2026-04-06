@@ -199,9 +199,9 @@ export function AdminUsersPage() {
                   <th className="px-4 py-3 text-left font-medium">Роль</th>
                   <th className="px-4 py-3 text-left font-medium">Статус</th>
                   <th className="px-4 py-3 text-right font-medium">Баланс, $</th>
+                  <th className="px-4 py-3 text-left font-medium">Последний вход</th>
                   <th className="px-4 py-3 text-left font-medium">Регистрация</th>
                   <th className="px-4 py-3 text-right font-medium">Действия</th>
-                  <th className="px-4 py-3 text-left font-medium">Последний вход</th>
                 </tr>
               </thead>
               <tbody>
@@ -238,6 +238,9 @@ export function AdminUsersPage() {
                     </td>
                     <td className="px-4 py-3 text-right font-mono">
                       {formatUsd(user.balance_usd)}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground">
+                      {formatDateTime(user.last_login_at)}
                     </td>
                     <td className="px-4 py-3 text-xs text-muted-foreground">
                       {formatDateTime(user.created_at)}
@@ -308,9 +311,6 @@ export function AdminUsersPage() {
                           </div>
                         )}
                       </div>
-                    </td>
-                    <td className="px-4 py-3 text-xs text-muted-foreground">
-                      {formatDateTime(user.last_login_at)}
                     </td>
                   </tr>
                 ))}

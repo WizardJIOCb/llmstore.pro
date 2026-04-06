@@ -55,6 +55,7 @@ export function AdminSettingsPage() {
   const [codingAlternativePrompts, setCodingAlternativePrompts] = useState('');
   const [dtfPrompts, setDtfPrompts] = useState('');
   const [signupBonusRequiresEmailVerification, setSignupBonusRequiresEmailVerification] = useState(false);
+  const [signupBonusAmountUsd, setSignupBonusAmountUsd] = useState('0.05');
   const [openrouterRequestsEnabled, setOpenrouterRequestsEnabled] = useState(true);
   const [openrouterDisabledMessage, setOpenrouterDisabledMessage] = useState('');
   const [settingsSaved, setSettingsSaved] = useState(false);
@@ -85,6 +86,7 @@ export function AdminSettingsPage() {
     setCodingAlternativePrompts(promptsToText(settings.starter_prompts_openrouter_coding_agent_coding_alternative));
     setDtfPrompts(promptsToText(settings.starter_prompts_dtf_news_agent));
     setSignupBonusRequiresEmailVerification(settings.signup_bonus_requires_email_verification);
+    setSignupBonusAmountUsd(String(settings.signup_bonus_amount_usd));
     setOpenrouterRequestsEnabled(settings.openrouter_requests_enabled);
     setOpenrouterDisabledMessage(settings.openrouter_disabled_message);
   }, [settings]);
@@ -102,12 +104,14 @@ export function AdminSettingsPage() {
   );
 
   const handleSaveSettings = () => {
-    const value = Number(rateInput || 0);
-    if (!Number.isFinite(value) || value <= 0) return;
+    const rateValue = Number(rateInput || 0);
+    const signupBonusAmountValue = Number(signupBonusAmountUsd || 0);
+    if (!Number.isFinite(rateValue) || rateValue <= 0) return;
+    if (!Number.isFinite(signupBonusAmountValue) || signupBonusAmountValue < 0) return;
 
     updateSettingsMutation.mutate(
       {
-        usd_to_rub_rate: value,
+        usd_to_rub_rate: rateValue,
         topup_message: topupMessage,
         topup_telegram: topupTelegram,
         topup_email: topupEmail,
@@ -126,6 +130,7 @@ export function AdminSettingsPage() {
         starter_prompts_openrouter_coding_agent_coding_alternative: textToPrompts(codingAlternativePrompts),
         starter_prompts_dtf_news_agent: textToPrompts(dtfPrompts),
         signup_bonus_requires_email_verification: signupBonusRequiresEmailVerification,
+        signup_bonus_amount_usd: signupBonusAmountValue,
         openrouter_requests_enabled: openrouterRequestsEnabled,
         openrouter_disabled_message: openrouterDisabledMessage,
       },
@@ -348,8 +353,20 @@ export function AdminSettingsPage() {
                   <div>
                     <p className="text-sm font-medium">Стартовый бонус</p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Можно требовать подтверждение email перед выдачей приветственного бонуса. По умолчанию лучше держать выключенным, пока SMTP ещё не настроен.
+                      Здесь задаётся сумма бонуса при регистрации и правило, нужно ли подтверждение email перед начислением.
                     </p>
+                  </div>
+
+                  <div className="max-w-xs">
+                    <label className="mb-1 block text-sm font-medium">Сколько начислять при регистрации, $</label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={signupBonusAmountUsd}
+                      onChange={(e) => setSignupBonusAmountUsd(e.target.value)}
+                      placeholder="0.05"
+                    />
                   </div>
 
                   <label className="flex items-start gap-3 rounded-lg border bg-background px-4 py-3">

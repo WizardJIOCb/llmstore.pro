@@ -54,6 +54,7 @@ export interface AdminSettings {
   starter_prompts_openrouter_coding_agent_coding_alternative: string[];
   starter_prompts_dtf_news_agent: string[];
   signup_bonus_requires_email_verification: boolean;
+  signup_bonus_amount_usd: number;
   openrouter_requests_enabled: boolean;
   openrouter_disabled_message: string;
 }

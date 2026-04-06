@@ -1,8 +1,7 @@
-import { and, eq, or } from 'drizzle-orm';
+import { eq, or } from 'drizzle-orm';
 import { db } from '../../config/database.js';
 import { balanceTransactions, signupBonusGrants, users } from '../../db/schema/index.js';
-
-export const REGISTRATION_BONUS_USD = '0.05';
+import { getSignupBonusSettings } from '../../lib/app-settings.js';
 
 export interface SignupBonusContext {
   ipAddress?: string | null;
@@ -47,12 +46,27 @@ export async function grantSignupBonusIfEligible(userId: string, context: Signup
   const ipAddress = normalizeIpAddress(context.ipAddress);
   const deviceFingerprint = normalizeValue(context.deviceFingerprint);
   const userAgent = normalizeValue(context.userAgent);
+  const signupBonus = await getSignupBonusSettings();
 
   const bonusAllowed = await canGrantSignupBonus({ ipAddress, deviceFingerprint, userAgent });
   if (!bonusAllowed) return false;
 
   try {
     await db.transaction(async (tx) => {
+      const [user] = await tx
+        .select({ id: users.id, balance_usd: users.balance_usd })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+
+      if (!user) {
+        throw new Error('User not found while granting signup bonus');
+      }
+
+      const currentBalance = Number(user.balance_usd);
+      const nextBalance = Number((currentBalance + signupBonus.amount_usd).toFixed(4));
+      const bonusAmount = signupBonus.amount_usd.toFixed(4);
+
       await tx.insert(signupBonusGrants).values({
         user_id: userId,
         ip_address: ipAddress,
@@ -62,13 +76,13 @@ export async function grantSignupBonusIfEligible(userId: string, context: Signup
 
       await tx
         .update(users)
-        .set({ balance_usd: REGISTRATION_BONUS_USD })
-        .where(and(eq(users.id, userId), eq(users.balance_usd, '0')));
+        .set({ balance_usd: nextBalance.toFixed(4) })
+        .where(eq(users.id, userId));
 
       await tx.insert(balanceTransactions).values({
         user_id: userId,
-        amount: REGISTRATION_BONUS_USD,
-        balance_after: REGISTRATION_BONUS_USD,
+        amount: bonusAmount,
+        balance_after: nextBalance.toFixed(4),
         type: 'signup_bonus',
         description: 'Стартовый бонус для новых пользователей',
         performed_by: null,

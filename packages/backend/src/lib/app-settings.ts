@@ -25,6 +25,7 @@ const SETTINGS_KEYS = {
   starter_prompts_openrouter_coding_agent_coding_alternative: 'starter_prompts_openrouter_coding_agent_coding_alternative',
   starter_prompts_dtf_news_agent: 'starter_prompts_dtf_news_agent',
   signup_bonus_requires_email_verification: 'signup_bonus_requires_email_verification',
+  signup_bonus_amount_usd: 'signup_bonus_amount_usd',
   openrouter_requests_enabled: 'openrouter_requests_enabled',
   openrouter_disabled_message: 'openrouter_disabled_message',
 } as const;
@@ -42,6 +43,7 @@ const DEFAULT_LEGAL_SUPPORT_EMAIL = DEFAULT_TOPUP_EMAIL;
 const DEFAULT_LEGAL_SUPPORT_PHONE = DEFAULT_TOPUP_PHONE;
 const DEFAULT_LEGAL_SUPPORT_TELEGRAM = DEFAULT_TOPUP_TELEGRAM;
 const DEFAULT_SIGNUP_BONUS_REQUIRES_EMAIL_VERIFICATION = false;
+const DEFAULT_SIGNUP_BONUS_AMOUNT_USD = 0.05;
 const DEFAULT_OPENROUTER_REQUESTS_ENABLED = true;
 const DEFAULT_OPENROUTER_DISABLED_MESSAGE = 'В данный момент отправка запросов отключена. В скором времени отправка снова будет доступна.';
 const DEFAULT_STARTER_PROMPTS = {
@@ -137,6 +139,12 @@ function setCachedSetting(key: SettingKey, value: string) {
 function normalizeRate(value: unknown): number | null {
   const parsed = typeof value === 'number' ? value : Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return Number(parsed.toFixed(4));
+}
+
+function normalizeUsdAmount(value: unknown): number | null {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1000) return null;
   return Number(parsed.toFixed(4));
 }
 
@@ -405,16 +413,23 @@ export async function getStarterPromptSettings(): Promise<StarterPromptSettings>
 }
 
 export async function getSignupBonusSettings() {
-  const raw = await getSettingValue(
-    SETTINGS_KEYS.signup_bonus_requires_email_verification,
-    String(DEFAULT_SIGNUP_BONUS_REQUIRES_EMAIL_VERIFICATION),
-  );
+  const [requiresEmailVerificationRaw, amountUsdRaw] = await Promise.all([
+    getSettingValue(
+      SETTINGS_KEYS.signup_bonus_requires_email_verification,
+      String(DEFAULT_SIGNUP_BONUS_REQUIRES_EMAIL_VERIFICATION),
+    ),
+    getSettingValue(
+      SETTINGS_KEYS.signup_bonus_amount_usd,
+      String(DEFAULT_SIGNUP_BONUS_AMOUNT_USD),
+    ),
+  ]);
 
   return {
     requires_email_verification: normalizeBoolean(
-      raw,
+      requiresEmailVerificationRaw,
       DEFAULT_SIGNUP_BONUS_REQUIRES_EMAIL_VERIFICATION,
     ),
+    amount_usd: normalizeUsdAmount(amountUsdRaw) ?? DEFAULT_SIGNUP_BONUS_AMOUNT_USD,
   };
 }
 
@@ -474,20 +489,30 @@ export async function updateOpenRouterRequestsSettings(input: {
 
 export async function updateSignupBonusSettings(input: {
   signup_bonus_requires_email_verification?: boolean;
+  signup_bonus_amount_usd?: number;
 }, updatedBy?: string | null) {
   const requiresEmailVerification = normalizeBoolean(
     input.signup_bonus_requires_email_verification,
     DEFAULT_SIGNUP_BONUS_REQUIRES_EMAIL_VERIFICATION,
   );
+  const amountUsd = normalizeUsdAmount(input.signup_bonus_amount_usd) ?? DEFAULT_SIGNUP_BONUS_AMOUNT_USD;
 
-  await setSettingValue(
-    SETTINGS_KEYS.signup_bonus_requires_email_verification,
-    String(requiresEmailVerification),
-    updatedBy,
-  );
+  await Promise.all([
+    setSettingValue(
+      SETTINGS_KEYS.signup_bonus_requires_email_verification,
+      String(requiresEmailVerification),
+      updatedBy,
+    ),
+    setSettingValue(
+      SETTINGS_KEYS.signup_bonus_amount_usd,
+      String(amountUsd),
+      updatedBy,
+    ),
+  ]);
 
   return {
     requires_email_verification: requiresEmailVerification,
+    amount_usd: amountUsd,
   };
 }
 
@@ -595,6 +620,7 @@ export async function getAdminSettings() {
     starter_prompts_openrouter_coding_agent_coding_alternative: starterPrompts.openrouter_coding_agent_coding_alternative,
     starter_prompts_dtf_news_agent: starterPrompts.dtf_news_agent,
     signup_bonus_requires_email_verification: signupBonus.requires_email_verification,
+    signup_bonus_amount_usd: signupBonus.amount_usd,
     openrouter_requests_enabled: openRouterRequests.enabled,
     openrouter_disabled_message: openRouterDisabledMessage,
   };

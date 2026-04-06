@@ -68,6 +68,7 @@ export async function updateAdminSettings(
     starter_prompts_openrouter_coding_agent_coding_alternative: string[];
     starter_prompts_dtf_news_agent: string[];
     signup_bonus_requires_email_verification: boolean;
+    signup_bonus_amount_usd: number;
     openrouter_requests_enabled: boolean;
     openrouter_disabled_message: string;
   },
@@ -86,6 +87,7 @@ export async function updateAdminSettings(
     }, adminUserId),
     updateSignupBonusSettings({
       signup_bonus_requires_email_verification: input.signup_bonus_requires_email_verification,
+      signup_bonus_amount_usd: input.signup_bonus_amount_usd,
     }, adminUserId),
     updateOpenRouterRequestsSettings({
       openrouter_requests_enabled: input.openrouter_requests_enabled,
@@ -113,6 +115,7 @@ export async function updateAdminSettings(
     starter_prompts_openrouter_coding_agent_coding_alternative: starterPrompts.openrouter_coding_agent_coding_alternative,
     starter_prompts_dtf_news_agent: starterPrompts.dtf_news_agent,
     signup_bonus_requires_email_verification: signupBonus.requires_email_verification,
+    signup_bonus_amount_usd: signupBonus.amount_usd,
     openrouter_requests_enabled: openRouterRequests.enabled,
     openrouter_disabled_message: openRouterRequests.message,
   };

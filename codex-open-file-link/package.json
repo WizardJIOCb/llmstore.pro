@@ -1,0 +1,41 @@
+{
+  "name": "codex-open-file-link",
+  "displayName": "Codex Open File Link",
+  "description": "Open file references like runtime.service.ts#L2388 from selection or clipboard",
+  "version": "0.0.1",
+  "publisher": "local",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:codexOpenFileLink.openReference"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "codexOpenFileLink.openReference",
+        "title": "Codex: Open File Reference"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "codexOpenFileLink.openReference",
+        "key": "ctrl+alt+g",
+        "when": "editorTextFocus || terminalFocus || textInputFocus || webviewFocus"
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "@types/vscode": "^1.90.0",
+    "typescript": "^5.5.4"
+  }
+}
