@@ -719,6 +719,30 @@ export function ChatsPage() {
   const messageNodeRefs = useRef(new Map<string, HTMLDivElement>());
   const messageVisualKeyByIdRef = useRef(new Map<string, string>());
   const knownChatIds = useMemo(() => new Set((chats ?? []).map((chat) => chat.id)), [chats]);
+  const snapMessagesToBottom = (passes = 4) => {
+    const container = messagesScrollRef.current;
+    if (!container || typeof window === 'undefined') return;
+
+    const apply = () => {
+      if (!liveAutoScrollPinnedRef.current) return;
+      container.scrollTop = container.scrollHeight;
+    };
+
+    apply();
+
+    let pass = 0;
+    const step = () => {
+      apply();
+      pass += 1;
+      if (pass < passes) {
+        window.requestAnimationFrame(step);
+      }
+    };
+
+    window.requestAnimationFrame(step);
+    window.setTimeout(apply, 90);
+    window.setTimeout(apply, 180);
+  };
   const markChatRuntimeActive = (chatId: string) => {
     setRuntimeActiveChatIds((prev) => (prev.includes(chatId) ? prev : [...prev, chatId]));
   };
@@ -1311,6 +1335,7 @@ export function ChatsPage() {
 
       const container = messagesScrollRef.current;
       if (!container) return;
+      liveAutoScrollPinnedRef.current = true;
 
       if (scrollAnimationFrameRef.current) {
         cancelAnimationFrame(scrollAnimationFrameRef.current);
@@ -1383,6 +1408,7 @@ export function ChatsPage() {
       scrollAnimationFrameRef.current = null;
     }
 
+    liveAutoScrollPinnedRef.current = true;
     snapScrollContainerToBottom(container, 4);
 
     if (typeof ResizeObserver === 'undefined') {
@@ -1488,67 +1514,16 @@ export function ChatsPage() {
     if (!liveAutoScrollPinnedRef.current) {
       return;
     }
-
-    if (scrollAnimationFrameRef.current) {
-      cancelAnimationFrame(scrollAnimationFrameRef.current);
-      scrollAnimationFrameRef.current = null;
-    }
-
-    const startTop = container.scrollTop;
-    const targetTop = Math.max(0, container.scrollHeight - container.clientHeight);
-    if (targetTop <= startTop + 1) {
-      return;
-    }
-
-    const startTime = performance.now();
-    const duration = 340;
-
-    const step = (now: number) => {
-      const elapsed = now - startTime;
-      const progress = Math.min(elapsed / duration, 1);
-      const eased = 1 - Math.pow(1 - progress, 4);
-
-      container.scrollTop = startTop + ((targetTop - startTop) * eased);
-
-      if (progress < 1) {
-        scrollAnimationFrameRef.current = requestAnimationFrame(step);
-        return;
-      }
-
-      container.scrollTop = targetTop;
-      scrollAnimationFrameRef.current = null;
-    };
-
-    scrollAnimationFrameRef.current = requestAnimationFrame(step);
-
-    return () => {
-      if (scrollAnimationFrameRef.current) {
-        cancelAnimationFrame(scrollAnimationFrameRef.current);
-        scrollAnimationFrameRef.current = null;
-      }
-    };
+    snapMessagesToBottom(5);
   }, [assistantResponseSlotForActiveChat, streamEvents.length]);
 
   useEffect(() => {
     const container = messagesScrollRef.current;
     if (!assistantResponseSlotForActiveChat || !container) return;
 
-    let frameId: number | null = null;
-    let timeoutId: number | null = null;
-
-    const scrollToBottom = () => {
-      if (!liveAutoScrollPinnedRef.current) return;
-      const targetTop = Math.max(0, container.scrollHeight - container.clientHeight);
-      container.scrollTo({ top: targetTop, behavior: 'smooth' });
-    };
-
     const scheduleScroll = () => {
       if (!liveAutoScrollPinnedRef.current) return;
-      if (frameId != null) cancelAnimationFrame(frameId);
-      if (timeoutId != null) window.clearTimeout(timeoutId);
-
-      frameId = requestAnimationFrame(scrollToBottom);
-      timeoutId = window.setTimeout(scrollToBottom, 120);
+      snapMessagesToBottom(4);
     };
 
     const resizeObserver = new ResizeObserver(() => {
@@ -1570,8 +1545,6 @@ export function ChatsPage() {
     return () => {
       resizeObserver.disconnect();
       mutationObserver.disconnect();
-      if (frameId != null) cancelAnimationFrame(frameId);
-      if (timeoutId != null) window.clearTimeout(timeoutId);
     };
   }, [assistantResponseSlotForActiveChat?.chatId, assistantResponseSlotForActiveChat?.actualMessageId, streamEvents.length]);
 
@@ -1581,45 +1554,7 @@ export function ChatsPage() {
     const container = messagesScrollRef.current;
     if (!container) return;
     if (!liveAutoScrollPinnedRef.current) return;
-
-    if (scrollAnimationFrameRef.current) {
-      cancelAnimationFrame(scrollAnimationFrameRef.current);
-      scrollAnimationFrameRef.current = null;
-    }
-
-    const startTop = container.scrollTop;
-    const targetTop = Math.max(0, container.scrollHeight - container.clientHeight);
-    if (targetTop <= startTop + 1) {
-      return;
-    }
-
-    const startTime = performance.now();
-    const duration = 320;
-
-    const step = (now: number) => {
-      const elapsed = now - startTime;
-      const progress = Math.min(elapsed / duration, 1);
-      const eased = 1 - Math.pow(1 - progress, 4);
-
-      container.scrollTop = startTop + ((targetTop - startTop) * eased);
-
-      if (progress < 1) {
-        scrollAnimationFrameRef.current = requestAnimationFrame(step);
-        return;
-      }
-
-      container.scrollTop = targetTop;
-      scrollAnimationFrameRef.current = null;
-    };
-
-    scrollAnimationFrameRef.current = requestAnimationFrame(step);
-
-    return () => {
-      if (scrollAnimationFrameRef.current) {
-        cancelAnimationFrame(scrollAnimationFrameRef.current);
-        scrollAnimationFrameRef.current = null;
-      }
-    };
+    snapMessagesToBottom(4);
   }, [assistantResponseSlotForActiveChat, displayedMessages.length, streamEvents.length]);
 
   useEffect(() => {
@@ -1696,22 +1631,9 @@ export function ChatsPage() {
     if (!container || !content) return;
     if (!assistantResponseSlotForActiveChat) return;
 
-    let frameId: number | null = null;
-    let timeoutId: number | null = null;
-
-    const scrollToBottom = () => {
-      if (!liveAutoScrollPinnedRef.current) return;
-      const targetTop = Math.max(0, container.scrollHeight - container.clientHeight);
-      container.scrollTop = targetTop;
-    };
-
     const scheduleScroll = () => {
       if (!liveAutoScrollPinnedRef.current) return;
-      if (frameId != null) cancelAnimationFrame(frameId);
-      if (timeoutId != null) window.clearTimeout(timeoutId);
-
-      frameId = requestAnimationFrame(scrollToBottom);
-      timeoutId = window.setTimeout(scrollToBottom, 120);
+      snapMessagesToBottom(4);
     };
 
     const resizeObserver = new ResizeObserver(() => {
@@ -1736,8 +1658,6 @@ export function ChatsPage() {
     return () => {
       resizeObserver.disconnect();
       mutationObserver.disconnect();
-      if (frameId != null) cancelAnimationFrame(frameId);
-      if (timeoutId != null) window.clearTimeout(timeoutId);
     };
   }, [
     assistantResponseSlotForActiveChat,
