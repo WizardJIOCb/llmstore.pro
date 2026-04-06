@@ -214,6 +214,7 @@ export interface GalleryPreviewItem {
   chat_id: string;
   chat_title: string;
   chat_url: string;
+  is_owner: boolean;
   kind: 'preview' | 'project' | 'hybrid';
   preview_title: string | null;
   preview_type: 'html' | 'url' | null;

@@ -4178,6 +4178,7 @@ interface GalleryPreviewItem {
   chat_id: string;
   chat_title: string;
   chat_url: string;
+  is_owner: boolean;
   kind: GalleryItemKind;
   preview_title: string | null;
   preview_type: 'html' | 'url' | null;
@@ -7050,6 +7051,7 @@ export async function listGalleryPreviews(limit = 24, viewerUserId?: string | nu
     chat_id: string;
     chat_title: string;
     share_token: string | null;
+    owner_user_id: string;
     chat_model_external_id: string | null;
     total_view_count: number;
     unique_view_count: number;
@@ -7084,6 +7086,7 @@ export async function listGalleryPreviews(limit = 24, viewerUserId?: string | nu
         chat_id: chatConversations.id,
         chat_title: chatConversations.title,
         share_token: chatConversations.share_token,
+        owner_user_id: chatConversations.user_id,
         chat_model_external_id: chatConversations.model_external_id,
         total_view_count: chatConversations.total_view_count,
         unique_view_count: chatConversations.unique_view_count,
@@ -7242,6 +7245,7 @@ export async function listGalleryPreviews(limit = 24, viewerUserId?: string | nu
       chat_id: row.chat_id,
       chat_title: row.chat_title,
       chat_url: `/shared/chats/${shareToken}`,
+      is_owner: Boolean(viewerUserId && row.owner_user_id === viewerUserId),
       kind,
       preview_title: preview?.title?.trim() || null,
       preview_type: preview?.type === 'html' || preview?.type === 'url' ? preview.type : null,

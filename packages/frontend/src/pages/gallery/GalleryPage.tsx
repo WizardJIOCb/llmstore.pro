@@ -194,6 +194,9 @@ function buildSearchText(item: GalleryPreviewItem): string {
 }
 
 function buildGalleryChatTarget(item: GalleryPreviewItem): string {
+  if (item.is_owner) {
+    return `/chats?chat=${encodeURIComponent(item.chat_id)}`;
+  }
   return item.chat_url || `/chats?chat=${encodeURIComponent(item.chat_id)}`;
 }
 
