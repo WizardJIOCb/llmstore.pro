@@ -614,6 +614,7 @@ export async function listUsers(query: AdminUsersQuery) {
         status: users.status,
         balance_usd: users.balance_usd,
         created_at: users.created_at,
+        last_login_at: users.last_login_at,
         updated_at: users.updated_at,
       })
       .from(users)
@@ -683,11 +684,12 @@ export async function listUsers(query: AdminUsersQuery) {
       ...r,
       chats_count: chatsByUser.get(r.id) ?? 0,
       agents_count: agentsByUser.get(r.id) ?? 0,
-      spent_tokens: spendByUser.get(r.id)?.spent_tokens ?? 0,
-      spent_usd: spendByUser.get(r.id)?.spent_usd ?? 0,
-      created_at: r.created_at.toISOString(),
-      updated_at: r.updated_at.toISOString(),
-    })),
+        spent_tokens: spendByUser.get(r.id)?.spent_tokens ?? 0,
+        spent_usd: spendByUser.get(r.id)?.spent_usd ?? 0,
+        created_at: r.created_at.toISOString(),
+        last_login_at: r.last_login_at?.toISOString() ?? null,
+        updated_at: r.updated_at.toISOString(),
+      })),
     meta: {
       total,
       page,
@@ -709,6 +711,7 @@ export async function getUserById(id: string) {
       status: users.status,
       balance_usd: users.balance_usd,
       created_at: users.created_at,
+      last_login_at: users.last_login_at,
       updated_at: users.updated_at,
     })
     .from(users)
@@ -737,6 +740,7 @@ export async function getUserById(id: string) {
   return {
     ...user,
     created_at: user.created_at.toISOString(),
+    last_login_at: user.last_login_at?.toISOString() ?? null,
     updated_at: user.updated_at.toISOString(),
     agents_count: agentCount?.count ?? 0,
     runs_count: runCount?.count ?? 0,

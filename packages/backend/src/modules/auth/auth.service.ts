@@ -8,7 +8,9 @@ import {
   isSignupBonusEmailVerificationRequired,
   sendEmailVerificationEmail,
 } from './email-verification.service.js';
+import { markUserLoggedIn } from './login-activity.service.js';
 import { grantSignupBonusIfEligible, normalizeIpAddress } from './signup-bonus.service.js';
+import { normalizeEmail } from '../../lib/email.js';
 
 const userPublicColumns = {
   id: users.id,
@@ -35,10 +37,12 @@ export async function register(input: {
   email_verification_sent: boolean;
   signup_bonus_pending_email_verification: boolean;
 }> {
+  const normalizedEmail = normalizeEmail(input.email);
+
   const existing = await db
     .select({ id: users.id })
     .from(users)
-    .where(eq(users.email, input.email.toLowerCase()))
+    .where(eq(users.email, normalizedEmail))
     .limit(1);
 
   if (existing.length > 0) {
@@ -63,13 +67,14 @@ export async function register(input: {
   const [user] = await db
     .insert(users)
     .values({
-      email: input.email.toLowerCase(),
+      email: normalizedEmail,
       username: input.username || null,
       name: input.name || null,
       password_hash,
       role: 'user',
       status: 'active',
       balance_usd: '0',
+      last_login_at: new Date(),
     })
     .returning(userPublicColumns);
 
@@ -130,6 +135,8 @@ export async function login(input: { login?: string; email?: string; password: s
   if (!valid) {
     throw new AppError(401, 'INVALID_CREDENTIALS', 'Неверный email или пароль');
   }
+
+  await markUserLoggedIn(user.id);
 
   const { password_hash: _, ...publicUser } = user;
   return {

@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { MoreHorizontal } from 'lucide-react';
 import { AdminLayout } from '../../components/admin/AdminLayout';
 import { useAdminUsers, useUpdateUserRole, useUpdateUserStatus, useAdjustUserBalance, useResetUserPassword } from '../../hooks/useAdmin';
 import { Button, Badge, Spinner } from '../../components/ui';
@@ -31,11 +32,25 @@ const statusVariants: Record<string, 'success' | 'warning' | 'destructive' | 'se
   deleted: 'destructive',
 };
 
+function formatDateTime(value: string | null | undefined) {
+  if (!value) return '-';
+
+  return new Date(value).toLocaleString('ru-RU', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 export function AdminUsersPage() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [filterRole, setFilterRole] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  const [openActionMenuUserId, setOpenActionMenuUserId] = useState<string | null>(null);
+  const actionMenuRef = useRef<HTMLDivElement | null>(null);
 
   // Balance modal state
   const [balanceModal, setBalanceModal] = useState<{ userId: string; email: string } | null>(null);
@@ -60,6 +75,30 @@ export function AdminUsersPage() {
   const updateStatusMutation = useUpdateUserStatus();
   const adjustBalanceMutation = useAdjustUserBalance();
   const resetPasswordMutation = useResetUserPassword();
+
+  useEffect(() => {
+    if (!openActionMenuUserId) return undefined;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!actionMenuRef.current?.contains(event.target as Node)) {
+        setOpenActionMenuUserId(null);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpenActionMenuUserId(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [openActionMenuUserId]);
 
   const users = data?.data ?? [];
   const meta = data?.meta ?? { total: 0, page: 1, per_page: 20, total_pages: 1 };
@@ -162,6 +201,7 @@ export function AdminUsersPage() {
                   <th className="px-4 py-3 text-right font-medium">Баланс, $</th>
                   <th className="px-4 py-3 text-left font-medium">Регистрация</th>
                   <th className="px-4 py-3 text-right font-medium">Действия</th>
+                  <th className="px-4 py-3 text-left font-medium">Последний вход</th>
                 </tr>
               </thead>
               <tbody>
@@ -200,46 +240,77 @@ export function AdminUsersPage() {
                       {formatUsd(user.balance_usd)}
                     </td>
                     <td className="px-4 py-3 text-xs text-muted-foreground">
-                      {new Date(user.created_at).toLocaleDateString('ru-RU')}
+                      {formatDateTime(user.created_at)}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <div className="flex justify-end gap-1">
+                      <div
+                        ref={openActionMenuUserId === user.id ? actionMenuRef : null}
+                        className="relative flex justify-end"
+                      >
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => {
-                            setRoleModal({ userId: user.id, email: user.email, currentRole: user.role });
-                            setNewRole(user.role);
-                          }}
+                          className="h-8 w-8 p-0"
+                          aria-label={`Действия для ${user.email}`}
+                          aria-haspopup="menu"
+                          aria-expanded={openActionMenuUserId === user.id}
+                          onClick={() => setOpenActionMenuUserId((current) => (current === user.id ? null : user.id))}
                         >
-                          Роль
+                          <MoreHorizontal className="h-4 w-4" />
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setBalanceModal({ userId: user.id, email: user.email })}
-                        >
-                          Баланс
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => {
-                            setPasswordModal({ userId: user.id, email: user.email, username: user.username ?? null });
-                            setNewPassword('');
-                          }}
-                        >
-                          Пароль
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className={user.status === 'active' ? 'text-destructive hover:text-destructive' : 'text-green-600 hover:text-green-600'}
-                          onClick={() => handleToggleStatus(user.id, user.status)}
-                        >
-                          {user.status === 'active' ? 'Блок' : 'Разблок'}
-                        </Button>
+
+                        {openActionMenuUserId === user.id && (
+                          <div className="absolute right-0 top-full z-20 mt-2 min-w-44 rounded-lg border bg-background p-1 shadow-lg">
+                            <button
+                              type="button"
+                              className="w-full rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-accent"
+                              onClick={() => {
+                                setOpenActionMenuUserId(null);
+                                setRoleModal({ userId: user.id, email: user.email, currentRole: user.role });
+                                setNewRole(user.role);
+                              }}
+                            >
+                              Роль
+                            </button>
+                            <button
+                              type="button"
+                              className="w-full rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-accent"
+                              onClick={() => {
+                                setOpenActionMenuUserId(null);
+                                setBalanceModal({ userId: user.id, email: user.email });
+                              }}
+                            >
+                              Баланс
+                            </button>
+                            <button
+                              type="button"
+                              className="w-full rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-accent"
+                              onClick={() => {
+                                setOpenActionMenuUserId(null);
+                                setPasswordModal({ userId: user.id, email: user.email, username: user.username ?? null });
+                                setNewPassword('');
+                              }}
+                            >
+                              Пароль
+                            </button>
+                            <button
+                              type="button"
+                              className={`w-full rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-accent ${
+                                user.status === 'active' ? 'text-destructive' : 'text-green-600'
+                              }`}
+                              onClick={() => {
+                                setOpenActionMenuUserId(null);
+                                handleToggleStatus(user.id, user.status);
+                              }}
+                            >
+                              {user.status === 'active' ? 'Блок' : 'Разблок'}
+                            </button>
+                          </div>
+                        )}
                       </div>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground">
+                      {formatDateTime(user.last_login_at)}
                     </td>
                   </tr>
                 ))}

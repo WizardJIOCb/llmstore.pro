@@ -6,6 +6,7 @@ import { emailVerificationTokens, users } from '../../db/schema/index.js';
 import { getSignupBonusSettings } from '../../lib/app-settings.js';
 import { isMailerConfigured, sendMail } from '../../lib/mailer.js';
 import { AppError, NotFoundError } from '../../middleware/error-handler.js';
+import { markUserLoggedIn } from './login-activity.service.js';
 import { grantSignupBonusIfEligible } from './signup-bonus.service.js';
 
 const EMAIL_VERIFICATION_TTL_HOURS = 24;
@@ -144,6 +145,7 @@ export async function verifyEmailToken(input: {
   }
 
   if (row.used_at) {
+    await markUserLoggedIn(row.user_id, now);
     if (!row.email_verified_at) {
       throw new AppError(400, 'EMAIL_ALREADY_VERIFIED', 'Эта ссылка уже была использована.');
     }
@@ -173,7 +175,7 @@ export async function verifyEmailToken(input: {
   await db.transaction(async (tx) => {
     await tx
       .update(users)
-      .set({ email_verified_at: verifiedAt })
+      .set({ email_verified_at: verifiedAt, last_login_at: now })
       .where(eq(users.id, row.user_id));
 
     await tx

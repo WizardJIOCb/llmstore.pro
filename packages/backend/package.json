@@ -13,7 +13,8 @@
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "db:seed": "tsx src/db/seed/index.ts",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "db:check-email-normalization": "tsx src/scripts/check-email-normalization.ts"
   },
   "dependencies": {
     "@llmstore/shared": "*",

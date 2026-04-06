@@ -6,7 +6,9 @@ import { users, authAccounts } from '../../db/schema/index.js';
 import { env } from '../../config/env.js';
 import { AppError, ConflictError } from '../../middleware/error-handler.js';
 import type { UserPublic } from '@llmstore/shared';
+import { markUserLoggedIn } from './login-activity.service.js';
 import { grantSignupBonusIfEligible, normalizeIpAddress } from './signup-bonus.service.js';
+import { normalizeEmail } from '../../lib/email.js';
 
 interface OAuthUserInfo {
   email: string;
@@ -296,6 +298,8 @@ export async function handleCallback(opts: HandleCallbackOptions): Promise<UserP
     throw new AppError(400, 'NO_EMAIL', 'Не удалось получить email от провайдера');
   }
 
+  const normalizedEmail = normalizeEmail(userInfo.email);
+
   const [existingAccount] = await db
     .select({ id: authAccounts.id, user_id: authAccounts.user_id })
     .from(authAccounts)
@@ -330,6 +334,7 @@ export async function handleCallback(opts: HandleCallbackOptions): Promise<UserP
   }
 
   if (existingAccount) {
+    await markUserLoggedIn(existingAccount.user_id);
     await updateAvatarIfMissing(existingAccount.user_id, userInfo.avatar_url);
     await markEmailVerifiedIfMissing(existingAccount.user_id);
     return getUserPublicById(existingAccount.user_id);
@@ -338,10 +343,11 @@ export async function handleCallback(opts: HandleCallbackOptions): Promise<UserP
   const [existingUser] = await db
     .select(userPublicColumns)
     .from(users)
-    .where(eq(users.email, userInfo.email.toLowerCase()))
+    .where(eq(users.email, normalizedEmail))
     .limit(1);
 
   if (existingUser) {
+    await markUserLoggedIn(existingUser.id as string);
     await db.insert(authAccounts).values({
       user_id: existingUser.id as string,
       provider: provider as ProviderType,
@@ -356,13 +362,14 @@ export async function handleCallback(opts: HandleCallbackOptions): Promise<UserP
   const [newUser] = await db
     .insert(users)
     .values({
-      email: userInfo.email.toLowerCase(),
+      email: normalizedEmail,
       name: userInfo.name,
       avatar_url: userInfo.avatar_url,
       role: 'user',
       status: 'active',
       balance_usd: '0',
       email_verified_at: new Date(),
+      last_login_at: new Date(),
     })
     .returning(userPublicColumns);
 

@@ -3,13 +3,15 @@
  * Usage: npx tsx src/scripts/set-role.ts <email> <role>
  * Roles: user, power_user, curator, admin
  */
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { db } from '../config/database.js';
 import { users } from '../db/schema/auth.js';
 import { userRoleValues, type UserRole } from '@llmstore/shared';
+import { normalizeEmail } from '../lib/email.js';
 
 async function main() {
   const [email, role] = process.argv.slice(2);
+  const normalizedEmail = email ? normalizeEmail(email) : '';
 
   if (!email || !role) {
     console.error('Usage: npx tsx src/scripts/set-role.ts <email> <role>');
@@ -25,22 +27,22 @@ async function main() {
   const [user] = await db
     .select({ id: users.id, email: users.email, role: users.role })
     .from(users)
-    .where(eq(users.email, email))
+    .where(sql`lower(${users.email}) = ${normalizedEmail}`)
     .limit(1);
 
   if (!user) {
-    console.error(`User with email "${email}" not found.`);
+    console.error(`User with email "${normalizedEmail}" not found.`);
     process.exit(1);
   }
 
   if (user.role === role) {
-    console.log(`User ${email} already has role "${role}". Nothing to do.`);
+    console.log(`User ${user.email} already has role "${role}". Nothing to do.`);
     process.exit(0);
   }
 
   await db.update(users).set({ role: role as UserRole }).where(eq(users.id, user.id));
 
-  console.log(`User ${email} role changed: ${user.role} -> ${role}`);
+  console.log(`User ${user.email} role changed: ${user.role} -> ${role}`);
   process.exit(0);
 }
 

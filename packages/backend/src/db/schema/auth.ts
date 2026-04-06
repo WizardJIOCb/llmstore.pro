@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import { pgTable, uuid, varchar, text, numeric, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core';
 import { userRoleEnum, userStatusEnum, authProviderEnum } from './enums';
 
@@ -12,9 +13,12 @@ export const users = pgTable('users', {
   password_hash: text('password_hash'),
   balance_usd: numeric('balance_usd', { precision: 12, scale: 4 }).notNull().default('0'),
   email_verified_at: timestamp('email_verified_at', { withTimezone: true }),
+  last_login_at: timestamp('last_login_at', { withTimezone: true }),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
-});
+}, (table) => [
+  uniqueIndex('users_email_lower_idx').on(sql`lower(${table.email})`),
+]);
 
 export const authAccounts = pgTable('auth_accounts', {
   id: uuid('id').primaryKey().defaultRandom(),
