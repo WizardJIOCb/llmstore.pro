@@ -2452,10 +2452,11 @@ function injectGalleryPreviewStyles(html: string): string {
   const galleryStyles = `
 <style id="llmstore-gallery-preview-mode">
 html, body {
-  overflow: hidden !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
 }
 body {
-  pointer-events: none !important;
+  pointer-events: auto !important;
 }
 a, button, input, textarea, select {
   pointer-events: none !important;
