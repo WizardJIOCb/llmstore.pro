@@ -2071,6 +2071,7 @@ export function ChatMessage({
               value={landingSubdomainInput}
               onChange={(event) => setLandingSubdomainInput(event.target.value)}
               placeholder="например, mars-denis"
+              className="h-8 text-xs"
               disabled={landingActionBusy || publishingLanding}
             />
             <Button
