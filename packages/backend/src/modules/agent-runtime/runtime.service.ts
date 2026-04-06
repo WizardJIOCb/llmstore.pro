@@ -47,6 +47,8 @@ const PROJECT_HTTP_PROBE_INTERVAL_MS = 500;
 const PROJECT_MAX_OUTPUT_CHARS = 24_000;
 const STALE_PENDING_RUN_MS = 12 * 60_000;
 const RESERVED_LANDING_SUBDOMAINS = new Set(['www', 'api', 'admin', 'app', 'static', 'uploads']);
+const DEFAULT_MODEL_CONTEXT_TIMEZONE = 'Europe/Moscow';
+const DEFAULT_MODEL_CONTEXT_LOCALE = 'ru-RU';
 
 interface ChatAttachmentInput {
   filename: string;
@@ -975,14 +977,41 @@ function escapeHtmlAttribute(value: string): string {
 }
 
 function normalizeLandingSectionFragment(content: string, sectionId: string): string {
-  let html = stripContinuationNarration(content)
+  const parsedContentReport = extractCodingReport(content).report;
+  const parsedJsonReport = sanitizeCodingReport(extractJsonObjectFromAssistantContent(content));
+  const recoveredPreviewHtml = (
+    (parsedContentReport?.preview?.type === 'html' ? parsedContentReport.preview.html : null)
+    || (parsedJsonReport?.preview?.type === 'html' ? parsedJsonReport.preview.html : null)
+  );
+
+  let html = (recoveredPreviewHtml ?? stripContinuationNarration(content))
     .replace(/```(?:html)?/gi, '')
     .replace(/```/g, '')
     .trim();
 
+  const escapedTokenCount = (html.match(/\\[nrt"'\\/]/g) ?? []).length;
+  if (escapedTokenCount >= 3) {
+    html = html
+      .replace(/\\r/g, '')
+      .replace(/\\n/g, '\n')
+      .replace(/\\t/g, '\t')
+      .replace(/\\"/g, '"')
+      .replace(/\\'/g, '\'')
+      .replace(/\\\\/g, '\\')
+      .trim();
+  }
+
   const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
   if (bodyMatch?.[1]) {
     html = bodyMatch[1].trim();
+  }
+
+  if (!bodyMatch?.[1]) {
+    html = html
+      .replace(/<head[\s\S]*?<\/head>/i, '')
+      .replace(/^<body[^>]*>/i, '')
+      .replace(/<\/body>\s*$/i, '')
+      .trim();
   }
 
   html = html
@@ -995,6 +1024,19 @@ function normalizeLandingSectionFragment(content: string, sectionId: string): st
   }
 
   return html.trim();
+}
+
+function repairSectionalPreviewHtml(html: string): string {
+  if (!/<!--\s*llmstore-section:/i.test(html)) {
+    return html;
+  }
+
+  return html.replace(
+    /<!--\s*llmstore-section:([a-z0-9-]+)\s*-->\s*([\s\S]*?)(?=(?:<!--\s*llmstore-section:|<\/main>))/gi,
+    (_match, sectionId: string, fragment: string) => (
+      `<!-- llmstore-section:${sectionId} -->\n${normalizeLandingSectionFragment(fragment, sectionId).trim()}\n\n`
+    ),
+  );
 }
 
 function buildFallbackLandingTheme(plan: LandingSectionPlan): LandingThemeBundle {
@@ -1210,6 +1252,92 @@ function extractPartialCodingSummary(content: string): string | null {
   } catch {
     return raw.replace(/\\"/g, '"').replace(/\\n/g, '\n').trim() || null;
   }
+}
+
+function formatIsoUtcWithoutMs(date: Date): string {
+  return date.toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
+function formatDatePartsInTimeZone(date: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat('sv-SE', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date);
+
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? '';
+
+  return {
+    year: get('year'),
+    month: get('month'),
+    day: get('day'),
+    hour: get('hour'),
+    minute: get('minute'),
+    second: get('second'),
+  };
+}
+
+function formatTimeZoneOffset(date: Date, timeZone: string): string {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      timeZoneName: 'shortOffset',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(date);
+    const rawOffset = parts.find((part) => part.type === 'timeZoneName')?.value ?? '';
+    const normalized = rawOffset
+      .replace(/^GMT/i, '')
+      .replace(/^UTC/i, '')
+      .trim();
+
+    if (!normalized) return 'Z';
+    if (/^[+-]\d{1,2}$/.test(normalized)) {
+      const sign = normalized[0];
+      const hours = normalized.slice(1).padStart(2, '0');
+      return `${sign}${hours}:00`;
+    }
+    if (/^[+-]\d{1,2}:\d{2}$/.test(normalized)) {
+      const sign = normalized[0];
+      const [hours, minutes] = normalized.slice(1).split(':');
+      return `${sign}${hours.padStart(2, '0')}:${minutes}`;
+    }
+  } catch {
+  }
+
+  if (timeZone === 'Europe/Moscow') {
+    return '+03:00';
+  }
+
+  return 'Z';
+}
+
+function buildModelEnvironmentContext(options?: {
+  timeZone?: string;
+  locale?: string;
+}): string {
+  const now = new Date();
+  const timeZone = options?.timeZone?.trim() || DEFAULT_MODEL_CONTEXT_TIMEZONE;
+  const locale = options?.locale?.trim() || DEFAULT_MODEL_CONTEXT_LOCALE;
+  const parts = formatDatePartsInTimeZone(now, timeZone);
+  const currentDateLocal = `${parts.year}-${parts.month}-${parts.day}`;
+  const currentDateTimeLocal = `${currentDateLocal}T${parts.hour}:${parts.minute}:${parts.second}${formatTimeZoneOffset(now, timeZone)}`;
+
+  return [
+    '<environment_context>',
+    `current_datetime_utc: ${formatIsoUtcWithoutMs(now)}`,
+    `current_datetime_local: ${currentDateTimeLocal}`,
+    `current_date_local: ${currentDateLocal}`,
+    `timezone: ${timeZone}`,
+    `locale: ${locale}`,
+    '</environment_context>',
+  ].join('\n');
 }
 
 function normalizeOpenRouterModelId(modelId: string): string {
@@ -2534,9 +2662,10 @@ a, button, input, textarea, select {
 }
 
 function preparePreviewHtml(html: string, options?: { previewId?: string; galleryMode?: boolean }): string {
+  const repairedHtml = repairSectionalPreviewHtml(html);
   const nextHtml = options?.galleryMode
-    ? injectGalleryPreviewStyles(sanitizeGalleryPreviewHtml(html))
-    : html;
+    ? injectGalleryPreviewStyles(sanitizeGalleryPreviewHtml(repairedHtml))
+    : repairedHtml;
   return injectPreviewBridgeHtml(nextHtml, options?.previewId);
 }
 
@@ -2724,6 +2853,7 @@ ${agent.description.trim()}`);
   if (strictPreviewEdit) {
     systemParts.push(buildStrictPreviewEditInstruction(strictPreviewEdit));
   }
+  systemParts.push(buildModelEnvironmentContext());
   if (systemParts.length > 0) {
     messages.push({ role: 'system', content: systemParts.join('\n\n') });
   }
@@ -6571,12 +6701,14 @@ export async function sendChatMessage(
       ? `\n\nКонтекст текущего preview:\n${latestPreviewContext}`
       : '';
     const userModelText = `${trimmedContent}${attachmentContext}${previewContext}`.trim();
+    const modelEnvironmentContext = buildModelEnvironmentContext();
     const isDefaultTitle = chat.title === 'Новый чат';
     const nextTitle = isDefaultTitle ? compactTitle(trimmedContent || 'Вложение') : chat.title;
 
     const previousMessages = await getConversationMessages(chatId);
     const historyForModel = [
       ...(chat.system_prompt ? [{ role: 'system' as const, content: chat.system_prompt }] : []),
+      { role: 'system' as const, content: modelEnvironmentContext },
       ...previousMessages.map((m) => ({ role: m.role, content: m.content })),
       { role: 'user' as const, content: userModelText },
     ];

@@ -33,6 +33,7 @@ function formatLiveProgressTimestamp(iso: string): string {
     month: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
+    second: '2-digit',
   }).format(new Date(iso));
 }
 
@@ -97,13 +98,18 @@ export function ChatLiveProgressPanel({
         {trailing}
       </div>
       <div className="space-y-2">
-        {events.map((event) => {
+        {events.map((event, index) => {
           const usageLabel = buildUsageLabel(event);
           return (
             <div key={event.id} className="rounded-lg border border-sky-200/80 bg-white/80 px-3 py-2">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="text-sm text-slate-900">{event.label}</p>
+                  <div className="flex items-start gap-2">
+                    <span className="inline-flex min-w-7 shrink-0 justify-center rounded-full border border-sky-200 bg-sky-100 px-2 py-0.5 text-[11px] font-semibold text-sky-900">
+                      {index + 1}
+                    </span>
+                    <p className="pt-0.5 text-sm text-slate-900">{event.label}</p>
+                  </div>
                   {event.detail && (
                     <p className="mt-1 text-xs leading-5 text-slate-600">
                       {event.detail}
