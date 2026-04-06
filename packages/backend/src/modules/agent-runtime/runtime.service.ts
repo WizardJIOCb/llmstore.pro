@@ -2426,6 +2426,7 @@ function injectPreviewBridgeHtml(html: string, previewId?: string): string {
   const htmlWithFavicon = forceStandardPreviewFavicon(html);
   const resolvedPreviewId = previewId ?? 'standalone-preview';
   const emojiAssetVersion = '20260401b';
+  const imageFallbackSrc = buildPreviewImagePlaceholderDataUrl('Image unavailable');
   const bridge = `
 <style id="llmstore-preview-emoji-bridge">
 html, body {
@@ -2464,6 +2465,7 @@ table {
   const previewOrigin = typeof window.__LLMSTORE_PREVIEW_ORIGIN__ === 'string' && window.__LLMSTORE_PREVIEW_ORIGIN__
     ? window.__LLMSTORE_PREVIEW_ORIGIN__
     : window.location.origin;
+  const imageFallbackSrc = ${JSON.stringify(imageFallbackSrc)};
   const emojiAssetBase = new URL('/api/emoji/', previewOrigin).toString();
   const unsupportedEmojiCodes = new Set();
 
@@ -2549,6 +2551,27 @@ table {
     }
   };
 
+  const bindImageFallbacks = (root = document) => {
+    if (!root || typeof root.querySelectorAll !== 'function') return;
+    const images = root.querySelectorAll('img');
+    for (const img of images) {
+      if (!(img instanceof HTMLImageElement)) continue;
+      if (img.dataset.llmstoreImgFallbackBound === '1') continue;
+      img.dataset.llmstoreImgFallbackBound = '1';
+      const applyFallback = () => {
+        if (!img.src || img.src === imageFallbackSrc) return;
+        img.src = imageFallbackSrc;
+        if (!img.alt) {
+          img.alt = 'Image unavailable';
+        }
+      };
+      img.addEventListener('error', applyFallback, { once: true });
+      if (img.complete && img.naturalWidth === 0 && img.src) {
+        applyFallback();
+      }
+    }
+  };
+
   const sendState = () => {
     try {
       window.parent.postMessage({
@@ -2574,15 +2597,20 @@ table {
   wrapHistory('replaceState');
   window.addEventListener('load', () => {
     applyEmojiFallback();
+    bindImageFallbacks();
     sendState();
   });
-  window.addEventListener('DOMContentLoaded', () => applyEmojiFallback());
+  window.addEventListener('DOMContentLoaded', () => {
+    applyEmojiFallback();
+    bindImageFallbacks();
+  });
   window.addEventListener('hashchange', sendState);
   window.addEventListener('popstate', sendState);
   const observer = new MutationObserver((mutations) => {
     for (const mutation of mutations) {
       for (const node of mutation.addedNodes) {
         if (node instanceof HTMLElement) applyEmojiFallback(node);
+        if (node instanceof HTMLElement) bindImageFallbacks(node);
         if (node instanceof Text && !shouldSkipEmojiWrap(node)) wrapEmojiTextNode(node);
       }
     }
@@ -2598,6 +2626,7 @@ table {
     if (data.command === 'forward') history.forward();
   });
   applyEmojiFallback();
+  bindImageFallbacks();
   sendState();
 })();
 </script>`;
@@ -2613,8 +2642,8 @@ table {
   return `${bridge}${htmlWithFavicon}`;
 }
 
-function sanitizeGalleryPreviewHtml(html: string): string {
-  const placeholderSvg = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(
+function buildPreviewImagePlaceholderDataUrl(label = 'Preview'): string {
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 400">
       <defs>
         <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
@@ -2625,14 +2654,77 @@ function sanitizeGalleryPreviewHtml(html: string): string {
       <rect width="640" height="400" fill="url(#g)" />
       <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle"
         font-family="Segoe UI, Arial, sans-serif" font-size="28" fill="#334155">
-        Preview
+        ${escapeHtmlText(label)}
       </text>
     </svg>`,
   )}`;
+}
 
-  return html
-    .replace(/https?:\/\/via\.placeholder\.com\/[^"')\s]+/gi, placeholderSvg)
-    .replace(/https?:\/\/placehold\.co\/[^"')\s]+/gi, placeholderSvg);
+function sanitizePreviewAssetUrls(html: string): string {
+  const placeholderSvg = buildPreviewImagePlaceholderDataUrl('Preview');
+  const suspiciousAbsoluteAssetPattern = /https?:\/\/(?:(?:via\.placeholder\.com|placehold\.co)\/[^"')\s]+|example\.com\/[^"')\s]+)/gi;
+  const suspiciousRelativeImagePattern = /^(\.\/|\.\.\/)?[^:/?#][^"')]*\.(?:png|jpe?g|gif|svg|webp|avif)(?:[?#][^"')]*)?$/i;
+  const allowedImageSrcPattern = /^(?:https?:|data:|blob:|\/)/i;
+
+  const replaceSrcsetValue = (value: string) => value
+    .split(',')
+    .map((entry) => {
+      const trimmed = entry.trim();
+      if (!trimmed) return trimmed;
+      const [candidate, descriptor] = trimmed.split(/\s+/, 2);
+      if (
+        suspiciousAbsoluteAssetPattern.test(candidate)
+        || suspiciousRelativeImagePattern.test(candidate)
+      ) {
+        suspiciousAbsoluteAssetPattern.lastIndex = 0;
+        return descriptor ? `${placeholderSvg} ${descriptor}` : placeholderSvg;
+      }
+      suspiciousAbsoluteAssetPattern.lastIndex = 0;
+      return trimmed;
+    })
+    .join(', ');
+
+  let nextHtml = html.replace(suspiciousAbsoluteAssetPattern, placeholderSvg);
+
+  nextHtml = nextHtml.replace(
+    /(<(?:img|source)\b[^>]*\b(?:src|poster)\s*=\s*["'])([^"']+)(["'])/gi,
+    (match, prefix: string, rawValue: string, suffix: string) => {
+      const value = rawValue.trim();
+      if (!value) return match;
+      if (allowedImageSrcPattern.test(value)) return match;
+      if (!suspiciousRelativeImagePattern.test(value)) return match;
+      return `${prefix}${placeholderSvg}${suffix}`;
+    },
+  );
+
+  nextHtml = nextHtml.replace(
+    /(<source\b[^>]*\bsrcset\s*=\s*["'])([^"']+)(["'])/gi,
+    (_match, prefix: string, rawValue: string, suffix: string) => `${prefix}${replaceSrcsetValue(rawValue)}${suffix}`,
+  );
+
+  nextHtml = nextHtml.replace(
+    /url\(\s*(["']?)([^)"']+)\1\s*\)/gi,
+    (match, _quote: string, rawValue: string) => {
+      const value = rawValue.trim();
+      if (!value) return match;
+      if (/^(?:data:|blob:|\/)/i.test(value)) return match;
+      if (/^https?:/i.test(value)) {
+        return suspiciousAbsoluteAssetPattern.test(value)
+          ? `url("${placeholderSvg}")`
+          : match;
+      }
+      suspiciousAbsoluteAssetPattern.lastIndex = 0;
+      return suspiciousRelativeImagePattern.test(value)
+        ? `url("${placeholderSvg}")`
+        : match;
+    },
+  );
+
+  return nextHtml;
+}
+
+function sanitizeGalleryPreviewHtml(html: string): string {
+  return sanitizePreviewAssetUrls(html);
 }
 
 function injectGalleryPreviewStyles(html: string): string {
@@ -2662,7 +2754,7 @@ a, button, input, textarea, select {
 }
 
 function preparePreviewHtml(html: string, options?: { previewId?: string; galleryMode?: boolean }): string {
-  const repairedHtml = repairSectionalPreviewHtml(html);
+  const repairedHtml = sanitizePreviewAssetUrls(repairSectionalPreviewHtml(html));
   const nextHtml = options?.galleryMode
     ? injectGalleryPreviewStyles(sanitizeGalleryPreviewHtml(repairedHtml))
     : repairedHtml;
@@ -3169,6 +3261,9 @@ ${agent.description.trim()}`);
       '- style_css должен содержать глобальные стили для всех секций;',
       '- font_links_html может содержать только <link> теги для шрифтов/прелоадов;',
       '- script_js опционален и должен содержать только JS-код без <script>;',
+      '- не используй фейковые URL и заглушки ассетов: example.com, via.placeholder.com, placehold.co, picsum.photos;',
+      '- если нет надёжных реальных картинок, используй CSS-иллюстрации, градиенты, паттерны, маски или inline SVG/data:image;',
+      '- глобальные классы и анимации делай аккуратными и не слишком общими; предпочитай секционные префиксы вместо .image, .title, .flame;',
       '- без markdown, без комментариев вокруг JSON.',
     ].join('\n\n');
 
@@ -3217,6 +3312,10 @@ ${agent.description.trim()}`);
         '- верни только HTML для этой секции;',
         '- не возвращай <html>, <head> или <body>;',
         '- секция должна быть самодостаточной и готовой к вставке в общий документ;',
+        '- не используй несуществующие локальные файлы вроде hero.png, image.jpg, ./foo.webp или dtf-commentator1.png;',
+        '- не используй example.com, via.placeholder.com, placehold.co, picsum.photos и другие фейковые/демо-ассеты;',
+        '- если надёжного изображения нет, замени его на inline SVG, data:image/svg+xml или чистую CSS-графику;',
+        '- избегай слишком общих классов и keyframes; давай секции собственный префикс классов;',
         '- никаких фраз вроде "продолжаю" или "ниже HTML".',
       ].filter(Boolean).join('\n\n');
 
