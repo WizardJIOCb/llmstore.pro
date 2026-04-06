@@ -664,6 +664,7 @@ export function ChatsPage() {
   const [propertiesToolIds, setPropertiesToolIds] = useState<string[]>([]);
   const [propertiesAccess, setPropertiesAccess] = useState<ChatAccess>('public');
   const [propertiesAllowedText, setPropertiesAllowedText] = useState('');
+  const [propertiesNote, setPropertiesNote] = useState('');
   const [propertiesSaving, setPropertiesSaving] = useState(false);
   const [propertiesError, setPropertiesError] = useState<string | null>(null);
   const [streamEvents, setStreamEvents] = useState<LiveChatEvent[]>([]);
@@ -1718,6 +1719,7 @@ export function ChatsPage() {
     setPropertiesToolIds(activeChat.tool_ids ?? []);
     setPropertiesAccess(activeChat.access ?? 'public');
     setPropertiesAllowedText((activeChat.access_identifiers ?? []).join('\n'));
+    setPropertiesNote(activeChat.note ?? '');
   }, [isPropertiesOpen, activeChat, agents]);
 
   useEffect(() => {
@@ -2264,6 +2266,7 @@ export function ChatsPage() {
     try {
       await updateChatMutation.mutateAsync({
         chatId: activeChat.id,
+        note: propertiesNote.trim() || null,
         mode: isPropertiesAgentMode ? 'agent' : 'general',
         agent_id: isPropertiesAgentMode ? propertiesAgentId : null,
         model_external_id: isPropertiesAgentMode ? null : propertiesModel,
@@ -2732,6 +2735,11 @@ export function ChatsPage() {
         <p className="truncate text-[11px] text-muted-foreground">
           {getChatListMeta(chat)}
         </p>
+        {chat.note?.trim() ? (
+          <p className="truncate text-[11px] text-sky-700/90">
+            {chat.note.trim().replace(/\s+/g, ' ')}
+          </p>
+        ) : null}
         {chat.is_admin_view && (
           <p className="truncate text-[11px] text-amber-700">
             Владелец: {getChatOwnerLabel(chat)}
@@ -3882,6 +3890,24 @@ export function ChatsPage() {
               </div>
 
               <div className="rounded-2xl border bg-muted/10 p-4 space-y-4">
+                <div className="rounded-xl border bg-background/80 p-4 space-y-2">
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium">Пометка для себя</p>
+                    <p className="text-xs text-muted-foreground">
+                      Короткая заметка, чтобы в списке чатов было понятно, что это за диалог.
+                    </p>
+                  </div>
+                  <textarea
+                    value={propertiesNote}
+                    onChange={(e) => setPropertiesNote(e.target.value.slice(0, 300))}
+                    className="min-h-24 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:border-input"
+                    placeholder="Например: Лендинг про Марс, хороший результат от Claude, нужен потом экспорт"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {propertiesNote.trim().length}/300
+                  </p>
+                </div>
+
                 <div className="space-y-1">
                   <p className="text-sm font-medium">Как чат должен отвечать</p>
                   <p className="text-xs text-muted-foreground">

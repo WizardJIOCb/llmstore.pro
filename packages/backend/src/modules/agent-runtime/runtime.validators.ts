@@ -13,6 +13,7 @@ export const validateStartRun = validate(startRunSchema, 'body');
 
 const createChatSchema = z.object({
   title: z.string().min(1).max(500).optional(),
+  note: z.string().max(300).optional().nullable(),
   mode: z.enum(['general', 'agent']).default('general'),
   agent_id: z.string().uuid().optional().nullable(),
   model_external_id: z.string().min(1).max(255).optional().nullable(),
@@ -24,6 +25,7 @@ const createChatSchema = z.object({
 
 const updateChatSchema = z.object({
   title: z.string().min(1).max(500).optional(),
+  note: z.string().max(300).optional().nullable(),
   mode: z.enum(['general', 'agent']).optional(),
   agent_id: z.string().uuid().optional().nullable(),
   model_external_id: z.string().min(1).max(255).optional().nullable(),

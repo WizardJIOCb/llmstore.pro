@@ -126,6 +126,7 @@ export interface ToolTrace {
 export interface ChatListItem {
   id: string;
   title: string;
+  note?: string | null;
   mode: ChatMode;
   agent_id: string | null;
   agent_name?: string | null;
@@ -382,19 +383,21 @@ export const chatsApi = {
 
   create: (payload?: {
     title?: string;
-      mode?: ChatMode;
-      agent_id?: string | null;
-      model_external_id?: string | null;
-      system_prompt?: string | null;
-      tool_ids?: string[];
-      access?: ChatAccess;
-      access_identifiers?: string[];
-    }) => apiClient.post<{ data: ChatListItem }>('/chats', payload ?? {}).then((r) => r.data.data),
+    note?: string | null;
+    mode?: ChatMode;
+    agent_id?: string | null;
+    model_external_id?: string | null;
+    system_prompt?: string | null;
+    tool_ids?: string[];
+    access?: ChatAccess;
+    access_identifiers?: string[];
+  }) => apiClient.post<{ data: ChatListItem }>('/chats', payload ?? {}).then((r) => r.data.data),
 
   update: (
     chatId: string,
     payload: {
       title?: string;
+      note?: string | null;
       mode?: ChatMode;
       agent_id?: string | null;
       model_external_id?: string | null;

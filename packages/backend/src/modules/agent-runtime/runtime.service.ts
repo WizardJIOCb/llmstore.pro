@@ -4350,6 +4350,7 @@ interface ChatConversationRow {
 interface ConversationListItem {
   id: string;
   title: string;
+  note: string | null;
   mode: ChatMode;
   agent_id: string | null;
   agent_name: string | null;
@@ -4598,9 +4599,23 @@ function extractChatToolSettings(settings: Record<string, unknown> | null | unde
   };
 }
 
+function normalizeChatNote(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed.slice(0, 300) : null;
+}
+
+function extractChatNote(settings: Record<string, unknown> | null | undefined): string | null {
+  if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
+    return null;
+  }
+
+  return normalizeChatNote(settings.note);
+}
+
 function buildChatSettingsJson(
   existing: Record<string, unknown> | null | undefined,
-  overrides: { tool_ids?: string[]; tool_agent_id?: string | null },
+  overrides: { tool_ids?: string[]; tool_agent_id?: string | null; note?: string | null },
 ): Record<string, unknown> | null {
   const base = (existing && typeof existing === 'object' && !Array.isArray(existing))
     ? { ...existing }
@@ -4615,6 +4630,15 @@ function buildChatSettingsJson(
       base.tool_agent_id = overrides.tool_agent_id;
     } else {
       delete base.tool_agent_id;
+    }
+  }
+
+  if (overrides.note !== undefined) {
+    const normalizedNote = normalizeChatNote(overrides.note);
+    if (normalizedNote) {
+      base.note = normalizedNote;
+    } else {
+      delete base.note;
     }
   }
 
@@ -5657,6 +5681,7 @@ export async function listChats(userId: string): Promise<ConversationListItem[]>
     return {
       id: chat.id,
       title: chat.title,
+      note: extractChatNote(chat.settings_json),
       mode: chat.mode as ChatMode,
       agent_id: chat.agent_id ?? null,
       agent_name: agentMeta?.name ?? null,
@@ -5770,6 +5795,7 @@ export async function listChatAgents(userId: string, userRole?: string): Promise
 
 export async function createChat(userId: string, input: {
   title?: string;
+  note?: string | null;
   mode?: ChatMode;
   agent_id?: string | null;
   model_external_id?: string | null;
@@ -5799,7 +5825,11 @@ export async function createChat(userId: string, input: {
   }
 
   const shareToken = uuidv4().replace(/-/g, '').slice(0, 16);
-  const initialSettings = buildChatSettingsJson(null, { tool_ids: normalizedToolIds, tool_agent_id: null });
+  const initialSettings = buildChatSettingsJson(null, {
+    tool_ids: normalizedToolIds,
+    tool_agent_id: null,
+    note: input.note ?? null,
+  });
 
   const [chat] = await db.insert(chatConversations).values({
     user_id: userId,
@@ -5846,6 +5876,7 @@ export async function createChat(userId: string, input: {
   return {
     id: chat.id,
     title: chat.title,
+    note: extractChatNote(initialSettings),
     mode: chat.mode,
     agent_id: chat.agent_id,
     agent_name: agentMeta?.agent_name ?? null,
@@ -5879,6 +5910,7 @@ export async function getChatById(chatId: string, userId: string): Promise<Conve
     chat: {
       id: chat.id,
       title: chat.title,
+      note: extractChatNote(chat.settings_json),
       mode: chat.mode,
       agent_id: chat.agent_id ?? null,
       agent_name: agentMeta.agent_name,
@@ -6444,6 +6476,7 @@ export async function getChatStats(chatId: string, userId: string): Promise<Chat
 
 export async function updateChat(chatId: string, userId: string, input: {
   title?: string;
+  note?: string | null;
   mode?: ChatMode;
   agent_id?: string | null;
   model_external_id?: string | null;
@@ -6521,6 +6554,7 @@ export async function updateChat(chatId: string, userId: string, input: {
       settings_json: buildChatSettingsJson(existing.settings_json, {
         tool_ids: nextToolIds,
         tool_agent_id: toolAgentId,
+        note: input.note,
       }),
       updated_at: new Date(),
     })
@@ -6542,6 +6576,7 @@ export async function updateChat(chatId: string, userId: string, input: {
   return {
     id: chat.id,
     title: chat.title,
+    note: extractChatNote(chat.settings_json),
     mode: chat.mode,
     agent_id: chat.agent_id ?? null,
     agent_name: agentMeta?.agent_name ?? null,
@@ -7325,6 +7360,7 @@ export async function importChatBundle(
   return {
     id: chat.id,
     title: chat.title,
+    note: extractChatNote(chat.settings_json),
     mode: chat.mode,
     agent_id: chat.agent_id ?? null,
     agent_name: agentMeta?.agent_name ?? null,

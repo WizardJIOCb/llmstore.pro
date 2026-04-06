@@ -64,6 +64,7 @@ export function useCreateChat() {
   return useMutation({
     mutationFn: (payload?: {
       title?: string;
+      note?: string | null;
       mode?: ChatMode;
       agent_id?: string | null;
       model_external_id?: string | null;
@@ -89,6 +90,7 @@ export function useUpdateChat() {
     mutationFn: ({ chatId, ...payload }: {
       chatId: string;
       title?: string;
+      note?: string | null;
       mode?: ChatMode;
       agent_id?: string | null;
       model_external_id?: string | null;
