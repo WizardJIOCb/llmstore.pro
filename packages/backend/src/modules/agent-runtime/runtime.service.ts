@@ -1026,6 +1026,69 @@ function normalizeLandingSectionFragment(content: string, sectionId: string): st
   return html.trim();
 }
 
+function detectLandingSectionFragmentIssue(html: string): string | null {
+  const trimmed = html.trim();
+  if (!trimmed) {
+    return 'Пустой HTML-фрагмент секции.';
+  }
+
+  const styleOpenCount = (trimmed.match(/<style\b[^>]*>/gi) ?? []).length;
+  const styleCloseCount = (trimmed.match(/<\/style>/gi) ?? []).length;
+  if (styleOpenCount !== styleCloseCount) {
+    return 'Во фрагменте незакрытый или оборванный <style>.';
+  }
+
+  const scriptOpenCount = (trimmed.match(/<script\b[^>]*>/gi) ?? []).length;
+  const scriptCloseCount = (trimmed.match(/<\/script>/gi) ?? []).length;
+  if (scriptOpenCount !== scriptCloseCount) {
+    return 'Во фрагменте незакрытый или оборванный <script>.';
+  }
+
+  const rootMatch = trimmed.match(/^<(section|main|header|footer|article|div)\b/i);
+  if (rootMatch?.[1]) {
+    const rootTag = rootMatch[1];
+    if (!new RegExp(`</${rootTag}>\\s*$`, 'i').test(trimmed)) {
+      return `Фрагмент оборван и не закрывает корневой <${rootTag}>.`;
+    }
+  }
+
+  if (/<[^>]*$/.test(trimmed)) {
+    return 'Фрагмент заканчивается незавершённым HTML-тегом.';
+  }
+
+  const contentOnly = trimmed
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<style\b[\s\S]*?<\/style>/gi, '')
+    .replace(/<script\b[\s\S]*?<\/script>/gi, '')
+    .trim();
+  if (!/<(?:div|article|header|footer|nav|figure|figcaption|blockquote|p|h[1-6]|ul|ol|li|a|button|img|picture|svg|video|canvas|form|input|textarea|label|span)\b/i.test(contentOnly)) {
+    return 'Во фрагменте нет видимой контентной разметки, кроме служебных тегов.';
+  }
+
+  return null;
+}
+
+function buildBrokenLandingSectionFallback(sectionId: string, reason?: string | null): string {
+  const safeSectionId = escapeHtmlAttribute(sectionId);
+  const safeReason = escapeHtmlText(reason ?? 'Секция была повреждена и скрыта.');
+  return [
+    `<section id="${safeSectionId}" class="llmstore-section-fallback">`,
+    '  <style>',
+    '    .llmstore-section-fallback { padding: 72px 0; background: linear-gradient(180deg, rgba(15,23,42,.84), rgba(15,23,42,.62)); }',
+    '    .llmstore-section-fallback__inner { width: min(920px, calc(100% - 32px)); margin: 0 auto; padding: 28px; border-radius: 24px; border: 1px solid rgba(148,163,184,.22); background: rgba(15,23,42,.72); box-shadow: 0 24px 80px rgba(2,6,23,.24); }',
+    '    .llmstore-section-fallback__eyebrow { display: inline-flex; margin-bottom: 12px; padding: 8px 12px; border-radius: 999px; background: rgba(56,189,248,.12); color: #38bdf8; font: 600 12px/1.2 "Segoe UI", system-ui, sans-serif; letter-spacing: .12em; text-transform: uppercase; }',
+    '    .llmstore-section-fallback__title { margin: 0 0 10px; color: #f8fafc; font: 700 clamp(24px, 4vw, 34px)/1.1 "Segoe UI", system-ui, sans-serif; }',
+    '    .llmstore-section-fallback__text { margin: 0; color: #94a3b8; font: 400 15px/1.7 "Segoe UI", system-ui, sans-serif; }',
+    '  </style>',
+    '  <div class="llmstore-section-fallback__inner">',
+    `    <div class="llmstore-section-fallback__eyebrow">${safeSectionId}</div>`,
+    '    <h2 class="llmstore-section-fallback__title">Секция временно скрыта</h2>',
+    `    <p class="llmstore-section-fallback__text">${safeReason}</p>`,
+    '  </div>',
+    '</section>',
+  ].join('\n');
+}
+
 function repairSectionalPreviewHtml(html: string): string {
   if (!/<!--\s*llmstore-section:/i.test(html)) {
     return html;
@@ -1033,9 +1096,14 @@ function repairSectionalPreviewHtml(html: string): string {
 
   return html.replace(
     /<!--\s*llmstore-section:([a-z0-9-]+)\s*-->\s*([\s\S]*?)(?=(?:<!--\s*llmstore-section:|<\/main>))/gi,
-    (_match, sectionId: string, fragment: string) => (
-      `<!-- llmstore-section:${sectionId} -->\n${normalizeLandingSectionFragment(fragment, sectionId).trim()}\n\n`
-    ),
+    (_match, sectionId: string, fragment: string) => {
+      const normalizedFragment = normalizeLandingSectionFragment(fragment, sectionId).trim();
+      const fragmentIssue = detectLandingSectionFragmentIssue(normalizedFragment);
+      const repairedFragment = fragmentIssue
+        ? buildBrokenLandingSectionFallback(sectionId, fragmentIssue)
+        : normalizedFragment;
+      return `<!-- llmstore-section:${sectionId} -->\n${repairedFragment}\n\n`;
+    },
   );
 }
 
@@ -3295,7 +3363,7 @@ ${agent.description.trim()}`);
         `Рендерю секцию ${index + 1} из ${plan.sections.length}: ${section.label}.`,
       );
 
-      const sectionPrompt = [
+      const sectionPromptBase = [
         'Нужно вернуть только HTML-фрагмент одной секции лендинга без markdown и без пояснений.',
         `Запрос пользователя: ${latestUserMessage}`,
         `Название лендинга: ${resolvedTheme.title ?? plan.title ?? 'Landing page'}`,
@@ -3317,16 +3385,45 @@ ${agent.description.trim()}`);
         '- если надёжного изображения нет, замени его на inline SVG, data:image/svg+xml или чистую CSS-графику;',
         '- избегай слишком общих классов и keyframes; давай секции собственный префикс классов;',
         '- никаких фраз вроде "продолжаю" или "ниже HTML".',
-      ].filter(Boolean).join('\n\n');
+        '- HTML должен быть завершённым: закрой все теги, не обрывай CSS или атрибуты посередине.',
+      ].filter(Boolean);
 
-      const rawFragment = await requestLandingAssemblyStep(
-        'sectional_rendering',
-        `Рендерю секцию ${index + 1}/${plan.sections.length}: ${section.label}`,
-        'Генерирую небольшой фрагмент HTML вместо одного огромного ответа целиком.',
-        sectionPrompt,
-        Math.min(responseMaxTokens, 4200),
-      );
-      const fragment = normalizeLandingSectionFragment(rawFragment, section.id);
+      let fragment: string | null = null;
+      let fragmentIssue: string | null = null;
+      for (let renderAttempt = 0; renderAttempt < 2; renderAttempt += 1) {
+        const sectionPrompt = [
+          ...sectionPromptBase,
+          renderAttempt > 0 && fragmentIssue
+            ? `Предыдущая попытка была некорректной: ${fragmentIssue} Верни заново полностью завершённый HTML-фрагмент секции.`
+            : undefined,
+        ].filter(Boolean).join('\n\n');
+
+        const rawFragment = await requestLandingAssemblyStep(
+          'sectional_rendering',
+          renderAttempt > 0
+            ? `Перегенерирую секцию ${index + 1}/${plan.sections.length}: ${section.label}`
+            : `Рендерю секцию ${index + 1}/${plan.sections.length}: ${section.label}`,
+          renderAttempt > 0
+            ? 'Предыдущий фрагмент оказался обрезанным, перезапрашиваю завершённую секцию.'
+            : 'Генерирую небольшой фрагмент HTML вместо одного огромного ответа целиком.',
+          sectionPrompt,
+          Math.min(responseMaxTokens, 4200),
+        );
+        const normalizedFragment = normalizeLandingSectionFragment(rawFragment, section.id);
+        fragmentIssue = detectLandingSectionFragmentIssue(normalizedFragment);
+        if (!fragmentIssue) {
+          fragment = normalizedFragment;
+          break;
+        }
+
+        await emitRunEvent('chat.run.status', {
+          run_id: run.id,
+          status: 'sectional_rendering_retry',
+          label: `Повторно собираю секцию ${index + 1}/${plan.sections.length}`,
+          detail: `${section.label}: предыдущий HTML-фрагмент был повреждён (${fragmentIssue}).`,
+        });
+      }
+
       if (!fragment) {
         artifact.sections[index] = {
           ...artifact.sections[index],
@@ -3335,7 +3432,10 @@ ${agent.description.trim()}`);
         await syncArtifactSnapshot(
           'failed',
           `Не удалось собрать секцию ${section.label}. Останавливаю секционную сборку.`,
-          ['Одна из секций не была сгенерирована корректно.'],
+          [
+            'Одна из секций не была сгенерирована корректно.',
+            ...(fragmentIssue ? [`Последняя ошибка секции: ${fragmentIssue}`] : []),
+          ],
         );
         return null;
       }
