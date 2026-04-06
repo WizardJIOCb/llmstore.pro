@@ -15,6 +15,7 @@ import {
   chatConversationMessages,
   chatConversationViewers,
   chatConversationReactions,
+  chatProjectDeployments,
   publishedLandings,
 } from '../../db/schema/runtime.js';
 import { usageLedger } from '../../db/schema/analytics.js';
@@ -4467,6 +4468,7 @@ interface ConversationListItem {
   last_message_at: string;
   created_at: string;
   updated_at: string;
+  has_active_deployment?: boolean;
 }
 
 interface ChatAgentOption {
@@ -5681,6 +5683,7 @@ export async function listChats(userId: string): Promise<ConversationListItem[]>
   const ids = chats.map((chat) => chat.id);
   if (ids.length === 0) return [];
   const agentIds = Array.from(new Set(chats.map((chat) => chat.agent_id).filter((agentId): agentId is string => Boolean(agentId))));
+  const activeDeploymentStatuses = ['deploying', 'running'];
 
   const counts = await db
     .select({
@@ -5709,6 +5712,20 @@ export async function listChats(userId: string): Promise<ConversationListItem[]>
 
   const countMap = new Map<string, number>();
   for (const c of counts) countMap.set(c.conversation_id, c.count);
+
+  const activeDeployments = await db
+    .select({
+      conversation_id: chatProjectDeployments.conversation_id,
+    })
+    .from(chatProjectDeployments)
+    .where(and(
+      inArray(chatProjectDeployments.conversation_id, ids),
+      eq(chatProjectDeployments.user_id, userId),
+      inArray(chatProjectDeployments.status, activeDeploymentStatuses),
+    ))
+    .groupBy(chatProjectDeployments.conversation_id);
+
+  const activeDeploymentConversationIds = new Set(activeDeployments.map((row) => row.conversation_id));
 
   const previewMap = new Map<string, string>();
   for (const m of lastMessages) {
@@ -5798,6 +5815,7 @@ export async function listChats(userId: string): Promise<ConversationListItem[]>
       last_message_at: toIso(chat.last_message_at),
       created_at: toIso(chat.created_at),
       updated_at: toIso(chat.updated_at),
+      has_active_deployment: activeDeploymentConversationIds.has(chat.id),
     };
   });
 }
@@ -5992,6 +6010,7 @@ export async function createChat(userId: string, input: {
     last_message_at: toIso(chat.last_message_at),
     created_at: toIso(chat.created_at),
     updated_at: toIso(chat.updated_at),
+    has_active_deployment: false,
   };
 }
 
@@ -6692,6 +6711,7 @@ export async function updateChat(chatId: string, userId: string, input: {
     last_message_at: toIso(chat.last_message_at),
     created_at: toIso(chat.created_at),
     updated_at: toIso(chat.updated_at),
+    has_active_deployment: false,
   };
 }
 
@@ -7477,6 +7497,7 @@ export async function importChatBundle(
     last_message_at: toIso(chat.last_message_at),
     created_at: toIso(chat.created_at),
     updated_at: toIso(chat.updated_at),
+    has_active_deployment: false,
   };
 }
 
