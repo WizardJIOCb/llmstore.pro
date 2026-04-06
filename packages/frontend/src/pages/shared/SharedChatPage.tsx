@@ -8,6 +8,7 @@ import { Spinner } from '../../components/ui/Spinner';
 import { Button } from '../../components/ui/Button';
 import { apiClient } from '../../lib/api-client';
 import { chatsApi, type ChatAttachment, type ChatPendingRunState, type CodingReport } from '../../lib/api/chats';
+import { appendLiveProgressEvent, createLiveProgressEvent } from '../../lib/chat-live-progress';
 import { cn } from '../../lib/utils';
 import { useAuth } from '../../hooks/useAuth';
 import { useProfile } from '../../hooks/useProfile';
@@ -200,6 +201,15 @@ function shouldRefetchSharedChat(sharedData?: SharedPageData) {
 }
 
 const LIVE_PARTIAL_RESULT_NOTICE = '\u042d\u0442\u043e \u043f\u0440\u043e\u043c\u0435\u0436\u0443\u0442\u043e\u0447\u043d\u044b\u0439 \u0440\u0435\u0437\u0443\u043b\u044c\u0442\u0430\u0442. \u041f\u043e\u043a\u0430 pending_run \u0430\u043a\u0442\u0438\u0432\u0435\u043d, \u0447\u0430\u0442 \u0435\u0449\u0451 \u043d\u0435 \u0437\u0430\u0432\u0435\u0440\u0448\u0451\u043d.';
+const LIVE_AUTO_SCROLL_THRESHOLD_PX = 50;
+
+function getWindowDistanceFromBottom(): number {
+  const doc = document.documentElement;
+  const body = document.body;
+  const scrollHeight = Math.max(doc.scrollHeight, body?.scrollHeight ?? 0);
+  const scrollTop = window.scrollY || doc.scrollTop || body?.scrollTop || 0;
+  return Math.max(0, scrollHeight - window.innerHeight - scrollTop);
+}
 
 export function SharedChatPage() {
   const { token } = useParams<{ token: string }>();
@@ -215,6 +225,7 @@ export function SharedChatPage() {
   const messagesEndAnchorRef = useRef<HTMLDivElement | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const previousDisplayedEventsCountRef = useRef(0);
+  const liveAutoScrollPinnedRef = useRef(true);
 
   const updateSharedPreviewMutation = useMutation({
     mutationFn: ({ messageId, ...payload }: { messageId: string; title?: string | null; html: string }) =>
@@ -330,24 +341,10 @@ export function SharedChatPage() {
         return;
       }
 
-      setStreamEvents((prev) => ([
-        ...prev.slice(-47),
-        {
-          id: `${eventName}-${payload.ts ?? Date.now()}-${prev.length}`,
-          event: eventName,
-          label: payload.label || eventName,
-          detail: payload.detail,
-          status: payload.status,
-          tool_name: payload.tool_name,
-          ts: payload.ts,
-          error: payload.error,
-          prompt_tokens: payload.prompt_tokens,
-          completion_tokens: payload.completion_tokens,
-          total_tokens: payload.total_tokens,
-          estimated_cost: payload.estimated_cost,
-          usd_to_rub_rate: payload.usd_to_rub_rate,
-        },
-      ]));
+      setStreamEvents((prev) => appendLiveProgressEvent(
+        prev,
+        createLiveProgressEvent(eventName, payload, prev.length),
+      ));
     };
 
     const bind = (eventName: string) => {
@@ -439,7 +436,17 @@ export function SharedChatPage() {
   }, [messages]);
   const canManageSharedChat = Boolean(profile) && Boolean(data?.chatId) && data?.isOwner === true;
   const lastMessage = messages[messages.length - 1];
-  const latestEvent = streamEvents[streamEvents.length - 1];
+  const latestEvent = streamEvents[streamEvents.length - 1]
+    ?? (data?.pendingRun
+      ? createLiveProgressEvent('pending.snapshot', {
+        label: data.pendingRun.label,
+        detail: data.pendingRun.detail,
+        status: data.pendingRun.status,
+        tool_name: data.pendingRun.tool_name ?? undefined,
+        ts: data.pendingRun.started_at,
+        error: data.pendingRun.error ?? undefined,
+      }, 0)
+      : undefined);
   const pendingLabel = latestEvent?.event === 'chat.run.failed'
     ? 'Ответ не получен'
     : latestEvent?.event === 'chat.message.completed'
@@ -456,14 +463,15 @@ export function SharedChatPage() {
     ? streamEvents
     : (data?.pendingRun
       ? [{
+        ...createLiveProgressEvent('pending.snapshot', {
+          label: data.pendingRun.label,
+          detail: data.pendingRun.detail,
+          status: data.pendingRun.status,
+          tool_name: data.pendingRun.tool_name ?? undefined,
+          ts: data.pendingRun.started_at,
+          error: data.pendingRun.error ?? undefined,
+        }, 0),
         id: `pending-${data.pendingRun.run_id}`,
-        event: 'pending.snapshot',
-        label: data.pendingRun.label,
-        detail: data.pendingRun.detail,
-        status: data.pendingRun.status,
-        tool_name: data.pendingRun.tool_name ?? undefined,
-        ts: data.pendingRun.started_at,
-        error: data.pendingRun.error ?? undefined,
       } satisfies LiveSharedEvent]
       : []);
   const terminalNotice = data?.pendingRun && isPendingRunTerminal(data.pendingRun) && data.pendingRun.result_status && data.pendingRun.result_status !== 'success'
@@ -510,6 +518,21 @@ export function SharedChatPage() {
   }, [messages, isPendingSharedReply, lastAssistantMessageId]);
 
   useEffect(() => {
+    const syncPinnedState = () => {
+      liveAutoScrollPinnedRef.current = getWindowDistanceFromBottom() <= LIVE_AUTO_SCROLL_THRESHOLD_PX;
+    };
+
+    syncPinnedState();
+    window.addEventListener('scroll', syncPinnedState, { passive: true });
+    window.addEventListener('resize', syncPinnedState);
+
+    return () => {
+      window.removeEventListener('scroll', syncPinnedState);
+      window.removeEventListener('resize', syncPinnedState);
+    };
+  }, [token]);
+
+  useEffect(() => {
     const nextCount = displayedStreamEvents.length;
     const previousCount = previousDisplayedEventsCountRef.current;
     const hasNewProgressEvent = nextCount > previousCount;
@@ -517,11 +540,13 @@ export function SharedChatPage() {
 
     if (!isPendingSharedReply) return;
     if (!hasNewProgressEvent && pendingAssistantSignature === 'none') return;
+    if (!liveAutoScrollPinnedRef.current) return;
 
     const primaryAnchor = messagesEndAnchorRef.current ?? pendingProgressAnchorRef.current;
     if (!primaryAnchor) return;
 
     const scrollToLatest = () => {
+      if (!liveAutoScrollPinnedRef.current) return;
       primaryAnchor.scrollIntoView({ behavior: 'smooth', block: 'end' });
     };
 
@@ -546,6 +571,7 @@ export function SharedChatPage() {
     let timeoutId: number | null = null;
 
     const scrollToBottom = () => {
+      if (!liveAutoScrollPinnedRef.current) return;
       const targetTop = Math.max(
         document.documentElement.scrollHeight,
         document.body.scrollHeight,
@@ -554,6 +580,7 @@ export function SharedChatPage() {
     };
 
     const scheduleScroll = () => {
+      if (!liveAutoScrollPinnedRef.current) return;
       if (frameId != null) cancelAnimationFrame(frameId);
       if (timeoutId != null) window.clearTimeout(timeoutId);
 
@@ -791,16 +818,16 @@ export function SharedChatPage() {
         ))}
         {isPendingSharedReply && (
           <div ref={pendingProgressAnchorRef} className="space-y-3">
-            <ChatThinkingBubble
-              label={pendingLabel}
-              detail={pendingDetail}
-              startedAt={data.pendingRun?.started_at ?? lastMessage?.created_at ?? null}
-            />
             <ChatLiveProgressPanel
               events={displayedStreamEvents}
               connected={streamConnected}
               connectedLabel="SSE подключен"
               disconnectedLabel="Ожидаю переподключение к SSE"
+            />
+            <ChatThinkingBubble
+              label={pendingLabel}
+              detail={pendingDetail}
+              startedAt={data.pendingRun?.started_at ?? lastMessage?.created_at ?? null}
             />
           </div>
         )}

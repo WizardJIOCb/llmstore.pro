@@ -808,6 +808,65 @@ function sanitizeLandingSectionPlan(value: unknown): LandingSectionPlan | null {
   };
 }
 
+function buildHeuristicLandingSectionPlan(request: string, partialOutput: string): LandingSectionPlan {
+  const recoveredSummary = clampText(
+    extractPartialCodingSummary(partialOutput)
+      ?? stripContinuationNarration(partialOutput).trim(),
+    1200,
+  );
+
+  return {
+    title: 'Generated landing',
+    summary: recoveredSummary
+      ?? 'Нарративный sci-fi landing с путешествием на Марс, таймлайном, сценами при скролле и сатирической атмосферой.',
+    style_direction: 'Cinematic sci-fi storytelling, long-scroll scenes, satirical crowd energy, bold transitions, scroll-driven reveal moments.',
+    sections: [
+      {
+        id: 'hero',
+        label: 'Hero',
+        goal: 'Сильный первый экран с оффером истории и ощущением большого космического путешествия.',
+        must_include: ['крупный заголовок', 'подзаголовок', 'визуальный фокус на запуске миссии', 'индикатор scroll'],
+      },
+      {
+        id: 'launch',
+        label: 'Старт миссии',
+        goal: 'Показать подготовку к полёту, ключевых героев и запуск Starship.',
+        must_include: ['Денис Ширяев', 'Илон Маск', 'Starship', 'атмосфера старта'],
+      },
+      {
+        id: 'timeline',
+        label: 'Таймлайн миссии',
+        goal: 'Сверстать хронологию событий от старта до кульминации на Марсе.',
+        must_include: ['этапы путешествия', 'таймлайн', 'анимации при скролле'],
+      },
+      {
+        id: 'dtf-crowd',
+        label: 'Толпа DTF на Марсе',
+        goal: 'Показать конфликтную встречу с комментаторами и визуально оформить их реплики.',
+        must_include: ['speech bubbles', 'ироничные реплики толпы', 'ощущение хаоса и движения'],
+      },
+      {
+        id: 'journey',
+        label: 'Путь к центру Марса',
+        goal: 'Провести героев через несколько биомов и сцен по дороге к финалу.',
+        must_include: ['дороги', 'леса', 'пустыни', 'несколько сюжетных эпизодов'],
+      },
+      {
+        id: 'throne-room',
+        label: 'Зал правителя Марса',
+        goal: 'Собрать кульминацию истории в тронном зале правителя Марса.',
+        must_include: ['финальная сцена', 'властная атмосфера', 'кульминационный диалог или развязка'],
+      },
+      {
+        id: 'finale',
+        label: 'Финал',
+        goal: 'Сделать запоминающееся завершение истории на последнем экране.',
+        must_include: ['финальная фраза', 'сильный визуальный акцент', 'ощущение завершённости'],
+      },
+    ],
+  };
+}
+
 function sanitizeLandingThemeBundle(value: unknown): LandingThemeBundle | null {
   if (!value || typeof value !== 'object') return null;
   const raw = value as Record<string, unknown>;
@@ -2899,9 +2958,16 @@ ${agent.description.trim()}`);
       planPrompt,
       Math.min(responseMaxTokens, 1800),
     );
-    const plan = sanitizeLandingSectionPlan(extractJsonObjectFromAssistantContent(rawPlan));
+    let plan = sanitizeLandingSectionPlan(extractJsonObjectFromAssistantContent(rawPlan));
+    const usedHeuristicPlan = !plan;
     if (!plan) {
-      return null;
+      plan = buildHeuristicLandingSectionPlan(latestUserMessage, partialOutput);
+      await emitRunEvent('chat.run.status', {
+        run_id: run.id,
+        status: 'sectional_planning_fallback',
+        label: 'План секций восстановлен автоматически',
+        detail: 'Модель не вернула валидный JSON-план, поэтому использую резервную схему лендинга.',
+      });
     }
 
     const artifact: LandingArtifactState = {
@@ -2957,7 +3023,10 @@ ${agent.description.trim()}`);
     await syncArtifactSnapshot(
       'planning',
       'Собрал план лендинга и перехожу к теме. Дальше начну по одной сохранять секции и черновой preview.',
-      ['Секционный план сохранён как артефакт.'],
+      [
+        'Секционный план сохранён как артефакт.',
+        ...(usedHeuristicPlan ? ['План секций восстановлен эвристически, потому что модель не вернула валидный JSON-план.'] : []),
+      ],
     );
 
     const themePrompt = [
@@ -3083,6 +3152,7 @@ ${agent.description.trim()}`);
       notes: [
         'HTML preview собран секционно после длинного ответа модели.',
         'Этот режим используется для long landing runs, чтобы не терять результат целиком при лимите длины.',
+        ...(usedHeuristicPlan ? ['Секционный план был восстановлен автоматически из пользовательского запроса и частичного результата.'] : []),
       ],
       preview: {
         type: 'html',

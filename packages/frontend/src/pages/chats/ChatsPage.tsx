@@ -44,6 +44,7 @@ import { useAppSettings } from '../../hooks/useAppSettings';
 import { useAuth } from '../../hooks/useAuth';
 import { useProfile } from '../../hooks/useProfile';
 import { chatsApi } from '../../lib/api/chats';
+import { appendLiveProgressEvent, createLiveProgressEvent } from '../../lib/chat-live-progress';
 import { UserLink } from '../../components/users/UserLink';
 import type {
   ChatAccess,
@@ -78,6 +79,7 @@ const PENDING_REPLY_RECOVERY_WINDOW_MS = 5 * 60_000;
 const TIMEOUT_REPLY_RECOVERY_WINDOW_MS = 12_000;
 const TIMEOUT_REPLY_RECOVERY_ATTEMPT_MS = 4_000;
 const DIALOG_CLOSE_ANIMATION_MS = 200;
+const LIVE_AUTO_SCROLL_THRESHOLD_PX = 50;
 const EMPTY_MESSAGES: ChatMessageType[] = [];
 const LAST_CHAT_SELECTION_STORAGE_KEY = 'llmstore.last-chat-selection';
 
@@ -499,6 +501,13 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
+function getScrollDistanceFromBottom(container: HTMLElement): number {
+  return Math.max(
+    0,
+    container.scrollHeight - container.clientHeight - container.scrollTop,
+  );
+}
+
 function isPendingRunTerminal(pendingRun?: ChatPendingRunState | null): boolean {
   if (!pendingRun) return false;
   if (pendingRun.is_terminal != null) return pendingRun.is_terminal;
@@ -703,6 +712,7 @@ export function ChatsPage() {
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
   const previousMessageCountRef = useRef(0);
   const previousStreamEventsCountRef = useRef(0);
+  const liveAutoScrollPinnedRef = useRef(true);
   const initializedAnimatedChatIdsRef = useRef<Set<string>>(new Set());
   const animatedMessageIdsRef = useRef<Set<string>>(new Set());
   const lateReplyRecoveryAttemptedRef = useRef<Set<string>>(new Set());
@@ -1085,24 +1095,10 @@ export function ChatsPage() {
         return;
       }
 
-      setStreamEvents((prev) => [
-        ...prev.slice(-47),
-        {
-          id: `${eventName}-${payload.ts ?? Date.now()}-${prev.length}`,
-          event: eventName,
-          label: payload.label || eventName,
-          detail: payload.detail,
-          status: payload.status,
-          tool_name: payload.tool_name,
-          ts: payload.ts,
-          error: payload.error,
-          prompt_tokens: payload.prompt_tokens,
-          completion_tokens: payload.completion_tokens,
-          total_tokens: payload.total_tokens,
-          estimated_cost: payload.estimated_cost,
-          usd_to_rub_rate: payload.usd_to_rub_rate,
-        },
-      ]);
+      setStreamEvents((prev) => appendLiveProgressEvent(
+        prev,
+        createLiveProgressEvent(eventName, payload, prev.length),
+      ));
     };
 
     const bind = (eventName: string) => {
@@ -1329,6 +1325,28 @@ export function ChatsPage() {
   }, [activeChatId]);
 
   useEffect(() => {
+    const container = messagesScrollRef.current;
+    if (!container) return;
+
+    const syncPinnedState = () => {
+      const isPinned = getScrollDistanceFromBottom(container) <= LIVE_AUTO_SCROLL_THRESHOLD_PX;
+      liveAutoScrollPinnedRef.current = isPinned;
+
+      if (!isPinned && scrollAnimationFrameRef.current) {
+        cancelAnimationFrame(scrollAnimationFrameRef.current);
+        scrollAnimationFrameRef.current = null;
+      }
+    };
+
+    syncPinnedState();
+    container.addEventListener('scroll', syncPinnedState, { passive: true });
+
+    return () => {
+      container.removeEventListener('scroll', syncPinnedState);
+    };
+  }, [activeChat?.id]);
+
+  useEffect(() => {
     if (!openMenu) return;
     const onClickOutside = (e: MouseEvent) => {
       if (!menuRef.current) return;
@@ -1467,13 +1485,7 @@ export function ChatsPage() {
 
     if (!assistantResponseSlotForActiveChat || !container) return;
     if (nextCount === 0 || nextCount <= previousCount) return;
-
-    const distanceFromBottom = Math.max(
-      0,
-      container.scrollHeight - container.clientHeight - container.scrollTop,
-    );
-
-    if (distanceFromBottom > 220) {
+    if (!liveAutoScrollPinnedRef.current) {
       return;
     }
 
@@ -1525,11 +1537,13 @@ export function ChatsPage() {
     let timeoutId: number | null = null;
 
     const scrollToBottom = () => {
+      if (!liveAutoScrollPinnedRef.current) return;
       const targetTop = Math.max(0, container.scrollHeight - container.clientHeight);
       container.scrollTo({ top: targetTop, behavior: 'smooth' });
     };
 
     const scheduleScroll = () => {
+      if (!liveAutoScrollPinnedRef.current) return;
       if (frameId != null) cancelAnimationFrame(frameId);
       if (timeoutId != null) window.clearTimeout(timeoutId);
 
@@ -1566,6 +1580,7 @@ export function ChatsPage() {
 
     const container = messagesScrollRef.current;
     if (!container) return;
+    if (!liveAutoScrollPinnedRef.current) return;
 
     if (scrollAnimationFrameRef.current) {
       cancelAnimationFrame(scrollAnimationFrameRef.current);
@@ -1618,6 +1633,7 @@ export function ChatsPage() {
     let rafId: number | null = null;
 
     const ensureSlotVisible = () => {
+      if (!liveAutoScrollPinnedRef.current) return;
       const measureOverflow = () => (
         (slotNode.offsetTop + slotNode.offsetHeight) - (container.scrollTop + container.clientHeight) + 12
       );
@@ -1684,11 +1700,13 @@ export function ChatsPage() {
     let timeoutId: number | null = null;
 
     const scrollToBottom = () => {
+      if (!liveAutoScrollPinnedRef.current) return;
       const targetTop = Math.max(0, container.scrollHeight - container.clientHeight);
       container.scrollTop = targetTop;
     };
 
     const scheduleScroll = () => {
+      if (!liveAutoScrollPinnedRef.current) return;
       if (frameId != null) cancelAnimationFrame(frameId);
       if (timeoutId != null) window.clearTimeout(timeoutId);
 
@@ -2524,12 +2542,22 @@ export function ChatsPage() {
       });
 
       if (!result.assistant_message) {
+        const pendingProgressEvent = result.pending_run
+          ? createLiveProgressEvent('pending.snapshot', {
+            label: result.pending_run.label,
+            detail: result.pending_run.detail,
+            status: result.pending_run.status,
+            tool_name: result.pending_run.tool_name ?? undefined,
+            ts: result.pending_run.started_at,
+            error: result.pending_run.error ?? undefined,
+          }, 0)
+          : null;
         setAssistantResponseSlot((prev) => (
           prev && prev.chatId === chatId
             ? {
               ...prev,
-              label: result.pending_run?.label ?? 'Агент работает',
-              detail: result.pending_run?.detail ?? 'Сообщение принято. Живой прогресс и частичный результат будут появляться прямо в чате.',
+              label: pendingProgressEvent?.label ?? 'Агент работает',
+              detail: pendingProgressEvent?.detail ?? result.pending_run?.detail ?? 'Сообщение принято. Живой прогресс и частичный результат будут появляться прямо в чате.',
             }
             : prev
         ));
@@ -2652,6 +2680,14 @@ export function ChatsPage() {
 
     const pendingRun = activeChat.pending_run;
     if (!pendingRun) return;
+    const pendingProgressEvent = createLiveProgressEvent('pending.snapshot', {
+      label: pendingRun.label,
+      detail: pendingRun.detail,
+      status: pendingRun.status,
+      tool_name: pendingRun.tool_name ?? undefined,
+      ts: pendingRun.started_at,
+      error: pendingRun.error ?? undefined,
+    }, 0);
 
     if (isPendingRunLive(pendingRun)) {
       clearTransportTimeoutNotice();
@@ -2662,8 +2698,8 @@ export function ChatsPage() {
           return {
             ...prev,
             startedAt: pendingRun.started_at || prev.startedAt,
-            label: pendingRun.label,
-            detail: pendingRun.detail,
+            label: pendingProgressEvent.label,
+            detail: pendingProgressEvent.detail ?? pendingRun.detail ?? prev.detail,
           };
         }
 
@@ -2671,8 +2707,8 @@ export function ChatsPage() {
           chatId: activeChat.id,
           visualKey: `assistant-slot-runtime-${pendingRun.run_id}`,
           startedAt: pendingRun.started_at,
-          label: pendingRun.label,
-          detail: pendingRun.detail,
+          label: pendingProgressEvent.label,
+          detail: pendingProgressEvent.detail ?? pendingRun.detail ?? 'Собираю ответ и показываю прогресс по мере поступления шагов.',
           actualMessageId: null,
         };
       });
@@ -3349,15 +3385,15 @@ export function ChatsPage() {
                     {null}
                     {activeChat?.pending_run && isPendingRunLive(activeChat.pending_run) && (
                       <div className="mb-3 space-y-3">
-                        <ChatThinkingBubble
-                          label={assistantResponseSlotForActiveChat.label}
-                          detail={assistantResponseSlotForActiveChat.detail}
-                          startedAt={assistantResponseSlotForActiveChat.startedAt}
-                        />
                         <ChatLiveProgressPanel
                           events={streamEvents}
                           connected={streamConnected}
                           trailing={isSubmittingMessage ? <ChatLiveProgressTrailingBusy /> : null}
+                        />
+                        <ChatThinkingBubble
+                          label={assistantResponseSlotForActiveChat.label}
+                          detail={assistantResponseSlotForActiveChat.detail}
+                          startedAt={assistantResponseSlotForActiveChat.startedAt}
                         />
                       </div>
                     )}
@@ -3476,15 +3512,15 @@ export function ChatsPage() {
             )}
             {assistantResponseSlotForActiveChat && activeChat?.pending_run && isPendingRunLive(activeChat.pending_run) && (
               <div ref={pendingProgressAnchorRef} className="mt-3 space-y-3">
-                <ChatThinkingBubble
-                  label={assistantResponseSlotForActiveChat.label}
-                  detail={assistantResponseSlotForActiveChat.detail}
-                  startedAt={assistantResponseSlotForActiveChat.startedAt}
-                />
                 <ChatLiveProgressPanel
                   events={streamEvents}
                   connected={streamConnected}
                   trailing={isSubmittingMessage ? <ChatLiveProgressTrailingBusy /> : null}
+                />
+                <ChatThinkingBubble
+                  label={assistantResponseSlotForActiveChat.label}
+                  detail={assistantResponseSlotForActiveChat.detail}
+                  startedAt={assistantResponseSlotForActiveChat.startedAt}
                 />
               </div>
             )}
