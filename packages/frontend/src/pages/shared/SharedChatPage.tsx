@@ -365,8 +365,28 @@ export function SharedChatPage() {
             usd_to_rub_rate?: number;
           };
           pushEvent(eventName, payload);
+          if (
+            eventName === 'chat.message.completed'
+            || eventName === 'chat.run.completed'
+            || eventName === 'chat.run.failed'
+            || eventName === 'chat.run.skipped'
+          ) {
+            void queryClient.invalidateQueries({ queryKey: ['shared-chat-any', token] });
+            void queryClient.invalidateQueries({ queryKey: ['chats'] });
+            void queryClient.invalidateQueries({ queryKey: ['profile'] });
+          }
         } catch {
           pushEvent(eventName, { label: eventName });
+          if (
+            eventName === 'chat.message.completed'
+            || eventName === 'chat.run.completed'
+            || eventName === 'chat.run.failed'
+            || eventName === 'chat.run.skipped'
+          ) {
+            void queryClient.invalidateQueries({ queryKey: ['shared-chat-any', token] });
+            void queryClient.invalidateQueries({ queryKey: ['chats'] });
+            void queryClient.invalidateQueries({ queryKey: ['profile'] });
+          }
         }
       });
     };
@@ -398,7 +418,7 @@ export function SharedChatPage() {
         eventSourceRef.current = null;
       }
     };
-  }, [data?.pendingRun?.run_id, isPendingSharedReply, token]);
+  }, [data?.pendingRun?.run_id, isPendingSharedReply, queryClient, token]);
 
   const exportChat = async () => {
     if (!token) return;
