@@ -1,7 +1,17 @@
 ﻿import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Globe } from 'lucide-react';
+import {
+  ArrowRightLeft,
+  Bot,
+  Download,
+  Globe,
+  Lock,
+  PencilLine,
+  Settings2,
+  Share2,
+  Trash2,
+} from 'lucide-react';
 import { ChatInput } from '../../components/agents/ChatInput';
 import { ChatLiveProgressPanel, ChatLiveProgressTrailingBusy } from '../../components/agents/ChatLiveProgressPanel';
 import { ChatMessage } from '../../components/agents/ChatMessage';
@@ -242,6 +252,34 @@ function getChatOwnerLabel(chat: Pick<ChatListItem, 'owner_name' | 'owner_userna
     || (chat.owner_username ? `@${chat.owner_username}` : '')
     || chat.owner_email?.trim()
     || 'другой пользователь';
+}
+
+function getChatActionIcon(
+  action: 'rename' | 'properties' | 'export' | 'privacy' | 'transfer' | 'delete' | 'share' | 'agents',
+  access?: ChatAccess,
+) {
+  switch (action) {
+    case 'rename':
+      return <PencilLine className="h-4 w-4 shrink-0 text-slate-500" />;
+    case 'properties':
+      return <Settings2 className="h-4 w-4 shrink-0 text-slate-500" />;
+    case 'export':
+      return <Download className="h-4 w-4 shrink-0 text-slate-500" />;
+    case 'privacy':
+      return access === 'public'
+        ? <Lock className="h-4 w-4 shrink-0 text-slate-500" />
+        : <Globe className="h-4 w-4 shrink-0 text-slate-500" />;
+    case 'transfer':
+      return <ArrowRightLeft className="h-4 w-4 shrink-0 text-slate-500" />;
+    case 'delete':
+      return <Trash2 className="h-4 w-4 shrink-0 text-red-500" />;
+    case 'share':
+      return <Share2 className="h-4 w-4 shrink-0 text-slate-500" />;
+    case 'agents':
+      return <Bot className="h-4 w-4 shrink-0 text-slate-500" />;
+    default:
+      return null;
+  }
 }
 
 function formatGeneralModelPricing(model: GeneralModelOption): string {
@@ -2764,36 +2802,43 @@ export function ChatsPage() {
         </button>
         {openMenu?.kind === 'chat' && openMenu.id === chat.id && (
           <div className="absolute right-0 top-8 z-20 w-44 rounded-md border bg-white p-1 shadow-lg">
-            <button type="button" className="w-full rounded px-2 py-1.5 text-left text-sm hover:bg-accent" onClick={() => renameChat(chat)}>
-              Переименовать
+            <button type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent" onClick={() => renameChat(chat)}>
+              {getChatActionIcon('rename')}
+              <span>Переименовать</span>
             </button>
-            <button type="button" className="w-full rounded px-2 py-1.5 text-left text-sm hover:bg-accent" onClick={() => openProperties(chat.id)}>
-              Свойства
+            <button type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent" onClick={() => openProperties(chat.id)}>
+              {getChatActionIcon('properties')}
+              <span>Свойства</span>
             </button>
-            <button type="button" className="w-full rounded px-2 py-1.5 text-left text-sm hover:bg-accent" onClick={() => exportChatBundle(chat.id)}>
-              Экспортировать
+            <button type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent" onClick={() => exportChatBundle(chat.id)}>
+              {getChatActionIcon('export')}
+              <span>Экспортировать</span>
             </button>
             <button
               type="button"
-              className="w-full rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
               onClick={() => toggleChatPrivacy(chat)}
               disabled={updateChatMutation.isPending}
             >
-              {getChatPrivacyQuickActionLabel(chat.access)}
+              {getChatActionIcon('privacy', chat.access)}
+              <span>{getChatPrivacyQuickActionLabel(chat.access)}</span>
             </button>
             <button
               type="button"
-              className="w-full rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
               onClick={() => requestTransferChat(chat)}
               disabled={transferChatMutation.isPending}
             >
-              Передать
+              {getChatActionIcon('transfer')}
+              <span>Передать</span>
             </button>
-            <button type="button" className="w-full rounded px-2 py-1.5 text-left text-sm hover:bg-accent" onClick={() => requestDeleteChat(chat)}>
-              Удалить
+            <button type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent" onClick={() => requestDeleteChat(chat)}>
+              {getChatActionIcon('delete')}
+              <span>Удалить</span>
             </button>
-            <button type="button" className="w-full rounded px-2 py-1.5 text-left text-sm hover:bg-accent" onClick={() => shareChat(chat.id)}>
-              Поделиться
+            <button type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent" onClick={() => shareChat(chat.id)}>
+              {getChatActionIcon('share')}
+              <span>Поделиться</span>
             </button>
           </div>
         )}
@@ -2929,7 +2974,10 @@ export function ChatsPage() {
                             void renameChat(activeChatMenuTarget);
                           }}
                         >
-                          Переименовать
+                          <span className="flex items-center gap-2">
+                            {getChatActionIcon('rename')}
+                            <span>Переименовать</span>
+                          </span>
                           <span className="text-xs text-slate-400">↗</span>
                         </button>
                         <button
@@ -2940,7 +2988,10 @@ export function ChatsPage() {
                             openProperties(activeChatMenuTarget.id);
                           }}
                         >
-                          Свойства
+                          <span className="flex items-center gap-2">
+                            {getChatActionIcon('properties')}
+                            <span>Свойства</span>
+                          </span>
                           <span className="text-xs text-slate-400">↗</span>
                         </button>
                         <button
@@ -2951,7 +3002,10 @@ export function ChatsPage() {
                             exportChatBundle(activeChat.id);
                           }}
                         >
-                          Экспорт
+                          <span className="flex items-center gap-2">
+                            {getChatActionIcon('export')}
+                            <span>Экспорт</span>
+                          </span>
                           <span className="text-xs text-slate-400">↗</span>
                         </button>
                         <button
@@ -2963,7 +3017,10 @@ export function ChatsPage() {
                           }}
                           disabled={shareChatMutation.isPending}
                         >
-                          <span>{shareChatMutation.isPending ? 'Поделиться...' : 'Поделиться'}</span>
+                          <span className="flex items-center gap-2">
+                            {getChatActionIcon('share')}
+                            <span>{shareChatMutation.isPending ? 'Поделиться...' : 'Поделиться'}</span>
+                          </span>
                           <span className="text-xs text-slate-400">↗</span>
                         </button>
                         <button
@@ -2975,7 +3032,10 @@ export function ChatsPage() {
                           }}
                           disabled={updateChatMutation.isPending}
                         >
-                          <span>{activeChatMenuTarget ? getChatPrivacyQuickActionLabel(activeChatMenuTarget.access) : 'Изменить приватность'}</span>
+                          <span className="flex items-center gap-2">
+                            {getChatActionIcon('privacy', activeChatMenuTarget?.access)}
+                            <span>{activeChatMenuTarget ? getChatPrivacyQuickActionLabel(activeChatMenuTarget.access) : 'Изменить приватность'}</span>
+                          </span>
                           <span className="text-xs text-slate-400">↗</span>
                         </button>
                         <button
@@ -2987,7 +3047,10 @@ export function ChatsPage() {
                           }}
                           disabled={transferChatMutation.isPending}
                         >
-                          Передать
+                          <span className="flex items-center gap-2">
+                            {getChatActionIcon('transfer')}
+                            <span>Передать</span>
+                          </span>
                           <span className="text-xs text-slate-400">↗</span>
                         </button>
                         <button
@@ -2998,12 +3061,16 @@ export function ChatsPage() {
                             requestDeleteChat(activeChatMenuTarget);
                           }}
                         >
-                          Удалить
+                          <span className="flex items-center gap-2">
+                            {getChatActionIcon('delete')}
+                            <span>Удалить</span>
+                          </span>
                           <span className="text-xs text-red-300">↗</span>
                         </button>
                         <div className="mt-2 space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3 shadow-sm">
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                            Список агентов
+                          <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                            {getChatActionIcon('agents')}
+                            <span>Список агентов</span>
                           </p>
                           <Select
                             options={modeOptions}
