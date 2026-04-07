@@ -179,6 +179,7 @@ export function AdminRuntimesPage() {
                         <p>Runtime: {item.runtime}, entrypoint: {item.entrypoint ?? '—'}</p>
                         <p>Chat: {item.chat_title}</p>
                         <p>Linked agent: {item.linked_agent_name ?? '—'}</p>
+                        <p>Model: {item.runtime_model_external_id ?? '-'}</p>
                         <p className="break-all">Webhook URL: {item.webhook_url}</p>
                       </div>
                     </div>

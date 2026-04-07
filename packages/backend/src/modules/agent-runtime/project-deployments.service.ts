@@ -9,7 +9,7 @@ import { db } from '../../config/database.js';
 import { env } from '../../config/env.js';
 import { UPLOADS_DIR } from '../../config/upload.js';
 import { users } from '../../db/schema/auth.js';
-import { agents } from '../../db/schema/agents.js';
+import { agents, agentVersions } from '../../db/schema/agents.js';
 import { usageLedger } from '../../db/schema/analytics.js';
 import { agentRuns, chatConversations, chatConversationMessages, chatProjectDeployments } from '../../db/schema/runtime.js';
 import { AppError, NotFoundError } from '../../middleware/error-handler.js';
@@ -34,6 +34,7 @@ export interface ProjectDeploymentRecord {
   webhook_url: string;
   linked_agent_id: string | null;
   linked_agent_name: string | null;
+  runtime_model_external_id: string | null;
   agent_run_url: string | null;
   last_error: string | null;
   last_exit_code: number | null;
@@ -117,6 +118,11 @@ function toIsoString(value: Date | string | null | undefined): string | null {
   if (value instanceof Date) return value.toISOString();
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+function getRuntimeModelExternalId(runtimeConfig?: Record<string, unknown> | null): string | null {
+  const value = runtimeConfig?.model_external_id;
+  return typeof value === 'string' ? (value.trim() || null) : null;
 }
 
 function sanitizeProjectFilePath(filePath: string): string {
@@ -373,9 +379,11 @@ async function getDeploymentWithAgentMeta(deploymentId: string, userId: string) 
       created_at: chatProjectDeployments.created_at,
       updated_at: chatProjectDeployments.updated_at,
       linked_agent_name: agents.name,
+      agent_runtime_config: agentVersions.runtime_config,
     })
     .from(chatProjectDeployments)
     .leftJoin(agents, eq(agents.id, chatProjectDeployments.linked_agent_id))
+    .leftJoin(agentVersions, eq(agentVersions.id, agents.current_version_id))
     .where(and(
       eq(chatProjectDeployments.id, deploymentId),
       eq(chatProjectDeployments.user_id, userId),
@@ -412,6 +420,7 @@ async function getDeploymentWithAdminMeta(deploymentId: string) {
       created_at: chatProjectDeployments.created_at,
       updated_at: chatProjectDeployments.updated_at,
       linked_agent_name: agents.name,
+      agent_runtime_config: agentVersions.runtime_config,
       owner_name: users.name,
       owner_username: users.username,
       owner_email: users.email,
@@ -422,6 +431,7 @@ async function getDeploymentWithAdminMeta(deploymentId: string) {
     .innerJoin(chatConversations, eq(chatConversations.id, chatProjectDeployments.conversation_id))
     .innerJoin(users, eq(users.id, chatProjectDeployments.user_id))
     .leftJoin(agents, eq(agents.id, chatProjectDeployments.linked_agent_id))
+    .leftJoin(agentVersions, eq(agentVersions.id, agents.current_version_id))
     .where(eq(chatProjectDeployments.id, deploymentId))
     .limit(1);
 
@@ -502,6 +512,7 @@ async function toProjectDeploymentRecord(
   const runtime = row.runtime === 'python' ? 'python' : 'node';
   const live = deploymentRuntimes.get(row.id);
   const insights = await getDeploymentRunInsights(row.id);
+  const runtimeModelExternalId = getRuntimeModelExternalId(row.agent_runtime_config as Record<string, unknown> | null);
 
   return {
     id: row.id,
@@ -513,6 +524,7 @@ async function toProjectDeploymentRecord(
     webhook_url: buildWebhookUrl(row.public_token),
     linked_agent_id: row.linked_agent_id ?? null,
     linked_agent_name: row.linked_agent_name ?? null,
+    runtime_model_external_id: runtimeModelExternalId,
     agent_run_url: row.linked_agent_id ? buildAgentRunUrl(row.public_token) : null,
     last_error: row.last_error ?? null,
     last_exit_code: row.last_exit_code ?? null,
@@ -544,6 +556,7 @@ async function toAdminProjectDeploymentRecord(
   const runtime = row.runtime === 'python' ? 'python' : 'node';
   const live = deploymentRuntimes.get(row.id);
   const insights = await getDeploymentRunInsights(row.id);
+  const runtimeModelExternalId = getRuntimeModelExternalId(row.agent_runtime_config as Record<string, unknown> | null);
 
   return {
     id: row.id,
@@ -563,6 +576,7 @@ async function toAdminProjectDeploymentRecord(
     webhook_url: buildWebhookUrl(row.public_token),
     linked_agent_id: row.linked_agent_id ?? null,
     linked_agent_name: row.linked_agent_name ?? null,
+    runtime_model_external_id: runtimeModelExternalId,
     agent_run_url: row.linked_agent_id ? buildAgentRunUrl(row.public_token) : null,
     last_error: row.last_error ?? null,
     last_exit_code: row.last_exit_code ?? null,
