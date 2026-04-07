@@ -1,8 +1,12 @@
-import { useQuery } from '@tanstack/react-query';
-import { Link, useParams } from 'react-router-dom';
+import { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Badge } from '../../components/ui/Badge';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Spinner } from '../../components/ui/Spinner';
+import { useAuth } from '../../hooks/useAuth';
+import { useCreateChat } from '../../hooks/useChats';
+import { chatsApi, type ChatListItem } from '../../lib/api/chats';
 import { profileApi } from '../../lib/api/profile';
 import { formatUsdRubPair } from '../../lib/utils';
 
@@ -19,13 +23,83 @@ function formatTokens(value: number): string {
   return String(value);
 }
 
+function getApiErrorMessage(error: unknown): string | undefined {
+  if (!error || typeof error !== 'object') return undefined;
+
+  const maybeMessage = (
+    error as {
+      response?: {
+        data?: {
+          error?: {
+            message?: string;
+          };
+        };
+      };
+    }
+  ).response?.data?.error?.message;
+
+  return typeof maybeMessage === 'string' && maybeMessage.trim()
+    ? maybeMessage
+    : undefined;
+}
+
 export function PublicProfilePage() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { username } = useParams<{ username: string }>();
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const createChat = useCreateChat();
+  const [pendingAgentId, setPendingAgentId] = useState<string | null>(null);
+  const [chatActionError, setChatActionError] = useState<string | null>(null);
   const { data: profile, isLoading, error } = useQuery({
     queryKey: ['public-profile', username],
     queryFn: () => profileApi.getPublicProfile(username ?? ''),
     enabled: Boolean(username),
   });
+
+  const handleAgentClick = async (agentId: string) => {
+    if (authLoading || pendingAgentId) return;
+
+    setChatActionError(null);
+
+    if (!isAuthenticated) {
+      navigate(`/login?next=${encodeURIComponent(window.location.href)}`);
+      return;
+    }
+
+    setPendingAgentId(agentId);
+
+    try {
+      const cachedChats = queryClient.getQueryData<ChatListItem[]>(['chats']);
+      const chatList = cachedChats ?? (
+        await queryClient.fetchQuery<ChatListItem[]>({
+          queryKey: ['chats'],
+          queryFn: chatsApi.list,
+        })
+      );
+
+      const existingChat = chatList.find((chat) => chat.mode === 'agent' && chat.agent_id === agentId);
+      if (existingChat) {
+        navigate(`/chats?chat=${existingChat.id}`);
+        return;
+      }
+
+      const createdChat = await createChat.mutateAsync({
+        mode: 'agent',
+        title: 'Новый чат',
+        agent_id: agentId,
+      });
+
+      navigate(`/chats?chat=${createdChat.id}`);
+    } catch (actionError) {
+      setChatActionError(
+        getApiErrorMessage(actionError)
+          ?? 'Не удалось открыть чат с этим агентом. Возможно, агент недоступен.',
+      );
+    } finally {
+      setPendingAgentId(null);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -86,6 +160,11 @@ export function PublicProfilePage() {
           <CardTitle>Использование</CardTitle>
         </CardHeader>
         <CardContent>
+          {chatActionError ? (
+            <div className="mb-4 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+              {chatActionError}
+            </div>
+          ) : null}
           <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div className="rounded-lg bg-muted/50 p-4 text-center">
               <p className="text-2xl font-bold">{profile.usage.total_runs}</p>
@@ -117,7 +196,16 @@ export function PublicProfilePage() {
                 <tbody>
                   {profile.usage.per_agent.map((agent) => (
                     <tr key={agent.agent_id} className="border-b last:border-0">
-                      <td className="py-2">{agent.agent_name}</td>
+                      <td className="py-2">
+                        <button
+                          type="button"
+                          onClick={() => void handleAgentClick(agent.agent_id)}
+                          disabled={authLoading || pendingAgentId !== null}
+                          className="text-left text-primary transition hover:underline disabled:cursor-not-allowed disabled:text-muted-foreground disabled:no-underline"
+                        >
+                          {pendingAgentId === agent.agent_id ? 'Открываю чат...' : agent.agent_name}
+                        </button>
+                      </td>
                       <td className="py-2 text-right">{agent.total_runs}</td>
                       <td className="py-2 text-right">{formatTokens(agent.total_tokens)}</td>
                       <td className="py-2 text-right">

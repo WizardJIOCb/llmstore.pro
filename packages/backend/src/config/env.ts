@@ -19,6 +19,24 @@ function findEnvFile(): string | undefined {
 const envPath = findEnvFile();
 if (envPath) config({ path: envPath });
 
+const commaSeparatedUrlList = z.string().refine((value) => {
+  const items = value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  if (!items.length) return false;
+
+  return items.every((item) => {
+    try {
+      new URL(item);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}, 'Expected one or more comma-separated URLs');
+
 const envSchema = z.object({
   DATABASE_URL: z.string().min(1),
   REDIS_URL: z.string().default('redis://localhost:6379'),
@@ -38,7 +56,7 @@ const envSchema = z.object({
   YANDEX_CLIENT_SECRET: z.string().default(''),
   ALICE_SKILL_CLIENT_ID: z.string().default(''),
   ALICE_SKILL_CLIENT_SECRET: z.string().default(''),
-  ALICE_ALLOWED_REDIRECT_URI: z.string().url().default('https://social.yandex.net/broker/redirect'),
+  ALICE_ALLOWED_REDIRECT_URI: commaSeparatedUrlList.default('https://social.yandex.net/broker/redirect'),
   ALICE_ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().default(2_592_000),
   ALICE_REFRESH_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().default(7_776_000),
   ALICE_SKILL_ID: z.string().default(''),

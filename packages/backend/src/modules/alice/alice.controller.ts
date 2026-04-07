@@ -46,8 +46,80 @@ function aliceTextResponse(text: string, tts?: string) {
   };
 }
 
+function aliceStartAccountLinkingResponse() {
+  return {
+    start_account_linking: {},
+    version: '1.0',
+  };
+}
+
 function supportsAccountLinking(payload: any): boolean {
   return Boolean(payload?.meta?.interfaces?.account_linking);
+}
+
+function extractAliceCommand(payload: any): string {
+  const command = typeof payload?.request?.command === 'string' ? payload.request.command : '';
+  const originalUtterance = typeof payload?.request?.original_utterance === 'string'
+    ? payload.request.original_utterance
+    : '';
+
+  return (command || originalUtterance).trim();
+}
+
+function normalizeAliceCommand(command: string): string {
+  return command
+    .toLowerCase()
+    .replaceAll('ё', 'е')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isAliceHelpCommand(command: string): boolean {
+  return command === 'помощь'
+    || command === 'помоги'
+    || command === 'что ты умеешь'
+    || command === 'что умеешь'
+    || command === 'help';
+}
+
+function isAliceGreetingCommand(command: string): boolean {
+  return command === ''
+    || command === 'привет'
+    || command === 'здравствуй'
+    || command === 'здравствуйте'
+    || command === 'начать'
+    || command === 'старт';
+}
+
+function isAliceAuthorizationCommand(command: string): boolean {
+  return command === 'авторизоваться'
+    || command === 'авторизация'
+    || command === 'войти'
+    || command === 'вход'
+    || command === 'войти в аккаунт'
+    || command === 'подключить аккаунт'
+    || command === 'привязать аккаунт';
+}
+
+function aliceGreetingText(isAuthorized: boolean): string {
+  if (!isAuthorized) {
+    return 'Это навык LLM Store. Он помогает работать с аккаунтом llmstore.pro голосом. Чтобы начать, авторизуйтесь, а затем сможете продиктовать запрос для чата или сказать: помощь.';
+  }
+
+  return 'Это навык LLM Store. Я могу передать ваш голосовой запрос в llmstore.pro. Скажите помощь, чтобы узнать примеры, или сразу продиктуйте ваш запрос.';
+}
+
+function aliceHelpText(isAuthorized: boolean): string {
+  if (!isAuthorized) {
+    return 'Навык LLM Store работает с вашим аккаунтом llmstore.pro. Скажите авторизоваться, чтобы привязать аккаунт, а затем можно продиктовать запрос для чата. Например: объясни ошибку в коде или помоги составить письмо клиенту.';
+  }
+
+  return 'Навык LLM Store принимает ваш голосовой запрос и отправляет его в llmstore.pro. Можно сказать, например: объясни ошибку в коде, помоги составить письмо клиенту или подскажи план задачи.';
+}
+
+function hasAccountLinkingCompleteEvent(payload: any): boolean {
+  return Boolean(payload?.account_linking_complete_event);
 }
 
 function extractAccessToken(req: Request, payload: any): string | null {
@@ -229,9 +301,9 @@ export async function oauthAuthorize(req: Request, res: Response, next: NextFunc
         ...(request.scope ? { scope: request.scope } : {}),
       }).toString()}`;
       const nextUrl = `${env.BACKEND_URL}${nextPath}`;
-      const loginUrl = `${env.BACKEND_URL}/api/integrations/alice/oauth/login?next=${encodeURIComponent(nextUrl)}`;
-      logger.info({ redirectTo: loginUrl }, 'alice oauth authorize: login required page');
-      res.redirect(loginUrl);
+      logger.info({ nextUrl }, 'alice oauth authorize: inline login page');
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.status(200).send(renderAliceLoginPage(nextUrl));
       return;
     }
 
@@ -404,10 +476,64 @@ export async function webhook(req: Request, res: Response, next: NextFunction) {
     const payload = req.body ?? {};
     const token = extractAccessToken(req, payload);
     const canLink = supportsAccountLinking(payload);
+    const linkingCompleted = hasAccountLinkingCompleteEvent(payload);
+    const rawCommand = extractAliceCommand(payload);
+    const normalizedCommand = normalizeAliceCommand(rawCommand);
+
+    if (linkingCompleted) {
+      if (!token) {
+        if (canLink) {
+          res.status(200).json(
+            aliceTextResponse('Не удалось завершить авторизацию. Скажите авторизоваться и попробуйте войти ещё раз.'),
+          );
+          return;
+        }
+
+        res.status(200).json(
+          aliceTextResponse('Не удалось завершить авторизацию. Пожалуйста, заново привяжите аккаунт LLM Store.'),
+        );
+        return;
+      }
+
+      const linkedUserId = await oauthService.resolveUserByAccessToken(token);
+      if (!linkedUserId) {
+        if (canLink) {
+          res.status(200).json(
+            aliceTextResponse('Срок действия авторизации истёк. Скажите авторизоваться и войдите ещё раз.'),
+          );
+          return;
+        }
+
+        res.status(200).json(
+          aliceTextResponse('Срок действия авторизации истёк. Пожалуйста, заново привяжите аккаунт LLM Store.'),
+        );
+        return;
+      }
+
+      res.status(200).json(
+        aliceTextResponse('Вы успешно авторизовались в LLM Store. Теперь можно продолжать работу с навыком.'),
+      );
+      return;
+    }
 
     if (!token) {
       if (canLink) {
-        res.status(200).json({ start_account_linking: {}, version: '1.0' });
+        if (isAliceHelpCommand(normalizedCommand)) {
+          res.status(200).json(aliceTextResponse(aliceHelpText(false)));
+          return;
+        }
+
+        if (isAliceGreetingCommand(normalizedCommand)) {
+          res.status(200).json(aliceTextResponse(aliceGreetingText(false)));
+          return;
+        }
+
+        if (isAliceAuthorizationCommand(normalizedCommand)) {
+          res.status(200).json(aliceStartAccountLinkingResponse());
+          return;
+        }
+
+        res.status(200).json(aliceStartAccountLinkingResponse());
         return;
       }
       res.status(200).json(
@@ -421,12 +547,24 @@ export async function webhook(req: Request, res: Response, next: NextFunction) {
     const userId = await oauthService.resolveUserByAccessToken(token);
     if (!userId) {
       if (canLink) {
-        res.status(200).json({ start_account_linking: {}, version: '1.0' });
+        res.status(200).json(
+          aliceTextResponse('Сессия истекла. Скажите авторизоваться и войдите в LLM Store ещё раз.'),
+        );
         return;
       }
       res.status(200).json(
         aliceTextResponse('Сессия истекла. Пожалуйста, заново привяжите аккаунт llmstore.'),
       );
+      return;
+    }
+
+    if (isAliceHelpCommand(normalizedCommand)) {
+      res.status(200).json(aliceTextResponse(aliceHelpText(true)));
+      return;
+    }
+
+    if (isAliceGreetingCommand(normalizedCommand)) {
+      res.status(200).json(aliceTextResponse(aliceGreetingText(true)));
       return;
     }
 
