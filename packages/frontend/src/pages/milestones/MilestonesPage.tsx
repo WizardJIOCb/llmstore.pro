@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import type { LucideIcon } from 'lucide-react';
 import {
   ArrowRight,
@@ -11,6 +12,7 @@ import {
 import { Link } from 'react-router-dom';
 import { useGalleryPreviews } from '../../hooks/useChats';
 import type { GalleryPreviewItem } from '../../lib/api/chats';
+import { appApi, type ProjectCommitActivity } from '../../lib/api/app';
 import { Badge, Card } from '../../components/ui';
 
 type MilestoneStatus = 'done' | 'inProgress' | 'planned' | 'research';
@@ -43,6 +45,29 @@ interface RouteCard {
   ctaLabel: string;
 }
 
+interface CommitHeatmapCell {
+  date: string;
+  count: number;
+  level: number;
+  inRange: boolean;
+}
+
+interface CommitHeatmapWeek {
+  key: string;
+  monthLabel: string;
+  cells: CommitHeatmapCell[];
+}
+
+const HEATMAP_ROW_LABELS = ['', 'Пн', '', 'Ср', '', 'Пт', ''];
+const HEATMAP_LEVEL_CLASSES = [
+  'border-slate-200/80 bg-slate-100',
+  'border-emerald-100 bg-emerald-100',
+  'border-emerald-200 bg-emerald-200',
+  'border-emerald-300 bg-emerald-400',
+  'border-emerald-500 bg-emerald-600',
+];
+const monthFormatter = new Intl.DateTimeFormat('ru-RU', { month: 'short', timeZone: 'UTC' });
+
 function buildGalleryPreviewUrl(item: GalleryPreviewItem): string | null {
   if (!item.preview_url) return null;
   try {
@@ -57,6 +82,266 @@ function buildGalleryPreviewUrl(item: GalleryPreviewItem): string | null {
 
 function formatViews(value: number): string {
   return new Intl.NumberFormat('ru-RU').format(value);
+}
+
+function parseIsoDate(dateIso: string): Date {
+  const [year, month, day] = dateIso.split('-').map(Number);
+  return new Date(Date.UTC(year, (month ?? 1) - 1, day ?? 1));
+}
+
+function addUtcDays(date: Date, days: number): Date {
+  const next = new Date(date);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
+}
+
+function toIsoDate(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function formatMonthLabel(date: Date): string {
+  const label = monthFormatter.format(date).replace('.', '');
+  return label.slice(0, 1).toUpperCase() + label.slice(1);
+}
+
+function getContributionLevel(count: number, maxCount: number): number {
+  if (count <= 0 || maxCount <= 0) return 0;
+  const ratio = count / maxCount;
+  if (ratio >= 0.75) return 4;
+  if (ratio >= 0.5) return 3;
+  if (ratio >= 0.25) return 2;
+  return 1;
+}
+
+function buildCommitHeatmap(activity: ProjectCommitActivity | undefined): CommitHeatmapWeek[] {
+  if (!activity || activity.days.length === 0) return [];
+
+  const counts = new Map(activity.days.map((day) => [day.date, day.count]));
+  const rangeStart = parseIsoDate(activity.range_start);
+  const rangeEnd = parseIsoDate(activity.range_end);
+  const gridStart = addUtcDays(rangeStart, -rangeStart.getUTCDay());
+  const gridEnd = addUtcDays(rangeEnd, 6 - rangeEnd.getUTCDay());
+  const weeks: CommitHeatmapWeek[] = [];
+  let previousMonthKey = '';
+
+  for (let cursor = new Date(gridStart); cursor <= gridEnd; cursor = addUtcDays(cursor, 7)) {
+    const weekCells: CommitHeatmapCell[] = [];
+    let monthLabel = '';
+
+    for (let dayOffset = 0; dayOffset < 7; dayOffset += 1) {
+      const currentDate = addUtcDays(cursor, dayOffset);
+      const dateIso = toIsoDate(currentDate);
+      const count = counts.get(dateIso) ?? 0;
+      const monthKey = `${currentDate.getUTCFullYear()}-${currentDate.getUTCMonth()}`;
+
+      if (!monthLabel && monthKey !== previousMonthKey) {
+        monthLabel = formatMonthLabel(currentDate);
+        previousMonthKey = monthKey;
+      }
+
+      weekCells.push({
+        date: dateIso,
+        count,
+        level: getContributionLevel(count, activity.max_commits_per_day),
+        inRange: dateIso >= activity.range_start && dateIso <= activity.range_end,
+      });
+    }
+
+    weeks.push({
+      key: toIsoDate(cursor),
+      monthLabel,
+      cells: weekCells,
+    });
+  }
+
+  return weeks;
+}
+
+function formatActivityRange(activity: ProjectCommitActivity): string {
+  const startYear = parseIsoDate(activity.range_start).getUTCFullYear();
+  const endYear = parseIsoDate(activity.range_end).getUTCFullYear();
+  return startYear === endYear ? `${startYear} год` : `${startYear} - ${endYear} год`;
+}
+
+function ProjectCommitHeatmap({
+  activity,
+  isLoading,
+}: {
+  activity: ProjectCommitActivity | undefined;
+  isLoading: boolean;
+}) {
+  const weeks = useMemo(() => buildCommitHeatmap(activity), [activity]);
+  const mobileWeeks = useMemo(() => weeks.slice(-18), [weeks]);
+
+  return (
+    <div className="mt-8 rounded-[28px] border border-slate-200/80 bg-white/80 p-4 shadow-[0_20px_60px_-38px_rgba(15,23,42,0.35)] backdrop-blur sm:p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">Commit activity</p>
+          <p className="mt-2 text-sm text-slate-600">
+            {isLoading
+              ? 'Собираем реальную git-активность проекта за последний год.'
+              : activity
+                ? `${new Intl.NumberFormat('ru-RU').format(activity.total_commits)} commits за ${formatActivityRange(activity)}`
+                : 'Не удалось загрузить commit activity.'}
+          </p>
+        </div>
+        <div className="flex items-center gap-2 text-[11px] text-slate-500">
+          <span>Less</span>
+          {HEATMAP_LEVEL_CLASSES.map((className, index) => (
+            <span key={index} className={`h-3 w-3 rounded-[4px] border ${className}`} />
+          ))}
+          <span>More</span>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className="mt-4 animate-pulse space-y-3">
+          <div className="h-3 w-56 rounded-full bg-slate-200" />
+          <div className="grid grid-cols-[auto_1fr] gap-3 sm:hidden">
+            <div className="space-y-[5px] pt-4">
+              {Array.from({ length: 7 }).map((_, index) => (
+                <div key={index} className="h-[11px] w-5 rounded bg-slate-100" />
+              ))}
+            </div>
+            <div className="space-y-[5px]">
+              <div className="flex gap-[3px]">
+                {Array.from({ length: 18 }).map((_, index) => (
+                  <div key={index} className="h-3 w-[13px] rounded bg-slate-100" />
+                ))}
+              </div>
+              {Array.from({ length: 7 }).map((_, rowIndex) => (
+                <div key={rowIndex} className="flex gap-[3px]">
+                  {Array.from({ length: 18 }).map((_, index) => (
+                    <div key={`${rowIndex}-${index}`} className="h-3 w-[13px] rounded bg-slate-100" />
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="hidden grid-cols-[auto_1fr] gap-3 sm:grid">
+            <div className="space-y-[5px] pt-4">
+              {Array.from({ length: 7 }).map((_, index) => (
+                <div key={index} className="h-[11px] w-5 rounded bg-slate-100" />
+              ))}
+            </div>
+            <div className="space-y-[5px]">
+              <div className="flex gap-[3px]">
+                {Array.from({ length: 26 }).map((_, index) => (
+                  <div key={index} className="h-3 w-[13px] rounded bg-slate-100" />
+                ))}
+              </div>
+              {Array.from({ length: 7 }).map((_, rowIndex) => (
+                <div key={rowIndex} className="flex gap-[3px]">
+                  {Array.from({ length: 26 }).map((_, index) => (
+                    <div key={`${rowIndex}-${index}`} className="h-3 w-[13px] rounded bg-slate-100" />
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : activity && weeks.length > 0 ? (
+        <>
+          <div className="mt-4 sm:hidden">
+            <div>
+              <div className="mb-[6px] flex gap-[3px] pl-8">
+                {mobileWeeks.map((week) => (
+                  <div key={week.key} className="w-[13px] text-[10px] text-slate-400">
+                    {week.monthLabel}
+                  </div>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-[auto_1fr] gap-3">
+                <div className="grid grid-rows-7 gap-[3px] pt-[1px] text-[10px] text-slate-400">
+                  {HEATMAP_ROW_LABELS.map((label, index) => (
+                    <div key={`${label}-${index}`} className="h-3 leading-3">
+                      {label}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="grid grid-rows-7 gap-[3px]">
+                  {Array.from({ length: 7 }).map((_, rowIndex) => (
+                    <div key={rowIndex} className="flex gap-[3px]">
+                      {mobileWeeks.map((week) => {
+                        const cell = week.cells[rowIndex];
+                        return (
+                          <div
+                            key={`${week.key}-${cell.date}`}
+                            title={`${cell.count} commits on ${cell.date}`}
+                            className={[
+                              'h-3 w-[13px] rounded-[4px] border',
+                              HEATMAP_LEVEL_CLASSES[cell.level],
+                              cell.inRange ? 'opacity-100' : 'opacity-35',
+                            ].join(' ')}
+                          />
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4 hidden overflow-x-auto pb-2 sm:block">
+            <div className="min-w-max">
+              <div className="mb-[6px] flex gap-[3px] pl-8">
+                {weeks.map((week) => (
+                  <div key={week.key} className="w-[13px] text-[10px] text-slate-400">
+                    {week.monthLabel}
+                  </div>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-[auto_1fr] gap-3">
+                <div className="grid grid-rows-7 gap-[3px] pt-[1px] text-[10px] text-slate-400">
+                  {HEATMAP_ROW_LABELS.map((label, index) => (
+                    <div key={`${label}-${index}`} className="h-3 leading-3">
+                      {label}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="grid grid-rows-7 gap-[3px]">
+                  {Array.from({ length: 7 }).map((_, rowIndex) => (
+                    <div key={rowIndex} className="flex gap-[3px]">
+                      {weeks.map((week) => {
+                        const cell = week.cells[rowIndex];
+                        return (
+                          <div
+                            key={`${week.key}-${cell.date}`}
+                            title={`${cell.count} commits on ${cell.date}`}
+                            className={[
+                              'h-3 w-[13px] rounded-[4px] border transition-transform hover:scale-110',
+                              HEATMAP_LEVEL_CLASSES[cell.level],
+                              cell.inRange ? 'opacity-100' : 'opacity-35',
+                            ].join(' ')}
+                          />
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <p className="mt-3 text-xs leading-5 text-slate-500">
+            Это реальная активность git-репозитория LLMStore за последний год. На мобильных показываем последние 3 месяца,
+            а на мобильных показываем последние 4 месяца, на более широких экранах весь год целиком.
+          </p>
+        </>
+      ) : (
+        <p className="mt-4 text-sm text-slate-500">
+          История коммитов сейчас недоступна, но блок milestones продолжает показывать фактически shipped и запланированные
+          этапы развития.
+        </p>
+      )}
+    </div>
+  );
 }
 
 function GalleryMilestonePreviewCard({ item }: { item: GalleryPreviewItem }) {
@@ -418,6 +703,11 @@ function getItemsByStatus(status: MilestoneStatus) {
 
 export function MilestonesPage() {
   const { data: galleryItems } = useGalleryPreviews(60);
+  const { data: commitActivity, isLoading: commitActivityLoading } = useQuery({
+    queryKey: ['app', 'project-activity'],
+    queryFn: () => appApi.getProjectCommitActivity(),
+    staleTime: 10 * 60_000,
+  });
   const counts = {
     done: getItemsByStatus('done').length,
     inProgress: getItemsByStatus('inProgress').length,
@@ -451,6 +741,8 @@ export function MilestonesPage() {
                 потом запланированное. Так лучше видно, как LLMStore реально превращается из каталога в платформу для
                 runnable AI-проектов и coding agents.
               </p>
+
+              <ProjectCommitHeatmap activity={commitActivity} isLoading={commitActivityLoading} />
 
               <div className="mt-8 flex flex-wrap gap-3">
                 <Link

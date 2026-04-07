@@ -29,7 +29,22 @@ export interface AppSettings {
   };
 }
 
+export interface ProjectCommitActivityDay {
+  date: string;
+  count: number;
+}
+
+export interface ProjectCommitActivity {
+  range_start: string;
+  range_end: string;
+  total_commits: number;
+  max_commits_per_day: number;
+  days: ProjectCommitActivityDay[];
+}
+
 export const appApi = {
   getSettings: () =>
     apiClient.get<{ data: AppSettings }>('/app/settings').then((r) => r.data.data),
+  getProjectCommitActivity: () =>
+    apiClient.get<{ data: ProjectCommitActivity }>('/app/project-activity').then((r) => r.data.data),
 };
