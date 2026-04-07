@@ -3460,10 +3460,16 @@ export function ChatsPage() {
                     </div>
                     ) : null}
                   </>
-                ) : (
+                ) : activeChat?.pending_run && isPendingRunLive(activeChat.pending_run) ? (
                   <div className="rounded-xl border border-border/70 bg-background/50 p-4 text-sm text-muted-foreground">
                     Ожидаю первый фрагмент ответа...
                   </div>
+                ) : (
+                  <ChatThinkingBubble
+                    label={assistantResponseSlotForActiveChat.label}
+                    detail={assistantResponseSlotForActiveChat.detail}
+                    startedAt={assistantResponseSlotForActiveChat.startedAt}
+                  />
                 )}
               </div>
             )}
