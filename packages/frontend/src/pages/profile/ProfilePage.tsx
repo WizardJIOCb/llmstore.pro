@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import type { ProfileLeaderboardEntry, ProfileLeaderboardSort } from '@llmstore/shared';
 import { useChangePassword, useProfile, useProfileLeaderboard, useUnlinkAccount, useUpdateProfile } from '../../hooks/useProfile';
 import { useRunList } from '../../hooks/useAgents';
+import { useCreateChat } from '../../hooks/useChats';
 import { useTopUpStatus } from '../../hooks/usePayments';
 import { authApi } from '../../lib/api/auth';
+import { chatsApi, type ChatListItem } from '../../lib/api/chats';
 import { getOAuthLinkUrl } from '../../lib/api/profile';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -138,12 +140,34 @@ function eventTypeLabel(type: string): string {
   return EVENT_TYPE_LABELS[type] ?? `Событие: ${type}`;
 }
 
+function getApiErrorMessage(error: unknown): string | undefined {
+  if (!error || typeof error !== 'object') return undefined;
+
+  const maybeMessage = (
+    error as {
+      response?: {
+        data?: {
+          error?: {
+            message?: string;
+          };
+        };
+      };
+    }
+  ).response?.data?.error?.message;
+
+  return typeof maybeMessage === 'string' && maybeMessage.trim()
+    ? maybeMessage
+    : undefined;
+}
+
 export function ProfilePage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const { data: profile, isLoading, error } = useProfile();
   const updateMutation = useUpdateProfile();
   const changePasswordMutation = useChangePassword();
   const unlinkMutation = useUnlinkAccount();
+  const createChat = useCreateChat();
   const [searchParams, setSearchParams] = useSearchParams();
   const returnedTopUpId = searchParams.get('topup_id');
   const topUpStatusQuery = useTopUpStatus(returnedTopUpId);
@@ -164,6 +188,8 @@ export function ProfilePage() {
   const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false);
   const [leaderboardSort, setLeaderboardSort] = useState<ProfileLeaderboardSort>('tokens');
   const [leaderboardPage, setLeaderboardPage] = useState(1);
+  const [usageChatError, setUsageChatError] = useState<string | null>(null);
+  const [pendingUsageAgentId, setPendingUsageAgentId] = useState<string | null>(null);
   const tokenLeaderboardQuery = useProfileLeaderboard('tokens', true, 1, 1);
   const leaderboardQuery = useProfileLeaderboard(leaderboardSort, isLeaderboardOpen, leaderboardPage, LEADERBOARD_PAGE_SIZE);
   const runsQuery = useRunList();
@@ -298,6 +324,44 @@ export function ProfilePage() {
       setEmailVerificationMessage(err.response?.data?.error?.message || 'Не удалось отправить письмо.');
     } finally {
       setEmailVerificationSending(false);
+    }
+  };
+
+  const handleUsageAgentClick = async (agentId: string) => {
+    if (pendingUsageAgentId) return;
+
+    setUsageChatError(null);
+    setPendingUsageAgentId(agentId);
+
+    try {
+      const cachedChats = queryClient.getQueryData<ChatListItem[]>(['chats']);
+      const chatList = cachedChats ?? (
+        await queryClient.fetchQuery<ChatListItem[]>({
+          queryKey: ['chats'],
+          queryFn: chatsApi.list,
+        })
+      );
+
+      const existingChat = chatList.find((chat) => chat.mode === 'agent' && chat.agent_id === agentId);
+      if (existingChat) {
+        navigate(`/chats?chat=${existingChat.id}`);
+        return;
+      }
+
+      const createdChat = await createChat.mutateAsync({
+        mode: 'agent',
+        title: 'Новый чат',
+        agent_id: agentId,
+      });
+
+      navigate(`/chats?chat=${createdChat.id}`);
+    } catch (actionError) {
+      setUsageChatError(
+        getApiErrorMessage(actionError)
+          ?? 'Не удалось открыть чат с этим агентом.',
+      );
+    } finally {
+      setPendingUsageAgentId(null);
     }
   };
 
@@ -662,6 +726,11 @@ export function ProfilePage() {
           <CardTitle>Использование</CardTitle>
         </CardHeader>
         <CardContent>
+          {usageChatError ? (
+            <div className="mb-4 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+              {usageChatError}
+            </div>
+          ) : null}
           <div className="mb-4 grid gap-4 md:grid-cols-3">
             <div className="rounded-lg bg-muted/50 p-3 text-center">
               <p className="text-2xl font-bold">{profile.usage.total_runs}</p>
@@ -708,10 +777,19 @@ export function ProfilePage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {profile.usage.per_agent.map((agent) => (
-                      <tr key={agent.agent_id} className="border-b last:border-0">
-                        <td className="py-2">{agent.agent_name}</td>
-                        <td className="py-2 text-right">{agent.total_runs}</td>
+                      {profile.usage.per_agent.map((agent) => (
+                        <tr key={agent.agent_id} className="border-b last:border-0">
+                          <td className="py-2">
+                            <button
+                              type="button"
+                              onClick={() => void handleUsageAgentClick(agent.agent_id)}
+                              disabled={pendingUsageAgentId !== null}
+                              className="text-left text-primary transition hover:underline disabled:cursor-not-allowed disabled:text-muted-foreground disabled:no-underline"
+                            >
+                              {pendingUsageAgentId === agent.agent_id ? 'Открываю чат...' : agent.agent_name}
+                            </button>
+                          </td>
+                          <td className="py-2 text-right">{agent.total_runs}</td>
                         <td className="py-2 text-right">{formatTokens(agent.total_tokens)}</td>
                         <td className="py-2 text-right">{formatUsdRubPair(agent.total_cost, usdToRubRate)}</td>
                       </tr>

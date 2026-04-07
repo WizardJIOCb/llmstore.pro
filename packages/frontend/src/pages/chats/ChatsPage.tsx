@@ -6,6 +6,7 @@ import {
   Bot,
   Download,
   Globe,
+  Link2,
   Lock,
   PencilLine,
   Settings2,
@@ -237,8 +238,8 @@ function getChatListMeta(chat: ChatListItem): string {
 
   if (chat.mode === 'agent') {
     const parts = ['Агент'];
-    if (chat.agent_name?.trim()) parts.push(chat.agent_name.trim());
     if (chat.effective_model_label?.trim()) parts.push(chat.effective_model_label.trim());
+    if (chat.agent_name?.trim()) parts.push(chat.agent_name.trim());
     return parts.join(' • ');
   }
 
@@ -257,7 +258,7 @@ function getChatOwnerLabel(chat: Pick<ChatListItem, 'owner_name' | 'owner_userna
 }
 
 function getChatActionIcon(
-  action: 'rename' | 'properties' | 'export' | 'privacy' | 'transfer' | 'delete' | 'share' | 'agents',
+  action: 'rename' | 'properties' | 'export' | 'privacy' | 'transfer' | 'delete' | 'share' | 'copy_link' | 'agents',
   access?: ChatAccess,
 ) {
   switch (action) {
@@ -277,6 +278,8 @@ function getChatActionIcon(
       return <Trash2 className="h-4 w-4 shrink-0 text-red-500" />;
     case 'share':
       return <Share2 className="h-4 w-4 shrink-0 text-slate-500" />;
+    case 'copy_link':
+      return <Link2 className="h-4 w-4 shrink-0 text-slate-500" />;
     case 'agents':
       return <Bot className="h-4 w-4 shrink-0 text-slate-500" />;
     default:
@@ -2217,6 +2220,21 @@ export function ChatsPage() {
     }
   };
 
+  const copyChatLink = async (chatId: string) => {
+    setLocalError(null);
+    try {
+      const url = `${window.location.origin}/chats?chat=${chatId}`;
+      await navigator.clipboard.writeText(url);
+      setShareToastVisible(true);
+      if (shareToastTimerRef.current) clearTimeout(shareToastTimerRef.current);
+      shareToastTimerRef.current = setTimeout(() => setShareToastVisible(false), 2000);
+    } catch {
+      showLocalError('Не удалось скопировать ссылку на чат');
+    } finally {
+      setOpenMenu(null);
+    }
+  };
+
   const toggleChatPrivacy = async (chat: ChatListItem) => {
     setLocalError(null);
     try {
@@ -2765,7 +2783,7 @@ export function ChatsPage() {
           ...
         </button>
         {openMenu?.kind === 'chat' && openMenu.id === chat.id && (
-          <div className="absolute right-0 top-8 z-20 w-44 rounded-md border bg-white p-1 shadow-lg">
+          <div className="absolute right-0 top-8 z-20 min-w-[190px] rounded-md border bg-white p-1 shadow-lg">
             <button type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent" onClick={() => renameChat(chat)}>
               {getChatActionIcon('rename')}
               <span>Переименовать</span>
@@ -2799,6 +2817,10 @@ export function ChatsPage() {
             <button type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent" onClick={() => requestDeleteChat(chat)}>
               {getChatActionIcon('delete')}
               <span>Удалить</span>
+            </button>
+            <button type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent" onClick={() => void copyChatLink(chat.id)}>
+              {getChatActionIcon('copy_link')}
+              <span>Скопировать ссылку</span>
             </button>
             <button type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent" onClick={() => shareChat(chat.id)}>
               {getChatActionIcon('share')}
@@ -2992,6 +3014,20 @@ export function ChatsPage() {
                           className={`${mobileChatActionButtonClass} mt-2`}
                           onClick={() => {
                             if (!activeChatMenuTarget) return;
+                            void copyChatLink(activeChatMenuTarget.id);
+                          }}
+                        >
+                          <span className="flex items-center gap-2">
+                            {getChatActionIcon('copy_link')}
+                            <span>Скопировать ссылку</span>
+                          </span>
+                          <span className="text-xs text-slate-400">↗</span>
+                        </button>
+                        <button
+                          type="button"
+                          className={`${mobileChatActionButtonClass} mt-2`}
+                          onClick={() => {
+                            if (!activeChatMenuTarget) return;
                             void toggleChatPrivacy(activeChatMenuTarget);
                           }}
                           disabled={updateChatMutation.isPending}
@@ -3062,6 +3098,13 @@ export function ChatsPage() {
                       onClick={() => exportChatBundle(activeChat.id)}
                     >
                       Экспорт
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => copyChatLink(activeChat.id)}
+                    >
+                      Скопировать ссылку
                     </Button>
                     <Button
                       variant="outline"

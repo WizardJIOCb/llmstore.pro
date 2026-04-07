@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChatLiveProgressPanel } from '../../components/agents/ChatLiveProgressPanel';
 import { ChatMessage } from '../../components/agents/ChatMessage';
@@ -212,11 +212,13 @@ function getWindowDistanceFromBottom(): number {
 }
 
 export function SharedChatPage() {
+  const navigate = useNavigate();
   const { token } = useParams<{ token: string }>();
   const queryClient = useQueryClient();
   const { isAuthenticated } = useAuth();
   const { data: profile } = useProfile(isAuthenticated);
   const [isExporting, setIsExporting] = useState(false);
+  const [ownerLinkCopied, setOwnerLinkCopied] = useState(false);
   const [streamEvents, setStreamEvents] = useState<LiveSharedEvent[]>([]);
   const [streamConnected, setStreamConnected] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -431,6 +433,18 @@ export function SharedChatPage() {
     } finally {
       setIsExporting(false);
     }
+  };
+
+  const openOriginalChat = () => {
+    if (!data?.chatId) return;
+    navigate(`/chats?chat=${data.chatId}`);
+  };
+
+  const copyOriginalChatLink = async () => {
+    if (!data?.chatId) return;
+    await navigator.clipboard.writeText(`${window.location.origin}/chats?chat=${data.chatId}`);
+    setOwnerLinkCopied(true);
+    window.setTimeout(() => setOwnerLinkCopied(false), 2000);
   };
 
   const syncProjectRunCount = (messageId: string, projectRunCount: number | null) => {
@@ -659,6 +673,17 @@ export function SharedChatPage() {
           {isExporting ? 'Экспорт...' : 'Экспортировать чат'}
         </Button>
       </div>
+
+      {canManageSharedChat && data.chatId ? (
+        <div className="mb-4 flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" onClick={openOriginalChat}>
+            Открыть в чатах
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => void copyOriginalChatLink()}>
+            {ownerLinkCopied ? 'Ссылка скопирована' : 'Скопировать ссылку на чат'}
+          </Button>
+        </div>
+      ) : null}
 
       {terminalNotice && (
         <div

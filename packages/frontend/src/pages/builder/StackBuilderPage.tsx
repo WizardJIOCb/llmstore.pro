@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { useBuiltinTools, useCreateAgent } from '../../hooks/useAgents';
+import { useCreateChat } from '../../hooks/useChats';
 import type { ToolDefinition } from '../../lib/api/agents';
 import { Badge, Button, Card, Input, Spinner, Textarea } from '../../components/ui';
 import { ToolSelector } from '../../components/agents/ToolSelector';
@@ -337,6 +338,8 @@ const capabilityPacks: CapabilityPack[] = [
   },
 ];
 
+const AUTO_EXCLUDED_TOOL_SLUGS = new Set<string>(['template-renderer']);
+
 const toneOptions: ToneOption[] = [
   { id: 'professional', title: 'Профессиональный', description: 'Спокойный, ясный, деловой.' },
   { id: 'friendly', title: 'Дружелюбный', description: 'Тёплый, поддерживающий, понятный.' },
@@ -573,6 +576,7 @@ export function StackBuilderPage() {
   const { isAuthenticated } = useAuth();
   const { data: tools = [], isLoading: toolsLoading } = useBuiltinTools();
   const createAgent = useCreateAgent();
+  const createChat = useCreateChat();
 
   const [step, setStep] = useState<BuilderStep>(1);
   const [directionId, setDirectionId] = useState<DirectionId>('research');
@@ -611,7 +615,8 @@ export function StackBuilderPage() {
 
   const recommendedToolIds = useMemo(() => {
     const packSlugs = selectedPackIds.flatMap((packId) => capabilityPacks.find((pack) => pack.id === packId)?.toolSlugs ?? []);
-    return getToolIdsBySlugs(tools, packSlugs);
+    const autoIncludedSlugs = unique(packSlugs).filter((slug) => !AUTO_EXCLUDED_TOOL_SLUGS.has(slug));
+    return getToolIdsBySlugs(tools, autoIncludedSlugs);
   }, [selectedPackIds, tools]);
 
   useEffect(() => {
@@ -699,7 +704,13 @@ export function StackBuilderPage() {
       runtime_config: runtimeConfig,
     });
 
-    navigate(`/playground/agent/${agent.id}`);
+    const chat = await createChat.mutateAsync({
+      mode: 'agent',
+      title: 'Новый чат',
+      agent_id: agent.id,
+    });
+
+    navigate(`/chats?chat=${chat.id}`);
   };
 
   if (toolsLoading) {

@@ -5,6 +5,8 @@ import { executeDtfArticleFetch } from './dtf-article.executor.js';
 import { executeDtfPopularFeed } from './dtf-popular-feed.executor.js';
 import { executeHttpRequest } from './http-request.executor.js';
 import { executeWebSearchCascade } from './web-search-cascade.executor.js';
+import { executeJsonTransform } from './json-transform.executor.js';
+import { executeTemplateRenderer } from './template-renderer.executor.js';
 import type { ToolExecutionResult } from '../types.js';
 
 type ToolExecutor = (
@@ -53,6 +55,14 @@ executorRegistry.set('calculator', async (input) => {
   } catch {
     throw new AppError(400, 'EVAL_ERROR', 'Failed to evaluate expression');
   }
+});
+
+executorRegistry.set('json-transform', async (input) => {
+  return executeJsonTransform(input);
+});
+
+executorRegistry.set('template-renderer', async (input) => {
+  return executeTemplateRenderer(input);
 });
 
 // Mock tool executor

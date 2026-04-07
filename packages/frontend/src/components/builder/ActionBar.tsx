@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '../ui';
 import { useAuth } from '../../hooks/useAuth';
 import { useSaveResult, useExportResult, useCreateAgentFromStack } from '../../hooks/useStackBuilder';
+import { useCreateChat } from '../../hooks/useChats';
 import type { StackRecommendation, StackBuilderInput } from '@llmstore/shared';
 
 interface ActionBarProps {
@@ -17,6 +18,7 @@ export function ActionBar({ result, answers, onReset }: ActionBarProps) {
   const saveMutation = useSaveResult();
   const exportMutation = useExportResult();
   const createAgentMutation = useCreateAgentFromStack();
+  const createChatMutation = useCreateChat();
   const [saved, setSaved] = useState(false);
 
   const handleSave = async () => {
@@ -57,7 +59,12 @@ export function ActionBar({ result, answers, onReset }: ActionBarProps) {
     const res = await createAgentMutation.mutateAsync({
       result: result as unknown as Record<string, unknown>,
     });
-    navigate(res.redirect_url);
+    const chat = await createChatMutation.mutateAsync({
+      mode: 'agent',
+      title: 'Новый чат',
+      agent_id: res.agent_id,
+    });
+    navigate(`/chats?chat=${chat.id}`);
   };
 
   return (
