@@ -331,8 +331,7 @@ function ProjectCommitHeatmap({
 
           <p className="mt-3 text-xs leading-5 text-slate-500">
             <strong className="font-semibold text-slate-700">Проект стартовал 23 марта 2026 года.</strong>{' '}
-            Это реальная активность git-репозитория LLMStore за последний год. На мобильных показываем последние 4 месяца,
-            на более широких экранах весь год целиком.
+            Это реальная активность git-репозитория LLMStore за последний год.
           </p>
         </>
       ) : (
