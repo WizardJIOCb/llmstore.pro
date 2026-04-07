@@ -581,12 +581,16 @@ interface AdminUsersQuery {
   search?: string;
   role?: string;
   status?: string;
+  sort_by?: 'spent_usd' | 'spent_tokens' | 'agents_count' | 'chats_count' | 'balance_usd' | 'last_login_at' | 'created_at' | 'role';
+  sort_order?: 'asc' | 'desc';
 }
 
 export async function listUsers(query: AdminUsersQuery) {
   const page = query.page ?? 1;
   const perPage = query.per_page ?? 20;
   const offset = (page - 1) * perPage;
+  const sortBy = query.sort_by ?? 'created_at';
+  const sortOrder = query.sort_order === 'asc' ? 'asc' : 'desc';
 
   const conditions: SQL[] = [];
 
@@ -604,6 +608,69 @@ export async function listUsers(query: AdminUsersQuery) {
   }
 
   const where = conditions.length > 0 ? and(...conditions) : undefined;
+  const chatCounts = db
+    .select({
+      user_id: chatConversations.user_id,
+      chats_count: sql<number>`count(*)::int`.as('chats_count'),
+    })
+    .from(chatConversations)
+    .groupBy(chatConversations.user_id)
+    .as('chat_counts');
+
+  const agentCounts = db
+    .select({
+      user_id: agents.owner_user_id,
+      agents_count: sql<number>`count(*)::int`.as('agents_count'),
+    })
+    .from(agents)
+    .groupBy(agents.owner_user_id)
+    .as('agent_counts');
+
+  const spendByUser = db
+    .select({
+      user_id: agentRuns.user_id,
+      spent_tokens: sql<number>`coalesce(sum(coalesce(${usageLedger.total_tokens}, ${usageLedger.prompt_tokens} + ${usageLedger.completion_tokens})), 0)::int`.as('spent_tokens'),
+      spent_usd: sql<string>`coalesce(sum(${usageLedger.estimated_cost}::numeric), 0)`.as('spent_usd'),
+    })
+    .from(agentRuns)
+    .leftJoin(usageLedger, eq(usageLedger.run_id, agentRuns.id))
+    .groupBy(agentRuns.user_id)
+    .as('spend_by_user');
+
+  const chatsCountOrderExpr = sql<number>`coalesce(${chatCounts.chats_count}, 0)`;
+  const agentsCountOrderExpr = sql<number>`coalesce(${agentCounts.agents_count}, 0)`;
+  const spentTokensOrderExpr = sql<number>`coalesce(${spendByUser.spent_tokens}, 0)`;
+  const spentUsdOrderExpr = sql<number>`coalesce(${spendByUser.spent_usd}, 0::numeric)`;
+  const roleOrderExpr = sql<number>`
+    case
+      when ${users.role} = 'admin' then 0
+      when ${users.role} = 'curator' then 1
+      when ${users.role} = 'power_user' then 2
+      else 3
+    end
+  `;
+
+  const primaryOrderExpr = (() => {
+    switch (sortBy) {
+      case 'spent_usd':
+        return spentUsdOrderExpr;
+      case 'spent_tokens':
+        return spentTokensOrderExpr;
+      case 'agents_count':
+        return agentsCountOrderExpr;
+      case 'chats_count':
+        return chatsCountOrderExpr;
+      case 'balance_usd':
+        return users.balance_usd;
+      case 'role':
+        return roleOrderExpr;
+      case 'last_login_at':
+        return users.last_login_at;
+      case 'created_at':
+      default:
+        return users.created_at;
+    }
+  })();
 
   const [rows, countResult] = await Promise.all([
     db
@@ -619,10 +686,21 @@ export async function listUsers(query: AdminUsersQuery) {
         created_at: users.created_at,
         last_login_at: users.last_login_at,
         updated_at: users.updated_at,
+        chats_count: sql<number>`coalesce(${chatCounts.chats_count}, 0)::int`,
+        agents_count: sql<number>`coalesce(${agentCounts.agents_count}, 0)::int`,
+        spent_tokens: sql<number>`coalesce(${spendByUser.spent_tokens}, 0)::int`,
+        spent_usd: sql<string>`coalesce(${spendByUser.spent_usd}, 0)`,
       })
       .from(users)
+      .leftJoin(chatCounts, eq(chatCounts.user_id, users.id))
+      .leftJoin(agentCounts, eq(agentCounts.user_id, users.id))
+      .leftJoin(spendByUser, eq(spendByUser.user_id, users.id))
       .where(where)
-      .orderBy(desc(users.created_at))
+      .orderBy(
+        sortOrder === 'asc' ? asc(primaryOrderExpr) : desc(primaryOrderExpr),
+        desc(users.created_at),
+        desc(users.id),
+      )
       .limit(perPage)
       .offset(offset),
     db
@@ -632,67 +710,19 @@ export async function listUsers(query: AdminUsersQuery) {
   ]);
 
   const total = countResult[0]?.count ?? 0;
-  const userIds = rows.map((row) => row.id);
-
-  const chatsByUser = new Map<string, number>();
-  const agentsByUser = new Map<string, number>();
-  const spendByUser = new Map<string, { spent_tokens: number; spent_usd: number }>();
-
-  if (userIds.length > 0) {
-    const [chatRows, agentRows, spendRows] = await Promise.all([
-      db
-        .select({
-          user_id: chatConversations.user_id,
-          count: sql<number>`count(*)::int`,
-        })
-        .from(chatConversations)
-        .where(inArray(chatConversations.user_id, userIds))
-        .groupBy(chatConversations.user_id),
-      db
-        .select({
-          user_id: agents.owner_user_id,
-          count: sql<number>`count(*)::int`,
-        })
-        .from(agents)
-        .where(inArray(agents.owner_user_id, userIds))
-        .groupBy(agents.owner_user_id),
-      db
-        .select({
-          user_id: agentRuns.user_id,
-          spent_tokens: sql<number>`coalesce(sum(coalesce(${usageLedger.total_tokens}, ${usageLedger.prompt_tokens} + ${usageLedger.completion_tokens})), 0)::int`,
-          spent_usd: sql<string>`coalesce(sum(${usageLedger.estimated_cost}::numeric), 0)`,
-        })
-        .from(agentRuns)
-        .leftJoin(usageLedger, eq(usageLedger.run_id, agentRuns.id))
-        .where(inArray(agentRuns.user_id, userIds))
-        .groupBy(agentRuns.user_id),
-    ]);
-
-    for (const row of chatRows) {
-      chatsByUser.set(row.user_id, row.count ?? 0);
-    }
-    for (const row of agentRows) {
-      agentsByUser.set(row.user_id, row.count ?? 0);
-    }
-    for (const row of spendRows) {
-      spendByUser.set(row.user_id, {
-        spent_tokens: row.spent_tokens ?? 0,
-        spent_usd: Number(row.spent_usd ?? 0),
-      });
-    }
-  }
 
   return {
     users: rows.map((r) => ({
       ...r,
-      chats_count: chatsByUser.get(r.id) ?? 0,
-      agents_count: agentsByUser.get(r.id) ?? 0,
-        spent_tokens: spendByUser.get(r.id)?.spent_tokens ?? 0,
-        spent_usd: spendByUser.get(r.id)?.spent_usd ?? 0,
-        created_at: r.created_at.toISOString(),
-        last_login_at: r.last_login_at?.toISOString() ?? null,
-        updated_at: r.updated_at.toISOString(),
-      })),
+      balance_usd: Number(r.balance_usd ?? 0),
+      chats_count: r.chats_count ?? 0,
+      agents_count: r.agents_count ?? 0,
+      spent_tokens: r.spent_tokens ?? 0,
+      spent_usd: Number(r.spent_usd ?? 0),
+      created_at: r.created_at.toISOString(),
+      last_login_at: r.last_login_at?.toISOString() ?? null,
+      updated_at: r.updated_at.toISOString(),
+    })),
     meta: {
       total,
       page,

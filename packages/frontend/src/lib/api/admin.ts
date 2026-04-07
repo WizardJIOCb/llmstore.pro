@@ -14,6 +14,8 @@ export interface AdminUsersParams {
   search?: string;
   role?: string;
   status?: string;
+  sort_by?: 'spent_usd' | 'spent_tokens' | 'agents_count' | 'chats_count' | 'balance_usd' | 'last_login_at' | 'created_at' | 'role';
+  sort_order?: 'asc' | 'desc';
 }
 
 export interface AdminAgentsParams {

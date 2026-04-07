@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { MoreHorizontal } from 'lucide-react';
+import { ArrowDown, ArrowUp, MoreHorizontal } from 'lucide-react';
 import { AdminLayout } from '../../components/admin/AdminLayout';
 import { useAdminUsers, useUpdateUserRole, useUpdateUserStatus, useAdjustUserBalance, useResetUserPassword } from '../../hooks/useAdmin';
 import { Button, Badge, Spinner } from '../../components/ui';
 import { UserLink } from '../../components/users/UserLink';
 import { formatUsd } from '../../lib/utils';
+
+type SortField = 'spent_usd' | 'spent_tokens' | 'agents_count' | 'chats_count' | 'balance_usd' | 'last_login_at' | 'created_at' | 'role';
+type SortOrder = 'asc' | 'desc';
 
 const roleLabels: Record<string, string> = {
   user: 'Пользователь',
@@ -49,6 +52,8 @@ export function AdminUsersPage() {
   const [search, setSearch] = useState('');
   const [filterRole, setFilterRole] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  const [sortBy, setSortBy] = useState<SortField>('created_at');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const [openActionMenuUserId, setOpenActionMenuUserId] = useState<string | null>(null);
   const actionMenuRef = useRef<HTMLDivElement | null>(null);
 
@@ -69,6 +74,8 @@ export function AdminUsersPage() {
     search: search || undefined,
     role: filterRole || undefined,
     status: filterStatus || undefined,
+    sort_by: sortBy,
+    sort_order: sortOrder,
   });
 
   const updateRoleMutation = useUpdateUserRole();
@@ -102,6 +109,42 @@ export function AdminUsersPage() {
 
   const users = data?.data ?? [];
   const meta = data?.meta ?? { total: 0, page: 1, per_page: 20, total_pages: 1 };
+
+  const handleSort = (field: SortField) => {
+    setPage(1);
+    if (sortBy === field) {
+      setSortOrder((current) => (current === 'desc' ? 'asc' : 'desc'));
+      return;
+    }
+    setSortBy(field);
+    setSortOrder(field === 'role' ? 'asc' : 'desc');
+  };
+
+  const renderSortableHeader = (
+    label: string,
+    field: SortField,
+    align: 'left' | 'right' = 'left',
+  ) => {
+    const isActive = sortBy === field;
+    const icon = !isActive
+      ? null
+      : sortOrder === 'desc'
+        ? <ArrowDown className="h-3.5 w-3.5" />
+        : <ArrowUp className="h-3.5 w-3.5" />;
+
+    return (
+      <button
+        type="button"
+        className={`inline-flex items-center gap-1.5 transition-colors hover:text-foreground ${align === 'right' ? 'ml-auto' : ''}`}
+        onClick={() => handleSort(field)}
+      >
+        <span>{label}</span>
+        <span className={isActive ? 'text-foreground' : 'text-muted-foreground/50'}>
+          {icon ?? <ArrowDown className="h-3.5 w-3.5 opacity-40" />}
+        </span>
+      </button>
+    );
+  };
 
   const handleRoleChange = () => {
     if (!roleModal || !newRole) return;
@@ -192,15 +235,15 @@ export function AdminUsersPage() {
                 <tr>
                   <th className="px-4 py-3 text-left font-medium">Email</th>
                   <th className="px-4 py-3 text-left font-medium">Имя</th>
-                  <th className="px-4 py-3 text-right font-medium">Чаты</th>
-                  <th className="px-4 py-3 text-right font-medium">Агенты</th>
-                  <th className="px-4 py-3 text-right font-medium">Потрачено, токены</th>
-                  <th className="px-4 py-3 text-right font-medium">Потрачено, $</th>
-                  <th className="px-4 py-3 text-left font-medium">Роль</th>
+                  <th className="px-4 py-3 text-right font-medium">{renderSortableHeader('Чаты', 'chats_count', 'right')}</th>
+                  <th className="px-4 py-3 text-right font-medium">{renderSortableHeader('Агенты', 'agents_count', 'right')}</th>
+                  <th className="px-4 py-3 text-right font-medium">{renderSortableHeader('Потрачено, токены', 'spent_tokens', 'right')}</th>
+                  <th className="px-4 py-3 text-right font-medium">{renderSortableHeader('Потрачено, $', 'spent_usd', 'right')}</th>
+                  <th className="px-4 py-3 text-left font-medium">{renderSortableHeader('Роль', 'role')}</th>
                   <th className="px-4 py-3 text-left font-medium">Статус</th>
-                  <th className="px-4 py-3 text-right font-medium">Баланс, $</th>
-                  <th className="px-4 py-3 text-left font-medium">Последний вход</th>
-                  <th className="px-4 py-3 text-left font-medium">Регистрация</th>
+                  <th className="px-4 py-3 text-right font-medium">{renderSortableHeader('Баланс, $', 'balance_usd', 'right')}</th>
+                  <th className="px-4 py-3 text-left font-medium">{renderSortableHeader('Последний вход', 'last_login_at')}</th>
+                  <th className="px-4 py-3 text-left font-medium">{renderSortableHeader('Регистрация', 'created_at')}</th>
                   <th className="px-4 py-3 text-right font-medium">Действия</th>
                 </tr>
               </thead>
