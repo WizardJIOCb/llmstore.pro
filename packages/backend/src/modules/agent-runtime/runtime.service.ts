@@ -5451,6 +5451,14 @@ function detectPreviewEditIntent(request: string): boolean {
     return true;
   }
 
+  const mentionsExistingPreviewSurface = /(preview|превью|лендинг|страниц|странице|сайт|site|hero|html|css|js|блок|кнопк|заголов|стил|верстк|разметк)/i.test(text);
+  const mentionsStructuralBreakage = /(незакрыт|не закрыт|оборван|обрыв|слом|ломан|бит|broken|невалид|invalid|ошибк|баг|артефакт|криво|съех|разъех|поеха|обреза|truncat|обрезан|закрой|закрывающ|хвост)/i.test(text);
+  const mentionsMarkupTags = /<\/?(?:style|script|div|section|main|body|html|head)\b/i.test(text);
+
+  if ((mentionsExistingPreviewSurface && mentionsStructuralBreakage) || (mentionsStructuralBreakage && mentionsMarkupTags)) {
+    return true;
+  }
+
   return /(preview|превью|лендинг|страниц|шапк|hero|html|блок|кнопк|заголов|надпись)/i.test(text)
     && /(исправ|поправ|подвин|сдвин|выровн|центр|замен|измени|доработ|отредакт)/i.test(text);
 }
@@ -5466,6 +5474,9 @@ function buildStrictPreviewEditInstruction(options: StrictPreviewEditOptions): s
     'Не переписывай весь HTML, не делай редизайн и не улучшай посторонние части страницы.',
     'Если меняешь текст, меняй только нужный текст. Если меняешь позиционирование, старайся ограничиться точечными стилями.',
     'Нужна минимальная и точечная правка.',
+    'Если пользователь описывает сломанную или оборванную HTML/CSS/JS-разметку, исправь текущий preview и верни ПОЛНУЮ обновлённую версию preview.html целиком.',
+    'Не отвечай хвостом файла, diff-ом, патчем или продолжением с места обрыва.',
+    'Не выдумывай project.files, index.html.tail.html и не описывай несуществующий обрыв, если у тебя уже есть полный текущий preview.',
     options.preview_title ? `Название текущего preview: ${options.preview_title}` : undefined,
     `Запрос пользователя: ${options.user_request}`,
   ]
