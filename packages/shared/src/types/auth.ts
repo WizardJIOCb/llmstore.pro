@@ -1,6 +1,12 @@
 import type { UserRole, UserStatus } from '../constants/index.js';
 import type { UserLimits } from '../constants/limits.js';
 
+export interface UserImpersonationInfo {
+  is_impersonating: boolean;
+  impersonator_user_id: string | null;
+  impersonator_role: UserRole | null;
+}
+
 export interface UserPublic {
   id: string;
   email: string;
@@ -11,6 +17,7 @@ export interface UserPublic {
   status: UserStatus;
   email_verified_at: string | null;
   created_at: string;
+  impersonation?: UserImpersonationInfo;
 }
 
 export interface UserSlim {

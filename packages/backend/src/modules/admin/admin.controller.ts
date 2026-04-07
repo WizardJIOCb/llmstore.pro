@@ -236,6 +236,24 @@ export async function getUser(req: Request<IdParams>, res: Response, next: NextF
   }
 }
 
+export async function impersonateUser(req: Request<IdParams>, res: Response, next: NextFunction) {
+  try {
+    const target = await adminService.impersonateUser(req.session.userId!, req.params.id);
+
+    if (!req.session.impersonatorUserId) {
+      req.session.impersonatorUserId = req.session.userId;
+      req.session.impersonatorUserRole = req.session.userRole;
+    }
+
+    req.session.userId = target.id;
+    req.session.userRole = target.role;
+
+    res.json({ data: { success: true, user_id: target.id, role: target.role } });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function updateUserRole(req: Request<IdParams>, res: Response, next: NextFunction) {
   try {
     const result = await adminService.updateUserRole(req.params.id, req.body.role);

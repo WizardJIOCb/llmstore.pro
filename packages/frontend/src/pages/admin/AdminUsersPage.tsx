@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, MoreHorizontal } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { AdminLayout } from '../../components/admin/AdminLayout';
-import { useAdminUsers, useUpdateUserRole, useUpdateUserStatus, useAdjustUserBalance, useResetUserPassword } from '../../hooks/useAdmin';
+import { useAdminUsers, useUpdateUserRole, useUpdateUserStatus, useAdjustUserBalance, useResetUserPassword, useImpersonateUser } from '../../hooks/useAdmin';
 import { Button, Badge, Spinner } from '../../components/ui';
 import { UserLink } from '../../components/users/UserLink';
 import { formatUsd } from '../../lib/utils';
+import { useAuth } from '../../hooks/useAuth';
 
 type SortField = 'spent_usd' | 'spent_tokens' | 'agents_count' | 'chats_count' | 'balance_usd' | 'last_login_at' | 'created_at' | 'role';
 type SortOrder = 'asc' | 'desc';
@@ -48,6 +51,9 @@ function formatDateTime(value: string | null | undefined) {
 }
 
 export function AdminUsersPage() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { user: authUser, fetchMe } = useAuth();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [filterRole, setFilterRole] = useState('');
@@ -82,6 +88,7 @@ export function AdminUsersPage() {
   const updateStatusMutation = useUpdateUserStatus();
   const adjustBalanceMutation = useAdjustUserBalance();
   const resetPasswordMutation = useResetUserPassword();
+  const impersonateMutation = useImpersonateUser();
 
   useEffect(() => {
     if (!openActionMenuUserId) return undefined;
@@ -185,6 +192,19 @@ export function AdminUsersPage() {
         },
       },
     );
+  };
+
+  const handleImpersonate = async (userId: string) => {
+    if (!confirm('Войти за этого пользователя и перейти в его чаты?')) return;
+
+    try {
+      await impersonateMutation.mutateAsync(userId);
+      queryClient.clear();
+      await fetchMe();
+      navigate('/chats');
+    } finally {
+      setOpenActionMenuUserId(null);
+    }
   };
 
   return (
@@ -306,7 +326,18 @@ export function AdminUsersPage() {
                         </Button>
 
                         {openActionMenuUserId === user.id && (
-                          <div className="absolute right-0 top-full z-20 mt-2 min-w-44 rounded-lg border bg-background p-1 shadow-lg">
+                          <div className="absolute right-0 top-full z-20 mt-2 min-w-[190px] rounded-lg border bg-background p-1 shadow-lg">
+                            {authUser?.role === 'admin' && authUser.id !== user.id && user.status === 'active' && (
+                              <button
+                                type="button"
+                                className="w-full rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-accent"
+                                onClick={() => {
+                                  void handleImpersonate(user.id);
+                                }}
+                              >
+                                Авторизоваться
+                              </button>
+                            )}
                             <button
                               type="button"
                               className="w-full rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-accent"

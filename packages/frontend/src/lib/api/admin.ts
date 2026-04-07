@@ -379,6 +379,9 @@ export const adminApi = {
   adjustUserBalance: (id: string, amount: number, description: string) =>
     apiClient.post(`/admin/users/${id}/balance`, { amount, description }).then((r) => r.data.data),
 
+  impersonateUser: (id: string) =>
+    apiClient.post(`/admin/users/${id}/impersonate`).then((r) => r.data.data),
+
   // Agents
   listAgents: (params: AdminAgentsParams) =>
     apiClient.get('/admin/agents', { params }).then((r) => r.data),

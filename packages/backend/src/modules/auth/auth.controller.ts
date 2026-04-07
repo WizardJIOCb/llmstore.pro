@@ -6,9 +6,29 @@ import {
 } from './email-verification.service.js';
 import { normalizeIpAddress } from './signup-bonus.service.js';
 import { verifyTurnstileToken } from './turnstile.service.js';
+import { AppError } from '../../middleware/error-handler.js';
+import type { UserPublic } from '@llmstore/shared';
 
 function getSessionSameSite() {
   return process.env.NODE_ENV === 'production' ? 'none' : 'lax';
+}
+
+function clearImpersonationSession(req: Request) {
+  delete req.session.impersonatorUserId;
+  delete req.session.impersonatorUserRole;
+}
+
+function withImpersonationInfo(req: Request, user: UserPublic): UserPublic {
+  if (!req.session.impersonatorUserId) return user;
+
+  return {
+    ...user,
+    impersonation: {
+      is_impersonating: true,
+      impersonator_user_id: req.session.impersonatorUserId,
+      impersonator_role: (req.session.impersonatorUserRole as UserPublic['role'] | undefined) ?? null,
+    },
+  };
 }
 
 export async function register(req: Request, res: Response, next: NextFunction) {
@@ -22,6 +42,7 @@ export async function register(req: Request, res: Response, next: NextFunction) 
     });
     req.session.userId = user.user.id;
     req.session.userRole = user.user.role;
+    clearImpersonationSession(req);
     res.status(201).json({ data: user });
   } catch (err) {
     next(err);
@@ -33,6 +54,7 @@ export async function login(req: Request, res: Response, next: NextFunction) {
     const user = await authService.login(req.body);
     req.session.userId = user.id;
     req.session.userRole = user.role;
+    clearImpersonationSession(req);
     res.json({ data: user });
   } catch (err) {
     next(err);
@@ -62,6 +84,26 @@ export async function me(req: Request, res: Response, next: NextFunction) {
     if (user.role !== req.session.userRole) {
       req.session.userRole = user.role;
     }
+    res.json({ data: withImpersonationInfo(req, user) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function stopImpersonation(req: Request, res: Response, next: NextFunction) {
+  try {
+    const impersonatorUserId = req.session.impersonatorUserId;
+    const impersonatorUserRole = req.session.impersonatorUserRole;
+
+    if (!impersonatorUserId || !impersonatorUserRole) {
+      throw new AppError(400, 'BAD_REQUEST', 'Сейчас нет активной авторизации за другого пользователя');
+    }
+
+    req.session.userId = impersonatorUserId;
+    req.session.userRole = impersonatorUserRole;
+    clearImpersonationSession(req);
+
+    const user = await authService.getById(impersonatorUserId);
     res.json({ data: user });
   } catch (err) {
     next(err);
@@ -88,6 +130,7 @@ export async function confirmEmailVerification(req: Request, res: Response, next
 
     req.session.userId = result.user.id;
     req.session.userRole = result.user.role;
+    clearImpersonationSession(req);
 
     res.json({ data: result });
   } catch (err) {

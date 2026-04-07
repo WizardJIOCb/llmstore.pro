@@ -788,6 +788,44 @@ export async function getUserById(id: string) {
   };
 }
 
+export async function impersonateUser(adminUserId: string, targetUserId: string) {
+  if (adminUserId === targetUserId) {
+    throw new AppError(400, 'BAD_REQUEST', 'Нельзя авторизоваться под самим собой');
+  }
+
+  const [targetUser] = await db
+    .select({
+      id: users.id,
+      email: users.email,
+      role: users.role,
+      status: users.status,
+    })
+    .from(users)
+    .where(eq(users.id, targetUserId))
+    .limit(1);
+
+  if (!targetUser) {
+    throw new NotFoundError('Пользователь не найден');
+  }
+
+  if (targetUser.status !== 'active') {
+    throw new AppError(400, 'BAD_REQUEST', 'Нельзя авторизоваться под неактивным пользователем');
+  }
+
+  logger.info({
+    adminUserId,
+    targetUserId: targetUser.id,
+    targetUserEmail: targetUser.email,
+    targetUserRole: targetUser.role,
+  }, 'Admin impersonated user');
+
+  return {
+    id: targetUser.id,
+    role: targetUser.role,
+    status: targetUser.status,
+  };
+}
+
 export async function updateUserRole(id: string, role: UserRole) {
   const [user] = await db
     .select({ id: users.id, role: users.role })

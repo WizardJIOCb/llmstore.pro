@@ -40,6 +40,9 @@ export const authApi = {
   me: () =>
     apiClient.get<{ data: UserPublic }>('/auth/me').then((r) => r.data.data),
 
+  stopImpersonation: () =>
+    apiClient.post<{ data: UserPublic }>('/auth/stop-impersonation').then((r) => r.data.data),
+
   resendEmailVerification: () =>
     apiClient.post<{ data: { sent: boolean; alreadyVerified: boolean } }>('/auth/verify-email/resend').then((r) => r.data.data),
 

@@ -25,6 +25,7 @@ router.post('/register', registerLimiter, validateRegister, controller.register)
 router.post('/login', validateLogin, controller.login);
 router.post('/logout', requireAuth, controller.logout);
 router.get('/me', requireAuth, controller.me);
+router.post('/stop-impersonation', requireAuth, controller.stopImpersonation);
 router.post('/verify-email', validateConfirmEmailVerification, controller.confirmEmailVerification);
 router.post('/verify-email/resend', requireAuth, controller.resendEmailVerification);
 

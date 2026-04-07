@@ -187,6 +187,12 @@ export function useAdjustUserBalance() {
 
 // ─── Agents ─────────────────────────────────────────────────
 
+export function useImpersonateUser() {
+  return useMutation({
+    mutationFn: (id: string) => adminApi.impersonateUser(id),
+  });
+}
+
 export function useResetUserPassword() {
   const queryClient = useQueryClient();
   return useMutation({

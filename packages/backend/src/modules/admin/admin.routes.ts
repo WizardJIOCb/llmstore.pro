@@ -57,6 +57,7 @@ router.delete('/tools/:id', controller.deleteTool);
 // User management (admin only)
 router.get('/users', controller.listUsers);
 router.get('/users/:id', controller.getUser);
+router.post('/users/:id/impersonate', requireRole('admin'), controller.impersonateUser);
 router.put('/users/:id/role', controller.updateUserRole);
 router.put('/users/:id/status', controller.updateUserStatus);
 router.post('/users/:id/balance', controller.adjustUserBalance);

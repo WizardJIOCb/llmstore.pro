@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Menu, Shield } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useOutlet } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useChatsList } from '../../hooks/useChats';
@@ -7,6 +8,7 @@ import { useProfile } from '../../hooks/useProfile';
 import { Button } from '../../components/ui';
 import { cn, formatRub, formatUsd } from '../../lib/utils';
 import { RouteTransitionShell, type RouteTransitionMode } from './RouteTransitionShell';
+import { authApi } from '../../lib/api/auth';
 
 const DEFAULT_ROUTE_TRANSITION_MODE: RouteTransitionMode = 'soft';
 const MOBILE_MENU_CLOSE_MS = 220;
@@ -38,10 +40,11 @@ const navItems = [
 ];
 
 export function AppLayout() {
-  const { user, isAuthenticated, isAdmin, logout } = useAuth();
+  const { user, isAuthenticated, isAdmin, logout, fetchMe } = useAuth();
   const { data: profile } = useProfile(isAuthenticated);
   const location = useLocation();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const outlet = useOutlet();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isMobileMenuClosing, setIsMobileMenuClosing] = useState(false);
@@ -222,6 +225,15 @@ export function AppLayout() {
   const visibleNavItems = navItems.filter((item) => !item.requiresAuth || isAuthenticated);
   const mobileChatsCountLabel = `Чаты: ${chats?.length ?? 0}`;
 
+  const isImpersonating = user?.impersonation?.is_impersonating === true;
+
+  const handleStopImpersonation = async () => {
+    await authApi.stopImpersonation();
+    queryClient.clear();
+    await fetchMe();
+    navigate('/admin/users');
+  };
+
   const mobileNavActions = visibleNavItems.map((item, index) => ({
     key: item.href,
     render: item.href === '/chats' ? (
@@ -372,6 +384,24 @@ export function AppLayout() {
           </div>
         </div>
       </header>
+
+      {isImpersonating && (
+        <div className="border-b border-amber-200 bg-amber-50">
+          <div className="container mx-auto flex flex-col gap-3 px-4 py-3 text-sm text-amber-950 md:flex-row md:items-center md:justify-between">
+            <div>
+              <strong>Вы авторизованы за другого пользователя.</strong> Сейчас можно смотреть его чаты и профиль от его имени.
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-amber-300 bg-white hover:bg-amber-100"
+              onClick={handleStopImpersonation}
+            >
+              Вернуться в админа
+            </Button>
+          </div>
+        </div>
+      )}
 
       {isMobileMenuOpen && (
         <div
