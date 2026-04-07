@@ -69,6 +69,7 @@ const updateLandingSchema = z.object({
 const upsertProjectDeploymentSchema = z.object({
   env: z.record(z.string().max(4000)).optional().default({}),
   linked_agent_id: z.string().uuid().optional().nullable(),
+  model_external_id: z.string().min(1).max(255).optional().nullable(),
   set_telegram_webhook: z.boolean().optional().default(false),
 });
 

@@ -133,6 +133,7 @@ export const chatProjectDeployments = pgTable('chat_project_deployments', {
   message_id: uuid('message_id').notNull().references(() => chatConversationMessages.id, { onDelete: 'cascade' }),
   user_id: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   linked_agent_id: uuid('linked_agent_id').references(() => agents.id, { onDelete: 'set null' }),
+  model_external_id: varchar('model_external_id', { length: 255 }),
   title: varchar('title', { length: 255 }).notNull(),
   runtime: varchar('runtime', { length: 20 }).notNull(),
   entrypoint: varchar('entrypoint', { length: 500 }),

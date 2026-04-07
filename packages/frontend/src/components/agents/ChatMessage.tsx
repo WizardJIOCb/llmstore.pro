@@ -5,11 +5,13 @@ import remarkGfm from 'remark-gfm';
 import { Pencil, Trash2 } from 'lucide-react';
 import type { CodingReport, CodingReportProject, ProjectRunResult, ToolTrace } from '../../lib/api/agents';
 import type { ProjectDeployment, PublishedLanding } from '../../lib/api/chats';
+import { GENERAL_CHAT_MODELS } from '../../lib/chat-models';
 import { cn } from '../../lib/utils';
 import { ToolTracePanel } from './ToolTracePanel';
 import { ChatCodeBlock, ChatInlineCode } from './ChatCodeBlock';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
+import { Select } from '../ui/Select';
 
 interface Attachment {
   filename: string;
@@ -38,7 +40,12 @@ interface ChatMessageProps {
   onFixProjectError?: (prompt: string) => Promise<void>;
   canManageDeployment?: boolean;
   onLoadProjectDeployment?: () => Promise<ProjectDeployment | null>;
-  onUpsertProjectDeployment?: (payload: { env?: Record<string, string>; linked_agent_id?: string | null; set_telegram_webhook?: boolean }) => Promise<ProjectDeployment>;
+  onUpsertProjectDeployment?: (payload: {
+    env?: Record<string, string>;
+    linked_agent_id?: string | null;
+    model_external_id?: string | null;
+    set_telegram_webhook?: boolean;
+  }) => Promise<ProjectDeployment>;
   onStartProjectDeployment?: () => Promise<ProjectDeployment>;
   onReinstallProjectDeploymentWebhook?: () => Promise<ProjectDeployment>;
   onStopProjectDeployment?: () => Promise<ProjectDeployment>;
@@ -247,6 +254,41 @@ function formatRubAmount(value: number): string {
 function formatDateTime(iso: string | null | undefined): string {
   if (!iso) return 'Не было';
   return new Date(iso).toLocaleString('ru-RU');
+}
+
+function getProjectDeploymentModelSourceLabel(source: ProjectDeployment['effective_model_source']): string {
+  switch (source) {
+    case 'deployment':
+      return 'задана в deployment';
+    case 'agent':
+      return 'унаследована от агента';
+    case 'recent_run':
+      return 'восстановлена по последнему run';
+    case 'default':
+      return 'системный fallback';
+    default:
+      return 'не определён';
+  }
+}
+
+function getProjectDeploymentModelOptions(currentValue: string) {
+  const options = [
+    { value: '', label: 'Наследовать от агента' },
+    ...GENERAL_CHAT_MODELS.map((model) => ({
+      value: model.value,
+      label: `${model.label} (${model.value})`,
+    })),
+  ];
+
+  const normalizedCurrentValue = currentValue.trim();
+  if (normalizedCurrentValue && !options.some((option) => option.value === normalizedCurrentValue)) {
+    options.push({
+      value: normalizedCurrentValue,
+      label: `${normalizedCurrentValue} (текущий custom override)`,
+    });
+  }
+
+  return options;
 }
 
 function getRunStatusLabel(status: string): string {
@@ -1661,6 +1703,7 @@ export function ChatMessage({
   const [projectDeploymentEditorOpen, setProjectDeploymentEditorOpen] = useState(false);
   const [projectDeploymentEnvText, setProjectDeploymentEnvText] = useState('');
   const [projectDeploymentLinkedAgentId, setProjectDeploymentLinkedAgentId] = useState('');
+  const [projectDeploymentModelExternalId, setProjectDeploymentModelExternalId] = useState('');
   const [projectDeploymentSetTelegramWebhook, setProjectDeploymentSetTelegramWebhook] = useState(false);
   const [editorSaving, setEditorSaving] = useState(false);
   const [editorExporting, setEditorExporting] = useState(false);
@@ -1715,6 +1758,10 @@ export function ChatMessage({
     [previewEditor],
   );
   const resolvedPreviewRevision = resolvedHtmlPreview ? getStringHash(resolvedHtmlPreview.html) : undefined;
+  const projectDeploymentModelOptions = useMemo(
+    () => getProjectDeploymentModelOptions(projectDeploymentModelExternalId),
+    [projectDeploymentModelExternalId],
+  );
   const editorBusy = editorSaving || editorExporting;
   const messageActionBusy = deletingMessage || editingMessage;
   const canManagePublishedLanding = Boolean(resolvedHtmlPreview && (onPublishLanding || onUpdateLanding || onUnpublishLanding));
@@ -1763,6 +1810,7 @@ export function ChatMessage({
         setProjectDeployment(deployment ?? null);
         setProjectDeploymentEnvText((current) => (current ? current : formatEnvText(deployment?.env)));
         setProjectDeploymentLinkedAgentId((current) => (current ? current : (deployment?.linked_agent_id ?? '')));
+        setProjectDeploymentModelExternalId((current) => (current ? current : (deployment?.model_external_id ?? '')));
         setProjectDeploymentSetTelegramWebhook(false);
       } catch (error) {
         if (cancelled) return;
@@ -2192,6 +2240,7 @@ export function ChatMessage({
       const deployment = await onUpsertProjectDeployment({
         env: parseEnvText(projectDeploymentEnvText),
         linked_agent_id: projectDeploymentLinkedAgentId.trim() || null,
+        model_external_id: projectDeploymentModelExternalId.trim() || null,
         set_telegram_webhook: projectDeploymentSetTelegramWebhook,
       });
       setProjectDeployment(deployment);
@@ -2700,6 +2749,7 @@ export function ChatMessage({
                             setProjectDeploymentStatus(null);
                             setProjectDeploymentEnvText(formatEnvText(projectDeployment?.env));
                             setProjectDeploymentLinkedAgentId(projectDeployment?.linked_agent_id ?? '');
+                            setProjectDeploymentModelExternalId(projectDeployment?.model_external_id ?? '');
                             setProjectDeploymentSetTelegramWebhook(false);
                           }}
                           disabled={projectDeploymentLoading}
@@ -2738,6 +2788,22 @@ export function ChatMessage({
                             {projectDeployment.linked_agent_name && (
                               <p className="text-xs text-muted-foreground">
                                 Связанный агент: {projectDeployment.linked_agent_name}
+                              </p>
+                            )}
+                            {projectDeployment.effective_model_external_id && (
+                              <p className="text-xs text-muted-foreground">
+                                Model: {projectDeployment.effective_model_external_id}
+                                {' '}({getProjectDeploymentModelSourceLabel(projectDeployment.effective_model_source)})
+                              </p>
+                            )}
+                            {projectDeployment.model_external_id && (
+                              <p className="text-xs text-muted-foreground">
+                                Saved override: {projectDeployment.model_external_id}
+                              </p>
+                            )}
+                            {!projectDeployment.model_external_id && projectDeployment.linked_agent_model_external_id && (
+                              <p className="text-xs text-muted-foreground">
+                                Agent default model: {projectDeployment.linked_agent_model_external_id}
                               </p>
                             )}
                             {projectDeployment.last_error && (
@@ -3301,6 +3367,28 @@ export function ChatMessage({
                   Если указать агент, проект получит `LLMSTORE_AGENT_RUN_URL`, `LLMSTORE_LINKED_AGENT_ID`
                   и `LLMSTORE_DEPLOYMENT_SECRET` в env.
                 </p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Model override
+                </label>
+                <Select
+                  value={projectDeploymentModelExternalId}
+                  onChange={(e) => setProjectDeploymentModelExternalId(e.target.value)}
+                  options={projectDeploymentModelOptions}
+                  className="h-10"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Пустое значение означает наследование модели от текущей версии агента. Если и у агента она не задана,
+                  backend подставит системную fallback-модель.
+                </p>
+                {projectDeployment?.effective_model_external_id && (
+                  <p className="text-xs text-muted-foreground">
+                    Сейчас используется: {projectDeployment.effective_model_external_id}
+                    {' '}({getProjectDeploymentModelSourceLabel(projectDeployment.effective_model_source)})
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2">

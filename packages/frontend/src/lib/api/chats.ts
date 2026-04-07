@@ -78,6 +78,10 @@ export interface ProjectDeployment {
   webhook_url: string;
   linked_agent_id: string | null;
   linked_agent_name: string | null;
+  linked_agent_model_external_id: string | null;
+  model_external_id: string | null;
+  effective_model_external_id: string | null;
+  effective_model_source: 'deployment' | 'agent' | 'recent_run' | 'default' | null;
   agent_run_url: string | null;
   last_error: string | null;
   last_exit_code: number | null;
@@ -506,7 +510,12 @@ export const chatsApi = {
   upsertProjectDeployment: (
     chatId: string,
     messageId: string,
-    payload: { env?: Record<string, string>; linked_agent_id?: string | null; set_telegram_webhook?: boolean },
+    payload: {
+      env?: Record<string, string>;
+      linked_agent_id?: string | null;
+      model_external_id?: string | null;
+      set_telegram_webhook?: boolean;
+    },
   ) =>
     apiClient
       .post<{ data: ProjectDeployment }>(`/chats/${chatId}/messages/${messageId}/project-deployment`, payload)

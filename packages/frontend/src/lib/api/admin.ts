@@ -268,6 +268,10 @@ export interface AdminRuntimeItem {
   webhook_url: string;
   linked_agent_id: string | null;
   linked_agent_name: string | null;
+  linked_agent_model_external_id: string | null;
+  model_external_id: string | null;
+  effective_model_external_id: string | null;
+  effective_model_source: 'deployment' | 'agent' | 'recent_run' | 'default' | null;
   runtime_model_external_id: string | null;
   agent_run_url: string | null;
   last_error: string | null;

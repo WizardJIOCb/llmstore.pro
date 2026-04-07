@@ -21,6 +21,7 @@ const PROJECT_DEPLOY_HTTP_READY_TIMEOUT_MS = 15_000;
 const PROJECT_DEPLOY_HTTP_PROBE_INTERVAL_MS = 500;
 const PROJECT_DEPLOY_OUTPUT_LIMIT = 24_000;
 const PROJECT_DEPLOYMENTS_DIR = path.join(UPLOADS_DIR, 'project-deployments');
+const DEFAULT_DEPLOYMENT_AGENT_MODEL = 'google/gemini-2.0-flash-001';
 
 export type ProjectDeploymentStatus = 'deploying' | 'running' | 'stopped' | 'failed';
 
@@ -34,6 +35,10 @@ export interface ProjectDeploymentRecord {
   webhook_url: string;
   linked_agent_id: string | null;
   linked_agent_name: string | null;
+  linked_agent_model_external_id: string | null;
+  model_external_id: string | null;
+  effective_model_external_id: string | null;
+  effective_model_source: 'deployment' | 'agent' | 'recent_run' | 'default' | null;
   runtime_model_external_id: string | null;
   agent_run_url: string | null;
   last_error: string | null;
@@ -98,6 +103,7 @@ interface DeploymentRuntime {
 interface DeploymentUpsertInput {
   env?: Record<string, string>;
   linked_agent_id?: string | null;
+  model_external_id?: string | null;
   set_telegram_webhook?: boolean;
 }
 
@@ -123,6 +129,69 @@ function toIsoString(value: Date | string | null | undefined): string | null {
 function getRuntimeModelExternalId(runtimeConfig?: Record<string, unknown> | null): string | null {
   const value = runtimeConfig?.model_external_id;
   return typeof value === 'string' ? (value.trim() || null) : null;
+}
+
+function normalizeDeploymentModelExternalId(modelId?: string | null): string | null {
+  return typeof modelId === 'string' ? (modelId.trim() || null) : null;
+}
+
+function resolveDeploymentModelInfo(input: {
+  linked_agent_id: string | null;
+  deployment_model_external_id: string | null;
+  linked_agent_model_external_id: string | null;
+  latest_run_model_external_id: string | null;
+}): {
+  savedModelExternalId: string | null;
+  linkedAgentModelExternalId: string | null;
+  effectiveModelExternalId: string | null;
+  effectiveModelSource: 'deployment' | 'agent' | 'recent_run' | 'default' | null;
+} {
+  const savedModelExternalId = normalizeDeploymentModelExternalId(input.deployment_model_external_id);
+  const linkedAgentModelExternalId = normalizeDeploymentModelExternalId(input.linked_agent_model_external_id);
+  const latestRunModelExternalId = normalizeDeploymentModelExternalId(input.latest_run_model_external_id);
+
+  if (!input.linked_agent_id) {
+    return {
+      savedModelExternalId,
+      linkedAgentModelExternalId,
+      effectiveModelExternalId: null,
+      effectiveModelSource: null,
+    };
+  }
+
+  if (savedModelExternalId) {
+    return {
+      savedModelExternalId,
+      linkedAgentModelExternalId,
+      effectiveModelExternalId: savedModelExternalId,
+      effectiveModelSource: 'deployment',
+    };
+  }
+
+  if (linkedAgentModelExternalId) {
+    return {
+      savedModelExternalId,
+      linkedAgentModelExternalId,
+      effectiveModelExternalId: linkedAgentModelExternalId,
+      effectiveModelSource: 'agent',
+    };
+  }
+
+  if (latestRunModelExternalId) {
+    return {
+      savedModelExternalId,
+      linkedAgentModelExternalId,
+      effectiveModelExternalId: latestRunModelExternalId,
+      effectiveModelSource: 'recent_run',
+    };
+  }
+
+  return {
+    savedModelExternalId,
+    linkedAgentModelExternalId,
+    effectiveModelExternalId: DEFAULT_DEPLOYMENT_AGENT_MODEL,
+    effectiveModelSource: 'default',
+  };
 }
 
 function sanitizeProjectFilePath(filePath: string): string {
@@ -364,6 +433,7 @@ async function getDeploymentWithAgentMeta(deploymentId: string, userId: string) 
       message_id: chatProjectDeployments.message_id,
       user_id: chatProjectDeployments.user_id,
       linked_agent_id: chatProjectDeployments.linked_agent_id,
+      model_external_id: chatProjectDeployments.model_external_id,
       title: chatProjectDeployments.title,
       runtime: chatProjectDeployments.runtime,
       entrypoint: chatProjectDeployments.entrypoint,
@@ -405,6 +475,7 @@ async function getDeploymentWithAdminMeta(deploymentId: string) {
       message_id: chatProjectDeployments.message_id,
       user_id: chatProjectDeployments.user_id,
       linked_agent_id: chatProjectDeployments.linked_agent_id,
+      model_external_id: chatProjectDeployments.model_external_id,
       title: chatProjectDeployments.title,
       runtime: chatProjectDeployments.runtime,
       entrypoint: chatProjectDeployments.entrypoint,
@@ -442,7 +513,12 @@ async function getDeploymentWithAdminMeta(deploymentId: string) {
   return row;
 }
 
-async function getDeploymentRunInsights(deploymentId: string): Promise<ProjectDeploymentRecord['run_stats'] & { recent_runs: ProjectDeploymentRecord['recent_runs'] }> {
+async function getDeploymentRunInsights(
+  deploymentId: string,
+): Promise<ProjectDeploymentRecord['run_stats'] & {
+  latest_model_external_id: string | null;
+  recent_runs: ProjectDeploymentRecord['recent_runs'];
+}> {
   const usdToRubRate = await getUsdToRubRate();
 
   const [statsRow] = await db
@@ -470,6 +546,7 @@ async function getDeploymentRunInsights(deploymentId: string): Promise<ProjectDe
       latency_ms: agentRuns.latency_ms,
       started_at: agentRuns.started_at,
       completed_at: agentRuns.completed_at,
+      model_external_id: usageLedger.model_external_id,
       total_tokens: sql<number>`coalesce(${usageLedger.total_tokens}, 0)::int`,
       estimated_cost_usd: sql<string>`coalesce(${usageLedger.estimated_cost}::numeric, 0)`,
     })
@@ -491,6 +568,9 @@ async function getDeploymentRunInsights(deploymentId: string): Promise<ProjectDe
     total_cost_usd: totalCostUsd,
     total_cost_rub: totalCostUsd * usdToRubRate,
     last_run_at: toIsoString(statsRow?.last_run_at),
+    latest_model_external_id:
+      recentRows.find((row) => typeof row.model_external_id === 'string' && row.model_external_id.trim().length > 0)?.model_external_id
+      ?? null,
     recent_runs: recentRows.map((row) => ({
       id: row.id,
       status: row.status,
@@ -512,7 +592,12 @@ async function toProjectDeploymentRecord(
   const runtime = row.runtime === 'python' ? 'python' : 'node';
   const live = deploymentRuntimes.get(row.id);
   const insights = await getDeploymentRunInsights(row.id);
-  const runtimeModelExternalId = getRuntimeModelExternalId(row.agent_runtime_config as Record<string, unknown> | null);
+  const modelInfo = resolveDeploymentModelInfo({
+    linked_agent_id: row.linked_agent_id ?? null,
+    deployment_model_external_id: row.model_external_id ?? null,
+    linked_agent_model_external_id: getRuntimeModelExternalId(row.agent_runtime_config as Record<string, unknown> | null),
+    latest_run_model_external_id: insights.latest_model_external_id,
+  });
 
   return {
     id: row.id,
@@ -524,7 +609,11 @@ async function toProjectDeploymentRecord(
     webhook_url: buildWebhookUrl(row.public_token),
     linked_agent_id: row.linked_agent_id ?? null,
     linked_agent_name: row.linked_agent_name ?? null,
-    runtime_model_external_id: runtimeModelExternalId,
+    linked_agent_model_external_id: modelInfo.linkedAgentModelExternalId,
+    model_external_id: modelInfo.savedModelExternalId,
+    effective_model_external_id: modelInfo.effectiveModelExternalId,
+    effective_model_source: modelInfo.effectiveModelSource,
+    runtime_model_external_id: modelInfo.effectiveModelExternalId,
     agent_run_url: row.linked_agent_id ? buildAgentRunUrl(row.public_token) : null,
     last_error: row.last_error ?? null,
     last_exit_code: row.last_exit_code ?? null,
@@ -556,7 +645,12 @@ async function toAdminProjectDeploymentRecord(
   const runtime = row.runtime === 'python' ? 'python' : 'node';
   const live = deploymentRuntimes.get(row.id);
   const insights = await getDeploymentRunInsights(row.id);
-  const runtimeModelExternalId = getRuntimeModelExternalId(row.agent_runtime_config as Record<string, unknown> | null);
+  const modelInfo = resolveDeploymentModelInfo({
+    linked_agent_id: row.linked_agent_id ?? null,
+    deployment_model_external_id: row.model_external_id ?? null,
+    linked_agent_model_external_id: getRuntimeModelExternalId(row.agent_runtime_config as Record<string, unknown> | null),
+    latest_run_model_external_id: insights.latest_model_external_id,
+  });
 
   return {
     id: row.id,
@@ -576,7 +670,11 @@ async function toAdminProjectDeploymentRecord(
     webhook_url: buildWebhookUrl(row.public_token),
     linked_agent_id: row.linked_agent_id ?? null,
     linked_agent_name: row.linked_agent_name ?? null,
-    runtime_model_external_id: runtimeModelExternalId,
+    linked_agent_model_external_id: modelInfo.linkedAgentModelExternalId,
+    model_external_id: modelInfo.savedModelExternalId,
+    effective_model_external_id: modelInfo.effectiveModelExternalId,
+    effective_model_source: modelInfo.effectiveModelSource,
+    runtime_model_external_id: modelInfo.effectiveModelExternalId,
     agent_run_url: row.linked_agent_id ? buildAgentRunUrl(row.public_token) : null,
     last_error: row.last_error ?? null,
     last_exit_code: row.last_exit_code ?? null,
@@ -802,6 +900,7 @@ async function getDeploymentByToken(publicToken: string) {
       id: chatProjectDeployments.id,
       user_id: chatProjectDeployments.user_id,
       linked_agent_id: chatProjectDeployments.linked_agent_id,
+      model_external_id: chatProjectDeployments.model_external_id,
       title: chatProjectDeployments.title,
       runtime: chatProjectDeployments.runtime,
       entrypoint: chatProjectDeployments.entrypoint,
@@ -914,6 +1013,7 @@ export async function upsertChatMessageProjectDeployment(
   const project = await ensureOwnedProjectMessage(chatId, messageId, userId);
   const normalizedEnv = normalizeDeploymentEnv(input.env);
   const linkedAgentId = input.linked_agent_id?.trim() || null;
+  const modelExternalId = normalizeDeploymentModelExternalId(input.model_external_id);
 
   if (linkedAgentId) {
     await ensureLinkedAgentIsVisible(linkedAgentId, userId);
@@ -939,6 +1039,7 @@ export async function upsertChatMessageProjectDeployment(
       message_id: messageId,
       user_id: userId,
       linked_agent_id: linkedAgentId,
+      model_external_id: modelExternalId,
       title: (project.title?.trim() || 'Project deployment').slice(0, 255),
       runtime: project.runtime,
       entrypoint,
@@ -950,6 +1051,7 @@ export async function upsertChatMessageProjectDeployment(
   } else {
     await updateDeploymentState(existing.id, {
       linked_agent_id: linkedAgentId,
+      model_external_id: modelExternalId,
       title: (project.title?.trim() || 'Project deployment').slice(0, 255),
       runtime: project.runtime,
       entrypoint,
@@ -1052,7 +1154,7 @@ export async function runLinkedAgentForProjectDeployment(
 
   const result = await startRun(deployment.linked_agent_id, deployment.user_id, {
     messages: [{ role: 'user', content: message }],
-    model_external_id: null,
+    model_external_id: deployment.model_external_id ?? null,
   }, {
     deployment_id: deployment.id,
     sync_to_chats: false,

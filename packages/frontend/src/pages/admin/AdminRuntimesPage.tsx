@@ -63,6 +63,21 @@ function getStatusLabel(status: string) {
   }
 }
 
+function getModelSourceLabel(source: 'deployment' | 'agent' | 'recent_run' | 'default' | null) {
+  switch (source) {
+    case 'deployment':
+      return 'override deployment';
+    case 'agent':
+      return 'agent default';
+    case 'recent_run':
+      return 'restored from recent run';
+    case 'default':
+      return 'system fallback';
+    default:
+      return null;
+  }
+}
+
 function MetricCell({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border bg-background px-4 py-3">
@@ -179,7 +194,15 @@ export function AdminRuntimesPage() {
                         <p>Runtime: {item.runtime}, entrypoint: {item.entrypoint ?? '—'}</p>
                         <p>Chat: {item.chat_title}</p>
                         <p>Linked agent: {item.linked_agent_name ?? '—'}</p>
-                        <p>Model: {item.runtime_model_external_id ?? '-'}</p>
+                        <p>
+                          Model: {item.effective_model_external_id ?? item.runtime_model_external_id ?? '-'}
+                          {getModelSourceLabel(item.effective_model_source) ? ` (${getModelSourceLabel(item.effective_model_source)})` : ''}
+                        </p>
+                        {item.model_external_id ? (
+                          <p>Saved override: {item.model_external_id}</p>
+                        ) : item.linked_agent_model_external_id ? (
+                          <p>Agent default model: {item.linked_agent_model_external_id}</p>
+                        ) : null}
                         <p className="break-all">Webhook URL: {item.webhook_url}</p>
                       </div>
                     </div>
