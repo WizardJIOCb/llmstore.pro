@@ -1762,6 +1762,9 @@ export function ChatMessage({
     () => getProjectDeploymentModelOptions(projectDeploymentModelExternalId),
     [projectDeploymentModelExternalId],
   );
+  const projectDeploymentSavedModelExternalId = (projectDeployment?.model_external_id ?? '').trim();
+  const projectDeploymentDraftModelExternalId = projectDeploymentModelExternalId.trim();
+  const projectDeploymentModelDirty = projectDeploymentSavedModelExternalId !== projectDeploymentDraftModelExternalId;
   const editorBusy = editorSaving || editorExporting;
   const messageActionBusy = deletingMessage || editingMessage;
   const canManagePublishedLanding = Boolean(resolvedHtmlPreview && (onPublishLanding || onUpdateLanding || onUnpublishLanding));
@@ -2230,7 +2233,7 @@ export function ChatMessage({
     }
   };
 
-  const saveProjectDeployment = async () => {
+  const saveProjectDeployment = async (options?: { closeEditor?: boolean; successMessage?: string }) => {
     if (!onUpsertProjectDeployment) return;
 
     setProjectDeploying(true);
@@ -2244,17 +2247,31 @@ export function ChatMessage({
         set_telegram_webhook: projectDeploymentSetTelegramWebhook,
       });
       setProjectDeployment(deployment);
-      setProjectDeploymentEditorOpen(false);
       setProjectDeploymentStatus(
-        projectDeploymentSetTelegramWebhook
-          ? 'Webhook-проект развернут, и Telegram webhook установлен'
-          : 'Webhook-проект развернут и готов принимать запросы',
+        options?.successMessage
+          ?? (
+            projectDeploymentSetTelegramWebhook
+              ? 'Webhook-проект развернут, и Telegram webhook установлен'
+              : 'Webhook-проект развернут и готов принимать запросы'
+          ),
       );
+      if (options?.closeEditor) {
+        setProjectDeploymentEditorOpen(false);
+      }
     } catch (error) {
       setProjectDeploymentError(error instanceof Error ? error.message : 'Не удалось развернуть webhook-проект');
     } finally {
       setProjectDeploying(false);
     }
+  };
+
+  const saveProjectDeploymentModel = async () => {
+    await saveProjectDeployment({
+      closeEditor: false,
+      successMessage: projectDeploymentDraftModelExternalId
+        ? 'Модель runtime обновлена'
+        : 'Модель runtime переведена в режим наследования от агента',
+    });
   };
 
   const startProjectDeployment = async () => {
@@ -2810,6 +2827,34 @@ export function ChatMessage({
                               <p className="whitespace-pre-wrap text-xs text-rose-600">
                                 {projectDeployment.last_error}
                               </p>
+                            )}
+                            {canManageDeployment && projectDeployment.linked_agent_id && (
+                              <div className="mt-3 space-y-2 rounded-md border border-border/60 bg-muted/20 p-3">
+                                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                                  Модель runtime
+                                </p>
+                                <div className="flex flex-col gap-2 sm:flex-row">
+                                  <Select
+                                    value={projectDeploymentModelExternalId}
+                                    onChange={(e) => setProjectDeploymentModelExternalId(e.target.value)}
+                                    options={projectDeploymentModelOptions}
+                                    className="h-9 sm:flex-1"
+                                  />
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="whitespace-nowrap"
+                                    onClick={() => { void saveProjectDeploymentModel(); }}
+                                    disabled={projectDeploying || !projectDeploymentModelDirty}
+                                  >
+                                    {projectDeploying ? 'Сохраняю...' : 'Сохранить модель'}
+                                  </Button>
+                                </div>
+                                <p className="text-xs text-muted-foreground">
+                                  Можно быстро переключить модель для этого runtime прямо из чата, не меняя настройки самого агента.
+                                </p>
+                              </div>
                             )}
                           </div>
                           <div className="flex flex-wrap gap-2">
@@ -3444,7 +3489,7 @@ export function ChatMessage({
               <Button
                 type="button"
                 size="sm"
-                onClick={() => { void saveProjectDeployment(); }}
+                onClick={() => { void saveProjectDeployment({ closeEditor: true }); }}
                 disabled={projectDeploying}
               >
                 {projectDeploying ? 'Разворачиваю...' : 'Развернуть'}
