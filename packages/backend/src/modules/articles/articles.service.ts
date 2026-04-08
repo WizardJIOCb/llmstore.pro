@@ -110,14 +110,15 @@ function buildPersonalizedBonusExpression(preferences: ViewerPreferenceSignals):
 
 function buildScoreExpression(sort: SortMode, personalizedBonus?: SQL<number>): SQL<number> {
   const periodStart = buildPeriodStartDate(sort);
+  const periodStartTimestamp = periodStart ? `${periodStart}T00:00:00.000Z` : null;
   const commentsFilter = periodStart
-    ? sql`and ${catalogComments.created_at} >= ${new Date(`${periodStart}T00:00:00.000Z`)}`
+    ? sql`and ${catalogComments.created_at} >= ${periodStartTimestamp}`
     : sql``;
   const reactionsFilter = periodStart
-    ? sql`and ${catalogItemReactions.created_at} >= ${new Date(`${periodStart}T00:00:00.000Z`)}`
+    ? sql`and ${catalogItemReactions.created_at} >= ${periodStartTimestamp}`
     : sql``;
   const bookmarksFilter = periodStart
-    ? sql`and ${catalogItemBookmarks.created_at} >= ${new Date(`${periodStart}T00:00:00.000Z`)}`
+    ? sql`and ${catalogItemBookmarks.created_at} >= ${periodStartTimestamp}`
     : sql``;
   const viewsFilter = periodStart
     ? sql`and ${catalogItemViewEvents.viewed_on} >= ${periodStart}`
