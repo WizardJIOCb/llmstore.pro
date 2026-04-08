@@ -3,11 +3,12 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { Bookmark, Clock, Eye, Flag, Heart, MessageSquare } from 'lucide-react';
 import { useCatalogItemBySlug } from '../../hooks/useCatalog';
-import { useArticleBookmark, useArticleBySlug, useArticleReaction, useArticleReport } from '../../hooks/useArticles';
+import { useArticleBookmark, useArticleBySlug, useArticlePollVote, useArticleReaction, useArticleReport } from '../../hooks/useArticles';
 import { useCreateArticleComment, useDeleteArticleComment, useArticleComments } from '../../hooks/useComments';
 import { useCreateChat, usePublicAgentChats } from '../../hooks/useChats';
 import { useAuth } from '../../hooks/useAuth';
 import { CatalogCard } from '../../components/catalog/CatalogCard';
+import { extractArticlePollResult } from '../../components/articles/articlePoll';
 import { CommentsSection } from '../../components/comments/CommentsSection';
 import { UserLink } from '../../components/users/UserLink';
 import { Badge, Button, Select, Skeleton, Textarea } from '../../components/ui';
@@ -113,6 +114,7 @@ export function ArticleDetailPage() {
   const deleteComment = useDeleteArticleComment(slug ?? '');
   const reactionMutation = useArticleReaction(slug ?? '');
   const bookmarkMutation = useArticleBookmark(slug ?? '');
+  const pollVoteMutation = useArticlePollVote(slug ?? '');
   const reportMutation = useArticleReport(slug ?? '');
 
   if (isLoading) {
@@ -140,6 +142,7 @@ export function ArticleDetailPage() {
   }
 
   const meta = item.meta_full;
+  const articlePoll = extractArticlePollResult(meta.metadata_json);
   const relatedHref = (type: string, itemSlug: string) => (type === 'guide' ? `/guides/${itemSlug}` : `/articles/${itemSlug}`);
   const primaryCta = draftPrimaryCta;
   const secondaryCta = draftSecondaryCta;
@@ -552,6 +555,73 @@ export function ArticleDetailPage() {
                         </a>
                       )}
                     </div>
+                  )}
+                </div>
+              )}
+
+              {articlePoll && (
+                <div className="mt-10 rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                      <p className="text-sm uppercase tracking-[0.16em] text-slate-400">Голосование</p>
+                      <h3 className="mt-2 text-xl font-semibold text-slate-950">{articlePoll.question}</h3>
+                    </div>
+                    <p className="text-sm text-slate-500">
+                      {formatCount(articlePoll.total_votes)} голосов
+                    </p>
+                  </div>
+
+                  <div className="mt-5 space-y-3">
+                    {articlePoll.options.map((option) => {
+                      const isSelected = articlePoll.voted_option_id === option.id;
+
+                      return (
+                        <button
+                          key={option.id}
+                          type="button"
+                          disabled={pollVoteMutation.isPending}
+                          onClick={() => {
+                            if (!isAuthenticated) {
+                              navigate(`/login?next=${encodeURIComponent(window.location.href)}`);
+                              return;
+                            }
+
+                            void pollVoteMutation.mutateAsync({ option_id: option.id });
+                          }}
+                          className={`w-full overflow-hidden rounded-2xl border text-left transition ${
+                            isSelected
+                              ? 'border-sky-300 bg-sky-50'
+                              : 'border-slate-200 bg-slate-50 hover:border-slate-300 hover:bg-white'
+                          }`}
+                        >
+                          <div
+                            className="h-full"
+                            style={{
+                              background: `linear-gradient(90deg, rgba(14, 165, 233, 0.14) ${option.share_percent}%, rgba(255,255,255,0) ${option.share_percent}%)`,
+                            }}
+                          >
+                            <div className="flex items-center justify-between gap-4 px-4 py-4">
+                              <div>
+                                <p className="font-medium text-slate-900">{option.text}</p>
+                                {isSelected && (
+                                  <p className="mt-1 text-sm text-sky-700">Ваш выбор</p>
+                                )}
+                              </div>
+                              <div className="text-right text-sm text-slate-500">
+                                <p className="font-medium text-slate-900">{option.share_percent}%</p>
+                                <p>{formatCount(option.votes_count)}</p>
+                              </div>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {!isAuthenticated && (
+                    <Link to={`/login?next=${encodeURIComponent(window.location.href)}`} className="mt-4 inline-block text-sm font-medium text-primary hover:underline">
+                      Войдите, чтобы проголосовать
+                    </Link>
                   )}
                 </div>
               )}

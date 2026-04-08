@@ -50,6 +50,7 @@ const articleMetaSchema = z.object({
   secondary_cta_label: z.string().trim().max(80).nullable().optional(),
   secondary_cta_url: urlOrAppPathSchema.nullable().optional(),
   reading_time_minutes: z.number().int().min(1).max(240).nullable().optional(),
+  metadata_json: z.record(z.unknown()).nullable().optional(),
 });
 
 const articleTaxonomySchema = z.object({
@@ -79,12 +80,18 @@ export const articleReportSchema = z.object({
   details: z.string().trim().max(1500).optional(),
 });
 
+export const articlePollVoteSchema = z.object({
+  option_id: z.string().trim().min(1).max(120),
+});
+
 export const validateArticleListQuery = validate(articleListQuerySchema, 'query');
 export const validateArticleParams = validate(articleParamsSchema, 'params');
 export const validateArticleIdParams = validate(articleIdParamsSchema, 'params');
 export const validateUpsertArticle = validate(upsertArticleSchema, 'body');
 export const validateArticleReport = validate(articleReportSchema, 'body');
+export const validateArticlePollVote = validate(articlePollVoteSchema, 'body');
 
 export type ArticleListQueryInput = z.infer<typeof articleListQuerySchema>;
 export type UpsertArticleInput = z.infer<typeof upsertArticleSchema>;
 export type ArticleReportInput = z.infer<typeof articleReportSchema>;
+export type ArticlePollVoteInput = z.infer<typeof articlePollVoteSchema>;

@@ -5,6 +5,7 @@ import {
   catalogItemBookmarks,
   catalogItemCategories,
   catalogItemMeta,
+  catalogItemPollVotes,
   catalogItemReactions,
   catalogItemReports,
   catalogItems,
@@ -19,7 +20,8 @@ import {
 import type { CatalogItemCard, CatalogItemFull, CatalogItemMeta, CategorySlim, TagSlim, UseCaseSlim, UserSlim } from '@llmstore/shared';
 import { generateSlug } from '@llmstore/shared/utils';
 import { AppError, ConflictError, NotFoundError } from '../../middleware/error-handler.js';
-import type { ArticleListQueryInput, ArticleReportInput, UpsertArticleInput } from './articles.validators.js';
+import { buildArticlePollView, extractArticlePollConfig } from '../../lib/article-polls.js';
+import type { ArticleListQueryInput, ArticlePollVoteInput, ArticleReportInput, UpsertArticleInput } from './articles.validators.js';
 
 const ARTICLE_TYPE = 'article';
 
@@ -402,6 +404,45 @@ async function loadViewCountsSince(itemIds: string[], viewedOnFrom: string): Pro
   return new Map(rows.map((row) => [row.item_id, row.count]));
 }
 
+async function loadPollVoteCounts(itemId: string, optionIds: string[]): Promise<Map<string, number>> {
+  if (optionIds.length === 0) {
+    return new Map();
+  }
+
+  const rows = await db
+    .select({
+      option_id: catalogItemPollVotes.option_id,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(catalogItemPollVotes)
+    .where(and(
+      eq(catalogItemPollVotes.item_id, itemId),
+      inArray(catalogItemPollVotes.option_id, optionIds),
+    ))
+    .groupBy(catalogItemPollVotes.option_id);
+
+  return new Map(rows.map((row) => [row.option_id, row.count]));
+}
+
+async function loadUserPollVote(itemId: string, userId?: string | null): Promise<string | null> {
+  if (!userId) {
+    return null;
+  }
+
+  const [row] = await db
+    .select({
+      option_id: catalogItemPollVotes.option_id,
+    })
+    .from(catalogItemPollVotes)
+    .where(and(
+      eq(catalogItemPollVotes.item_id, itemId),
+      eq(catalogItemPollVotes.user_id, userId),
+    ))
+    .limit(1);
+
+  return row?.option_id ?? null;
+}
+
 async function loadAuthors(userIds: string[]): Promise<Map<string, UserSlim>> {
   if (userIds.length === 0) return new Map();
 
@@ -583,6 +624,7 @@ function normalizeArticlePayload(input: UpsertArticleInput) {
       secondary_cta_label: input.meta.secondary_cta_label ?? null,
       secondary_cta_url: input.meta.secondary_cta_url ?? null,
       reading_time_minutes: input.meta.reading_time_minutes ?? null,
+      metadata_json: input.meta.metadata_json ?? null,
     } : null,
   };
 }
@@ -784,10 +826,26 @@ export async function getArticleBySlug(slug: string, viewer: ViewerContext): Pro
   ]);
 
   const fullMeta = metaMap.get(row.id) ?? emptyMeta;
+  const pollConfig = extractArticlePollConfig(fullMeta.metadata_json);
+  const [pollCountsByOptionId, votedPollOptionId] = pollConfig
+    ? await Promise.all([
+      loadPollVoteCounts(row.id, pollConfig.options.map((option) => option.id)),
+      loadUserPollVote(row.id, viewer.userId),
+    ])
+    : [new Map<string, number>(), null];
   const likesCount = likesMap.get(row.id) ?? 0;
   const bookmarksCount = bookmarksMap.get(row.id) ?? 0;
   const commentsCount = commentsMap.get(row.id) ?? 0;
   const rankingScore = likesCount * 8 + commentsCount * 12 + bookmarksCount * 10 + viewsCount * 1.5 + (row.featured ? 40 : 0) + (row.curated_score * 0.5);
+  const metaFull: CatalogItemMeta = {
+    ...fullMeta,
+    metadata_json: pollConfig
+      ? {
+        ...(fullMeta.metadata_json ?? {}),
+        poll: buildArticlePollView(pollConfig, pollCountsByOptionId, votedPollOptionId),
+      }
+      : fullMeta.metadata_json,
+  };
 
   return {
     id: row.id,
@@ -820,7 +878,7 @@ export async function getArticleBySlug(slug: string, viewer: ViewerContext): Pro
     },
     published_at: row.published_at?.toISOString() ?? null,
     author,
-    meta_full: fullMeta,
+    meta_full: metaFull,
     use_cases: useCasesMap.get(row.id) ?? [],
     related_items: relatedRows.map((item) => toPublicCard(item as any, {
       tagsMap: relatedTagsMap,
@@ -918,6 +976,43 @@ export async function unbookmarkArticle(slug: string, userId: string) {
   return {
     bookmarks_count: countRow?.count ?? 0,
     bookmarked_by_me: false,
+  };
+}
+
+export async function voteArticlePoll(slug: string, userId: string, input: ArticlePollVoteInput) {
+  const itemId = await resolvePublishedArticleId(slug);
+  const metaMap = await loadMetaForItems([itemId]);
+  const meta = metaMap.get(itemId) ?? emptyMeta;
+  const pollConfig = extractArticlePollConfig(meta.metadata_json);
+
+  if (!pollConfig) {
+    throw new AppError(404, 'NOT_FOUND', 'Голосование для этой статьи не найдено');
+  }
+
+  const normalizedOptionId = input.option_id.trim();
+  const hasOption = pollConfig.options.some((option) => option.id === normalizedOptionId);
+
+  if (!hasOption) {
+    throw new AppError(400, 'BAD_REQUEST', 'Выбран неверный вариант ответа');
+  }
+
+  await db
+    .insert(catalogItemPollVotes)
+    .values({
+      item_id: itemId,
+      option_id: normalizedOptionId,
+      user_id: userId,
+    })
+    .onConflictDoUpdate({
+      target: [catalogItemPollVotes.item_id, catalogItemPollVotes.user_id],
+      set: {
+        option_id: normalizedOptionId,
+        updated_at: new Date(),
+      },
+    });
+
+  return {
+    submitted: true,
   };
 }
 
@@ -1180,6 +1275,7 @@ export async function getMyArticleById(id: string, userId: string) {
       secondary_cta_label: meta.secondary_cta_label,
       secondary_cta_url: meta.secondary_cta_url,
       reading_time_minutes: meta.reading_time_minutes,
+      metadata_json: meta.metadata_json,
     } : null,
     category_ids: categoryRows.map((item) => item.id),
     tag_ids: tagRows.map((item) => item.id),

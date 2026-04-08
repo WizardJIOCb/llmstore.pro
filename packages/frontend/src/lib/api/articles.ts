@@ -30,6 +30,14 @@ export interface ArticleBookmarkState {
   bookmarked_by_me: boolean;
 }
 
+export interface ArticlePollVotePayload {
+  option_id: string;
+}
+
+export interface ArticlePollVoteState {
+  submitted: boolean;
+}
+
 export interface ArticleReportPayload {
   reason: 'spam' | 'abuse' | 'broken' | 'copyright' | 'other';
   details?: string;
@@ -93,6 +101,7 @@ export interface ArticleEditorRecord {
     secondary_cta_label: string | null;
     secondary_cta_url: string | null;
     reading_time_minutes: number | null;
+    metadata_json: Record<string, unknown> | null;
   } | null;
   category_ids: string[];
   tag_ids: string[];
@@ -120,6 +129,7 @@ export interface UpsertArticlePayload {
     secondary_cta_label?: string | null;
     secondary_cta_url?: string | null;
     reading_time_minutes?: number | null;
+    metadata_json?: Record<string, unknown> | null;
   };
   category_ids?: string[];
   tag_ids?: string[];
@@ -144,6 +154,9 @@ export const articlesApi = {
 
   unbookmark: (slug: string) =>
     apiClient.delete<{ data: ArticleBookmarkState }>(`/articles/${slug}/bookmark`).then((response) => response.data.data),
+
+  vote: (slug: string, payload: ArticlePollVotePayload) =>
+    apiClient.post<{ data: ArticlePollVoteState }>(`/articles/${slug}/poll/vote`, payload).then((response) => response.data.data),
 
   report: (slug: string, payload: ArticleReportPayload) =>
     apiClient.post<{ data: { submitted: boolean } }>(`/articles/${slug}/report`, payload).then((response) => response.data.data),
@@ -171,6 +184,16 @@ export const articlesApi = {
     formData.append('image', file);
     return apiClient
       .post<{ data: UploadedArticleImage }>('/articles/upload/hero', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      .then((response) => response.data.data);
+  },
+
+  uploadImage: (file: File) => {
+    const formData = new FormData();
+    formData.append('image', file);
+    return apiClient
+      .post<{ data: UploadedArticleImage }>('/articles/upload/image', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
       .then((response) => response.data.data);

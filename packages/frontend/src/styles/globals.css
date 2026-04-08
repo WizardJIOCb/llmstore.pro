@@ -372,11 +372,46 @@
     max-width: 100%;
   }
 
+  .article-editor-content .article-video-embed,
+  .article-rich .article-video-embed {
+    position: relative;
+    margin: 1.6rem 0;
+    overflow: hidden;
+    border-radius: 1.5rem;
+    border: 1px solid rgb(226 232 240);
+    background: rgb(15 23 42);
+    padding-top: 56.25%;
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.12);
+  }
+
+  .article-editor-content .article-video-embed iframe,
+  .article-rich .article-video-embed iframe {
+    position: absolute;
+    inset: 0;
+    height: 100%;
+    width: 100%;
+    border: 0;
+  }
+
   .article-editor-content .ProseMirror a,
   .article-rich .ProseMirror a {
     color: rgb(37 99 235);
     text-decoration: underline;
     text-underline-offset: 4px;
+  }
+
+  .article-rich-content a {
+    color: rgb(96 139 201);
+    text-decoration: underline;
+    text-decoration-color: rgb(147 197 253);
+    text-decoration-thickness: 1px;
+    text-underline-offset: 4px;
+    transition: color 180ms ease, text-decoration-color 180ms ease;
+  }
+
+  .article-rich-content a:hover {
+    color: rgb(59 130 246);
+    text-decoration-color: rgb(96 165 250);
   }
 }
 

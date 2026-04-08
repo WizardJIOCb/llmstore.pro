@@ -4,11 +4,24 @@ import { generateSlug } from '@llmstore/shared/utils';
 import { AdminLayout } from '../../components/admin/AdminLayout';
 import { TiptapArticleEditor } from '../../components/articles/TiptapArticleEditor';
 import { createEmptyArticleDoc } from '../../components/articles/tiptapArticleConfig';
+import {
+  buildArticleMetadataJsonWithPoll,
+  createEditablePollOption,
+  extractEditableArticlePoll,
+} from '../../components/articles/articlePoll';
 import { Button, Input, Select, Spinner, Textarea } from '../../components/ui';
 import { useAdminItem, useCreateItem, useUpdateItem } from '../../hooks/useAdmin';
 import { useUploadArticleHeroImage } from '../../hooks/useArticles';
 import { useCategories, useTags, useUseCases } from '../../hooks/useTaxonomy';
-import { itemStatusLabels } from '../../lib/label-maps';
+import {
+  deploymentTypeLabels,
+  difficultyLabels,
+  itemStatusLabels,
+  languageSupportLabels,
+  pricingTypeLabels,
+  privacyTypeLabels,
+  readinessLabels,
+} from '../../lib/label-maps';
 
 const visibilityOptions = [
   { value: 'public', label: 'Публичная' },
@@ -61,15 +74,30 @@ export function AdminArticleFormPage() {
     category_ids: [] as string[],
     tag_ids: [] as string[],
     use_case_ids: [] as string[],
+    pricing_type: '',
+    deployment_type: '',
+    privacy_type: '',
+    language_support: '',
+    difficulty: '',
+    readiness: '',
+    vendor_name: '',
+    source_url: '',
+    docs_url: '',
+    github_url: '',
+    website_url: '',
     primary_cta_label: '',
     primary_cta_url: '',
     secondary_cta_label: '',
     secondary_cta_url: '',
     reading_time_minutes: '6',
+    metadata_json: null as Record<string, unknown> | null,
+    poll_question: '',
+    poll_options: [createEditablePollOption(), createEditablePollOption()],
   });
 
   useEffect(() => {
     if (!existingItem) return;
+    const existingPoll = extractEditableArticlePoll(existingItem.meta?.metadata_json);
 
     setForm({
       type: 'article',
@@ -87,11 +115,25 @@ export function AdminArticleFormPage() {
       category_ids: existingItem.category_ids ?? [],
       tag_ids: existingItem.tag_ids ?? [],
       use_case_ids: existingItem.use_case_ids ?? [],
+      pricing_type: existingItem.meta?.pricing_type ?? '',
+      deployment_type: existingItem.meta?.deployment_type ?? '',
+      privacy_type: existingItem.meta?.privacy_type ?? '',
+      language_support: existingItem.meta?.language_support ?? '',
+      difficulty: existingItem.meta?.difficulty ?? '',
+      readiness: existingItem.meta?.readiness ?? '',
+      vendor_name: existingItem.meta?.vendor_name ?? '',
+      source_url: existingItem.meta?.source_url ?? '',
+      docs_url: existingItem.meta?.docs_url ?? '',
+      github_url: existingItem.meta?.github_url ?? '',
+      website_url: existingItem.meta?.website_url ?? '',
       primary_cta_label: existingItem.meta?.primary_cta_label ?? '',
       primary_cta_url: existingItem.meta?.primary_cta_url ?? '',
       secondary_cta_label: existingItem.meta?.secondary_cta_label ?? '',
       secondary_cta_url: existingItem.meta?.secondary_cta_url ?? '',
       reading_time_minutes: existingItem.meta?.reading_time_minutes ? String(existingItem.meta.reading_time_minutes) : '6',
+      metadata_json: existingItem.meta?.metadata_json ?? null,
+      poll_question: existingPoll?.question ?? '',
+      poll_options: existingPoll?.options ?? [createEditablePollOption(), createEditablePollOption()],
     });
     setSlugTouched(true);
   }, [existingItem]);
@@ -124,11 +166,26 @@ export function AdminArticleFormPage() {
     tag_ids: form.tag_ids,
     use_case_ids: form.use_case_ids,
     meta: {
+      pricing_type: form.pricing_type || null,
+      deployment_type: form.deployment_type || null,
+      privacy_type: form.privacy_type || null,
+      language_support: form.language_support || null,
+      difficulty: form.difficulty || null,
+      readiness: form.readiness || null,
+      vendor_name: form.vendor_name.trim() || null,
+      source_url: form.source_url.trim() || null,
+      docs_url: form.docs_url.trim() || null,
+      github_url: form.github_url.trim() || null,
+      website_url: form.website_url.trim() || null,
       primary_cta_label: form.primary_cta_label.trim() || null,
       primary_cta_url: form.primary_cta_url.trim() || null,
       secondary_cta_label: form.secondary_cta_label.trim() || null,
       secondary_cta_url: form.secondary_cta_url.trim() || null,
       reading_time_minutes: Number(form.reading_time_minutes) || null,
+      metadata_json: buildArticleMetadataJsonWithPoll(form.metadata_json, {
+        question: form.poll_question,
+        options: form.poll_options,
+      }),
     },
   }), [form]);
 
@@ -142,6 +199,29 @@ export function AdminArticleFormPage() {
       [field]: current[field].includes(value)
         ? current[field].filter((item) => item !== value)
         : [...current[field], value],
+    }));
+  };
+
+  const updatePollOption = (optionId: string, text: string) => {
+    setForm((current) => ({
+      ...current,
+      poll_options: current.poll_options.map((option) => (
+        option.id === optionId ? { ...option, text } : option
+      )),
+    }));
+  };
+
+  const addPollOption = () => {
+    setForm((current) => ({
+      ...current,
+      poll_options: [...current.poll_options, createEditablePollOption()],
+    }));
+  };
+
+  const removePollOption = (optionId: string) => {
+    setForm((current) => ({
+      ...current,
+      poll_options: current.poll_options.filter((option) => option.id !== optionId),
     }));
   };
 
@@ -335,6 +415,56 @@ export function AdminArticleFormPage() {
           </section>
 
           <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="mb-4">
+              <h3 className="text-xl font-semibold text-slate-950">Голосование внизу статьи</h3>
+              <p className="mt-1 text-sm text-slate-500">
+                Опрос показывается внизу статьи перед комментариями и помогает собрать быстрый отклик от читателей.
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">Вопрос</label>
+                <Input
+                  value={form.poll_question}
+                  onChange={(event) => updateField('poll_question', event.target.value)}
+                  placeholder="Например: какой формат агента вам сейчас интереснее всего?"
+                />
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <label className="block text-sm font-medium text-slate-700">Варианты ответа</label>
+                  <Button type="button" variant="outline" size="sm" onClick={addPollOption}>
+                    Добавить вариант
+                  </Button>
+                </div>
+
+                {form.poll_options.map((option, index) => (
+                  <div key={option.id} className="flex items-center gap-3">
+                    <div className="w-full">
+                      <Input
+                        value={option.text}
+                        onChange={(event) => updatePollOption(option.id, event.target.value)}
+                        placeholder={`Вариант ${index + 1}`}
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={form.poll_options.length <= 2}
+                      onClick={() => removePollOption(option.id)}
+                    >
+                      Убрать
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
             <h3 className="text-lg font-semibold text-slate-950">Категории и теги</h3>
 
             <div className="mt-4">
@@ -394,6 +524,106 @@ export function AdminArticleFormPage() {
                     {useCase.name}
                   </button>
                 ))}
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+            <h3 className="text-lg font-semibold text-slate-950">Характеристики</h3>
+            <div className="mt-4 grid gap-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">Цена</label>
+                <Select
+                  options={toOptions(pricingTypeLabels)}
+                  placeholder="—"
+                  value={form.pricing_type}
+                  onChange={(event) => updateField('pricing_type', event.target.value)}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">Deploy</label>
+                <Select
+                  options={toOptions(deploymentTypeLabels)}
+                  placeholder="—"
+                  value={form.deployment_type}
+                  onChange={(event) => updateField('deployment_type', event.target.value)}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">Приватность</label>
+                <Select
+                  options={toOptions(privacyTypeLabels)}
+                  placeholder="—"
+                  value={form.privacy_type}
+                  onChange={(event) => updateField('privacy_type', event.target.value)}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">Язык</label>
+                <Select
+                  options={toOptions(languageSupportLabels)}
+                  placeholder="—"
+                  value={form.language_support}
+                  onChange={(event) => updateField('language_support', event.target.value)}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">Уровень</label>
+                <Select
+                  options={toOptions(difficultyLabels)}
+                  placeholder="—"
+                  value={form.difficulty}
+                  onChange={(event) => updateField('difficulty', event.target.value)}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">Готовность</label>
+                <Select
+                  options={toOptions(readinessLabels)}
+                  placeholder="—"
+                  value={form.readiness}
+                  onChange={(event) => updateField('readiness', event.target.value)}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">Источник</label>
+                <Input
+                  value={form.vendor_name}
+                  onChange={(event) => updateField('vendor_name', event.target.value)}
+                  placeholder="LLMStore.pro"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">Ссылка на источник</label>
+                <Input
+                  value={form.source_url}
+                  onChange={(event) => updateField('source_url', event.target.value)}
+                  placeholder="https://..."
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">Сайт</label>
+                <Input
+                  value={form.website_url}
+                  onChange={(event) => updateField('website_url', event.target.value)}
+                  placeholder="https://..."
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">Документация</label>
+                <Input
+                  value={form.docs_url}
+                  onChange={(event) => updateField('docs_url', event.target.value)}
+                  placeholder="https://..."
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">GitHub</label>
+                <Input
+                  value={form.github_url}
+                  onChange={(event) => updateField('github_url', event.target.value)}
+                  placeholder="https://github.com/..."
+                />
               </div>
             </div>
           </section>

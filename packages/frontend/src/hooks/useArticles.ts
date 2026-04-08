@@ -1,5 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { articlesApi, type ArticleReportPayload, type ArticlesListParams, type UpsertArticlePayload } from '../lib/api/articles';
+import {
+  articlesApi,
+  type ArticlePollVotePayload,
+  type ArticleReportPayload,
+  type ArticlesListParams,
+  type UpsertArticlePayload,
+} from '../lib/api/articles';
 
 export function useArticlesList(params: ArticlesListParams) {
   return useQuery({
@@ -57,6 +63,18 @@ export function useArticleReport(slug: string) {
     mutationFn: (payload: ArticleReportPayload) => articlesApi.report(slug, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['articles'] });
+    },
+  });
+}
+
+export function useArticlePollVote(slug: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: ArticlePollVotePayload) => articlesApi.vote(slug, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['articles'] });
+      queryClient.invalidateQueries({ queryKey: ['catalog'] });
     },
   });
 }
@@ -123,5 +141,11 @@ export function useUpdateArticle() {
 export function useUploadArticleHeroImage() {
   return useMutation({
     mutationFn: (file: File) => articlesApi.uploadHeroImage(file),
+  });
+}
+
+export function useUploadArticleImage() {
+  return useMutation({
+    mutationFn: (file: File) => articlesApi.uploadImage(file),
   });
 }

@@ -159,3 +159,16 @@ export const catalogItemViewEvents = pgTable('catalog_item_view_events', {
   index('catalog_item_view_events_item_viewed_on_idx').on(table.item_id, table.viewed_on),
   index('catalog_item_view_events_user_idx').on(table.user_id),
 ]);
+
+export const catalogItemPollVotes = pgTable('catalog_item_poll_votes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  item_id: uuid('item_id').notNull().references(() => catalogItems.id, { onDelete: 'cascade' }),
+  option_id: varchar('option_id', { length: 120 }).notNull(),
+  user_id: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+}, (table) => [
+  uniqueIndex('catalog_item_poll_votes_item_user_idx').on(table.item_id, table.user_id),
+  index('catalog_item_poll_votes_item_option_idx').on(table.item_id, table.option_id),
+  index('catalog_item_poll_votes_user_idx').on(table.user_id),
+]);

@@ -4,6 +4,11 @@ import { generateSlug } from '@llmstore/shared/utils';
 import { useCategories, useTags, useUseCases } from '../../hooks/useTaxonomy';
 import { useCreateArticle, useMyArticle, useUpdateArticle, useUploadArticleHeroImage } from '../../hooks/useArticles';
 import { TiptapArticleEditor } from '../../components/articles/TiptapArticleEditor';
+import {
+  buildArticleMetadataJsonWithPoll,
+  createEditablePollOption,
+  extractEditableArticlePoll,
+} from '../../components/articles/articlePoll';
 import { Button, Input, Spinner, Textarea } from '../../components/ui';
 
 function emptyDoc() {
@@ -45,10 +50,14 @@ export function ArticleEditorPage() {
     secondary_cta_label: '',
     secondary_cta_url: '',
     reading_time_minutes: '6',
+    metadata_json: null as Record<string, unknown> | null,
+    poll_question: '',
+    poll_options: [createEditablePollOption(), createEditablePollOption()],
   });
 
   useEffect(() => {
     if (!article) return;
+    const existingPoll = extractEditableArticlePoll(article.meta?.metadata_json);
 
     setForm({
       title: article.title ?? '',
@@ -67,6 +76,9 @@ export function ArticleEditorPage() {
       secondary_cta_label: article.meta?.secondary_cta_label ?? '',
       secondary_cta_url: article.meta?.secondary_cta_url ?? '',
       reading_time_minutes: article.meta?.reading_time_minutes ? String(article.meta.reading_time_minutes) : '6',
+      metadata_json: article.meta?.metadata_json ?? null,
+      poll_question: existingPoll?.question ?? '',
+      poll_options: existingPoll?.options ?? [createEditablePollOption(), createEditablePollOption()],
     });
     setSlugTouched(true);
   }, [article]);
@@ -92,6 +104,29 @@ export function ArticleEditorPage() {
     }));
   };
 
+  const updatePollOption = (optionId: string, text: string) => {
+    setForm((current) => ({
+      ...current,
+      poll_options: current.poll_options.map((option) => (
+        option.id === optionId ? { ...option, text } : option
+      )),
+    }));
+  };
+
+  const addPollOption = () => {
+    setForm((current) => ({
+      ...current,
+      poll_options: [...current.poll_options, createEditablePollOption()],
+    }));
+  };
+
+  const removePollOption = (optionId: string) => {
+    setForm((current) => ({
+      ...current,
+      poll_options: current.poll_options.filter((option) => option.id !== optionId),
+    }));
+  };
+
   const payload = useMemo(() => ({
     title: form.title.trim(),
     slug: form.slug.trim(),
@@ -110,6 +145,10 @@ export function ArticleEditorPage() {
       secondary_cta_label: form.secondary_cta_label.trim() || null,
       secondary_cta_url: form.secondary_cta_url.trim() || null,
       reading_time_minutes: Number(form.reading_time_minutes) || null,
+      metadata_json: buildArticleMetadataJsonWithPoll(form.metadata_json, {
+        question: form.poll_question,
+        options: form.poll_options,
+      }),
     },
   }), [form]);
 
@@ -271,6 +310,56 @@ export function ArticleEditorPage() {
           </section>
 
           <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="mb-4">
+              <h2 className="text-xl font-semibold text-slate-950">Голосование внизу статьи</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Задайте вопрос и добавьте варианты ответа. Голосование появится внизу статьи перед комментариями.
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">Вопрос</label>
+                <Input
+                  value={form.poll_question}
+                  onChange={(event) => setForm((current) => ({ ...current, poll_question: event.target.value }))}
+                  placeholder="Например: какой формат новостного агента вам ближе?"
+                />
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <label className="block text-sm font-medium text-slate-700">Варианты ответа</label>
+                  <Button type="button" variant="outline" size="sm" onClick={addPollOption}>
+                    Добавить вариант
+                  </Button>
+                </div>
+
+                {form.poll_options.map((option, index) => (
+                  <div key={option.id} className="flex items-center gap-3">
+                    <div className="w-full">
+                      <Input
+                        value={option.text}
+                        onChange={(event) => updatePollOption(option.id, event.target.value)}
+                        placeholder={`Вариант ${index + 1}`}
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={form.poll_options.length <= 2}
+                      onClick={() => removePollOption(option.id)}
+                    >
+                      Убрать
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
             <h2 className="text-lg font-semibold text-slate-950">Публикация</h2>
             <p className="mt-2 text-sm leading-7 text-slate-500">
               Черновик можно спокойно дополнять позже. Публикация сразу делает статью доступной на витрине и в рейтингах.
@@ -376,7 +465,6 @@ export function ArticleEditorPage() {
               </div>
             </div>
           </section>
-
         </div>
       </div>
     </div>

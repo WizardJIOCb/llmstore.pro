@@ -5,6 +5,7 @@ import Placeholder from '@tiptap/extension-placeholder';
 import Underline from '@tiptap/extension-underline';
 import TextAlign from '@tiptap/extension-text-align';
 import Image from '@tiptap/extension-image';
+import { TiptapVideoEmbed } from './tiptapVideoEmbed';
 
 export function createEmptyArticleDoc() {
   return {
@@ -58,5 +59,6 @@ export function createArticleTiptapExtensions(placeholder?: string) {
         class: 'mx-auto h-auto max-w-full rounded-2xl border border-slate-200 shadow-sm',
       },
     }),
+    TiptapVideoEmbed,
   ];
 }

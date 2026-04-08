@@ -65,6 +65,15 @@ export async function unbookmark(req: Request<{ slug: string }>, res: Response, 
   }
 }
 
+export async function votePoll(req: Request<{ slug: string }>, res: Response, next: NextFunction) {
+  try {
+    const result = await articleService.voteArticlePoll(req.params.slug, req.session.userId!, req.body);
+    res.status(201).json({ data: result });
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function report(req: Request<{ slug: string }>, res: Response, next: NextFunction) {
   try {
     const result = await articleService.reportArticle(req.params.slug, req.session.userId!, req.body);
