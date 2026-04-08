@@ -4,17 +4,19 @@ import { eq } from 'drizzle-orm';
 import { logger } from '../../../lib/logger.js';
 import type { DtfFeedResult, DtfFeedArticle } from '../types.js';
 import { fetchDtfJson } from './dtf-http.js';
+import { buildDtfReactionStats } from './dtf-reactions.js';
 
 const DTF_API_URL = 'https://api.dtf.ru/v2.1/timeline';
-const CACHE_KEY = 'dtf_latest_feed';
+const CACHE_KEY = 'dtf_latest_feed_v2';
 const CACHE_TTL_SEC = 120;
 
 interface DtfFeedRawEntry {
   title?: string;
   url?: string;
   blocks?: Array<{ type?: string; data?: { text?: string } }>;
-  counters?: { comments?: number };
+  counters?: { comments?: number; reactions?: number };
   likes?: { counterLikes?: number } | number;
+  reactions?: { counters?: Array<{ id?: number; count?: number }> };
   subsite?: { name?: string };
   author?: { name?: string };
 }
@@ -115,10 +117,11 @@ export async function executeDtfFeed(input: { limit?: number }): Promise<DtfFeed
     // Extract stats
     const counters = entry.counters || {};
     const comments_count: number = counters.comments ?? 0;
-    const likesObj = entry.likes;
-    const likes_count: number = (typeof likesObj === 'object' && likesObj !== null)
-      ? (likesObj.counterLikes ?? 0)
-      : 0;
+    const reactionStats = buildDtfReactionStats({
+      counters,
+      reactions: entry.reactions,
+      likes: entry.likes,
+    });
 
     // Extract snippet from first text block
     let snippet = '';
@@ -137,7 +140,9 @@ export async function executeDtfFeed(input: { limit?: number }): Promise<DtfFeed
         author,
         snippet,
         comments_count,
-        likes_count,
+        reactions_count: reactionStats.reactions_count,
+        reaction_breakdown: reactionStats.reaction_breakdown,
+        reactions_summary: reactionStats.reactions_summary,
       });
     }
   }

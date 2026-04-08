@@ -4,7 +4,13 @@ export interface DtfFeedArticle {
   author: string;
   snippet: string;
   comments_count: number;
-  likes_count: number;
+  reactions_count: number;
+  reaction_breakdown: Array<{
+    id: number;
+    label: string;
+    count: number;
+  }>;
+  reactions_summary: string;
 }
 
 export interface DtfFeedResult {
@@ -18,7 +24,13 @@ export interface DtfPopularArticle {
   author: string;
   snippet: string;
   comments_count: number;
-  likes_count: number;
+  reactions_count: number;
+  reaction_breakdown: Array<{
+    id: number;
+    label: string;
+    count: number;
+  }>;
+  reactions_summary: string;
   favorites_count: number;
 }
 

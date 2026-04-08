@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import { logger } from '../../../lib/logger.js';
 import type { DtfPopularResult, DtfPopularArticle } from '../types.js';
 import { fetchDtfJson } from './dtf-http.js';
+import { buildDtfReactionStats } from './dtf-reactions.js';
 
 const DTF_API_URL = 'https://api.dtf.ru/v2.1/timeline';
 const CACHE_TTL_SEC = 300;
@@ -25,7 +26,7 @@ interface ParsedEntry extends DtfPopularArticle {
 }
 
 function cacheKey(sorting: string): string {
-  return `dtf_popular_${sorting}`;
+  return `dtf_popular_v2_${sorting}`;
 }
 
 async function getCached(sorting: string, includeExpired = false): Promise<CachedData | null> {
@@ -70,8 +71,9 @@ interface RawEntry {
   url?: string;
   date?: number;
   blocks?: Array<{ type: string; data?: { text?: string } }>;
-  counters?: { comments?: number; favorites?: number };
+  counters?: { comments?: number; favorites?: number; reactions?: number };
   likes?: { counterLikes?: number } | number;
+  reactions?: { counters?: Array<{ id?: number; count?: number }> };
   subsite?: { name?: string };
   author?: { name?: string };
 }
@@ -91,10 +93,11 @@ function extractEntry(raw: RawEntry): ParsedEntry | null {
   const counters = raw.counters || {};
   const comments_count = counters.comments ?? 0;
   const favorites_count = counters.favorites ?? 0;
-  const likesObj = raw.likes;
-  const likes_count = (typeof likesObj === 'object' && likesObj !== null)
-    ? (likesObj.counterLikes ?? 0)
-    : 0;
+  const reactionStats = buildDtfReactionStats({
+    counters,
+    reactions: raw.reactions,
+    likes: raw.likes,
+  });
 
   let snippet = '';
   const blocks = raw.blocks || [];
@@ -111,7 +114,9 @@ function extractEntry(raw: RawEntry): ParsedEntry | null {
     author,
     snippet,
     comments_count,
-    likes_count,
+    reactions_count: reactionStats.reactions_count,
+    reaction_breakdown: reactionStats.reaction_breakdown,
+    reactions_summary: reactionStats.reactions_summary,
     favorites_count,
     _date: raw.date ?? 0,
   };

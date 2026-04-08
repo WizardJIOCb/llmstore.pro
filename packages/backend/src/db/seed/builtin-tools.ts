@@ -198,7 +198,19 @@ const builtinTools = [
               author: { type: 'string' },
               snippet: { type: 'string' },
               comments_count: { type: 'number' },
-              likes_count: { type: 'number' },
+              reactions_count: { type: 'number' },
+              reactions_summary: { type: 'string' },
+              reaction_breakdown: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'number' },
+                    label: { type: 'string' },
+                    count: { type: 'number' },
+                  },
+                },
+              },
             },
           },
         },
@@ -273,7 +285,19 @@ const builtinTools = [
               author: { type: 'string' },
               snippet: { type: 'string' },
               comments_count: { type: 'number' },
-              likes_count: { type: 'number' },
+              reactions_count: { type: 'number' },
+              reactions_summary: { type: 'string' },
+              reaction_breakdown: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'number' },
+                    label: { type: 'string' },
+                    count: { type: 'number' },
+                  },
+                },
+              },
               favorites_count: { type: 'number' },
             },
           },
