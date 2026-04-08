@@ -17,6 +17,28 @@ export interface CodingReportProjectFile {
   entrypoint?: boolean;
 }
 
+export interface CodingReportProjectStackService {
+  kind: 'postgres' | 'mysql' | 'redis' | 'sqlite' | 'queue';
+  label?: string;
+  mode?: 'managed' | 'workspace' | 'external';
+  engine?: string;
+  env_prefix?: string;
+  config?: Record<string, unknown>;
+}
+
+export interface CodingReportProjectStackTarget {
+  runtime?: 'node' | 'python' | 'static' | 'generic';
+  entrypoint?: string;
+  root_dir?: string;
+  framework?: string;
+}
+
+export interface CodingReportProjectStack {
+  frontend?: CodingReportProjectStackTarget;
+  backend?: CodingReportProjectStackTarget;
+  services?: CodingReportProjectStackService[];
+}
+
 export interface CodingReportProject {
   title?: string;
   runtime: 'node' | 'python' | 'static' | 'generic';
@@ -26,6 +48,7 @@ export interface CodingReportProject {
   run?: string[];
   test?: string[];
   notes?: string[];
+  stack?: CodingReportProjectStack;
   files: CodingReportProjectFile[];
 }
 
@@ -75,6 +98,22 @@ export interface ProjectDeployment {
   runtime: 'node' | 'python';
   entrypoint: string | null;
   env: Record<string, string>;
+  services: Array<{
+    id: string;
+    deployment_id: string;
+    service_key: string;
+    kind: 'postgres' | 'mysql' | 'redis' | 'sqlite' | 'queue';
+    label: string;
+    mode: 'managed' | 'workspace' | 'external';
+    engine: string | null;
+    env_prefix: string;
+    status: 'pending' | 'ready' | 'failed' | 'manual';
+    env: Record<string, string>;
+    config: Record<string, unknown>;
+    last_error: string | null;
+    created_at: string;
+    updated_at: string;
+  }>;
   webhook_url: string;
   linked_agent_id: string | null;
   linked_agent_name: string | null;

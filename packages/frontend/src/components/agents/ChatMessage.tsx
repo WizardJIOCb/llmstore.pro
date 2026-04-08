@@ -126,6 +126,21 @@ function formatEnvText(value: Record<string, string> | undefined): string {
     .join('\n');
 }
 
+function getServiceStatusLabel(status: ProjectDeployment['services'][number]['status']): string {
+  switch (status) {
+    case 'ready':
+      return 'Готов';
+    case 'pending':
+      return 'Готовится';
+    case 'failed':
+      return 'Ошибка';
+    case 'manual':
+      return 'Нужно вручную';
+    default:
+      return status;
+  }
+}
+
 function looksLikeErrorLog(value: string): boolean {
   const text = value.trim().toLowerCase();
   if (!text) return false;
@@ -1092,6 +1107,39 @@ function getProjectRuntimeLabel(runtime: CodingReportProject['runtime']): string
   }
 }
 
+type ProjectStackTarget = NonNullable<CodingReportProject['stack']>['frontend'];
+type ProjectStackService = NonNullable<NonNullable<CodingReportProject['stack']>['services']>[number];
+
+function getProjectServiceKindLabel(kind: ProjectStackService['kind']): string {
+  switch (kind) {
+    case 'postgres':
+      return 'PostgreSQL';
+    case 'mysql':
+      return 'MySQL';
+    case 'redis':
+      return 'Redis';
+    case 'sqlite':
+      return 'SQLite';
+    case 'queue':
+      return 'Queue';
+    default:
+      return kind;
+  }
+}
+
+function formatProjectStackTarget(target: ProjectStackTarget | NonNullable<CodingReportProject['stack']>['backend']): string {
+  if (!target) return 'Не настроено';
+
+  const parts = [
+    target.runtime ? getProjectRuntimeLabel(target.runtime) : null,
+    target.framework?.trim() || null,
+    target.entrypoint ? `entrypoint: ${target.entrypoint}` : null,
+    target.root_dir ? `root: ${target.root_dir}` : null,
+  ].filter((part): part is string => Boolean(part));
+
+  return parts.join(' • ') || 'Не настроено';
+}
+
 function buildProjectManifest(project: CodingReportProject, fallbackTitle: string): string {
   return JSON.stringify({
     title: project.title || fallbackTitle,
@@ -1102,6 +1150,17 @@ function buildProjectManifest(project: CodingReportProject, fallbackTitle: strin
     run: project.run ?? [],
     test: project.test ?? [],
     notes: project.notes ?? [],
+    stack: project.stack ? {
+      frontend: project.stack.frontend ?? null,
+      backend: project.stack.backend ?? null,
+      services: (project.stack.services ?? []).map((service) => ({
+        kind: service.kind,
+        label: service.label ?? null,
+        mode: service.mode ?? null,
+        engine: service.engine ?? null,
+        env_prefix: service.env_prefix ?? null,
+      })),
+    } : null,
     files: project.files.map((file) => ({
       path: file.path,
       summary: file.summary ?? null,
@@ -1112,6 +1171,7 @@ function buildProjectManifest(project: CodingReportProject, fallbackTitle: strin
 }
 
 function buildProjectReadme(project: CodingReportProject, fallbackTitle: string): string {
+  const stack = project.stack;
   const lines = [
     `# ${project.title || fallbackTitle}`,
     '',
@@ -1119,10 +1179,25 @@ function buildProjectReadme(project: CodingReportProject, fallbackTitle: string)
     project.entrypoint ? `Entrypoint: \`${project.entrypoint}\`` : null,
     project.root_dir ? `Root dir: \`${project.root_dir}\`` : null,
     '',
-    '## Files',
-    ...project.files.map((file) => `- \`${file.path}\`${file.summary ? ` - ${file.summary}` : ''}`),
-    '',
   ].filter((line): line is string => line !== null);
+
+  if (stack?.frontend || stack?.backend || (stack?.services?.length ?? 0) > 0) {
+    lines.push('## Stack');
+    if (stack?.frontend) {
+      lines.push(`- Frontend: ${formatProjectStackTarget(stack.frontend)}`);
+    }
+    if (stack?.backend) {
+      lines.push(`- Backend: ${formatProjectStackTarget(stack.backend)}`);
+    }
+    if (stack?.services && stack.services.length > 0) {
+      lines.push(...stack.services.map((service) => `- Service: ${service.label || getProjectServiceKindLabel(service.kind)} (${getProjectServiceKindLabel(service.kind)}${service.mode ? `, ${service.mode}` : ''}${service.env_prefix ? `, prefix ${service.env_prefix}` : ''})`));
+    }
+    lines.push('');
+  }
+
+  lines.push('## Files');
+  lines.push(...project.files.map((file) => `- \`${file.path}\`${file.summary ? ` - ${file.summary}` : ''}`));
+  lines.push('');
 
   if (project.install && project.install.length > 0) {
     lines.push('## Install');
@@ -2762,6 +2837,37 @@ export function ChatMessage({
                       </p>
                     </div>
 
+                    {(projectBundle.stack?.frontend || projectBundle.stack?.backend || (projectBundle.stack?.services?.length ?? 0) > 0) && (
+                      <div className="grid gap-2 text-xs sm:grid-cols-2">
+                        {projectBundle.stack?.frontend && (
+                          <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2">
+                            <p className="font-medium text-slate-900">Frontend</p>
+                            <p className="mt-1 text-muted-foreground">{formatProjectStackTarget(projectBundle.stack.frontend)}</p>
+                          </div>
+                        )}
+                        {projectBundle.stack?.backend && (
+                          <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2">
+                            <p className="font-medium text-slate-900">Backend</p>
+                            <p className="mt-1 text-muted-foreground">{formatProjectStackTarget(projectBundle.stack.backend)}</p>
+                          </div>
+                        )}
+                        {(projectBundle.stack?.services?.length ?? 0) > 0 && (
+                          <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2 sm:col-span-2">
+                            <p className="font-medium text-slate-900">Services</p>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {projectBundle.stack?.services?.map((service, index) => (
+                                <span key={`${service.kind}-${service.env_prefix ?? ''}-${index}`} className="rounded-full border border-border/60 bg-background px-2.5 py-1 text-[11px] text-muted-foreground">
+                                  {service.label || getProjectServiceKindLabel(service.kind)}
+                                  {service.mode ? ` • ${service.mode}` : ''}
+                                  {service.env_prefix ? ` • ${service.env_prefix}` : ''}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     <div className="flex flex-wrap items-center gap-2">
                       <Button
                         type="button"
@@ -2858,6 +2964,35 @@ export function ChatMessage({
                               <p className="whitespace-pre-wrap text-xs text-rose-600">
                                 {projectDeployment.last_error}
                               </p>
+                            )}
+                            {projectDeployment.services.length > 0 && (
+                              <div className="mt-3 rounded-md border border-border/60 bg-muted/20 p-3">
+                                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                                  Services
+                                </p>
+                                <div className="mt-2 space-y-2">
+                                  {projectDeployment.services.map((service) => (
+                                    <div key={service.id} className="rounded-md border border-border/60 bg-background/80 px-3 py-2">
+                                      <div className="flex flex-wrap items-center justify-between gap-2">
+                                        <p className="text-xs font-medium text-slate-900">
+                                          {service.label}
+                                        </p>
+                                        <span className="text-[11px] text-muted-foreground">
+                                          {getProjectServiceKindLabel(service.kind)} • {service.status}
+                                        </span>
+                                      </div>
+                                      <p className="mt-1 text-[11px] text-muted-foreground">
+                                        {service.mode}{service.engine ? ` • ${service.engine}` : ''}{service.env_prefix ? ` • ${service.env_prefix}` : ''}
+                                      </p>
+                                      {service.last_error && (
+                                        <p className="mt-2 whitespace-pre-wrap text-[11px] text-rose-600">
+                                          {service.last_error}
+                                        </p>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
                             )}
                             {canManageDeployment && projectDeployment.linked_agent_id && (
                               <div className="mt-3 space-y-2 rounded-md border border-border/60 bg-muted/20 p-3">
@@ -3482,6 +3617,59 @@ export function ChatMessage({
                   Формат: `KEY=value` по одной строке. Для Telegram обычно достаточно `TELEGRAM_BOT_TOKEN`
                   и опционально `TELEGRAM_SECRET_TOKEN`.
                 </p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Services
+                </label>
+                {projectDeployment?.services.length ? (
+                  <div className="space-y-3">
+                    {projectDeployment.services.map((service) => (
+                      <div key={service.id} className="rounded-md border border-border/70 bg-muted/20 px-3 py-3">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-medium text-slate-900">{service.label}</p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {getProjectServiceKindLabel(service.kind)} • {service.mode}
+                              {service.engine ? ` • ${service.engine}` : ''}
+                              {service.env_prefix ? ` • ${service.env_prefix}` : ''}
+                            </p>
+                          </div>
+                          <span className="rounded-full border border-border/70 bg-background px-2.5 py-1 text-[11px] text-muted-foreground">
+                            {getServiceStatusLabel(service.status)}
+                          </span>
+                        </div>
+                        {Object.keys(service.env).length > 0 && (
+                          <div className="mt-3">
+                            <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                              Generated env
+                            </p>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {Object.keys(service.env).map((envKey) => (
+                                <span key={envKey} className="rounded-full border border-border/70 bg-background px-2.5 py-1 font-mono text-[11px] text-slate-700">
+                                  {envKey}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {service.last_error && (
+                          <p className="mt-3 whitespace-pre-wrap text-xs text-amber-700">
+                            {service.last_error}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                    <p className="text-xs text-muted-foreground">
+                      Эти сервисы подхватываются из `project.stack.services`. Сгенерированные connection env backend подмешивает в runtime автоматически.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="rounded-md border border-dashed border-border/70 bg-muted/10 px-3 py-3 text-xs text-muted-foreground">
+                    В этом project bundle пока нет описанных services. Если агент вернёт `project.stack.services`, они появятся здесь автоматически.
+                  </div>
+                )}
               </div>
 
               <label className="flex items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm">

@@ -155,6 +155,29 @@ export const chatProjectDeployments = pgTable('chat_project_deployments', {
   index('chat_project_deployments_conversation_idx').on(table.conversation_id),
 ]);
 
+export const chatProjectDeploymentServices = pgTable('chat_project_deployment_services', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  deployment_id: uuid('deployment_id').notNull().references(() => chatProjectDeployments.id, { onDelete: 'cascade' }),
+  user_id: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  service_key: varchar('service_key', { length: 120 }).notNull(),
+  kind: varchar('kind', { length: 32 }).notNull(),
+  label: varchar('label', { length: 160 }).notNull(),
+  mode: varchar('mode', { length: 24 }).notNull().default('managed'),
+  engine: varchar('engine', { length: 64 }),
+  env_prefix: varchar('env_prefix', { length: 48 }).notNull().default(''),
+  status: varchar('status', { length: 20 }).notNull().default('pending'),
+  config_json: jsonb('config_json').$type<Record<string, unknown>>().notNull().default({}),
+  env_json: jsonb('env_json').$type<Record<string, string>>().notNull().default({}),
+  last_error: text('last_error'),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex('chat_project_deployment_services_deployment_key_idx').on(table.deployment_id, table.service_key),
+  index('chat_project_deployment_services_deployment_idx').on(table.deployment_id),
+  index('chat_project_deployment_services_user_idx').on(table.user_id, table.created_at),
+  index('chat_project_deployment_services_status_idx').on(table.status),
+]);
+
 export const publishedLandings = pgTable('published_landings', {
   id: uuid('id').primaryKey().defaultRandom(),
   conversation_id: uuid('conversation_id').notNull().references(() => chatConversations.id, { onDelete: 'cascade' }),

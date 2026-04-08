@@ -16,6 +16,13 @@ import { AppError, NotFoundError } from '../../middleware/error-handler.js';
 import { logger } from '../../lib/logger.js';
 import { getUsdToRubRate } from '../../lib/app-settings.js';
 import { extractProjectBundleFromMessageRecord, startRun, type CodingReportProject } from './runtime.service.js';
+import {
+  buildProjectServicesEnvForDeployment,
+  getProjectServiceSpecsFromProject,
+  listProjectServicesForDeployment,
+  syncProjectServicesForDeployment,
+  type ProjectServiceRecord,
+} from './project-services.service.js';
 
 const PROJECT_DEPLOY_HTTP_READY_TIMEOUT_MS = 15_000;
 const PROJECT_DEPLOY_HTTP_PROBE_INTERVAL_MS = 500;
@@ -32,6 +39,7 @@ export interface ProjectDeploymentRecord {
   runtime: 'node' | 'python';
   entrypoint: string | null;
   env: Record<string, string>;
+  services: ProjectServiceRecord[];
   webhook_url: string;
   linked_agent_id: string | null;
   linked_agent_name: string | null;
@@ -591,6 +599,7 @@ async function toProjectDeploymentRecord(
 ): Promise<ProjectDeploymentRecord> {
   const runtime = row.runtime === 'python' ? 'python' : 'node';
   const live = deploymentRuntimes.get(row.id);
+  const services = await listProjectServicesForDeployment(row.id, row.user_id);
   const insights = await getDeploymentRunInsights(row.id);
   const modelInfo = resolveDeploymentModelInfo({
     linked_agent_id: row.linked_agent_id ?? null,
@@ -606,6 +615,7 @@ async function toProjectDeploymentRecord(
     runtime,
     entrypoint: row.entrypoint ?? null,
     env: normalizeDeploymentEnv(row.env_json),
+    services,
     webhook_url: buildWebhookUrl(row.public_token),
     linked_agent_id: row.linked_agent_id ?? null,
     linked_agent_name: row.linked_agent_name ?? null,
@@ -644,6 +654,7 @@ async function toAdminProjectDeploymentRecord(
 ): Promise<AdminProjectDeploymentRecord> {
   const runtime = row.runtime === 'python' ? 'python' : 'node';
   const live = deploymentRuntimes.get(row.id);
+  const services = await listProjectServicesForDeployment(row.id, row.user_id);
   const insights = await getDeploymentRunInsights(row.id);
   const modelInfo = resolveDeploymentModelInfo({
     linked_agent_id: row.linked_agent_id ?? null,
@@ -667,6 +678,7 @@ async function toAdminProjectDeploymentRecord(
     runtime,
     entrypoint: row.entrypoint ?? null,
     env: normalizeDeploymentEnv(row.env_json),
+    services,
     webhook_url: buildWebhookUrl(row.public_token),
     linked_agent_id: row.linked_agent_id ?? null,
     linked_agent_name: row.linked_agent_name ?? null,
@@ -775,6 +787,7 @@ async function startDeploymentInternal(deploymentId: string, userId: string): Pr
 
     const workspaceDir = getDeploymentWorkspaceDir(deploymentId);
     await materializeProjectFiles(project, workspaceDir);
+    const { env: serviceEnv } = await buildProjectServicesEnvForDeployment(deploymentId, userId, workspaceDir);
     const port = await reserveTcpPort();
 
     const runtime: DeploymentRuntime = {
@@ -807,6 +820,7 @@ async function startDeploymentInternal(deploymentId: string, userId: string): Pr
         LLMSTORE_DEPLOYMENT_SECRET: row.deployment_secret,
         LLMSTORE_LINKED_AGENT_ID: row.linked_agent_id ?? '',
         LLMSTORE_AGENT_RUN_URL: row.linked_agent_id ? buildAgentRunUrl(row.public_token) : '',
+        ...serviceEnv,
         ...normalizeDeploymentEnv(row.env_json),
       },
     });
@@ -1012,6 +1026,7 @@ export async function upsertChatMessageProjectDeployment(
 ): Promise<ProjectDeploymentRecord> {
   const project = await ensureOwnedProjectMessage(chatId, messageId, userId);
   const normalizedEnv = normalizeDeploymentEnv(input.env);
+  const projectServiceSpecs = getProjectServiceSpecsFromProject(project);
   const linkedAgentId = input.linked_agent_id?.trim() || null;
   const modelExternalId = normalizeDeploymentModelExternalId(input.model_external_id);
 
@@ -1060,6 +1075,7 @@ export async function upsertChatMessageProjectDeployment(
     });
   }
 
+  await syncProjectServicesForDeployment(deploymentId, userId, projectServiceSpecs);
   await startDeploymentInternal(deploymentId, userId);
   if (input.set_telegram_webhook) {
     await installTelegramWebhookForDeployment(deploymentId, userId, normalizedEnv);

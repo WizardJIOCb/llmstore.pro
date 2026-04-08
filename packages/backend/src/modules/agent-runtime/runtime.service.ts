@@ -88,6 +88,28 @@ interface CodingReportProjectFile {
   entrypoint?: boolean;
 }
 
+export interface CodingReportProjectStackService {
+  kind: 'postgres' | 'mysql' | 'redis' | 'sqlite' | 'queue';
+  label?: string;
+  mode?: 'managed' | 'workspace' | 'external';
+  engine?: string;
+  env_prefix?: string;
+  config?: Record<string, unknown>;
+}
+
+export interface CodingReportProjectStackTarget {
+  runtime?: 'node' | 'python' | 'static' | 'generic';
+  entrypoint?: string;
+  root_dir?: string;
+  framework?: string;
+}
+
+export interface CodingReportProjectStack {
+  frontend?: CodingReportProjectStackTarget;
+  backend?: CodingReportProjectStackTarget;
+  services?: CodingReportProjectStackService[];
+}
+
 export interface CodingReportProject {
   title?: string;
   runtime: 'node' | 'python' | 'static' | 'generic';
@@ -97,6 +119,7 @@ export interface CodingReportProject {
   run?: string[];
   test?: string[];
   notes?: string[];
+  stack?: CodingReportProjectStack;
   files: CodingReportProjectFile[];
 }
 
@@ -1592,6 +1615,100 @@ function normalizeProjectFiles(value: unknown): CodingReportProjectFile[] | unde
   return normalized.length > 0 ? normalized : undefined;
 }
 
+function normalizeProjectStackTarget(value: unknown): CodingReportProjectStackTarget | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+
+  const target = value as {
+    runtime?: unknown;
+    entrypoint?: unknown;
+    root_dir?: unknown;
+    framework?: unknown;
+  };
+
+  const runtime = target.runtime === 'node'
+    || target.runtime === 'python'
+    || target.runtime === 'static'
+    || target.runtime === 'generic'
+    ? target.runtime
+    : undefined;
+
+  const normalized: CodingReportProjectStackTarget = {
+    runtime,
+    entrypoint: clampText(target.entrypoint, 500),
+    root_dir: clampText(target.root_dir, 300),
+    framework: clampText(target.framework, 80),
+  };
+
+  return Object.values(normalized).some(Boolean) ? normalized : undefined;
+}
+
+function normalizeProjectStackServices(value: unknown): CodingReportProjectStackService[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+
+  const normalized: CodingReportProjectStackService[] = [];
+  const seen = new Set<string>();
+
+  for (const item of value) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+    const row = item as {
+      kind?: unknown;
+      label?: unknown;
+      mode?: unknown;
+      engine?: unknown;
+      env_prefix?: unknown;
+      config?: unknown;
+    };
+
+    const kind = row.kind === 'postgres'
+      || row.kind === 'mysql'
+      || row.kind === 'redis'
+      || row.kind === 'sqlite'
+      || row.kind === 'queue'
+      ? row.kind
+      : null;
+
+    if (!kind) continue;
+
+    const envPrefix = clampText(row.env_prefix, 48);
+    const dedupeKey = `${kind}:${envPrefix ?? ''}`;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+
+    normalized.push({
+      kind,
+      label: clampText(row.label, 160),
+      mode: row.mode === 'managed' || row.mode === 'workspace' || row.mode === 'external'
+        ? row.mode
+        : undefined,
+      engine: clampText(row.engine, 64),
+      env_prefix: envPrefix,
+      config: row.config && typeof row.config === 'object' && !Array.isArray(row.config)
+        ? row.config as Record<string, unknown>
+        : undefined,
+    });
+  }
+
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function normalizeProjectStack(value: unknown): CodingReportProjectStack | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+
+  const stack = value as {
+    frontend?: unknown;
+    backend?: unknown;
+    services?: unknown;
+  };
+
+  const normalized: CodingReportProjectStack = {
+    frontend: normalizeProjectStackTarget(stack.frontend),
+    backend: normalizeProjectStackTarget(stack.backend),
+    services: normalizeProjectStackServices(stack.services),
+  };
+
+  return normalized.frontend || normalized.backend || normalized.services?.length ? normalized : undefined;
+}
+
 function normalizeProject(value: unknown): CodingReportProject | null | undefined {
   if (!value || typeof value !== 'object') return undefined;
 
@@ -1604,6 +1721,7 @@ function normalizeProject(value: unknown): CodingReportProject | null | undefine
     run?: unknown;
     test?: unknown;
     notes?: unknown;
+    stack?: unknown;
     files?: unknown;
   };
 
@@ -1626,6 +1744,7 @@ function normalizeProject(value: unknown): CodingReportProject | null | undefine
     run: normalizeStringArray(project.run, 12, 500),
     test: normalizeStringArray(project.test, 12, 500),
     notes: normalizeStringArray(project.notes, 12, 1000),
+    stack: normalizeProjectStack(project.stack),
     files,
   };
 }

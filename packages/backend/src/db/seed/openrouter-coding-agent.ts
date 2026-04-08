@@ -48,6 +48,29 @@ const BASE_SYSTEM_PROMPT = `Ты — OpenRouter Coding Agent для llmstore.pro
     "run": ["npm start"],
     "test": ["npm test"],
     "notes": ["заметка по проекту"],
+    "stack": {
+      "frontend": {
+        "runtime": "static" | "node" | "python" | "generic",
+        "root_dir": "frontend",
+        "entrypoint": "dist/index.html",
+        "framework": "vite"
+      },
+      "backend": {
+        "runtime": "node" | "python" | "generic",
+        "root_dir": "backend",
+        "entrypoint": "server.js",
+        "framework": "express"
+      },
+      "services": [
+        {
+          "kind": "postgres" | "mysql" | "redis" | "sqlite" | "queue",
+          "label": "App DB",
+          "mode": "managed" | "workspace" | "external",
+          "engine": "postgresql",
+          "env_prefix": "APP"
+        }
+      ]
+    },
     "files": [
       {
         "path": "server.js",
@@ -71,6 +94,7 @@ const BASE_SYSTEM_PROMPT = `Ты — OpenRouter Coding Agent для llmstore.pro
 - changed_files заполняй, если предлагаешь конкретные файлы;
 - how_to_run заполняй, если есть запуск или интеграция;
 - если пользователь просит runnable проект, сервер, скрипт или архив проекта, обязательно заполняй project;
+- если проект fullstack и в нём есть фронт, бэк и сервисы, старайся заполнять project.stack;
 - в project.files передавай полное содержимое файлов, достаточное для сборки/запуска;
 - не ограничивайся markdown-кодом файлов: если показываешь \`main.py\`, \`server.js\`, \`README.md\` и т.п., те же файлы обязательно должны быть продублированы в project.files;
 - для Node.js проектов по возможности включай package.json и все нужные исходники;

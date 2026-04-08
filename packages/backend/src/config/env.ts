@@ -39,6 +39,7 @@ const commaSeparatedUrlList = z.string().refine((value) => {
 
 const envSchema = z.object({
   DATABASE_URL: z.string().min(1),
+  MYSQL_ADMIN_URL: z.string().default(''),
   REDIS_URL: z.string().default('redis://localhost:6379'),
   OPENROUTER_API_KEY: z.string().min(1),
   SESSION_SECRET: z.string().min(32),

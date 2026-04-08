@@ -716,6 +716,7 @@ export function ChatsPage() {
   ]);
   const requestedChatId = searchParams.get('chat');
   const requestedAdminChatId = searchParams.get('admin_chat_id');
+  const requestedPrefill = searchParams.get('prefill');
   const activeAdminViewChatId = isAdmin ? (requestedAdminChatId ?? adminViewChatId) : null;
   const isAdminRequestedChat = Boolean(activeAdminViewChatId);
   const safeActiveChatId = activeChatId && (
@@ -1667,6 +1668,15 @@ export function ChatsPage() {
     previousMessageCountRef.current = displayedMessages.length;
     setComposerPrefill(null);
   }, [activeChat?.id]);
+
+  useEffect(() => {
+    if (!activeChat?.id || !requestedPrefill) return;
+
+    setComposerPrefill({
+      text: requestedPrefill,
+      token: Date.now(),
+    });
+  }, [activeChat?.id, requestedPrefill]);
 
   useEffect(() => {
     if (previousMessageCountRef.current === 0 && displayedMessages.length > 0) {

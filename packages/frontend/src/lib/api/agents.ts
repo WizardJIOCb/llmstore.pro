@@ -70,6 +70,28 @@ export interface CodingReportProjectFile {
   entrypoint?: boolean;
 }
 
+export interface CodingReportProjectStackService {
+  kind: 'postgres' | 'mysql' | 'redis' | 'sqlite' | 'queue';
+  label?: string;
+  mode?: 'managed' | 'workspace' | 'external';
+  engine?: string;
+  env_prefix?: string;
+  config?: Record<string, unknown>;
+}
+
+export interface CodingReportProjectStackTarget {
+  runtime?: 'node' | 'python' | 'static' | 'generic';
+  entrypoint?: string;
+  root_dir?: string;
+  framework?: string;
+}
+
+export interface CodingReportProjectStack {
+  frontend?: CodingReportProjectStackTarget;
+  backend?: CodingReportProjectStackTarget;
+  services?: CodingReportProjectStackService[];
+}
+
 export interface CodingReportProject {
   title?: string;
   runtime: 'node' | 'python' | 'static' | 'generic';
@@ -79,6 +101,7 @@ export interface CodingReportProject {
   run?: string[];
   test?: string[];
   notes?: string[];
+  stack?: CodingReportProjectStack;
   files: CodingReportProjectFile[];
 }
 

@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { useBuiltinTools, useCreateAgent } from '../../hooks/useAgents';
-import { useCreateChat } from '../../hooks/useChats';
+import { useChatAgents, useCreateChat } from '../../hooks/useChats';
 import type { ToolDefinition } from '../../lib/api/agents';
 import { Badge, Button, Card, Input, Spinner, Textarea } from '../../components/ui';
 import { ToolSelector } from '../../components/agents/ToolSelector';
@@ -94,6 +94,111 @@ interface ModelProfile {
   description: string;
   model: string;
 }
+
+interface FullstackBlueprint {
+  id: string;
+  title: string;
+  description: string;
+  stackSummary: string;
+  icon: LucideIcon;
+  prompt: string;
+}
+
+const FALLBACK_FULLSTACK_SYSTEM_PROMPT = [
+  'Ты - coding assistant для fullstack-проектов внутри LLMStore.',
+  'Отвечай на русском.',
+  'Если строишь runnable project bundle, обязательно возвращай проект в структурированном dev-report формате.',
+  'Для fullstack-проектов старайся заполнять project.stack с frontend, backend и services.',
+  'Если нужен backend для лендинга, делай так, чтобы фронт и backend можно было развернуть в одном проекте.',
+].join('\n');
+
+const fullstackBlueprints: FullstackBlueprint[] = [
+  {
+    id: 'landing-express-postgres',
+    title: 'Лендинг + Express + PostgreSQL',
+    description: 'Маркетинговый фронт с формой заявки, backend API и нормальной базой для лидов.',
+    stackSummary: 'Frontend landing • Express API • PostgreSQL',
+    icon: Globe2,
+    prompt: [
+      'Собери fullstack-проект для LLMStore: сильный лендинг плюс backend и база.',
+      'Нужен стек: frontend landing, backend на Node.js/Express, база PostgreSQL.',
+      'Сделай runnable project bundle в одном проекте.',
+      'Важно: project.runtime пусть будет node, потому что deploy будет поднимать backend, а frontend должен раздаваться этим же backend как static build.',
+      'В project.stack обязательно заполни:',
+      '- frontend: runtime static или node, root_dir, framework, entrypoint если нужен',
+      '- backend: runtime node, framework express, root_dir, entrypoint',
+      '- services: postgres с mode managed и env_prefix APP',
+      'Сценарий: красивый SaaS-лендинг, блоки преимуществ, тарифы, FAQ, форма "Оставить заявку".',
+      'Backend API: GET /api/health, POST /api/leads, GET /api/leads/count.',
+      'Frontend должен ходить в API относительными путями.',
+      'Добавь SQL/ORM слой максимально просто, но с миграцией или init-логикой.',
+      'Верни полный project bundle с файлами, командами install/run/test и notes.',
+    ].join('\n'),
+  },
+  {
+    id: 'landing-fastapi-postgres',
+    title: 'Лендинг + FastAPI + PostgreSQL',
+    description: 'Python-backend под форму, заявки и админский API, если хочется backend на FastAPI.',
+    stackSummary: 'Frontend landing • FastAPI • PostgreSQL',
+    icon: Rocket,
+    prompt: [
+      'Собери fullstack-проект для LLMStore: landing + backend на FastAPI + PostgreSQL.',
+      'Это должен быть один runnable project bundle.',
+      'Важно: project.runtime = python, потому что deploy будет поднимать backend на Python.',
+      'Frontend должен жить в проекте как статические файлы и раздаваться через FastAPI.',
+      'В project.stack обязательно заполни frontend, backend и services.',
+      'Services: postgres с mode managed и env_prefix APP.',
+      'Нужен лендинг для digital-продукта с формой "Запросить демо".',
+      'Backend API: GET /api/health, POST /api/leads, GET /api/leads/recent.',
+      'Сделай backend zero-friction: requirements.txt, main.py, простая работа с DATABASE_URL.',
+      'Если используешь шаблоны или static-dir, опиши это в notes.',
+      'Верни полный project bundle, пригодный для deploy внутри LLMStore.',
+    ].join('\n'),
+  },
+  {
+    id: 'telegram-bot-postgres-queue',
+    title: 'Telegram Bot + PostgreSQL + Redis Queue',
+    description: 'Webhook-бот с хранением данных и очередью для фоновых задач, уведомлений и ретраев.',
+    stackSummary: 'Python/Node bot • PostgreSQL • Redis • Queue',
+    icon: Bot,
+    prompt: [
+      'Собери production-minded Telegram webhook bot для LLMStore.',
+      'Нужен runnable project bundle с backend и данными.',
+      'Бот должен принимать входящие Telegram webhook запросы, хранить пользователей/сессии и уметь отправлять фоновое сообщение через очередь.',
+      'Можно выбрать Node.js или Python, но проект должен быть простым для deploy.',
+      'В project.stack обязательно заполни backend и services.',
+      'Services:',
+      '- postgres mode managed env_prefix APP',
+      '- redis mode managed env_prefix CACHE',
+      '- queue mode managed env_prefix JOBS',
+      'Нужны env-переменные для TELEGRAM_BOT_TOKEN и TELEGRAM_SECRET_TOKEN.',
+      'Сделай Telegram-совместимое форматирование исходящих сообщений.',
+      'Добавь endpoint /webhook, health endpoint и пример фоновой задачи через очередь.',
+      'Верни полный runnable bundle, как запустить, и notes по webhook/deploy.',
+    ].join('\n'),
+  },
+  {
+    id: 'mini-saas-dashboard',
+    title: 'Мини-SaaS Dashboard + Auth + DB',
+    description: 'Уже не просто лендинг, а маленькое приложение: auth, dashboard, CRUD и база.',
+    stackSummary: 'Frontend app • Backend API • PostgreSQL • Redis',
+    icon: Briefcase,
+    prompt: [
+      'Собери mini SaaS fullstack app для LLMStore.',
+      'Нужен не просто лендинг, а маленькое рабочее приложение с auth и dashboard.',
+      'Подходящий стек: frontend SPA, backend API на Node.js, PostgreSQL, Redis для сессий/кэша.',
+      'project.runtime = node.',
+      'В project.stack обязательно укажи frontend, backend и services.',
+      'Services:',
+      '- postgres mode managed env_prefix APP',
+      '- redis mode managed env_prefix CACHE',
+      'Функциональность: регистрация/логин, список записей, создание новой записи, simple metrics на dashboard.',
+      'Если полноценный production auth слишком длинный, сделай честный lightweight auth с сессией или JWT и явно опиши ограничения.',
+      'Frontend и backend должны жить в одном project bundle и быть разворачиваемыми внутри LLMStore.',
+      'Верни полный runnable bundle и обязательно заполни project.stack.',
+    ].join('\n'),
+  },
+];
 
 const directionOptions: DirectionOption[] = [
   {
@@ -575,6 +680,7 @@ export function StackBuilderPage() {
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
   const { data: tools = [], isLoading: toolsLoading } = useBuiltinTools();
+  const { data: chatAgents = [] } = useChatAgents();
   const createAgent = useCreateAgent();
   const createChat = useCreateChat();
 
@@ -683,6 +789,12 @@ export function StackBuilderPage() {
   }), [modelProfile, directionId, workflowId, autonomyId, customChatIntro, generatedChatIntro, starterPrompts]);
 
   const selectedPackObjects = capabilityPacks.filter((pack) => selectedPackIds.includes(pack.id));
+  const preferredCodingAgent = useMemo(
+    () => chatAgents.find((agent) => agent.is_coding_model && /coding/i.test(agent.name))
+      ?? chatAgents.find((agent) => agent.is_coding_model)
+      ?? null,
+    [chatAgents],
+  );
   const canContinue = useMemo(() => {
     if (step === 1) return Boolean(directionId);
     if (step === 2) return Boolean(workflowId);
@@ -711,6 +823,28 @@ export function StackBuilderPage() {
     });
 
     navigate(`/chats?chat=${chat.id}`);
+  };
+
+  const launchBlueprintChat = async (blueprint: FullstackBlueprint) => {
+    if (!isAuthenticated) {
+      navigate('/login');
+      return;
+    }
+
+    const chat = preferredCodingAgent
+      ? await createChat.mutateAsync({
+        mode: 'agent',
+        title: blueprint.title,
+        agent_id: preferredCodingAgent.id,
+      })
+      : await createChat.mutateAsync({
+        mode: 'general',
+        title: blueprint.title,
+        model_external_id: 'openai/gpt-5.4',
+        system_prompt: FALLBACK_FULLSTACK_SYSTEM_PROMPT,
+      });
+
+    navigate(`/chats?chat=${chat.id}&prefill=${encodeURIComponent(blueprint.prompt)}`);
   };
 
   if (toolsLoading) {
@@ -762,6 +896,62 @@ export function StackBuilderPage() {
                   Экспертный ручной режим
                   <ArrowRight className="h-4 w-4" />
                 </Link>
+              </div>
+            </section>
+
+            <section className="rounded-[30px] border border-slate-200 bg-white p-6 shadow-[0_22px_60px_-40px_rgba(15,23,42,0.35)] md:p-8">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm uppercase tracking-[0.22em] text-slate-400">Fullstack blueprints</p>
+                  <h2 className="mt-2 text-3xl font-semibold text-slate-950">Готовые шаблоны для фронта, бэка и базы в одном чате</h2>
+                  <p className="mt-3 max-w-3xl text-base leading-7 text-slate-600">
+                    Это быстрый вход в новый fullstack-flow: открываем chat с coding-agent и сразу подставляем большой стартовый prompt под конкретный стек.
+                  </p>
+                </div>
+                <Badge variant="outline" className="rounded-full px-4 py-1 text-xs text-slate-600">
+                  {preferredCodingAgent ? `Coding agent: ${preferredCodingAgent.name}` : 'Fallback: GPT-5.4'}
+                </Badge>
+              </div>
+
+              <div className="mt-6 grid gap-4 xl:grid-cols-2">
+                {fullstackBlueprints.map((blueprint) => {
+                  const Icon = blueprint.icon;
+                  return (
+                    <Card key={blueprint.id} className="rounded-[24px] border-slate-200 p-5">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="rounded-2xl bg-slate-100 p-3">
+                          <Icon className="h-5 w-5 text-slate-800" />
+                        </div>
+                        <Badge variant="outline" className="rounded-full bg-slate-50 px-3 py-1 text-[11px] text-slate-600">
+                          {blueprint.stackSummary}
+                        </Badge>
+                      </div>
+                      <h3 className="mt-5 text-lg font-semibold text-slate-950">{blueprint.title}</h3>
+                      <p className="mt-2 text-sm leading-6 text-slate-600">{blueprint.description}</p>
+                      <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs leading-6 text-slate-600">
+                        {blueprint.prompt}
+                      </div>
+                      <div className="mt-4 flex flex-wrap gap-3">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => {
+                            void navigator.clipboard.writeText(blueprint.prompt);
+                          }}
+                        >
+                          Скопировать prompt
+                        </Button>
+                        <Button
+                          type="button"
+                          onClick={() => { void launchBlueprintChat(blueprint); }}
+                          disabled={createChat.isPending}
+                        >
+                          {createChat.isPending ? 'Создаю чат...' : 'Открыть в чате'}
+                        </Button>
+                      </div>
+                    </Card>
+                  );
+                })}
               </div>
             </section>
 
