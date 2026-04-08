@@ -481,6 +481,14 @@ const milestones: MilestoneItem[] = [
     ctaHref: '/tools',
   },
   {
+    id: 22,
+    title: 'Alice Skill Integration',
+    status: 'inProgress',
+    description: 'Сейчас в работе подключение навыка Алисы: интеграция с Яндексом, сценарии диалога, связка с агентами и подготовка нормального пользовательского потока для voice-first и assistant-first использования.',
+    ctaLabel: 'Читать гайды',
+    ctaHref: '/guides',
+  },
+  {
     id: 9,
     title: 'Runnable Project Bundles + Fix From Error',
     status: 'done',
