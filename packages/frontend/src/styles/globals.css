@@ -291,8 +291,55 @@
   .article-editor-content .ProseMirror ol,
   .article-rich .ProseMirror ul,
   .article-rich .ProseMirror ol {
-    margin: 1rem 0;
-    padding-left: 1.5rem;
+    margin: 1.15rem 0;
+    padding-left: 1.75rem;
+    list-style-position: outside;
+  }
+
+  .article-editor-content .ProseMirror ul,
+  .article-rich .ProseMirror ul {
+    list-style-type: disc;
+  }
+
+  .article-editor-content .ProseMirror ol,
+  .article-rich .ProseMirror ol {
+    list-style-type: decimal;
+  }
+
+  .article-editor-content .ProseMirror li,
+  .article-rich .ProseMirror li {
+    margin: 0.45rem 0;
+    padding-left: 0.35rem;
+    line-height: 1.85;
+  }
+
+  .article-editor-content .ProseMirror li::marker,
+  .article-rich .ProseMirror li::marker {
+    color: rgb(14 116 144);
+    font-weight: 700;
+  }
+
+  .article-editor-content .ProseMirror li > p,
+  .article-rich .ProseMirror li > p {
+    margin: 0;
+  }
+
+  .article-editor-content .ProseMirror li > ul,
+  .article-editor-content .ProseMirror li > ol,
+  .article-rich .ProseMirror li > ul,
+  .article-rich .ProseMirror li > ol {
+    margin-top: 0.5rem;
+    margin-bottom: 0.35rem;
+  }
+
+  .article-editor-content .ProseMirror ul ul,
+  .article-rich .ProseMirror ul ul {
+    list-style-type: circle;
+  }
+
+  .article-editor-content .ProseMirror ul ul ul,
+  .article-rich .ProseMirror ul ul ul {
+    list-style-type: square;
   }
 
   .article-editor-content .ProseMirror blockquote,
