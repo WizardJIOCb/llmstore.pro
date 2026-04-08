@@ -46,21 +46,57 @@ function aliceTextResponse(text: string, tts?: string) {
   };
 }
 
-function aliceStartAccountLinkingResponse() {
+function aliceStartAccountLinkingResponse(text?: string, tts?: string) {
+  if (text) {
+    return {
+      response: {
+        text,
+        tts: tts ?? text,
+        end_session: false,
+        directives: {
+          start_account_linking: {},
+        },
+      },
+      version: '1.0',
+    };
+  }
+
   return {
     start_account_linking: {},
     version: '1.0',
   };
 }
 
-function aliceUnauthorizedResponse(canLink: boolean) {
-  if (canLink) {
-    return aliceStartAccountLinkingResponse();
+function buildUnauthorizedAliceText(command: string): string {
+  const normalized = normalizeAliceCommand(command);
+
+  if (isAliceHelpCommand(normalized)) {
+    return `${aliceHelpText(false)} Чтобы начать, авторизуйтесь.`;
   }
 
-  return aliceTextResponse(
-    'Чтобы использовать навык, нужно привязать аккаунт llmstore. Откройте настройки навыка и выполните привязку.',
-  );
+  if (isAliceGreetingCommand(normalized)) {
+    return `${aliceGreetingText(false)} Чтобы начать, авторизуйтесь.`;
+  }
+
+  if (isAliceAuthorizationCommand(normalized)) {
+    return 'Чтобы начать работу с навыком LLM Store, авторизуйтесь и привяжите аккаунт llmstore.pro.';
+  }
+
+  if (command.trim()) {
+    return `Я понял запрос: ${command.trim()}. Чтобы выполнить его через ваш аккаунт llmstore.pro, авторизуйтесь. После этого можно будет продолжить без повторения запроса.`;
+  }
+
+  return 'Навык LLM Store работает с вашим аккаунтом llmstore.pro. Чтобы начать, авторизуйтесь.';
+}
+
+function aliceUnauthorizedResponse(canLink: boolean, command: string) {
+  const text = buildUnauthorizedAliceText(command);
+
+  if (canLink) {
+    return aliceStartAccountLinkingResponse(text);
+  }
+
+  return aliceTextResponse(text);
 }
 
 const ALICE_PENDING_COMMAND_TTL_MS = 15 * 60 * 1000;
@@ -592,7 +628,7 @@ export async function webhook(req: Request, res: Response, next: NextFunction) {
 
     if (!token) {
       savePendingAliceCommand(skillUserId, rawCommand);
-      res.status(200).json(aliceUnauthorizedResponse(canLink));
+      res.status(200).json(aliceUnauthorizedResponse(canLink, rawCommand));
       return;
 
       if (canLink) {
@@ -610,7 +646,7 @@ export async function webhook(req: Request, res: Response, next: NextFunction) {
     const userId = await oauthService.resolveUserByAccessToken(token);
     if (!userId) {
       savePendingAliceCommand(skillUserId, rawCommand);
-      res.status(200).json(aliceUnauthorizedResponse(canLink));
+      res.status(200).json(aliceUnauthorizedResponse(canLink, rawCommand));
       return;
 
       if (canLink) {
