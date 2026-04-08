@@ -254,28 +254,6 @@ export function ArticleDetailPage() {
                 </div>
               )}
 
-              {(primaryCta || secondaryCta) && (
-                <div className="mt-8 rounded-[28px] border border-sky-100 bg-sky-50/70 p-5">
-                  <h2 className="text-lg font-semibold text-slate-950">Попробовать связку</h2>
-                  <p className="mt-2 text-sm leading-7 text-slate-600">
-                    Статья может быть не только про чтение. Если автор приложил рабочий агент, preview или полезную точку
-                    входа, откройте её прямо отсюда.
-                  </p>
-                  <div className="mt-4 flex flex-wrap gap-3">
-                    {primaryCta && (
-                      <a href={primaryCta.url} target="_blank" rel="noopener noreferrer">
-                        <Button>{primaryCta.label}</Button>
-                      </a>
-                    )}
-                    {secondaryCta && (
-                      <a href={secondaryCta.url} target="_blank" rel="noopener noreferrer">
-                        <Button variant="outline">{secondaryCta.label}</Button>
-                      </a>
-                    )}
-                  </div>
-                </div>
-              )}
-
               <div className="mt-8 flex flex-wrap gap-2">
                 {item.tags.map((tag) => (
                   <Badge key={tag.id} variant="secondary">#{tag.slug}</Badge>
@@ -293,6 +271,28 @@ export function ArticleDetailPage() {
                   </div>
                 ) : null}
               </div>
+
+              {(primaryCta || secondaryCta) && (
+                <div className="mt-10 rounded-[28px] border border-sky-100 bg-sky-50/70 p-5">
+                  <h2 className="text-lg font-semibold text-slate-950">Попробовать связку</h2>
+                  <p className="mt-2 text-sm leading-7 text-slate-600">
+                    Если вам откликнулся сценарий из этой статьи, запустите агента или откройте приложенную связку прямо
+                    после чтения.
+                  </p>
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    {primaryCta && (
+                      <a href={primaryCta.url} target="_blank" rel="noopener noreferrer">
+                        <Button>{primaryCta.label}</Button>
+                      </a>
+                    )}
+                    {secondaryCta && (
+                      <a href={secondaryCta.url} target="_blank" rel="noopener noreferrer">
+                        <Button variant="outline">{secondaryCta.label}</Button>
+                      </a>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             <CommentsSection
