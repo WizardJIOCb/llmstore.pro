@@ -36,6 +36,7 @@ import { AgentsDashboardPage } from './pages/dashboard/AgentsDashboardPage';
 import { RunsDashboardPage } from './pages/dashboard/RunsDashboardPage';
 import { AgentsHubPage } from './pages/agents/AgentsHubPage';
 import { AgentPublicChatsPage } from './pages/agents/AgentPublicChatsPage';
+import { ModelPublicChatsPage } from './pages/models/ModelPublicChatsPage';
 import { SharedChatPage } from './pages/shared/SharedChatPage';
 import { ProfilePage } from './pages/profile/ProfilePage';
 import { PublicProfilePage } from './pages/profile/PublicProfilePage';
@@ -76,6 +77,7 @@ export function App() {
         <Route path="/tools" element={<ToolsPage />} />
         <Route path="/tools/:slug" element={<CatalogDetailPage type="tool" />} />
         <Route path="/models" element={<CatalogListPage type="model" />} />
+        <Route path="/models/chats" element={<ModelPublicChatsPage />} />
         <Route path="/models/:slug" element={<CatalogDetailPage type="model" />} />
         <Route path="/packs" element={<CatalogListPage type="prompt_pack" />} />
         <Route path="/packs/:slug" element={<CatalogDetailPage type="prompt_pack" />} />

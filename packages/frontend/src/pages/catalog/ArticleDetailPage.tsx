@@ -104,6 +104,9 @@ export function ArticleDetailPage() {
   const linkedAgentId = extractLinkedAgentId([draftPrimaryCta?.url, draftSecondaryCta?.url]);
   const publicAgentChatsQuery = usePublicAgentChats(linkedAgentId ?? '', Boolean(linkedAgentId));
   const linkedAgent = publicAgentChatsQuery.data?.agent ?? null;
+  const linkedModelChatsHref = linkedAgent?.model_external_id
+    ? `/models/chats?model=${encodeURIComponent(linkedAgent.model_external_id)}`
+    : null;
 
   const { data: comments = [], isLoading: commentsLoading } = useArticleComments(slug ?? '');
   const createComment = useCreateArticleComment(slug ?? '');
@@ -476,8 +479,8 @@ export function ArticleDetailPage() {
                   <div className="flex justify-between gap-4">
                     <dt className="text-muted-foreground">Модель</dt>
                     <dd className="text-right font-medium">
-                      {linkedAgentId ? (
-                        <Link to={`/agents/${linkedAgentId}/chats`} className="text-primary hover:underline">
+                      {linkedModelChatsHref ? (
+                        <Link to={linkedModelChatsHref} className="text-primary hover:underline">
                           {linkedAgent.model_label}
                         </Link>
                       ) : (

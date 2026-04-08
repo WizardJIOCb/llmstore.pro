@@ -245,6 +245,16 @@ export async function listPublicChatsByAgent(req: Request<{ agentId: string }>, 
   }
 }
 
+export async function listPublicChatsByModel(req: Request, res: Response, next: NextFunction) {
+  try {
+    const modelExternalId = typeof req.query.model === 'string' ? req.query.model : '';
+    const result = await runtimeService.listPublicChatsByModel(modelExternalId, req.session?.userId);
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function createChat(req: Request, res: Response, next: NextFunction) {
   try {
     const chat = await runtimeService.createChat(req.session.userId!, req.body, req.session.userRole);

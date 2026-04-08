@@ -4527,6 +4527,21 @@ interface PublicAgentChatsResult {
   chats: PublicAgentChatListItem[];
 }
 
+interface PublicModelChatListItem extends PublicAgentChatListItem {
+  agent_id: string;
+  agent_name: string | null;
+}
+
+interface PublicModelChatsResult {
+  model: {
+    model_external_id: string;
+    model_label: string | null;
+    public_chats_count: number;
+    agents_count: number;
+  };
+  chats: PublicModelChatListItem[];
+}
+
 interface ConversationMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -5959,6 +5974,92 @@ export async function listChatAgents(userId: string, userRole?: string): Promise
   });
 }
 
+async function loadPublicChatSummary(chatIds: string[]) {
+  const messageCountMap = new Map<string, number>();
+  const previewMap = new Map<string, string | null>();
+
+  if (!chatIds.length) {
+    return { messageCountMap, previewMap };
+  }
+
+  const counts = await db
+    .select({
+      conversation_id: chatConversationMessages.conversation_id,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(chatConversationMessages)
+    .where(inArray(chatConversationMessages.conversation_id, chatIds))
+    .groupBy(chatConversationMessages.conversation_id);
+
+  for (const row of counts) {
+    messageCountMap.set(row.conversation_id, row.count);
+  }
+
+  const lastMessages = await db
+    .select({
+      conversation_id: chatConversationMessages.conversation_id,
+      content_text: chatConversationMessages.content_text,
+      usage_json: chatConversationMessages.usage_json,
+      created_at: chatConversationMessages.created_at,
+    })
+    .from(chatConversationMessages)
+    .where(inArray(chatConversationMessages.conversation_id, chatIds))
+    .orderBy(desc(chatConversationMessages.created_at));
+
+  for (const row of lastMessages) {
+    if (previewMap.has(row.conversation_id)) continue;
+    const normalized = normalizeAssistantChatPayload(
+      row.content_text,
+      (row.usage_json as Record<string, unknown> | null) ?? null,
+    );
+    previewMap.set(row.conversation_id, compactTitle(normalized.content || row.content_text) || null);
+  }
+
+  return { messageCountMap, previewMap };
+}
+
+async function buildPublicChatListItem(
+  chat: {
+    id: string;
+    user_id: string;
+    title: string;
+    share_token: string | null;
+    last_message_at: Date;
+    created_at: Date;
+    updated_at: Date;
+    unique_view_count: number | null;
+    total_view_count: number | null;
+    owner_email: string;
+    owner_username: string | null;
+    owner_name_raw: string | null;
+  },
+  viewerUserId: string | null | undefined,
+  messageCountMap: Map<string, number>,
+  previewMap: Map<string, string | null>,
+): Promise<PublicAgentChatListItem> {
+  const shareToken = await ensureChatShareToken(chat.id, chat.share_token);
+  return {
+    id: chat.id,
+    title: chat.title,
+    chat_url: `/shared/chats/${shareToken}`,
+    share_token: shareToken,
+    owner_name: formatAuthorName({
+      email: chat.owner_email,
+      username: chat.owner_username,
+      name: chat.owner_name_raw,
+    }),
+    owner_username: chat.owner_username,
+    is_owner: Boolean(viewerUserId && chat.user_id === viewerUserId),
+    message_count: messageCountMap.get(chat.id) ?? 0,
+    last_message_preview: previewMap.get(chat.id) ?? null,
+    last_message_at: toIso(chat.last_message_at),
+    created_at: toIso(chat.created_at),
+    updated_at: toIso(chat.updated_at),
+    unique_view_count: chat.unique_view_count ?? 0,
+    total_view_count: chat.total_view_count ?? 0,
+  };
+}
+
 export async function listPublicChatsByAgent(agentId: string, viewerUserId?: string | null): Promise<PublicAgentChatsResult> {
   const agentMeta = await getAgentChatMeta(agentId);
   if (!agentMeta.agent_name) {
@@ -6002,67 +6103,11 @@ export async function listPublicChatsByAgent(agentId: string, viewerUserId?: str
     .limit(24);
 
   const chatIds = chats.map((chat) => chat.id);
-  const messageCountMap = new Map<string, number>();
-  const previewMap = new Map<string, string | null>();
-
-  if (chatIds.length > 0) {
-    const counts = await db
-      .select({
-        conversation_id: chatConversationMessages.conversation_id,
-        count: sql<number>`count(*)::int`,
-      })
-      .from(chatConversationMessages)
-      .where(inArray(chatConversationMessages.conversation_id, chatIds))
-      .groupBy(chatConversationMessages.conversation_id);
-
-    for (const row of counts) {
-      messageCountMap.set(row.conversation_id, row.count);
-    }
-
-    const lastMessages = await db
-      .select({
-        conversation_id: chatConversationMessages.conversation_id,
-        content_text: chatConversationMessages.content_text,
-        usage_json: chatConversationMessages.usage_json,
-        created_at: chatConversationMessages.created_at,
-      })
-      .from(chatConversationMessages)
-      .where(inArray(chatConversationMessages.conversation_id, chatIds))
-      .orderBy(desc(chatConversationMessages.created_at));
-
-    for (const row of lastMessages) {
-      if (previewMap.has(row.conversation_id)) continue;
-      const normalized = normalizeAssistantChatPayload(
-        row.content_text,
-        (row.usage_json as Record<string, unknown> | null) ?? null,
-      );
-      previewMap.set(row.conversation_id, compactTitle(normalized.content || row.content_text) || null);
-    }
-  }
+  const { messageCountMap, previewMap } = await loadPublicChatSummary(chatIds);
 
   const items: PublicAgentChatListItem[] = [];
   for (const chat of chats) {
-    const shareToken = await ensureChatShareToken(chat.id, chat.share_token);
-    items.push({
-      id: chat.id,
-      title: chat.title,
-      chat_url: `/shared/chats/${shareToken}`,
-      share_token: shareToken,
-      owner_name: formatAuthorName({
-        email: chat.owner_email,
-        username: chat.owner_username,
-        name: chat.owner_name_raw,
-      }),
-      owner_username: chat.owner_username,
-      is_owner: Boolean(viewerUserId && chat.user_id === viewerUserId),
-      message_count: messageCountMap.get(chat.id) ?? 0,
-      last_message_preview: previewMap.get(chat.id) ?? null,
-      last_message_at: toIso(chat.last_message_at),
-      created_at: toIso(chat.created_at),
-      updated_at: toIso(chat.updated_at),
-      unique_view_count: chat.unique_view_count ?? 0,
-      total_view_count: chat.total_view_count ?? 0,
-    });
+    items.push(await buildPublicChatListItem(chat, viewerUserId, messageCountMap, previewMap));
   }
 
   return {
@@ -6073,6 +6118,87 @@ export async function listPublicChatsByAgent(agentId: string, viewerUserId?: str
       model_label: agentMeta.agent_model_label,
       chat_description: agentMeta.agent_chat_description,
       public_chats_count: countRow?.count ?? 0,
+    },
+    chats: items,
+  };
+}
+
+export async function listPublicChatsByModel(modelExternalId: string, viewerUserId?: string | null): Promise<PublicModelChatsResult> {
+  const normalizedModel = normalizeModelLookupKey(modelExternalId);
+  if (!normalizedModel) {
+    throw new AppError(400, 'MODEL_REQUIRED', 'Нужно передать model');
+  }
+
+  const rows = await db
+    .select({
+      id: chatConversations.id,
+      user_id: chatConversations.user_id,
+      title: chatConversations.title,
+      share_token: chatConversations.share_token,
+      last_message_at: chatConversations.last_message_at,
+      created_at: chatConversations.created_at,
+      updated_at: chatConversations.updated_at,
+      unique_view_count: chatConversations.unique_view_count,
+      total_view_count: chatConversations.total_view_count,
+      owner_email: users.email,
+      owner_username: users.username,
+      owner_name_raw: users.name,
+      agent_id: agents.id,
+      agent_name: agents.name,
+      runtime_config: agentVersions.runtime_config,
+      version_model_external_id: aiModels.external_model_id,
+    })
+    .from(chatConversations)
+    .innerJoin(users, eq(users.id, chatConversations.user_id))
+    .innerJoin(agents, eq(agents.id, chatConversations.agent_id))
+    .leftJoin(agentVersions, eq(agentVersions.id, agents.current_version_id))
+    .leftJoin(aiModels, eq(aiModels.id, agentVersions.model_id))
+    .where(and(
+      eq(chatConversations.mode, 'agent'),
+      eq(chatConversations.access, 'public'),
+    ))
+    .orderBy(desc(chatConversations.last_message_at));
+
+  const filteredChats = rows.filter((row) => {
+    const resolvedModel = resolveAgentModelExternalId(
+      row.runtime_config as Record<string, unknown> | null,
+      row.version_model_external_id ?? null,
+    );
+    return normalizeModelLookupKey(resolvedModel) === normalizedModel;
+  });
+
+  const topChats = filteredChats.slice(0, 24);
+  const { messageCountMap, previewMap } = await loadPublicChatSummary(topChats.map((chat) => chat.id));
+
+  const items: PublicModelChatListItem[] = [];
+  for (const chat of topChats) {
+    const baseItem = await buildPublicChatListItem(chat, viewerUserId, messageCountMap, previewMap);
+    items.push({
+      ...baseItem,
+      agent_id: chat.agent_id,
+      agent_name: chat.agent_name ?? null,
+    });
+  }
+
+  const uniqueAgentIds = new Set(filteredChats.map((chat) => chat.agent_id));
+  const canonicalModelExternalId = filteredChats.find((chat) => {
+    const resolvedModel = resolveAgentModelExternalId(
+      chat.runtime_config as Record<string, unknown> | null,
+      chat.version_model_external_id ?? null,
+    );
+    return normalizeModelLookupKey(resolvedModel) === normalizedModel;
+  });
+  const resolvedModelExternalId = resolveAgentModelExternalId(
+    canonicalModelExternalId?.runtime_config as Record<string, unknown> | null,
+    canonicalModelExternalId?.version_model_external_id ?? null,
+  ) ?? modelExternalId.trim();
+
+  return {
+    model: {
+      model_external_id: resolvedModelExternalId,
+      model_label: getModelDisplayLabel(resolvedModelExternalId),
+      public_chats_count: filteredChats.length,
+      agents_count: uniqueAgentIds.size,
     },
     chats: items,
   };

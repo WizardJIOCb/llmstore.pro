@@ -359,6 +359,21 @@ export interface PublicAgentChatsResponse {
   chats: PublicAgentChatListItem[];
 }
 
+export interface PublicModelChatListItem extends PublicAgentChatListItem {
+  agent_id: string;
+  agent_name: string | null;
+}
+
+export interface PublicModelChatsResponse {
+  model: {
+    model_external_id: string;
+    model_label: string | null;
+    public_chats_count: number;
+    agents_count: number;
+  };
+  chats: PublicModelChatListItem[];
+}
+
 export interface ChatBundleExport {
   filename: string;
   payload: unknown;
@@ -413,6 +428,11 @@ export const chatsApi = {
 
   publicAgentChats: (agentId: string) =>
     apiClient.get<{ data: PublicAgentChatsResponse }>(`/public/agents/${agentId}/chats`).then((r) => r.data.data),
+
+  publicModelChats: (modelExternalId: string) =>
+    apiClient.get<{ data: PublicModelChatsResponse }>('/public/model-chats', {
+      params: { model: modelExternalId },
+    }).then((r) => r.data.data),
 
   get: (chatId: string) =>
     apiClient.get<{ data: ChatDetails }>(`/chats/${chatId}`).then((r) => r.data.data),

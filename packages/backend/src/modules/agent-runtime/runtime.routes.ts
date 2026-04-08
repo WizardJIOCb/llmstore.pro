@@ -30,6 +30,7 @@ router.get('/shared/chat/:token', controller.getSharedChat);
 router.get('/emoji/:code.svg', controller.getEmojiSvg);
 router.get('/gallery/previews', controller.listGalleryPreviews);
 router.get('/public/agents/:agentId/chats', controller.listPublicChatsByAgent);
+router.get('/public/model-chats', controller.listPublicChatsByModel);
 router.post('/gallery/previews/:chatId/reaction', requireAuth, validateSetGalleryReaction, controller.setGalleryPreviewReaction);
 router.delete('/gallery/previews/:chatId/reaction', requireAuth, controller.deleteGalleryPreviewReaction);
 router.post('/gallery/previews/:chatId/messages/:messageId/project-run', requireAuth, controller.runGalleryPreviewProject);

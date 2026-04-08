@@ -60,6 +60,15 @@ export function usePublicAgentChats(agentId: string, enabled = true) {
   });
 }
 
+export function usePublicModelChats(modelExternalId: string, enabled = true) {
+  return useQuery({
+    queryKey: ['public-model-chats', modelExternalId],
+    queryFn: () => chatsApi.publicModelChats(modelExternalId),
+    enabled: enabled && Boolean(modelExternalId),
+    staleTime: 30_000,
+  });
+}
+
 export function useChat(chatId: string | undefined, options?: { adminView?: boolean }) {
   return useQuery({
     queryKey: ['chats', chatId, options?.adminView ? 'admin-view' : 'default-view'],
