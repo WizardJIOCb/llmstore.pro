@@ -3168,6 +3168,7 @@ export function ChatsPage() {
                 <ChatMessage
                   role={msg.role}
                   content={msg.content}
+                  createdAt={msg.created_at}
                   animateOnMount={shouldAnimateMessage}
                   authorLabel={msg.role === 'user' ? userMessageAuthorLabel : getAssistantAuthorLabel(msg)}
                   attachments={resolvedAttachments}
@@ -3293,6 +3294,7 @@ export function ChatsPage() {
                     <ChatMessage
                       role={assistantSlotResolvedMessage.role}
                       content={assistantSlotResolvedMessage.content}
+                      createdAt={assistantSlotResolvedMessage.created_at}
                       animateOnMount={false}
                       authorLabel={getAssistantAuthorLabel(assistantSlotResolvedMessage)}
                       attachments={assistantSlotResolvedMessage.attachments ?? extractAttachments(assistantSlotResolvedMessage.usage)}

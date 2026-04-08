@@ -27,6 +27,7 @@ interface ChatMessageProps {
   role: 'user' | 'assistant' | 'tool';
   content: string;
   authorLabel?: ReactNode;
+  createdAt?: string | null;
   animateOnMount?: boolean;
   attachments?: Attachment[];
   toolTraces?: ToolTrace[];
@@ -254,6 +255,22 @@ function formatRubAmount(value: number): string {
 function formatDateTime(iso: string | null | undefined): string {
   if (!iso) return 'Не было';
   return new Date(iso).toLocaleString('ru-RU');
+}
+
+function formatMessageHeaderDateTime(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return null;
+
+  return new Intl.DateTimeFormat('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).format(parsed);
 }
 
 function getProjectDeploymentModelSourceLabel(source: ProjectDeployment['effective_model_source']): string {
@@ -1653,6 +1670,7 @@ export function ChatMessage({
   role,
   content,
   authorLabel = null,
+  createdAt = null,
   animateOnMount = false,
   attachments = [],
   toolTraces = [],
@@ -1682,6 +1700,7 @@ export function ChatMessage({
   bubbleStyle,
 }: ChatMessageProps) {
   const isUser = role === 'user';
+  const messageHeaderDateTime = formatMessageHeaderDateTime(createdAt);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewAlt, setPreviewAlt] = useState('');
   const [htmlPreview, setHtmlPreview] = useState<{ title: string; html: string } | null>(null);
@@ -2554,7 +2573,19 @@ export function ChatMessage({
                 isUser ? 'text-right text-sky-700/80' : 'text-muted-foreground',
               )}
             >
-              {authorLabel}
+              <span
+                className={cn(
+                  'inline-flex max-w-full flex-wrap items-center gap-x-2 gap-y-1',
+                  isUser ? 'justify-end' : 'justify-start',
+                )}
+              >
+                <span>{authorLabel}</span>
+                {messageHeaderDateTime && (
+                  <span className={isUser ? 'text-sky-700/70' : 'text-muted-foreground/80'}>
+                    {messageHeaderDateTime}
+                  </span>
+                )}
+              </span>
             </p>
           )}
           <div
