@@ -475,7 +475,15 @@ export function ArticleDetailPage() {
                 {linkedAgent?.model_label && (
                   <div className="flex justify-between gap-4">
                     <dt className="text-muted-foreground">Модель</dt>
-                    <dd className="text-right font-medium">{linkedAgent.model_label}</dd>
+                    <dd className="text-right font-medium">
+                      {linkedAgentId ? (
+                        <Link to={`/agents/${linkedAgentId}/chats`} className="text-primary hover:underline">
+                          {linkedAgent.model_label}
+                        </Link>
+                      ) : (
+                        linkedAgent.model_label
+                      )}
+                    </dd>
                   </div>
                 )}
                 {linkedAgentId && (

@@ -8,6 +8,23 @@ const articleSlugSchema = z
   .max(200)
   .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
 
+const urlOrAppPathSchema = z
+  .string()
+  .trim()
+  .refine((value) => {
+    if (!value) return false;
+    if (value.startsWith('/')) {
+      return !value.startsWith('//');
+    }
+
+    try {
+      new URL(value);
+      return true;
+    } catch {
+      return false;
+    }
+  }, 'Expected an absolute URL or an internal app path');
+
 export const articleListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   per_page: z.coerce.number().int().min(1).max(24).default(12),
@@ -29,9 +46,9 @@ export const articleParamsSchema = z.object({
 
 const articleMetaSchema = z.object({
   primary_cta_label: z.string().trim().max(80).nullable().optional(),
-  primary_cta_url: z.string().trim().url().nullable().optional(),
+  primary_cta_url: urlOrAppPathSchema.nullable().optional(),
   secondary_cta_label: z.string().trim().max(80).nullable().optional(),
-  secondary_cta_url: z.string().trim().url().nullable().optional(),
+  secondary_cta_url: urlOrAppPathSchema.nullable().optional(),
   reading_time_minutes: z.number().int().min(1).max(240).nullable().optional(),
 });
 
@@ -46,7 +63,7 @@ export const upsertArticleSchema = z.object({
   slug: articleSlugSchema,
   short_description: z.string().trim().min(12).max(500),
   full_description: z.string().trim().min(2).max(1000000),
-  hero_image_url: z.string().trim().url().nullable().optional(),
+  hero_image_url: urlOrAppPathSchema.nullable().optional(),
   seo_title: z.string().trim().max(255).nullable().optional(),
   seo_description: z.string().trim().max(500).nullable().optional(),
   status: z.enum(['draft', 'published']).default('draft'),

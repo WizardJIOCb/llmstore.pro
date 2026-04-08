@@ -11,6 +11,23 @@ import {
   readinessValues,
 } from '../constants/index.js';
 
+const urlOrAppPathSchema = z
+  .string()
+  .trim()
+  .refine((value) => {
+    if (!value) return false;
+    if (value.startsWith('/')) {
+      return !value.startsWith('//');
+    }
+
+    try {
+      new URL(value);
+      return true;
+    } catch {
+      return false;
+    }
+  }, 'Expected an absolute URL or an internal app path');
+
 export const catalogItemMetaSchema = z.object({
   pricing_type: z.enum(pricingTypeValues).nullable().optional(),
   deployment_type: z.enum(deploymentTypeValues).nullable().optional(),
@@ -24,9 +41,9 @@ export const catalogItemMetaSchema = z.object({
   github_url: z.string().url().nullable().optional(),
   website_url: z.string().url().nullable().optional(),
   primary_cta_label: z.string().max(80).nullable().optional(),
-  primary_cta_url: z.string().url().nullable().optional(),
+  primary_cta_url: urlOrAppPathSchema.nullable().optional(),
   secondary_cta_label: z.string().max(80).nullable().optional(),
-  secondary_cta_url: z.string().url().nullable().optional(),
+  secondary_cta_url: urlOrAppPathSchema.nullable().optional(),
   reading_time_minutes: z.number().int().min(1).max(240).nullable().optional(),
   metadata_json: z.record(z.unknown()).nullable().optional(),
 });
@@ -45,7 +62,7 @@ export const createCatalogItemSchema = z.object({
   full_description: z.string().nullable().optional(),
   status: z.enum(itemStatusValues).optional(),
   visibility: z.enum(visibilityValues).optional(),
-  hero_image_url: z.string().url().nullable().optional(),
+  hero_image_url: urlOrAppPathSchema.nullable().optional(),
   featured: z.boolean().optional(),
   curated_score: z.number().int().min(0).max(100).optional(),
   seo_title: z.string().max(255).nullable().optional(),
