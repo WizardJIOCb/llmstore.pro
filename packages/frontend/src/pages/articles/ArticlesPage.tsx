@@ -171,7 +171,7 @@ export function ArticlesPage() {
                   <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs text-amber-700">
                     Featured now
                   </span>
-                  <h3 className="mt-5 text-3xl font-semibold tracking-tight text-slate-950">
+                  <h3 className="mt-5 text-[1.275rem] font-semibold leading-[1.9rem] tracking-tight text-slate-950 md:text-3xl md:leading-tight">
                     {featuredItems[0].title}
                   </h3>
                   <p className="mt-4 text-base leading-8 text-slate-600">{featuredItems[0].short_description}</p>

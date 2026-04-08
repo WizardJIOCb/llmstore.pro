@@ -273,7 +273,7 @@ export function ArticleDetailPage() {
               </h1>
 
               {item.short_description && (
-                <p className="mt-4 max-w-3xl text-lg leading-8 text-slate-600">
+                <p className="mt-4 max-w-3xl text-lg leading-[1.8rem] text-slate-600 md:leading-8">
                   {item.short_description}
                 </p>
               )}

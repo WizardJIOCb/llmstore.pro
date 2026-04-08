@@ -313,6 +313,21 @@
     line-height: 1.85;
   }
 
+  .article-rich .ProseMirror p,
+  .article-rich .ProseMirror li {
+    line-height: 1.8;
+  }
+
+  @media (min-width: 768px) {
+    .article-rich .ProseMirror p {
+      line-height: 1.9;
+    }
+
+    .article-rich .ProseMirror li {
+      line-height: 1.85;
+    }
+  }
+
   .article-editor-content .ProseMirror li::marker,
   .article-rich .ProseMirror li::marker {
     color: rgb(14 116 144);
