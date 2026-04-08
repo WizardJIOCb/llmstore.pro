@@ -489,6 +489,14 @@ const milestones: MilestoneItem[] = [
     ctaHref: '/guides',
   },
   {
+    id: 23,
+    title: 'Backend + Database Runtime',
+    status: 'inProgress',
+    description: 'Параллельно двигаем fullstack-слой: хотим, чтобы к лендингам и preview-проектам можно было сразу подключать backend и базу данных в одном рабочем контуре. В фокусе несколько backend-направлений сразу, например Node.js/Express или FastAPI, а по данным и инфраструктуре - PostgreSQL, MySQL, SQLite, Redis и очереди для фоновых задач. Идея простая: собрать нормальный поток, где фронт, бэк, база, env, рантайм и дальнейшие правки живут внутри одного чата и одного проекта, без разрыва между "красивый лендинг" и "реально работающее приложение".',
+    ctaLabel: 'Открыть gallery',
+    ctaHref: '/gallery',
+  },
+  {
     id: 9,
     title: 'Runnable Project Bundles + Fix From Error',
     status: 'done',
