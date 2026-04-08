@@ -20,6 +20,7 @@ import {
 } from '../../db/schema/runtime.js';
 import { usageLedger } from '../../db/schema/analytics.js';
 import { users } from '../../db/schema/auth.js';
+import { aiModels } from '../../db/schema/models.js';
 import { eq, desc, and, or, sql, asc, inArray } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import { openRouterClient } from '../openrouter/index.js';
@@ -286,6 +287,13 @@ function getModelDisplayLabel(modelId?: string | null): string | null {
 function getRuntimeConfigModelExternalId(runtimeConfig?: Record<string, unknown> | null): string | null {
   const value = runtimeConfig?.model_external_id;
   return typeof value === 'string' ? (value.trim() || null) : null;
+}
+
+function resolveAgentModelExternalId(
+  runtimeConfig?: Record<string, unknown> | null,
+  versionModelExternalId?: string | null,
+): string | null {
+  return getRuntimeConfigModelExternalId(runtimeConfig) ?? (versionModelExternalId?.trim() || null);
 }
 
 function isCodingModel(modelId?: string | null): boolean {
@@ -5357,17 +5365,19 @@ async function buildChatTransferBundlePayload(
       .select({
         name: agents.name,
         runtime_config: agentVersions.runtime_config,
+        version_model_external_id: aiModels.external_model_id,
       })
       .from(agents)
       .leftJoin(agentVersions, eq(agentVersions.id, agents.current_version_id))
+      .leftJoin(aiModels, eq(aiModels.id, agentVersions.model_id))
       .where(eq(agents.id, chat.agent_id))
       .limit(1);
 
     agentName = agentRow?.name ?? null;
-    agentModelExternalId =
-      typeof (agentRow?.runtime_config as Record<string, unknown> | null)?.model_external_id === 'string'
-        ? (((agentRow?.runtime_config as Record<string, unknown>).model_external_id as string).trim() || null)
-        : null;
+    agentModelExternalId = resolveAgentModelExternalId(
+      agentRow?.runtime_config as Record<string, unknown> | null,
+      agentRow?.version_model_external_id ?? null,
+    );
   }
 
   const attachmentMap = new Map<string, ChatTransferAttachment>();
@@ -5673,9 +5683,11 @@ async function getAgentChatMeta(agentId: string | null): Promise<{
       name: agents.name,
       description: agents.description,
       runtime_config: agentVersions.runtime_config,
+      version_model_external_id: aiModels.external_model_id,
     })
     .from(agents)
     .leftJoin(agentVersions, eq(agentVersions.id, agents.current_version_id))
+    .leftJoin(aiModels, eq(aiModels.id, agentVersions.model_id))
     .where(eq(agents.id, agentId))
     .limit(1);
 
@@ -5690,7 +5702,7 @@ async function getAgentChatMeta(agentId: string | null): Promise<{
   }
 
   const runtime = row.runtime_config as Record<string, unknown> | null;
-  const modelExternalId = getRuntimeConfigModelExternalId(runtime);
+  const modelExternalId = resolveAgentModelExternalId(runtime, row.version_model_external_id ?? null);
   const chatIntro = typeof runtime?.chat_intro === 'string' ? runtime.chat_intro.trim() : '';
   const starterPrompts = resolveStarterPromptsForAgentSlug(
     row.slug,
@@ -5797,17 +5809,22 @@ export async function listChats(userId: string): Promise<ConversationListItem[]>
   const agentMetaMap = new Map<string, { name: string | null; model_external_id: string | null; model_label: string | null }>();
   if (agentIds.length > 0) {
     const agentRows = await db
-      .select({
-        id: agents.id,
-        name: agents.name,
-        runtime_config: agentVersions.runtime_config,
-      })
-      .from(agents)
-      .leftJoin(agentVersions, eq(agentVersions.id, agents.current_version_id))
-      .where(inArray(agents.id, agentIds));
+    .select({
+      id: agents.id,
+      name: agents.name,
+      runtime_config: agentVersions.runtime_config,
+      version_model_external_id: aiModels.external_model_id,
+    })
+    .from(agents)
+    .leftJoin(agentVersions, eq(agentVersions.id, agents.current_version_id))
+    .leftJoin(aiModels, eq(aiModels.id, agentVersions.model_id))
+    .where(inArray(agents.id, agentIds));
 
     for (const row of agentRows) {
-      const modelExternalId = getRuntimeConfigModelExternalId(row.runtime_config as Record<string, unknown> | null);
+      const modelExternalId = resolveAgentModelExternalId(
+        row.runtime_config as Record<string, unknown> | null,
+        row.version_model_external_id ?? null,
+      );
 
       agentMetaMap.set(row.id, {
         name: row.name ?? null,
@@ -5873,11 +5890,13 @@ export async function listChatAgents(userId: string, userRole?: string): Promise
       owner_username: users.username,
       description: agents.description,
       runtime_config: agentVersions.runtime_config,
+      version_model_external_id: aiModels.external_model_id,
       created_at: agents.created_at,
       total_runs: sql<number>`count(${agentRuns.id})::int`,
     })
     .from(agents)
     .leftJoin(agentVersions, eq(agentVersions.id, agents.current_version_id))
+    .leftJoin(aiModels, eq(aiModels.id, agentVersions.model_id))
     .leftJoin(users, eq(users.id, agents.owner_user_id))
     .leftJoin(agentRuns, eq(agentRuns.agent_id, agents.id))
     .where(
@@ -5901,54 +5920,43 @@ export async function listChatAgents(userId: string, userRole?: string): Promise
       users.username,
       agents.description,
       agentVersions.runtime_config,
+      aiModels.external_model_id,
       agents.created_at,
     )
     .orderBy(desc(sql<number>`count(${agentRuns.id})::int`), desc(agents.created_at));
 
-  return rows.map((row) => ({
-    id: row.id,
-    name: row.name,
-    owner_user_id: row.owner_user_id,
-    owner_name: row.owner_name ?? null,
-    owner_username: row.owner_username ?? null,
-    is_owner: row.owner_user_id === userId,
-    description: row.description ?? null,
-    created_at: toIso(row.created_at),
-    total_runs: row.total_runs ?? 0,
-    model_external_id:
-      typeof (row.runtime_config as Record<string, unknown> | null)?.model_external_id === 'string'
-        ? ((row.runtime_config as Record<string, unknown>).model_external_id as string).trim() || null
-        : null,
-    model_label: getModelDisplayLabel(
-      typeof (row.runtime_config as Record<string, unknown> | null)?.model_external_id === 'string'
-        ? ((row.runtime_config as Record<string, unknown>).model_external_id as string).trim() || null
-        : null,
-    ),
-    pricing_input_usd_per_million: getModelPricingInfo(
-      typeof (row.runtime_config as Record<string, unknown> | null)?.model_external_id === 'string'
-        ? ((row.runtime_config as Record<string, unknown>).model_external_id as string).trim() || null
-        : null,
-    )?.input ?? null,
-    pricing_output_usd_per_million: getModelPricingInfo(
-      typeof (row.runtime_config as Record<string, unknown> | null)?.model_external_id === 'string'
-        ? ((row.runtime_config as Record<string, unknown>).model_external_id as string).trim() || null
-        : null,
-    )?.output ?? null,
-    is_coding_model: isCodingModel(
-      typeof (row.runtime_config as Record<string, unknown> | null)?.model_external_id === 'string'
-        ? ((row.runtime_config as Record<string, unknown>).model_external_id as string).trim() || null
-        : null,
-    ),
-    chat_description:
-      (typeof (row.runtime_config as Record<string, unknown> | null)?.chat_intro === 'string'
-        ? ((row.runtime_config as Record<string, unknown>).chat_intro as string).trim()
-        : '') || row.description || null,
-    starter_prompts: resolveStarterPromptsForAgentSlug(
-      row.slug,
-      extractStarterPrompts((row.runtime_config as Record<string, unknown> | null)?.starter_prompts),
-      starterPromptSettings,
-    ),
-  }));
+  return rows.map((row) => {
+    const modelExternalId = resolveAgentModelExternalId(
+      row.runtime_config as Record<string, unknown> | null,
+      row.version_model_external_id ?? null,
+    );
+
+    return {
+      id: row.id,
+      name: row.name,
+      owner_user_id: row.owner_user_id,
+      owner_name: row.owner_name ?? null,
+      owner_username: row.owner_username ?? null,
+      is_owner: row.owner_user_id === userId,
+      description: row.description ?? null,
+      created_at: toIso(row.created_at),
+      total_runs: row.total_runs ?? 0,
+      model_external_id: modelExternalId,
+      model_label: getModelDisplayLabel(modelExternalId),
+      pricing_input_usd_per_million: getModelPricingInfo(modelExternalId)?.input ?? null,
+      pricing_output_usd_per_million: getModelPricingInfo(modelExternalId)?.output ?? null,
+      is_coding_model: isCodingModel(modelExternalId),
+      chat_description:
+        (typeof (row.runtime_config as Record<string, unknown> | null)?.chat_intro === 'string'
+          ? ((row.runtime_config as Record<string, unknown>).chat_intro as string).trim()
+          : '') || row.description || null,
+      starter_prompts: resolveStarterPromptsForAgentSlug(
+        row.slug,
+        extractStarterPrompts((row.runtime_config as Record<string, unknown> | null)?.starter_prompts),
+        starterPromptSettings,
+      ),
+    };
+  });
 }
 
 export async function listPublicChatsByAgent(agentId: string, viewerUserId?: string | null): Promise<PublicAgentChatsResult> {
