@@ -53,6 +53,73 @@ function aliceStartAccountLinkingResponse() {
   };
 }
 
+function aliceUnauthorizedResponse(canLink: boolean) {
+  if (canLink) {
+    return aliceStartAccountLinkingResponse();
+  }
+
+  return aliceTextResponse(
+    'Чтобы использовать навык, нужно привязать аккаунт llmstore. Откройте настройки навыка и выполните привязку.',
+  );
+}
+
+const ALICE_PENDING_COMMAND_TTL_MS = 15 * 60 * 1000;
+const pendingAliceCommands = new Map<string, { command: string; createdAt: number }>();
+
+function extractAliceSkillUserId(payload: any): string | null {
+  const sessionUserId = typeof payload?.session?.user_id === 'string' ? payload.session.user_id : null;
+  const nestedUserId = typeof payload?.session?.user?.user_id === 'string' ? payload.session.user.user_id : null;
+  return sessionUserId || nestedUserId || null;
+}
+
+function savePendingAliceCommand(skillUserId: string | null, command: string): void {
+  const trimmed = command.trim();
+  if (!skillUserId || !trimmed) return;
+
+  const now = Date.now();
+  for (const [key, value] of pendingAliceCommands.entries()) {
+    if (now - value.createdAt > ALICE_PENDING_COMMAND_TTL_MS) {
+      pendingAliceCommands.delete(key);
+    }
+  }
+
+  pendingAliceCommands.set(skillUserId, { command: trimmed, createdAt: now });
+}
+
+function takePendingAliceCommand(skillUserId: string | null): string | null {
+  if (!skillUserId) return null;
+  const pending = pendingAliceCommands.get(skillUserId);
+  if (!pending) return null;
+  pendingAliceCommands.delete(skillUserId);
+
+  if (Date.now() - pending.createdAt > ALICE_PENDING_COMMAND_TTL_MS) {
+    return null;
+  }
+
+  return pending.command;
+}
+
+function buildAuthorizedAliceCommandResponse(command: string) {
+  const trimmed = command.trim();
+  const normalized = normalizeAliceCommand(trimmed);
+
+  if (isAliceHelpCommand(normalized)) {
+    return aliceTextResponse(aliceHelpText(true));
+  }
+
+  if (isAliceGreetingCommand(normalized)) {
+    return aliceTextResponse(aliceGreetingText(true));
+  }
+
+  if (!trimmed) {
+    return aliceTextResponse('Аккаунт llmstore подключен. Скажите, что сделать в чате.');
+  }
+
+  return aliceTextResponse(
+    `Команда получена: ${trimmed}. Интеграция с выбранным чатом сейчас завершается.`,
+  );
+}
+
 function supportsAccountLinking(payload: any): boolean {
   return Boolean(payload?.meta?.interfaces?.account_linking);
 }
@@ -478,6 +545,7 @@ export async function webhook(req: Request, res: Response, next: NextFunction) {
     const canLink = supportsAccountLinking(payload);
     const linkingCompleted = hasAccountLinkingCompleteEvent(payload);
     const rawCommand = extractAliceCommand(payload);
+    const skillUserId = extractAliceSkillUserId(payload);
     const normalizedCommand = normalizeAliceCommand(rawCommand);
 
     if (linkingCompleted) {
@@ -510,6 +578,12 @@ export async function webhook(req: Request, res: Response, next: NextFunction) {
         return;
       }
 
+      const pendingCommand = takePendingAliceCommand(skillUserId);
+      if (pendingCommand) {
+        res.status(200).json(buildAuthorizedAliceCommandResponse(pendingCommand));
+        return;
+      }
+
       res.status(200).json(
         aliceTextResponse('Вы успешно авторизовались в LLM Store. Теперь можно продолжать работу с навыком.'),
       );
@@ -517,22 +591,11 @@ export async function webhook(req: Request, res: Response, next: NextFunction) {
     }
 
     if (!token) {
+      savePendingAliceCommand(skillUserId, rawCommand);
+      res.status(200).json(aliceUnauthorizedResponse(canLink));
+      return;
+
       if (canLink) {
-        if (isAliceHelpCommand(normalizedCommand)) {
-          res.status(200).json(aliceTextResponse(aliceHelpText(false)));
-          return;
-        }
-
-        if (isAliceGreetingCommand(normalizedCommand)) {
-          res.status(200).json(aliceTextResponse(aliceGreetingText(false)));
-          return;
-        }
-
-        if (isAliceAuthorizationCommand(normalizedCommand)) {
-          res.status(200).json(aliceStartAccountLinkingResponse());
-          return;
-        }
-
         res.status(200).json(aliceStartAccountLinkingResponse());
         return;
       }
@@ -546,6 +609,10 @@ export async function webhook(req: Request, res: Response, next: NextFunction) {
 
     const userId = await oauthService.resolveUserByAccessToken(token);
     if (!userId) {
+      savePendingAliceCommand(skillUserId, rawCommand);
+      res.status(200).json(aliceUnauthorizedResponse(canLink));
+      return;
+
       if (canLink) {
         res.status(200).json(
           aliceTextResponse('Сессия истекла. Скажите авторизоваться и войдите в LLM Store ещё раз.'),
