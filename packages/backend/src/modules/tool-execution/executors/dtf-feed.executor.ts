@@ -7,12 +7,13 @@ import { fetchDtfJson } from './dtf-http.js';
 import { buildDtfReactionStats } from './dtf-reactions.js';
 
 const DTF_API_URL = 'https://api.dtf.ru/v2.1/timeline';
-const CACHE_KEY = 'dtf_latest_feed_v2';
+const CACHE_KEY = 'dtf_latest_feed_v3';
 const CACHE_TTL_SEC = 120;
 
 interface DtfFeedRawEntry {
   title?: string;
   url?: string;
+  date?: number;
   blocks?: Array<{ type?: string; data?: { text?: string } }>;
   counters?: { comments?: number; reactions?: number };
   likes?: { counterLikes?: number } | number;
@@ -63,6 +64,11 @@ async function setCache(data: DtfFeedResult): Promise<void> {
 
 function stripHtml(html: string): string {
   return html.replace(/<[^>]+>/g, '').trim();
+}
+
+function toPublishedAt(value: number | undefined): string | null {
+  if (!value || !Number.isFinite(value)) return null;
+  return new Date(value * 1000).toISOString();
 }
 
 export async function executeDtfFeed(input: { limit?: number }): Promise<DtfFeedResult> {
@@ -139,6 +145,7 @@ export async function executeDtfFeed(input: { limit?: number }): Promise<DtfFeed
         url,
         author,
         snippet,
+        published_at: toPublishedAt(entry.date),
         comments_count,
         reactions_count: reactionStats.reactions_count,
         reaction_breakdown: reactionStats.reaction_breakdown,

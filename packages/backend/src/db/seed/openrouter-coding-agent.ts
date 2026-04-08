@@ -76,6 +76,9 @@ const BASE_SYSTEM_PROMPT = `Ты — OpenRouter Coding Agent для llmstore.pro
 - для Node.js проектов по возможности включай package.json и все нужные исходники;
 - для Python-проектов по возможности включай requirements.txt и точку входа;
 - для server-side проверки предпочитай простые zero-dependency Node.js/Python решения без внешних сервисов и без обязательного npm/pip install;
+- если генерируешь Telegram-бота, webhook-бота или любой проект, который отправляет текст в Telegram Bot API, делай Telegram-совместимое форматирование исходящих сообщений;
+- для Telegram предпочитай sendMessage с parse_mode="HTML" и конвертацию markdown-подобного текста в поддерживаемый Telegram HTML;
+- не отправляй пользователю в Telegram сырой markdown вроде **жирный**, __подчёркнутый__, markdown-списков или markdown-ссылок без преобразования;
 - preview.type="html" используй только для standalone preview, который реально можно отрисовать в iframe;
 - если preview не нужен, передай null или не указывай поле;
 - JSON должен быть валидным, без комментариев и markdown fences;
@@ -125,7 +128,7 @@ const CODING_PRESETS: CodingPreset[] = [
     name: 'Coding Agent: Claude Sonnet 4.6',
     description: 'Сбалансированный coding-agent на Claude Sonnet 4.6 для большинства задач по разработке.',
     model_external_id: 'anthropic/claude-sonnet-4.6',
-    version_number: 3,
+    version_number: 4,
     chat_intro: 'Сбалансированный coding-agent на Claude Sonnet 4.6. Хорош для новых фич, UI, рефакторинга и работы с прикреплённым кодом.',
     starter_prompts: DEFAULT_CODING_STARTER_PROMPTS,
     max_iterations: 6,
@@ -137,7 +140,7 @@ const CODING_PRESETS: CodingPreset[] = [
     name: 'Coding Agent: Claude Haiku 4.5',
     description: 'Быстрый и более дешёвый coding-agent на Claude Haiku 4.5 для коротких задач и быстрых итераций.',
     model_external_id: 'anthropic/claude-haiku-4.5',
-    version_number: 3,
+    version_number: 4,
     chat_intro: 'Быстрый coding-agent на Claude Haiku 4.5. Лучше всего подходит для маленьких правок, чтения контекста и быстрых повторных запусков.',
     starter_prompts: FAST_CODING_STARTER_PROMPTS,
     max_iterations: 4,
@@ -149,7 +152,7 @@ const CODING_PRESETS: CodingPreset[] = [
     name: 'Coding Agent: Claude Opus 4.6',
     description: 'Премиальный coding-agent на Claude Opus 4.6 для сложной архитектуры и тяжёлого планирования.',
     model_external_id: 'anthropic/claude-opus-4.6',
-    version_number: 1,
+    version_number: 2,
     chat_intro: 'Премиальный coding-agent на Claude Opus 4.6. Подходит для больших рефакторингов, архитектуры и детального плана изменений.',
     starter_prompts: HEAVY_CODING_STARTER_PROMPTS,
     max_iterations: 8,
@@ -161,7 +164,7 @@ const CODING_PRESETS: CodingPreset[] = [
     name: 'Coding Agent: Qwen3 Coder Plus',
     description: 'Code-first coding-agent на Qwen3 Coder Plus как хорошая альтернатива дорогим premium-моделям.',
     model_external_id: 'qwen/qwen3-coder-plus',
-    version_number: 1,
+    version_number: 2,
     chat_intro: 'Code-first coding-agent на Qwen3 Coder Plus. Хорош как практичная альтернатива premium-моделям для инженерных задач.',
     starter_prompts: DEFAULT_CODING_STARTER_PROMPTS,
     max_iterations: 6,
@@ -173,7 +176,7 @@ const CODING_PRESETS: CodingPreset[] = [
     name: 'Coding Agent: GPT-5.4',
     description: 'Сильный premium coding-agent на GPT-5.4 для сложных задач, tool use и длинного контекста.',
     model_external_id: 'openai/gpt-5.4',
-    version_number: 1,
+    version_number: 2,
     chat_intro: 'Premium coding-agent на GPT-5.4. Подходит для сложных инженерных задач, многошагового reasoning и качественного tool use.',
     starter_prompts: HEAVY_CODING_STARTER_PROMPTS,
     max_iterations: 8,
@@ -185,7 +188,7 @@ const CODING_PRESETS: CodingPreset[] = [
     name: 'Coding Agent: GPT-5.4 Mini',
     description: 'Быстрый и более доступный coding-agent на GPT-5.4 Mini для частых запусков.',
     model_external_id: 'openai/gpt-5.4-mini',
-    version_number: 1,
+    version_number: 2,
     chat_intro: 'Быстрый coding-agent на GPT-5.4 Mini. Подходит для частых запусков, итераций и повседневных задач разработки.',
     starter_prompts: FAST_CODING_STARTER_PROMPTS,
     max_iterations: 5,
@@ -197,7 +200,7 @@ const CODING_PRESETS: CodingPreset[] = [
     name: 'Coding Agent: GPT-5.3 Codex',
     description: 'Специализированный agentic coding-вариант на GPT-5.3 Codex.',
     model_external_id: 'openai/gpt-5.3-codex',
-    version_number: 1,
+    version_number: 2,
     chat_intro: 'Специализированный coding-agent на GPT-5.3 Codex. Хорош для code generation, исправлений и agentic workflow.',
     starter_prompts: DEFAULT_CODING_STARTER_PROMPTS,
     max_iterations: 7,
@@ -209,7 +212,7 @@ const CODING_PRESETS: CodingPreset[] = [
     name: 'Coding Agent: GPT-5.1 Codex Max',
     description: 'Экономичный agentic coding-вариант на GPT-5.1 Codex Max.',
     model_external_id: 'openai/gpt-5.1-codex-max',
-    version_number: 1,
+    version_number: 2,
     chat_intro: 'Agentic coding-agent на GPT-5.1 Codex Max. Подходит для длинных рабочих сессий и высокой частоты использования.',
     starter_prompts: DEFAULT_CODING_STARTER_PROMPTS,
     max_iterations: 6,
@@ -221,7 +224,7 @@ const CODING_PRESETS: CodingPreset[] = [
     name: 'Coding Agent: Qwen3 Coder Flash',
     description: 'Очень дешёвый coding-agent на Qwen3 Coder Flash для быстрых и частых задач.',
     model_external_id: 'qwen/qwen3-coder-flash',
-    version_number: 1,
+    version_number: 2,
     chat_intro: 'Очень дешёвый coding-agent на Qwen3 Coder Flash. Хорош для быстрых проверок, мелких задач и частых запусков.',
     starter_prompts: FAST_CODING_STARTER_PROMPTS,
     max_iterations: 4,
@@ -233,7 +236,7 @@ const CODING_PRESETS: CodingPreset[] = [
     name: 'Coding Agent: Qwen3 Coder Next',
     description: 'Суперэкономичный coding-agent на Qwen3 Coder Next для always-on сценариев. Подходит для дешёвых итераций, но не лучший выбор для длинных runnable bundle задач.',
     model_external_id: 'qwen/qwen3-coder-next',
-    version_number: 1,
+    version_number: 2,
     chat_intro: 'Суперэкономичный coding-agent на Qwen3 Coder Next. Подходит для always-on сценариев, регулярных фоновых задач и дешёвых итераций. Для длинных runnable bundle задач и больших ответов лучше выбирать GPT-5.4, Claude Sonnet 4.6 или хотя бы более быстрый Qwen3 Coder Flash.',
     starter_prompts: FAST_CODING_STARTER_PROMPTS,
     max_iterations: 4,

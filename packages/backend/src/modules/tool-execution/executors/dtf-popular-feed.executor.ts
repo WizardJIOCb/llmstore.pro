@@ -26,7 +26,7 @@ interface ParsedEntry extends DtfPopularArticle {
 }
 
 function cacheKey(sorting: string): string {
-  return `dtf_popular_v2_${sorting}`;
+  return `dtf_popular_v3_${sorting}`;
 }
 
 async function getCached(sorting: string, includeExpired = false): Promise<CachedData | null> {
@@ -64,6 +64,11 @@ async function setCache(sorting: string, data: CachedData): Promise<void> {
 
 function stripHtml(html: string): string {
   return html.replace(/<[^>]+>/g, '').trim();
+}
+
+function toPublishedAt(value: number | undefined): string | null {
+  if (!value || !Number.isFinite(value)) return null;
+  return new Date(value * 1000).toISOString();
 }
 
 interface RawEntry {
@@ -113,6 +118,7 @@ function extractEntry(raw: RawEntry): ParsedEntry | null {
     url,
     author,
     snippet,
+    published_at: toPublishedAt(raw.date),
     comments_count,
     reactions_count: reactionStats.reactions_count,
     reaction_breakdown: reactionStats.reaction_breakdown,

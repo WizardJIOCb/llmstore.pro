@@ -3,6 +3,7 @@ export interface DtfFeedArticle {
   url: string;
   author: string;
   snippet: string;
+  published_at: string | null;
   comments_count: number;
   reactions_count: number;
   reaction_breakdown: Array<{
@@ -23,6 +24,7 @@ export interface DtfPopularArticle {
   url: string;
   author: string;
   snippet: string;
+  published_at: string | null;
   comments_count: number;
   reactions_count: number;
   reaction_breakdown: Array<{
