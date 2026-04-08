@@ -26,6 +26,14 @@ function toOptions(map: Record<string, string>) {
   return Object.entries(map).map(([value, label]) => ({ value, label }));
 }
 
+function normalizeSlugDraft(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[\s_]+/g, '-')
+    .replace(/[^a-z0-9-]/g, '')
+    .replace(/-{2,}/g, '-');
+}
+
 export function AdminArticleFormPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -242,7 +250,7 @@ export function AdminArticleFormPage() {
                   value={form.slug}
                   onChange={(event) => {
                     setSlugTouched(true);
-                    updateField('slug', generateSlug(event.target.value));
+                    updateField('slug', normalizeSlugDraft(event.target.value));
                   }}
                   placeholder="telegram-agent-product-case"
                   required
