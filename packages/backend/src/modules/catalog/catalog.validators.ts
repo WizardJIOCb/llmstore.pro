@@ -6,6 +6,7 @@ export const validateCatalogQuery = validate(catalogQuerySchema, 'query');
 
 const createCatalogCommentSchema = z.object({
   content: z.string().trim().min(1).max(5000),
+  parent_id: z.string().uuid().nullable().optional(),
 });
 
 export const validateCreateCatalogComment = validate(createCatalogCommentSchema, 'body');

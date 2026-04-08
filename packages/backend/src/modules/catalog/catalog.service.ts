@@ -169,6 +169,7 @@ const emptyMeta: CatalogItemMeta = {
 
 export interface PublicComment {
   id: string;
+  parent_id: string | null;
   content: string;
   created_at: string;
   updated_at: string;
@@ -605,6 +606,7 @@ export async function listCommentsBySlug(slug: string): Promise<PublicComment[]>
   const rows = await db
     .select({
       id: catalogComments.id,
+      parent_id: catalogComments.parent_id,
       content: catalogComments.content,
       created_at: catalogComments.created_at,
       updated_at: catalogComments.updated_at,
@@ -616,10 +618,11 @@ export async function listCommentsBySlug(slug: string): Promise<PublicComment[]>
     .from(catalogComments)
     .innerJoin(users, eq(users.id, catalogComments.user_id))
     .where(eq(catalogComments.item_id, itemId))
-    .orderBy(asc(catalogComments.created_at));
+    .orderBy(desc(catalogComments.created_at));
 
   return rows.map((row) => ({
     id: row.id,
+    parent_id: row.parent_id,
     content: row.content,
     created_at: row.created_at.toISOString(),
     updated_at: row.updated_at.toISOString(),
@@ -632,17 +635,44 @@ export async function listCommentsBySlug(slug: string): Promise<PublicComment[]>
   }));
 }
 
-export async function createCommentBySlug(slug: string, userId: string, content: string): Promise<PublicComment> {
+async function resolveCatalogParentCommentId(itemId: string, parentId: string): Promise<string> {
+  const [parentComment] = await db
+    .select({
+      id: catalogComments.id,
+    })
+    .from(catalogComments)
+    .where(and(
+      eq(catalogComments.id, parentId),
+      eq(catalogComments.item_id, itemId),
+    ))
+    .limit(1);
+
+  if (!parentComment) {
+    throw new NotFoundError('Родительский комментарий не найден');
+  }
+
+  return parentComment.id;
+}
+
+export async function createCommentBySlug(
+  slug: string,
+  userId: string,
+  content: string,
+  parentId: string | null = null,
+): Promise<PublicComment> {
   const itemId = await resolvePublishedItemIdBySlug(slug);
+  const resolvedParentId = parentId ? await resolveCatalogParentCommentId(itemId, parentId) : null;
   const [inserted] = await db
     .insert(catalogComments)
     .values({
       item_id: itemId,
+      parent_id: resolvedParentId,
       user_id: userId,
       content: content.trim(),
     })
     .returning({
       id: catalogComments.id,
+      parent_id: catalogComments.parent_id,
       content: catalogComments.content,
       created_at: catalogComments.created_at,
       updated_at: catalogComments.updated_at,
@@ -661,6 +691,7 @@ export async function createCommentBySlug(slug: string, userId: string, content:
 
   return {
     id: inserted.id,
+    parent_id: inserted.parent_id,
     content: inserted.content,
     created_at: inserted.created_at.toISOString(),
     updated_at: inserted.updated_at.toISOString(),

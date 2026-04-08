@@ -2,6 +2,7 @@ import { apiClient } from '../api-client';
 
 export interface PublicComment {
   id: string;
+  parent_id: string | null;
   content: string;
   created_at: string;
   updated_at: string;
@@ -34,8 +35,8 @@ export const commentsApi = {
   listArticleComments: (slug: string) =>
     apiClient.get<{ data: PublicComment[] }>(`/catalog/article/${slug}/comments`).then((r) => r.data.data),
 
-  createArticleComment: (slug: string, content: string) =>
-    apiClient.post<{ data: PublicComment }>(`/catalog/article/${slug}/comments`, { content }).then((r) => r.data.data),
+  createArticleComment: (slug: string, payload: { content: string; parent_id?: string | null }) =>
+    apiClient.post<{ data: PublicComment }>(`/catalog/article/${slug}/comments`, payload).then((r) => r.data.data),
 
   deleteArticleComment: (slug: string, commentId: string) =>
     apiClient.delete(`/catalog/article/${slug}/comments/${commentId}`).then((r) => r.data),

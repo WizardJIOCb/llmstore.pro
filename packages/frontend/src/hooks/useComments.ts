@@ -64,7 +64,7 @@ export function useArticleComments(slug: string) {
 export function useCreateArticleComment(slug: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (content: string) => commentsApi.createArticleComment(slug, content),
+    mutationFn: (payload: { content: string; parent_id?: string | null }) => commentsApi.createArticleComment(slug, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['comments', 'article', slug] });
       queryClient.invalidateQueries({ queryKey: ['catalog'] });

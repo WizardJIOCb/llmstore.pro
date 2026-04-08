@@ -42,7 +42,12 @@ export async function listCommentsBySlug(req: Request<{ slug: string }>, res: Re
 
 export async function createCommentBySlug(req: Request<{ slug: string }>, res: Response, next: NextFunction) {
   try {
-    const comment = await catalogService.createCommentBySlug(req.params.slug, req.session.userId!, req.body.content);
+    const comment = await catalogService.createCommentBySlug(
+      req.params.slug,
+      req.session.userId!,
+      req.body.content,
+      req.body.parent_id ?? null,
+    );
     res.status(201).json({ data: comment });
   } catch (err) {
     next(err);

@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, timestamp, index, uniqueIndex, type AnyPgColumn } from 'drizzle-orm/pg-core';
 import { users } from './auth';
 import { news } from './news';
 import { catalogItems } from './catalog';
@@ -18,12 +18,14 @@ export const newsComments = pgTable('news_comments', {
 export const catalogComments = pgTable('catalog_comments', {
   id: uuid('id').primaryKey().defaultRandom(),
   item_id: uuid('item_id').notNull().references(() => catalogItems.id, { onDelete: 'cascade' }),
+  parent_id: uuid('parent_id').references((): AnyPgColumn => catalogComments.id, { onDelete: 'cascade' }),
   user_id: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   content: text('content').notNull(),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (table) => [
   index('catalog_comments_item_created_idx').on(table.item_id, table.created_at),
+  index('catalog_comments_parent_created_idx').on(table.parent_id, table.created_at),
   index('catalog_comments_user_idx').on(table.user_id),
 ]);
 

@@ -564,7 +564,7 @@ export function ArticleDetailPage() {
               isSubmitting={createComment.isPending}
               currentUserId={user?.id}
               canDeleteAny={isAdmin}
-              onSubmit={(content) => createComment.mutateAsync(content)}
+              onSubmit={(content, parentId) => createComment.mutateAsync({ content, parent_id: parentId ?? null })}
               onDelete={(commentId) => deleteComment.mutateAsync(commentId)}
             />
           </div>
