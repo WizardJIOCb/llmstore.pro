@@ -154,7 +154,7 @@ export function NewsCommentsPanel({
             onClick={() => setComposerOpen((current) => !current)}
           >
             <CommentIcon className="h-4 w-4" />
-            {composerOpen ? 'Скрыть форму' : 'Быстрый комментарий'}
+            {composerOpen ? 'Скрыть форму' : 'Написать комментарий'}
           </button>
         ) : (
           <Link
