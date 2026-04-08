@@ -1,4 +1,5 @@
 import { useCallback, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import type { NewsImage } from '../../lib/api/news';
 
 interface NewsLightboxProps {
@@ -53,7 +54,7 @@ export function NewsLightbox({ images, index, onClose, onSelect, onPrev, onNext 
 
   if (!activeImage) return null;
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-[120] flex animate-[fadeIn_180ms_ease-out] items-center justify-center bg-[rgba(48,36,24,0.86)] p-3 md:p-8"
       onClick={onClose}
@@ -126,6 +127,7 @@ export function NewsLightbox({ images, index, onClose, onSelect, onPrev, onNext 
           }
         }
       `}</style>
-    </div>
+    </div>,
+    document.body,
   );
 }
