@@ -1163,6 +1163,7 @@ export function ChatsPage() {
             if (
               eventName === 'chat.message.accepted'
               || eventName === 'chat.message.completed'
+              || eventName === 'chat.run.completed'
               || eventName === 'chat.run.failed'
               || (eventName === 'chat.run.status' && payload.status === 'continuing_output')
             ) {
