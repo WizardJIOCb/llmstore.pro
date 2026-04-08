@@ -105,7 +105,7 @@ export function ArticlesPage() {
 
             <div className="flex flex-col gap-3 sm:flex-row">
               <Link to="/guides">
-                <Button variant="outline" className="w-full sm:w-auto">Как?</Button>
+                <Button variant="outline" className="w-full sm:w-auto">Гайды</Button>
               </Link>
               {isAuthenticated ? (
                 <>

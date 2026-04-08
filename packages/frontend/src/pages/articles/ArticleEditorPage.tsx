@@ -269,6 +269,22 @@ export function ArticleEditorPage() {
               onChange={(nextValue) => setForm((current) => ({ ...current, full_description: nextValue }))}
             />
           </section>
+
+          <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+            <h2 className="text-lg font-semibold text-slate-950">Публикация</h2>
+            <p className="mt-2 text-sm leading-7 text-slate-500">
+              Черновик можно спокойно дополнять позже. Публикация сразу делает статью доступной на витрине и в рейтингах.
+            </p>
+
+            <div className="mt-5 space-y-3">
+              <Button className="w-full" variant="outline" disabled={isSaving} onClick={() => void submit('draft')}>
+                {isSaving && form.status === 'draft' ? 'Сохраняю...' : 'Сохранить как черновик'}
+              </Button>
+              <Button className="w-full" disabled={isSaving} onClick={() => void submit('published')}>
+                {isSaving && form.status === 'published' ? 'Публикую...' : 'Опубликовать статью'}
+              </Button>
+            </div>
+          </section>
         </div>
 
         <div className="space-y-6">
@@ -361,21 +377,6 @@ export function ArticleEditorPage() {
             </div>
           </section>
 
-          <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
-            <h2 className="text-lg font-semibold text-slate-950">Публикация</h2>
-            <p className="mt-2 text-sm leading-7 text-slate-500">
-              Черновик можно спокойно дополнять позже. Публикация сразу делает статью доступной на витрине и в рейтингах.
-            </p>
-
-            <div className="mt-5 space-y-3">
-              <Button className="w-full" variant="outline" disabled={isSaving} onClick={() => void submit('draft')}>
-                {isSaving && form.status === 'draft' ? 'Сохраняю...' : 'Сохранить как черновик'}
-              </Button>
-              <Button className="w-full" disabled={isSaving} onClick={() => void submit('published')}>
-                {isSaving && form.status === 'published' ? 'Публикую...' : 'Опубликовать статью'}
-              </Button>
-            </div>
-          </section>
         </div>
       </div>
     </div>
