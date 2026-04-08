@@ -1,15 +1,18 @@
 import { useState } from 'react';
-import { Link, useLocation, useParams } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { Bookmark, Clock, Eye, Flag, Heart, MessageSquare } from 'lucide-react';
 import { useCatalogItemBySlug } from '../../hooks/useCatalog';
 import { useArticleBookmark, useArticleBySlug, useArticleReaction, useArticleReport } from '../../hooks/useArticles';
 import { useCreateArticleComment, useDeleteArticleComment, useArticleComments } from '../../hooks/useComments';
+import { useCreateChat } from '../../hooks/useChats';
 import { useAuth } from '../../hooks/useAuth';
 import { CatalogCard } from '../../components/catalog/CatalogCard';
 import { CommentsSection } from '../../components/comments/CommentsSection';
 import { UserLink } from '../../components/users/UserLink';
 import { Badge, Button, Select, Skeleton, Textarea } from '../../components/ui';
 import { ArticleRichContent } from '../../components/articles/ArticleRichContent';
+import { chatsApi, type ChatListItem } from '../../lib/api/chats';
 import {
   pricingTypeLabels,
   deploymentTypeLabels,
@@ -47,15 +50,35 @@ function formatCount(value: number | undefined) {
   return new Intl.NumberFormat('ru-RU').format(value ?? 0);
 }
 
+function getApiErrorMessage(err: unknown): string | undefined {
+  const maybe = err as { response?: { data?: { error?: { message?: string } } } };
+  return maybe?.response?.data?.error?.message;
+}
+
+function extractAgentIdFromCtaUrl(url: string): string | null {
+  try {
+    const parsed = new URL(url, 'https://llmstore.pro');
+    const match = parsed.pathname.match(/^\/playground\/agent\/([^/?#]+)/);
+    return match?.[1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export function ArticleDetailPage() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const location = useLocation();
   const { slug } = useParams<{ slug: string }>();
   const isArticleRoute = location.pathname.startsWith('/articles/') || location.pathname.startsWith('/article/');
   const { user, isAuthenticated, isAdmin } = useAuth();
+  const createChat = useCreateChat();
   const [reportOpen, setReportOpen] = useState(false);
   const [reportReason, setReportReason] = useState('broken');
   const [reportDetails, setReportDetails] = useState('');
   const [reportSubmitted, setReportSubmitted] = useState(false);
+  const [chatActionError, setChatActionError] = useState<string | null>(null);
+  const [pendingAgentId, setPendingAgentId] = useState<string | null>(null);
 
   const articleQuery = useArticleBySlug(isArticleRoute ? (slug ?? '') : '');
   const guideQuery = useCatalogItemBySlug(!isArticleRoute ? (slug ?? '') : '');
@@ -107,6 +130,82 @@ export function ArticleDetailPage() {
     setReportSubmitted(true);
     setReportOpen(false);
     setReportDetails('');
+  };
+
+  const handleCtaClick = async (url: string) => {
+    const agentId = extractAgentIdFromCtaUrl(url);
+
+    if (!agentId) {
+      window.open(url, '_blank', 'noopener,noreferrer');
+      return;
+    }
+
+    setChatActionError(null);
+
+    if (!isAuthenticated) {
+      navigate(`/login?next=${encodeURIComponent(window.location.href)}`);
+      return;
+    }
+
+    if (pendingAgentId) return;
+    setPendingAgentId(agentId);
+
+    try {
+      const cachedChats = queryClient.getQueryData<ChatListItem[]>(['chats']);
+      const chatList = cachedChats ?? (
+        await queryClient.fetchQuery<ChatListItem[]>({
+          queryKey: ['chats'],
+          queryFn: chatsApi.list,
+        })
+      );
+
+      const existingChat = chatList.find((chat) => chat.mode === 'agent' && chat.agent_id === agentId);
+      if (existingChat) {
+        navigate(`/chats?chat=${existingChat.id}`);
+        return;
+      }
+
+      const createdChat = await createChat.mutateAsync({
+        mode: 'agent',
+        title: 'Новый чат',
+        agent_id: agentId,
+      });
+
+      navigate(`/chats?chat=${createdChat.id}`);
+    } catch (actionError) {
+      setChatActionError(
+        getApiErrorMessage(actionError)
+          ?? 'Не удалось открыть чат с этим агентом. Попробуйте ещё раз чуть позже.',
+      );
+    } finally {
+      setPendingAgentId(null);
+    }
+  };
+
+  const renderCtaButton = (
+    cta: { label: string; url: string },
+    variant?: 'outline',
+  ) => {
+    const agentId = extractAgentIdFromCtaUrl(cta.url);
+
+    if (agentId) {
+      const isPending = pendingAgentId === agentId;
+      return (
+        <Button
+          variant={variant}
+          disabled={isPending}
+          onClick={() => void handleCtaClick(cta.url)}
+        >
+          {isPending ? 'Открываю чат...' : cta.label}
+        </Button>
+      );
+    }
+
+    return (
+      <a href={cta.url} target="_blank" rel="noopener noreferrer">
+        <Button variant={variant}>{cta.label}</Button>
+      </a>
+    );
   };
 
   return (
@@ -279,17 +378,14 @@ export function ArticleDetailPage() {
                     Если вам откликнулся сценарий из этой статьи, запустите агента или откройте приложенную связку прямо
                     после чтения.
                   </p>
+                  {chatActionError && (
+                    <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                      {chatActionError}
+                    </div>
+                  )}
                   <div className="mt-4 flex flex-wrap gap-3">
-                    {primaryCta && (
-                      <a href={primaryCta.url} target="_blank" rel="noopener noreferrer">
-                        <Button>{primaryCta.label}</Button>
-                      </a>
-                    )}
-                    {secondaryCta && (
-                      <a href={secondaryCta.url} target="_blank" rel="noopener noreferrer">
-                        <Button variant="outline">{secondaryCta.label}</Button>
-                      </a>
-                    )}
+                    {primaryCta && renderCtaButton(primaryCta)}
+                    {secondaryCta && renderCtaButton(secondaryCta, 'outline')}
                   </div>
                 </div>
               )}
