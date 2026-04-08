@@ -143,6 +143,24 @@ export function ArticleDetailPage() {
   const relatedHref = (type: string, itemSlug: string) => (type === 'guide' ? `/guides/${itemSlug}` : `/articles/${itemSlug}`);
   const primaryCta = draftPrimaryCta;
   const secondaryCta = draftSecondaryCta;
+  const hasInfoBlock = Boolean(
+    meta.pricing_type
+    || meta.deployment_type
+    || meta.privacy_type
+    || meta.language_support
+    || meta.difficulty
+    || meta.readiness
+    || (linkedAgentId && linkedAgent?.name)
+    || linkedAgent?.model_label
+    || linkedAgentId
+    || (linkedAgentId && linkedAgent)
+    || meta.vendor_name
+    || meta.website_url
+    || meta.docs_url
+    || meta.github_url
+    || meta.source_url
+    || item.categories.length > 0
+  );
 
   const submitReport = async () => {
     await reportMutation.mutateAsync({
@@ -241,7 +259,7 @@ export function ArticleDetailPage() {
           <span className="text-foreground">{item.title}</span>
         </nav>
 
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="grid grid-cols-1 gap-8">
           <div>
             <div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm md:p-8">
               <div className="flex flex-wrap gap-2">
@@ -411,6 +429,132 @@ export function ArticleDetailPage() {
                   </div>
                 </div>
               )}
+
+              {hasInfoBlock && (
+                <div className="mt-10 rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
+                  <h3 className="mb-4 text-lg font-semibold text-slate-950">Характеристики и категории</h3>
+                  <dl className="space-y-3 text-sm">
+                    {meta.pricing_type && (
+                      <div className="flex justify-between gap-4">
+                        <dt className="text-muted-foreground">Цена</dt>
+                        <dd className="text-right font-medium">{pricingTypeLabels[meta.pricing_type]}</dd>
+                      </div>
+                    )}
+                    {meta.deployment_type && (
+                      <div className="flex justify-between gap-4">
+                        <dt className="text-muted-foreground">Deploy</dt>
+                        <dd className="text-right font-medium">{deploymentTypeLabels[meta.deployment_type]}</dd>
+                      </div>
+                    )}
+                    {meta.privacy_type && (
+                      <div className="flex justify-between gap-4">
+                        <dt className="text-muted-foreground">Приватность</dt>
+                        <dd className="text-right font-medium">{privacyTypeLabels[meta.privacy_type]}</dd>
+                      </div>
+                    )}
+                    {meta.language_support && (
+                      <div className="flex justify-between gap-4">
+                        <dt className="text-muted-foreground">Язык</dt>
+                        <dd className="text-right font-medium">{languageSupportLabels[meta.language_support]}</dd>
+                      </div>
+                    )}
+                    {meta.difficulty && (
+                      <div className="flex justify-between gap-4">
+                        <dt className="text-muted-foreground">Уровень</dt>
+                        <dd className="text-right font-medium">{difficultyLabels[meta.difficulty]}</dd>
+                      </div>
+                    )}
+                    {meta.readiness && (
+                      <div className="flex justify-between gap-4">
+                        <dt className="text-muted-foreground">Готовность</dt>
+                        <dd className="text-right font-medium">{readinessLabels[meta.readiness]}</dd>
+                      </div>
+                    )}
+                    {linkedAgentId && linkedAgent?.name && (
+                      <div className="flex justify-between gap-4">
+                        <dt className="text-muted-foreground">Агент</dt>
+                        <dd className="text-right font-medium">
+                          <Link to={`/agents/${linkedAgentId}/chats`} className="text-primary hover:underline">
+                            {linkedAgent.name}
+                          </Link>
+                        </dd>
+                      </div>
+                    )}
+                    {linkedAgent?.model_label && (
+                      <div className="flex justify-between gap-4">
+                        <dt className="text-muted-foreground">Модель</dt>
+                        <dd className="text-right font-medium">
+                          {linkedModelChatsHref ? (
+                            <Link to={linkedModelChatsHref} className="text-primary hover:underline">
+                              {linkedAgent.model_label}
+                            </Link>
+                          ) : (
+                            linkedAgent.model_label
+                          )}
+                        </dd>
+                      </div>
+                    )}
+                    {linkedAgentId && (
+                      <div className="flex justify-between gap-4">
+                        <dt className="text-muted-foreground">Режим</dt>
+                        <dd className="text-right font-medium">Чат с агентом</dd>
+                      </div>
+                    )}
+                    {linkedAgentId && linkedAgent && (
+                      <div className="flex justify-between gap-4">
+                        <dt className="text-muted-foreground">Публичные чаты</dt>
+                        <dd className="text-right font-medium">
+                          <Link to={`/agents/${linkedAgentId}/chats`} className="text-primary hover:underline">
+                            {formatCount(linkedAgent.public_chats_count)}
+                          </Link>
+                        </dd>
+                      </div>
+                    )}
+                    {meta.vendor_name && (
+                      <div className="flex justify-between gap-4">
+                        <dt className="text-muted-foreground">Источник</dt>
+                        <dd className="text-right font-medium">{meta.vendor_name}</dd>
+                      </div>
+                    )}
+                  </dl>
+
+                  {item.categories.length > 0 && (
+                    <div className="mt-6">
+                      <h4 className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Категории</h4>
+                      <div className="flex flex-wrap gap-2">
+                        {item.categories.map((cat) => (
+                          <Badge key={cat.id} variant="outline">{cat.name}</Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {(meta.website_url || meta.docs_url || meta.github_url || meta.source_url) && (
+                    <div className="mt-6 space-y-2">
+                      {meta.website_url && (
+                        <a href={meta.website_url} target="_blank" rel="noopener noreferrer" className="block text-sm text-primary hover:underline">
+                          Сайт
+                        </a>
+                      )}
+                      {meta.docs_url && (
+                        <a href={meta.docs_url} target="_blank" rel="noopener noreferrer" className="block text-sm text-primary hover:underline">
+                          Документация
+                        </a>
+                      )}
+                      {meta.github_url && (
+                        <a href={meta.github_url} target="_blank" rel="noopener noreferrer" className="block text-sm text-primary hover:underline">
+                          GitHub
+                        </a>
+                      )}
+                      {meta.source_url && (
+                        <a href={meta.source_url} target="_blank" rel="noopener noreferrer" className="block text-sm text-primary hover:underline">
+                          Исходный материал
+                        </a>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <CommentsSection
@@ -425,6 +569,7 @@ export function ArticleDetailPage() {
             />
           </div>
 
+          {false && (
           <div className="space-y-6">
             <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
               <h3 className="mb-4 text-lg font-semibold text-slate-950">Характеристики</h3>
@@ -432,37 +577,37 @@ export function ArticleDetailPage() {
                 {meta.pricing_type && (
                   <div className="flex justify-between gap-4">
                     <dt className="text-muted-foreground">Цена</dt>
-                    <dd className="text-right font-medium">{pricingTypeLabels[meta.pricing_type]}</dd>
+                    <dd className="text-right font-medium">{pricingTypeLabels[meta.pricing_type!]}</dd>
                   </div>
                 )}
                 {meta.deployment_type && (
                   <div className="flex justify-between gap-4">
                     <dt className="text-muted-foreground">Deploy</dt>
-                    <dd className="text-right font-medium">{deploymentTypeLabels[meta.deployment_type]}</dd>
+                    <dd className="text-right font-medium">{deploymentTypeLabels[meta.deployment_type!]}</dd>
                   </div>
                 )}
                 {meta.privacy_type && (
                   <div className="flex justify-between gap-4">
                     <dt className="text-muted-foreground">Приватность</dt>
-                    <dd className="text-right font-medium">{privacyTypeLabels[meta.privacy_type]}</dd>
+                    <dd className="text-right font-medium">{privacyTypeLabels[meta.privacy_type!]}</dd>
                   </div>
                 )}
                 {meta.language_support && (
                   <div className="flex justify-between gap-4">
                     <dt className="text-muted-foreground">Язык</dt>
-                    <dd className="text-right font-medium">{languageSupportLabels[meta.language_support]}</dd>
+                    <dd className="text-right font-medium">{languageSupportLabels[meta.language_support!]}</dd>
                   </div>
                 )}
                 {meta.difficulty && (
                   <div className="flex justify-between gap-4">
                     <dt className="text-muted-foreground">Уровень</dt>
-                    <dd className="text-right font-medium">{difficultyLabels[meta.difficulty]}</dd>
+                    <dd className="text-right font-medium">{difficultyLabels[meta.difficulty!]}</dd>
                   </div>
                 )}
                 {meta.readiness && (
                   <div className="flex justify-between gap-4">
                     <dt className="text-muted-foreground">Готовность</dt>
-                    <dd className="text-right font-medium">{readinessLabels[meta.readiness]}</dd>
+                    <dd className="text-right font-medium">{readinessLabels[meta.readiness!]}</dd>
                   </div>
                 )}
                 {linkedAgentId && linkedAgent?.name && (
@@ -470,7 +615,7 @@ export function ArticleDetailPage() {
                     <dt className="text-muted-foreground">Агент</dt>
                     <dd className="text-right font-medium">
                       <Link to={`/agents/${linkedAgentId}/chats`} className="text-primary hover:underline">
-                        {linkedAgent.name}
+                        {linkedAgent!.name}
                       </Link>
                     </dd>
                   </div>
@@ -480,11 +625,11 @@ export function ArticleDetailPage() {
                     <dt className="text-muted-foreground">Модель</dt>
                     <dd className="text-right font-medium">
                       {linkedModelChatsHref ? (
-                        <Link to={linkedModelChatsHref} className="text-primary hover:underline">
-                          {linkedAgent.model_label}
+                        <Link to={linkedModelChatsHref!} className="text-primary hover:underline">
+                          {linkedAgent!.model_label}
                         </Link>
                       ) : (
-                        linkedAgent.model_label
+                        linkedAgent!.model_label
                       )}
                     </dd>
                   </div>
@@ -500,7 +645,7 @@ export function ArticleDetailPage() {
                     <dt className="text-muted-foreground">Публичные чаты</dt>
                     <dd className="text-right font-medium">
                       <Link to={`/agents/${linkedAgentId}/chats`} className="text-primary hover:underline">
-                        {formatCount(linkedAgent.public_chats_count)}
+                        {formatCount(linkedAgent!.public_chats_count)}
                       </Link>
                     </dd>
                   </div>
@@ -515,39 +660,40 @@ export function ArticleDetailPage() {
 
               <div className="mt-4 space-y-2">
                 {meta.website_url && (
-                  <a href={meta.website_url} target="_blank" rel="noopener noreferrer" className="block text-sm text-primary hover:underline">
+                  <a href={meta.website_url ?? undefined} target="_blank" rel="noopener noreferrer" className="block text-sm text-primary hover:underline">
                     Сайт
                   </a>
                 )}
                 {meta.docs_url && (
-                  <a href={meta.docs_url} target="_blank" rel="noopener noreferrer" className="block text-sm text-primary hover:underline">
+                  <a href={meta.docs_url ?? undefined} target="_blank" rel="noopener noreferrer" className="block text-sm text-primary hover:underline">
                     Документация
                   </a>
                 )}
                 {meta.github_url && (
-                  <a href={meta.github_url} target="_blank" rel="noopener noreferrer" className="block text-sm text-primary hover:underline">
+                  <a href={meta.github_url ?? undefined} target="_blank" rel="noopener noreferrer" className="block text-sm text-primary hover:underline">
                     GitHub
                   </a>
                 )}
                 {meta.source_url && (
-                  <a href={meta.source_url} target="_blank" rel="noopener noreferrer" className="block text-sm text-primary hover:underline">
+                  <a href={meta.source_url ?? undefined} target="_blank" rel="noopener noreferrer" className="block text-sm text-primary hover:underline">
                     Исходный материал
                   </a>
                 )}
               </div>
             </div>
 
-            {item.categories.length > 0 && (
+            {item!.categories.length > 0 && (
               <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
                 <h3 className="mb-3 text-lg font-semibold text-slate-950">Категории</h3>
                 <div className="flex flex-wrap gap-2">
-                  {item.categories.map((cat) => (
+                  {item!.categories.map((cat) => (
                     <Badge key={cat.id} variant="outline">{cat.name}</Badge>
                   ))}
                 </div>
               </div>
             )}
           </div>
+          )}
         </div>
 
         {item.related_items.length > 0 && (
