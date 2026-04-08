@@ -268,7 +268,7 @@ export function ArticleDetailPage() {
                 {item.categories[0] && <Badge variant="outline">{item.categories[0].name}</Badge>}
               </div>
 
-              <h1 className="mt-5 text-3xl font-semibold tracking-tight text-slate-950 md:text-5xl">
+              <h1 className="mt-5 text-[1.375rem] font-semibold leading-[1.9rem] tracking-tight text-slate-950 md:text-[2.3rem] md:leading-[1.1]">
                 {item.title}
               </h1>
 
