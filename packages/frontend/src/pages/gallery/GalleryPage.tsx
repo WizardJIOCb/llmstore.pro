@@ -513,7 +513,7 @@ export function GalleryPage() {
                         />
                       </span>
                       <span className="rounded-full border bg-muted/20 px-2.5 py-1">
-                        Всего: {formatViews(item.total_view_count)}
+                        Просмотры: {formatViews(item.total_view_count)}
                       </span>
                       <span className="rounded-full border bg-muted/20 px-2.5 py-1">
                         Уникальных: {formatViews(item.unique_view_count ?? item.view_count)}
