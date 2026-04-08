@@ -330,6 +330,35 @@ export interface ChatAgentOption {
   starter_prompts: string[];
 }
 
+export interface PublicAgentChatListItem {
+  id: string;
+  title: string;
+  chat_url: string;
+  share_token: string;
+  owner_name: string;
+  owner_username: string | null;
+  is_owner: boolean;
+  message_count: number;
+  last_message_preview: string | null;
+  last_message_at: string;
+  created_at: string;
+  updated_at: string;
+  unique_view_count: number;
+  total_view_count: number;
+}
+
+export interface PublicAgentChatsResponse {
+  agent: {
+    id: string;
+    name: string | null;
+    model_external_id: string | null;
+    model_label: string | null;
+    chat_description: string | null;
+    public_chats_count: number;
+  };
+  chats: PublicAgentChatListItem[];
+}
+
 export interface ChatBundleExport {
   filename: string;
   payload: unknown;
@@ -381,6 +410,9 @@ export const chatsApi = {
   list: () => apiClient.get<{ data: ChatListItem[] }>('/chats').then((r) => r.data.data),
 
   listAgents: () => apiClient.get<{ data: ChatAgentOption[] }>('/chats/agents').then((r) => r.data.data),
+
+  publicAgentChats: (agentId: string) =>
+    apiClient.get<{ data: PublicAgentChatsResponse }>(`/public/agents/${agentId}/chats`).then((r) => r.data.data),
 
   get: (chatId: string) =>
     apiClient.get<{ data: ChatDetails }>(`/chats/${chatId}`).then((r) => r.data.data),

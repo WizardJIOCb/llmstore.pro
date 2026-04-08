@@ -35,6 +35,7 @@ import { AgentPlaygroundPage } from './pages/playground/AgentPlaygroundPage';
 import { AgentsDashboardPage } from './pages/dashboard/AgentsDashboardPage';
 import { RunsDashboardPage } from './pages/dashboard/RunsDashboardPage';
 import { AgentsHubPage } from './pages/agents/AgentsHubPage';
+import { AgentPublicChatsPage } from './pages/agents/AgentPublicChatsPage';
 import { SharedChatPage } from './pages/shared/SharedChatPage';
 import { ProfilePage } from './pages/profile/ProfilePage';
 import { PublicProfilePage } from './pages/profile/PublicProfilePage';
@@ -79,6 +80,7 @@ export function App() {
         <Route path="/packs" element={<CatalogListPage type="prompt_pack" />} />
         <Route path="/packs/:slug" element={<CatalogDetailPage type="prompt_pack" />} />
         <Route path="/agents" element={<CatalogListPage type="business_agent" />} />
+        <Route path="/agents/:agentId/chats" element={<AgentPublicChatsPage />} />
         <Route path="/agents/:slug" element={<CatalogDetailPage type="business_agent" />} />
         <Route path="/local" element={<CatalogListPage type="local_build" />} />
         <Route path="/local/:slug" element={<CatalogDetailPage type="local_build" />} />

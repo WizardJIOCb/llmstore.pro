@@ -5,7 +5,7 @@ import { Bookmark, Clock, Eye, Flag, Heart, MessageSquare } from 'lucide-react';
 import { useCatalogItemBySlug } from '../../hooks/useCatalog';
 import { useArticleBookmark, useArticleBySlug, useArticleReaction, useArticleReport } from '../../hooks/useArticles';
 import { useCreateArticleComment, useDeleteArticleComment, useArticleComments } from '../../hooks/useComments';
-import { useCreateChat } from '../../hooks/useChats';
+import { useCreateChat, usePublicAgentChats } from '../../hooks/useChats';
 import { useAuth } from '../../hooks/useAuth';
 import { CatalogCard } from '../../components/catalog/CatalogCard';
 import { CommentsSection } from '../../components/comments/CommentsSection';
@@ -65,6 +65,15 @@ function extractAgentIdFromCtaUrl(url: string): string | null {
   }
 }
 
+function extractLinkedAgentId(urls: Array<string | null | undefined>): string | null {
+  for (const url of urls) {
+    if (!url) continue;
+    const agentId = extractAgentIdFromCtaUrl(url);
+    if (agentId) return agentId;
+  }
+  return null;
+}
+
 export function ArticleDetailPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -85,6 +94,16 @@ export function ArticleDetailPage() {
   const item = isArticleRoute ? articleQuery.data : guideQuery.data;
   const isLoading = isArticleRoute ? articleQuery.isLoading : guideQuery.isLoading;
   const error = isArticleRoute ? articleQuery.error : guideQuery.error;
+  const draftMeta = item?.meta_full;
+  const draftPrimaryCta = draftMeta?.primary_cta_label && draftMeta?.primary_cta_url
+    ? { label: draftMeta.primary_cta_label, url: draftMeta.primary_cta_url }
+    : null;
+  const draftSecondaryCta = draftMeta?.secondary_cta_label && draftMeta?.secondary_cta_url
+    ? { label: draftMeta.secondary_cta_label, url: draftMeta.secondary_cta_url }
+    : null;
+  const linkedAgentId = extractLinkedAgentId([draftPrimaryCta?.url, draftSecondaryCta?.url]);
+  const publicAgentChatsQuery = usePublicAgentChats(linkedAgentId ?? '', Boolean(linkedAgentId));
+  const linkedAgent = publicAgentChatsQuery.data?.agent ?? null;
 
   const { data: comments = [], isLoading: commentsLoading } = useArticleComments(slug ?? '');
   const createComment = useCreateArticleComment(slug ?? '');
@@ -119,8 +138,8 @@ export function ArticleDetailPage() {
 
   const meta = item.meta_full;
   const relatedHref = (type: string, itemSlug: string) => (type === 'guide' ? `/guides/${itemSlug}` : `/articles/${itemSlug}`);
-  const primaryCta = meta.primary_cta_label && meta.primary_cta_url ? { label: meta.primary_cta_label, url: meta.primary_cta_url } : null;
-  const secondaryCta = meta.secondary_cta_label && meta.secondary_cta_url ? { label: meta.secondary_cta_label, url: meta.secondary_cta_url } : null;
+  const primaryCta = draftPrimaryCta;
+  const secondaryCta = draftSecondaryCta;
 
   const submitReport = async () => {
     await reportMutation.mutateAsync({
@@ -441,6 +460,38 @@ export function ArticleDetailPage() {
                   <div className="flex justify-between gap-4">
                     <dt className="text-muted-foreground">Готовность</dt>
                     <dd className="text-right font-medium">{readinessLabels[meta.readiness]}</dd>
+                  </div>
+                )}
+                {linkedAgentId && linkedAgent?.name && (
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-muted-foreground">Агент</dt>
+                    <dd className="text-right font-medium">
+                      <Link to={`/agents/${linkedAgentId}/chats`} className="text-primary hover:underline">
+                        {linkedAgent.name}
+                      </Link>
+                    </dd>
+                  </div>
+                )}
+                {linkedAgent?.model_label && (
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-muted-foreground">Модель</dt>
+                    <dd className="text-right font-medium">{linkedAgent.model_label}</dd>
+                  </div>
+                )}
+                {linkedAgentId && (
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-muted-foreground">Режим</dt>
+                    <dd className="text-right font-medium">Чат с агентом</dd>
+                  </div>
+                )}
+                {linkedAgentId && linkedAgent && (
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-muted-foreground">Публичные чаты</dt>
+                    <dd className="text-right font-medium">
+                      <Link to={`/agents/${linkedAgentId}/chats`} className="text-primary hover:underline">
+                        {formatCount(linkedAgent.public_chats_count)}
+                      </Link>
+                    </dd>
                   </div>
                 )}
                 {meta.vendor_name && (

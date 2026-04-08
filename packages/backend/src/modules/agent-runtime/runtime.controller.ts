@@ -236,6 +236,15 @@ export async function listChatAgents(req: Request, res: Response, next: NextFunc
   }
 }
 
+export async function listPublicChatsByAgent(req: Request<{ agentId: string }>, res: Response, next: NextFunction) {
+  try {
+    const result = await runtimeService.listPublicChatsByAgent(req.params.agentId, req.session?.userId);
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function createChat(req: Request, res: Response, next: NextFunction) {
   try {
     const chat = await runtimeService.createChat(req.session.userId!, req.body, req.session.userRole);
