@@ -3,15 +3,19 @@ import { Link } from 'react-router-dom';
 import type { CatalogItemCard, TagSlim } from '@llmstore/shared';
 import {
   ArrowRight,
+  Bookmark,
   BookOpenText,
   Bot,
   Compass,
+  Heart,
   LayoutTemplate,
   MessageSquareText,
   Rocket,
   Sparkles,
 } from 'lucide-react';
 import { useCatalogList } from '../../hooks/useCatalog';
+import { useArticlesList } from '../../hooks/useArticles';
+import { useAuth } from '../../hooks/useAuth';
 import { Badge, Skeleton } from '../../components/ui';
 import { cn } from '../../lib/utils';
 
@@ -113,11 +117,22 @@ function getReadingHint(item: CatalogItemCard) {
   return 'Короткий практический материал';
 }
 
+function formatMetric(value: number | undefined) {
+  return new Intl.NumberFormat('ru-RU').format(value ?? 0);
+}
+
 export function GuidesPage() {
+  const { isAuthenticated } = useAuth();
   const { data, isLoading, error } = useCatalogList({
     type: 'guide',
     sort: 'curated',
     limit: 50,
+  });
+  const { data: articlesData } = useArticlesList({
+    sort: 'top_week',
+    per_page: 4,
+    page: 1,
+    recommended: isAuthenticated,
   });
 
   const guides = useMemo(
@@ -213,6 +228,13 @@ export function GuidesPage() {
     topics: topTopics.length,
   }), [guides.length, sections.length, topTopics.length]);
 
+  const guideArticles = useMemo(
+    () => [...(articlesData?.data ?? [])]
+      .sort((a, b) => (b.bookmarks_count ?? 0) - (a.bookmarks_count ?? 0) || (b.ranking_score ?? 0) - (a.ranking_score ?? 0))
+      .slice(0, 4),
+    [articlesData],
+  );
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-[#f6efe7]">
@@ -274,6 +296,22 @@ export function GuidesPage() {
                 Вместо сухого каталога здесь собраны понятные маршруты: как освоить чаты, собрать агента,
                 сделать лендинг, запустить Telegram-бота и использовать галерею как рабочий инструмент.
               </p>
+
+              <div className="mt-6 flex flex-wrap gap-3">
+                <Link
+                  to="/articles"
+                  className="inline-flex items-center gap-2 rounded-full bg-[#3d2b1f] px-5 py-3 text-sm font-medium text-white transition-transform hover:-translate-y-0.5"
+                >
+                  Статьи
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+                <Link
+                  to="/articles"
+                  className="inline-flex items-center gap-2 rounded-full border border-[#e4d4c5] bg-white/70 px-5 py-3 text-sm font-medium text-[#6a5646] transition-colors hover:bg-white"
+                >
+                  Кейсы пользователей
+                </Link>
+              </div>
 
               <div className="mt-8 flex flex-wrap gap-3">
                 {topTopics.map(({ tag, count }) => (
@@ -384,6 +422,86 @@ export function GuidesPage() {
                           {tag.name}
                         </span>
                       ))}
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {guideArticles.length > 0 && (
+          <section className="mt-8">
+            <div className="mb-5 flex items-end justify-between gap-4">
+              <div>
+                <p className="text-sm uppercase tracking-[0.22em] text-[#967558]">Статьи и кейсы</p>
+                <h2 className="mt-2 text-2xl font-semibold text-[#37281c] md:text-3xl">
+                  Что сейчас читают и сохраняют чаще всего
+                </h2>
+              </div>
+              <Link to="/articles" className="text-sm font-medium text-[#6c5138] hover:underline">
+                Все статьи →
+              </Link>
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
+              <Link
+                to={`/articles/${guideArticles[0]!.slug}`}
+                className="group rounded-[32px] border border-[#e6d7c9] bg-[linear-gradient(180deg,#fffaf4_0%,#f6ede3_100%)] p-7 transition-transform duration-200 hover:-translate-y-0.5"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="warning">Популярно сейчас</Badge>
+                  {guideArticles[0]!.categories[0] && (
+                    <span className="rounded-full bg-[#ead9c8] px-3 py-1 text-xs text-[#75583d]">
+                      {guideArticles[0]!.categories[0]!.name}
+                    </span>
+                  )}
+                </div>
+
+                <h3 className="mt-5 max-w-2xl text-3xl font-semibold leading-tight text-[#312217]">
+                  {guideArticles[0]!.title}
+                </h3>
+                <p className="mt-4 max-w-2xl text-base leading-8 text-[#6d5948]">
+                  {guideArticles[0]!.short_description}
+                </p>
+
+                <div className="mt-6 flex flex-wrap gap-3 text-sm text-[#6d5948]">
+                  <span className="inline-flex items-center gap-1"><Heart className="h-4 w-4" /> {formatMetric(guideArticles[0]!.likes_count)}</span>
+                  <span className="inline-flex items-center gap-1"><Bookmark className="h-4 w-4" /> {formatMetric(guideArticles[0]!.bookmarks_count)}</span>
+                  <span className="inline-flex items-center gap-1"><ArrowRight className="h-4 w-4" /> Score {Math.round(guideArticles[0]!.ranking_score ?? 0)}</span>
+                </div>
+
+                <div className="mt-8 inline-flex items-center gap-2 text-sm font-medium text-[#6c5138]">
+                  Открыть статью
+                  <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+                </div>
+              </Link>
+
+              <div className="grid gap-4">
+                {guideArticles.slice(1).map((article) => (
+                  <Link
+                    key={article.id}
+                    to={`/articles/${article.slug}`}
+                    className="group rounded-[28px] border border-[#e6d8cb] bg-white/70 p-5 transition-colors hover:bg-[#fffaf4]"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.22em] text-[#9a7b5f]">
+                          {article.categories[0]?.name ?? 'Статья'}
+                        </p>
+                        <h3 className="mt-3 text-xl font-semibold leading-snug text-[#35271d]">
+                          {article.title}
+                        </h3>
+                      </div>
+                      <ArrowRight className="mt-1 h-4 w-4 shrink-0 text-[#8d6f53] transition-transform group-hover:translate-x-1" />
+                    </div>
+
+                    <p className="mt-3 text-sm leading-7 text-[#6a5647]">{article.short_description}</p>
+
+                    <div className="mt-4 flex flex-wrap gap-3 text-xs text-[#6f5846]">
+                      <span>{formatMetric(article.likes_count)} лайков</span>
+                      <span>{formatMetric(article.bookmarks_count)} закладок</span>
+                      <span>{formatMetric(article.comments_count)} комментариев</span>
                     </div>
                   </Link>
                 ))}

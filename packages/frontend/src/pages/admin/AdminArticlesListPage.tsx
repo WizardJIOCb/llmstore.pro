@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AdminLayout } from '../../components/admin/AdminLayout';
 import { Badge, Button, Input, Select, Spinner } from '../../components/ui';
+import { AdminLayout } from '../../components/admin/AdminLayout';
 import { useAdminItems, useDeleteItem } from '../../hooks/useAdmin';
-import { contentTypeLabels, itemStatusLabels } from '../../lib/label-maps';
+import { itemStatusLabels } from '../../lib/label-maps';
 
 const statusVariants: Record<string, 'success' | 'secondary' | 'warning'> = {
   published: 'success',
@@ -15,16 +15,15 @@ function toOptions(map: Record<string, string>) {
   return Object.entries(map).map(([value, label]) => ({ value, label }));
 }
 
-export function AdminCatalogListPage() {
+export function AdminArticlesListPage() {
   const [page, setPage] = useState(1);
-  const [filterType, setFilterType] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [search, setSearch] = useState('');
 
   const { data, isLoading } = useAdminItems({
     page,
     per_page: 20,
-    type: filterType || undefined,
+    type: 'article',
     status: filterStatus || undefined,
     search: search || undefined,
   });
@@ -34,7 +33,7 @@ export function AdminCatalogListPage() {
   const meta = data?.meta ?? { total: 0, page: 1, per_page: 20, total_pages: 1 };
 
   const handleDelete = (id: string, title: string) => {
-    if (!window.confirm(`Удалить элемент "${title}"?`)) return;
+    if (!window.confirm(`Удалить статью "${title}"?`)) return;
     deleteMutation.mutate(id);
   };
 
@@ -42,13 +41,13 @@ export function AdminCatalogListPage() {
     <AdminLayout>
       <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h2 className="text-xl font-semibold text-slate-950">Каталог</h2>
+          <h2 className="text-xl font-semibold text-slate-950">Статьи</h2>
           <p className="mt-1 text-sm text-slate-500">
-            Общий список материалов и сущностей каталога по всем типам контента.
+            Управление пользовательскими и редакторскими статьями в новом формате.
           </p>
         </div>
-        <Link to="/admin/items/new">
-          <Button>Добавить элемент</Button>
+        <Link to="/admin/articles/new">
+          <Button>Добавить статью</Button>
         </Link>
       </div>
 
@@ -59,18 +58,8 @@ export function AdminCatalogListPage() {
             setSearch(event.target.value);
             setPage(1);
           }}
-          placeholder="Поиск по названию"
+          placeholder="Поиск по заголовку"
           className="max-w-xs"
-        />
-        <Select
-          value={filterType}
-          onChange={(event) => {
-            setFilterType(event.target.value);
-            setPage(1);
-          }}
-          options={toOptions(contentTypeLabels)}
-          placeholder="Все типы"
-          className="w-56"
         />
         <Select
           value={filterStatus}
@@ -90,7 +79,7 @@ export function AdminCatalogListPage() {
         </div>
       ) : items.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-slate-300 bg-white py-16 text-center text-slate-500">
-          Элементы не найдены
+          Статей пока нет
         </div>
       ) : (
         <>
@@ -98,10 +87,9 @@ export function AdminCatalogListPage() {
             <table className="w-full text-sm">
               <thead className="border-b border-slate-200 bg-slate-50/80">
                 <tr>
-                  <th className="px-4 py-3 text-left font-medium text-slate-600">Название</th>
-                  <th className="px-4 py-3 text-left font-medium text-slate-600">Тип</th>
+                  <th className="px-4 py-3 text-left font-medium text-slate-600">Статья</th>
                   <th className="px-4 py-3 text-left font-medium text-slate-600">Статус</th>
-                  <th className="px-4 py-3 text-left font-medium text-slate-600">Рейтинг</th>
+                  <th className="px-4 py-3 text-left font-medium text-slate-600">Фичеринг</th>
                   <th className="px-4 py-3 text-left font-medium text-slate-600">Обновлено</th>
                   <th className="px-4 py-3 text-right font-medium text-slate-600">Действия</th>
                 </tr>
@@ -110,28 +98,28 @@ export function AdminCatalogListPage() {
                 {items.map((item: any) => (
                   <tr key={item.id} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50/60">
                     <td className="px-4 py-4">
-                      <Link to={`/admin/items/${item.id}`} className="font-medium text-slate-950 hover:text-primary">
+                      <Link to={`/admin/articles/${item.id}`} className="font-medium text-slate-950 hover:text-primary">
                         {item.title}
                       </Link>
-                      <div className="mt-1 text-xs text-slate-500">{item.slug}</div>
-                    </td>
-                    <td className="px-4 py-4">
-                      <Badge variant="outline">
-                        {contentTypeLabels[item.type as keyof typeof contentTypeLabels] ?? item.type}
-                      </Badge>
+                      <div className="mt-1 text-xs text-slate-500">
+                        /articles/{item.slug}
+                      </div>
                     </td>
                     <td className="px-4 py-4">
                       <Badge variant={statusVariants[item.status] ?? 'secondary'}>
                         {itemStatusLabels[item.status as keyof typeof itemStatusLabels] ?? item.status}
                       </Badge>
                     </td>
-                    <td className="px-4 py-4 text-slate-600">{item.curated_score}</td>
+                    <td className="px-4 py-4 text-slate-600">
+                      {item.featured ? 'Да' : 'Нет'}
+                      <span className="ml-2 text-xs text-slate-400">Score: {item.curated_score}</span>
+                    </td>
                     <td className="px-4 py-4 text-xs text-slate-500">
                       {new Date(item.updated_at).toLocaleDateString('ru-RU')}
                     </td>
                     <td className="px-4 py-4">
                       <div className="flex justify-end gap-2">
-                        <Link to={`/admin/items/${item.id}`}>
+                        <Link to={`/admin/articles/${item.id}`}>
                           <Button variant="ghost" size="sm">Редактировать</Button>
                         </Link>
                         <Button

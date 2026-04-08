@@ -8,7 +8,7 @@ export const authProviderEnum = pgEnum('auth_provider', ['email', 'google', 'git
 // Catalog enums
 export const contentTypeEnum = pgEnum('content_type', [
   'tool', 'model', 'prompt_pack', 'workflow_pack', 'business_agent',
-  'developer_asset', 'local_build', 'stack_preset', 'guide',
+  'developer_asset', 'local_build', 'stack_preset', 'guide', 'article',
 ]);
 export const itemStatusEnum = pgEnum('item_status', ['draft', 'published', 'archived']);
 export const visibilityEnum = pgEnum('visibility', ['public', 'private', 'unlisted']);

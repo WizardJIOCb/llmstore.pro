@@ -16,11 +16,12 @@ export const contentTypeLabels: Record<ContentType, string> = {
   local_build: 'Локальные сборки',
   stack_preset: 'Стек-пресеты',
   guide: 'Гайды',
+  article: 'Статьи',
 };
 
 export const pricingTypeLabels: Record<PricingType, string> = {
   free: 'Бесплатно',
-  paid: 'Платный',
+  paid: 'Платно',
   open_source: 'Open Source',
   api_based: 'API-тариф',
   freemium: 'Freemium',
@@ -65,8 +66,6 @@ export const itemStatusLabels: Record<ItemStatus, string> = {
   archived: 'В архиве',
 };
 
-// ── Stack Builder wizard labels ─────────────────────────────────────
-
 export const wizardUseCaseLabels: Record<WizardUseCase, string> = {
   coding_assistant: 'Ассистент для кода',
   customer_support: 'Поддержка клиентов',
@@ -83,13 +82,13 @@ export const wizardUseCaseLabels: Record<WizardUseCase, string> = {
 
 export const wizardUseCaseDescriptions: Record<WizardUseCase, string> = {
   coding_assistant: 'Помощь с написанием, ревью и отладкой кода',
-  customer_support: 'Автоматизация ответов, чат-боты для саппорта',
-  content_creation: 'Генерация текстов, статей, постов',
+  customer_support: 'Автоматизация ответов и чат-боты для саппорта',
+  content_creation: 'Генерация текстов, статей и постов',
   telegram_publishing: 'Автопубликация и ведение Telegram-каналов',
-  rag_knowledge_base: 'Поиск по документам, вопрос-ответ по базе знаний',
-  document_extraction: 'Парсинг PDF, извлечение структурированных данных',
-  ocr_speech_pipeline: 'Распознавание изображений, текста, речи',
-  internal_business: 'Внутренние отчёты, аналитика, автоматизация',
+  rag_knowledge_base: 'Поиск по документам и ответы по базе знаний',
+  document_extraction: 'Парсинг PDF и извлечение структурированных данных',
+  ocr_speech_pipeline: 'Распознавание изображений, текста и речи',
+  internal_business: 'Внутренние отчёты, аналитика и автоматизация',
   experimentation: 'Быстрые прототипы и тесты новых идей',
   local_private: 'Полностью локальные и приватные решения',
   custom: 'Нестандартный сценарий использования',
@@ -104,9 +103,9 @@ export const deploymentPreferenceLabels: Record<DeploymentPreference, string> = 
 };
 
 export const deploymentPreferenceDescriptions: Record<DeploymentPreference, string> = {
-  cloud: 'API-провайдеры — OpenAI, Anthropic и др.',
-  local: 'Запуск на своём компьютере (Ollama, LM Studio)',
-  self_hosted: 'На своём сервере или VPS',
+  cloud: 'API-провайдеры: OpenAI, Anthropic и другие',
+  local: 'Запуск на своём компьютере через Ollama, LM Studio и похожие инструменты',
+  self_hosted: 'Развёртывание на своём сервере или VPS',
   hybrid: 'Комбинация облачных и локальных решений',
   not_sure: 'Помогите определиться',
 };
@@ -136,11 +135,11 @@ export const languageRequirementLabels: Record<LanguageRequirement, string> = {
 };
 
 export const capabilityOptionLabels: Record<CapabilityOption, string> = {
-  tool_calling: 'Вызов инструментов (Tool calling)',
-  structured_outputs: 'Структурированный вывод (JSON)',
-  vision: 'Зрение (анализ изображений)',
-  long_context: 'Длинный контекст (100K+ токенов)',
-  reasoning: 'Рассуждение (reasoning)',
+  tool_calling: 'Вызов инструментов',
+  structured_outputs: 'Структурированный вывод JSON',
+  vision: 'Зрение',
+  long_context: 'Длинный контекст',
+  reasoning: 'Рассуждение',
   low_latency: 'Низкая задержка',
   cheap_inference: 'Дешёвый инференс',
   local_support: 'Локальный запуск',
@@ -162,8 +161,8 @@ export const skillLevelLabels: Record<SkillLevel, string> = {
 
 export const skillLevelDescriptions: Record<SkillLevel, string> = {
   beginner: 'Минимальный опыт с AI/ML — нужны готовые решения',
-  intermediate: 'Знакомы с API, могу настроить и запустить',
-  advanced: 'Могу собрать пайплайн, настроить fine-tuning',
+  intermediate: 'Знаком с API, могу настроить и запустить',
+  advanced: 'Могу собрать пайплайн и глубоко настроить систему',
 };
 
 export const usageScaleLabels: Record<UsageScale, string> = {

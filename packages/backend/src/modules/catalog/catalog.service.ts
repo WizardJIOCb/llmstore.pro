@@ -128,6 +128,11 @@ async function loadMetaForItems(itemIds: string[]): Promise<Map<string, CatalogI
       docs_url: r.docs_url,
       github_url: r.github_url,
       website_url: r.website_url,
+      primary_cta_label: r.primary_cta_label,
+      primary_cta_url: r.primary_cta_url,
+      secondary_cta_label: r.secondary_cta_label,
+      secondary_cta_url: r.secondary_cta_url,
+      reading_time_minutes: r.reading_time_minutes,
       metadata_json: r.metadata_json,
     });
   }
@@ -156,7 +161,10 @@ const emptyMeta: CatalogItemMeta = {
   pricing_type: null, deployment_type: null, privacy_type: null,
   language_support: null, difficulty: null, readiness: null,
   vendor_name: null, source_url: null, docs_url: null,
-  github_url: null, website_url: null, metadata_json: null,
+  github_url: null, website_url: null,
+  primary_cta_label: null, primary_cta_url: null,
+  secondary_cta_label: null, secondary_cta_url: null,
+  reading_time_minutes: null, metadata_json: null,
 };
 
 export interface PublicComment {

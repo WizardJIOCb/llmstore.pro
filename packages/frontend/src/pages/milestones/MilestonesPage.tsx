@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+﻿import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { LucideIcon } from 'lucide-react';
 import {
@@ -523,10 +523,18 @@ const milestones: MilestoneItem[] = [
   {
     id: 14,
     title: 'Templates for Real Use Cases',
-    status: 'planned',
+    status: 'done',
     description: 'Нужны готовые шаблоны под ботов, лендинги, вебхуки, мини-сервисы и code helpers.',
     ctaLabel: 'Читать гайды',
     ctaHref: '/guides',
+  },
+  {
+    id: 21,
+    title: 'User Articles & Creator Layer',
+    status: 'done',
+    description: '8 апреля 2026 запустили статьи пользователей: редактор на Tiptap, публичную витрину, лайки, комментарии, закладки и рейтинги лучших материалов по времени.',
+    ctaLabel: 'Открыть статьи',
+    ctaHref: '/articles',
   },
   {
     id: 15,
@@ -563,9 +571,9 @@ const milestones: MilestoneItem[] = [
   {
     id: 19,
     title: 'Telegram-first Integrations',
-    status: 'research',
-    description: 'Telegram выглядит как один из самых живых сценариев для runnable-агентов и быстрых полезных запусков.',
-    ctaLabel: 'Читать гайды',
+    status: 'done',
+    description: '8 апреля 2026 это уже часть shipped-слоя: Telegram-связки и быстрые runnable-сценарии перестали быть исследованием и перешли в реальную продуктовую поверхность.',
+    ctaLabel: 'Открыть гайд',
     ctaHref: 'https://llmstore.pro/guides/fast-telegram-bot-deploy',
   },
   {
@@ -695,7 +703,7 @@ const statusMeta: Record<MilestoneStatus, StatusMeta> = {
 };
 
 const summaryText =
-  'LLMStore развивается из каталога AI-инструментов в рабочую платформу для runnable AI-проектов, coding agents и deploy-сценариев. Уже есть Preview Editor, gallery, баланс, приватные ссылки и первые agent-like возможности. Следующий фокус: tools inside chat, Project Bundles, deploy, логи, workspace и нормальный цикл "запустил -> получил ошибку -> быстро починил -> показал результат".';
+  'LLMStore уже выглядит не как каталог-обложка, а как рабочая платформа для runnable AI-проектов, статей с реальными CTA, галереи результатов и agent-first сценариев. Сейчас у продукта уже есть builder-поток, Tiptap-редактор статей, рейтинги по окнам времени, social-layer вокруг публикаций и живой галерейный слой. Следующий фокус: tools inside chat, bundles + deploy, наблюдаемость раннов, safe execution и нормальный цикл "запустил -> увидел проблему -> быстро починил -> показал результат".';
 
 function getItemsByStatus(status: MilestoneStatus) {
   return milestones.filter((item) => item.status === status);

@@ -13,6 +13,7 @@ const typeRouteMap: Record<string, string> = {
   local_build: '/local',
   stack_preset: '/stacks',
   guide: '/guides',
+  article: '/articles',
 };
 
 interface CatalogCardProps {
@@ -59,7 +60,7 @@ export function CatalogCard({ item, hrefOverride }: CatalogCardProps) {
             {item.title}
           </h3>
           {item.short_description && (
-            <p className="mb-3 text-sm text-muted-foreground line-clamp-2">
+            <p className="mb-3 line-clamp-2 text-sm text-muted-foreground">
               {item.short_description}
             </p>
           )}
@@ -76,7 +77,7 @@ export function CatalogCard({ item, hrefOverride }: CatalogCardProps) {
             </div>
           )}
           <p className="mt-2 text-xs text-muted-foreground">
-            {item.comments_count ?? 0} комментариев • {item.views_count ?? 0} просмотров
+            {item.likes_count ?? 0} лайков • {item.comments_count ?? 0} комментариев • {item.views_count ?? 0} просмотров
           </p>
         </CardContent>
       </Card>

@@ -125,6 +125,11 @@ export async function generateRecommendation(input: StackBuilderInput): Promise<
       docs_url: catalogItemMeta.docs_url,
       github_url: catalogItemMeta.github_url,
       website_url: catalogItemMeta.website_url,
+      primary_cta_label: catalogItemMeta.primary_cta_label,
+      primary_cta_url: catalogItemMeta.primary_cta_url,
+      secondary_cta_label: catalogItemMeta.secondary_cta_label,
+      secondary_cta_url: catalogItemMeta.secondary_cta_url,
+      reading_time_minutes: catalogItemMeta.reading_time_minutes,
       metadata_json: catalogItemMeta.metadata_json,
     })
     .from(catalogItems)
@@ -203,6 +208,11 @@ export async function generateRecommendation(input: StackBuilderInput): Promise<
         docs_url: r.docs_url,
         github_url: r.github_url,
         website_url: r.website_url,
+        primary_cta_label: r.primary_cta_label,
+        primary_cta_url: r.primary_cta_url,
+        secondary_cta_label: r.secondary_cta_label,
+        secondary_cta_url: r.secondary_cta_url,
+        reading_time_minutes: r.reading_time_minutes,
         metadata_json: r.metadata_json as Record<string, unknown> | null,
       },
       use_cases: useCasesMap.get(r.id) ?? [],

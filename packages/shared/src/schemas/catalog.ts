@@ -23,6 +23,11 @@ export const catalogItemMetaSchema = z.object({
   docs_url: z.string().url().nullable().optional(),
   github_url: z.string().url().nullable().optional(),
   website_url: z.string().url().nullable().optional(),
+  primary_cta_label: z.string().max(80).nullable().optional(),
+  primary_cta_url: z.string().url().nullable().optional(),
+  secondary_cta_label: z.string().max(80).nullable().optional(),
+  secondary_cta_url: z.string().url().nullable().optional(),
+  reading_time_minutes: z.number().int().min(1).max(240).nullable().optional(),
   metadata_json: z.record(z.unknown()).nullable().optional(),
 });
 

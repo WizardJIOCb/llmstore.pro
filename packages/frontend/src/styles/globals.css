@@ -243,6 +243,79 @@
   .route-transition__flash--pulse {
     animation: route-flash-pulse 340ms ease-out both;
   }
+
+  .article-editor-content .ProseMirror,
+  .article-rich .ProseMirror {
+    min-height: 12rem;
+    color: rgb(15 23 42);
+  }
+
+  .article-editor-content .ProseMirror {
+    min-height: 24rem;
+  }
+
+  .article-editor-content .ProseMirror p.is-editor-empty:first-child::before {
+    color: rgb(148 163 184);
+    content: attr(data-placeholder);
+    float: left;
+    height: 0;
+    pointer-events: none;
+  }
+
+  .article-editor-content .ProseMirror h2,
+  .article-rich .ProseMirror h2 {
+    margin-top: 1.8rem;
+    margin-bottom: 0.9rem;
+    font-size: 1.6rem;
+    font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: -0.03em;
+  }
+
+  .article-editor-content .ProseMirror h3,
+  .article-rich .ProseMirror h3 {
+    margin-top: 1.5rem;
+    margin-bottom: 0.7rem;
+    font-size: 1.25rem;
+    font-weight: 700;
+    line-height: 1.3;
+  }
+
+  .article-editor-content .ProseMirror p,
+  .article-rich .ProseMirror p {
+    margin: 0.9rem 0;
+    line-height: 1.9;
+  }
+
+  .article-editor-content .ProseMirror ul,
+  .article-editor-content .ProseMirror ol,
+  .article-rich .ProseMirror ul,
+  .article-rich .ProseMirror ol {
+    margin: 1rem 0;
+    padding-left: 1.5rem;
+  }
+
+  .article-editor-content .ProseMirror blockquote,
+  .article-rich .ProseMirror blockquote {
+    margin: 1.4rem 0;
+    border-left: 4px solid rgb(186 230 253);
+    background: rgb(248 250 252);
+    padding: 0.9rem 1rem;
+    color: rgb(51 65 85);
+  }
+
+  .article-editor-content .ProseMirror img,
+  .article-rich .ProseMirror img {
+    margin: 1.5rem auto;
+    max-width: 100%;
+  }
+
+  .article-editor-content .ProseMirror a,
+  .article-rich .ProseMirror a {
+    color: rgb(37 99 235);
+    text-decoration: underline;
+    text-underline-offset: 4px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

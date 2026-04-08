@@ -1,5 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useLatestNews } from '../../hooks/useNews';
+import { useArticlesList } from '../../hooks/useArticles';
+import { useAuth } from '../../hooks/useAuth';
 import { UserLink } from '../../components/users/UserLink';
 import type { NewsArticle } from '../../lib/api/news';
 
@@ -82,8 +84,11 @@ function getExcerpt(article: NewsArticle): string {
 }
 
 export function HomePage() {
+  const { isAuthenticated } = useAuth();
   const { data: newsData } = useLatestNews(3);
+  const { data: articleData } = useArticlesList({ sort: 'top_week', per_page: 3, page: 1, recommended: isAuthenticated });
   const newsItems: NewsArticle[] = newsData?.data ?? [];
+  const articleItems = articleData?.data ?? [];
   const totalNews = newsData?.meta?.total ?? 0;
 
   return (
@@ -305,6 +310,74 @@ export function HomePage() {
                 </Link>
               </div>
             )}
+          </div>
+        </section>
+      )}
+
+      {articleItems.length > 0 && (
+        <section className="container mx-auto px-4 py-12">
+          <div className="rounded-[30px] border border-slate-200 bg-white p-6 shadow-[0_24px_80px_-52px_rgba(15,23,42,0.35)] md:p-8">
+            <div className="mb-6 flex items-center justify-between gap-4">
+              <div>
+                <p className="text-sm uppercase tracking-[0.22em] text-slate-400">Опыт сообщества</p>
+                <h2 className="mt-2 text-3xl font-bold tracking-tight text-slate-950">Популярные статьи недели</h2>
+              </div>
+              <Link to="/articles" className="text-sm font-medium text-primary hover:underline">
+                Открыть все статьи →
+              </Link>
+            </div>
+
+            <div className="grid gap-6 lg:grid-cols-3">
+              {articleItems.map((article) => (
+                <article
+                  key={article.id}
+                  className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-[0_18px_60px_-44px_rgba(15,23,42,0.28)] transition hover:-translate-y-0.5 hover:shadow-[0_24px_80px_-48px_rgba(15,23,42,0.32)]"
+                >
+                  {article.hero_image_url ? (
+                    <Link to={`/articles/${article.slug}`} className="block overflow-hidden border-b border-slate-200 bg-slate-50">
+                      <img
+                        src={article.hero_image_url}
+                        alt={article.title}
+                        className="h-56 w-full object-cover transition duration-300 hover:scale-[1.02]"
+                      />
+                    </Link>
+                  ) : null}
+
+                  <div className="p-6">
+                    <div className="flex flex-wrap gap-2 text-xs text-slate-500">
+                      <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5">
+                        {article.likes_count ?? 0} лайков
+                      </span>
+                      <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5">
+                        {article.comments_count ?? 0} комментариев
+                      </span>
+                      <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5">
+                        {article.views_count ?? 0} просмотров
+                      </span>
+                    </div>
+
+                    <Link to={`/articles/${article.slug}`} className="mt-4 block">
+                      <h3 className="text-2xl font-semibold tracking-tight text-slate-950 transition hover:text-primary">
+                        {article.title}
+                      </h3>
+                    </Link>
+
+                    <p className="mt-4 text-sm leading-7 text-slate-600">
+                      {article.short_description}
+                    </p>
+
+                    <div className="mt-6 flex items-center justify-between gap-4">
+                      <span className="text-sm text-slate-500">
+                        Score: {Math.round(article.ranking_score ?? 0)}
+                      </span>
+                      <Link to={`/articles/${article.slug}`} className="text-sm font-medium text-primary hover:underline">
+                        Читать →
+                      </Link>
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
           </div>
         </section>
       )}

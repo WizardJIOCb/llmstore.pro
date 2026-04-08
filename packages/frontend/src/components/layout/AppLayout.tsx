@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+﻿import { useEffect, useRef, useState } from 'react';
 import { Menu, Shield } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useOutlet } from 'react-router-dom';
@@ -31,7 +31,7 @@ function hasPersistedActiveChat(): boolean {
 
 const navItems = [
   { label: 'Новости', href: '/news' },
-  { label: 'Как?', href: '/guides' },
+  { label: 'Статьи', href: '/articles' },
   { label: 'Планы', href: '/milestones' },
   { label: 'Галерея', href: '/gallery' },
   { label: 'Чаты', href: '/chats', requiresAuth: true },
@@ -182,12 +182,19 @@ export function AppLayout() {
 
   const isNavItemActive = (href: string) => {
     if (href === '/news') return location.pathname === '/news' || location.pathname.startsWith('/news/');
+    if (href === '/articles') {
+      return (
+        location.pathname === '/articles'
+        || location.pathname.startsWith('/articles/')
+        || location.pathname.startsWith('/article/')
+        || location.pathname === '/guides'
+        || location.pathname.startsWith('/guides/')
+      );
+    }
     if (href === '/guides') {
       return (
         location.pathname === '/guides'
         || location.pathname.startsWith('/guides/')
-        || location.pathname === '/articles'
-        || location.pathname.startsWith('/article/')
       );
     }
     if (href === '/milestones') return location.pathname === '/milestones' || location.pathname.startsWith('/milestones/');

@@ -8,6 +8,7 @@ export const ContentType = {
   LOCAL_BUILD: 'local_build',
   STACK_PRESET: 'stack_preset',
   GUIDE: 'guide',
+  ARTICLE: 'article',
 } as const;
 
 export type ContentType = (typeof ContentType)[keyof typeof ContentType];

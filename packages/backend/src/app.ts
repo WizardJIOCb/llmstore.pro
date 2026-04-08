@@ -15,6 +15,7 @@ import { agentBuilderRoutes } from './modules/agent-builder/index.js';
 import { agentRuntimeRoutes, publishedLandingRoutes } from './modules/agent-runtime/index.js';
 import { profileRoutes } from './modules/profile/index.js';
 import { newsRoutes } from './modules/news/index.js';
+import { articleRoutes } from './modules/articles/index.js';
 import { aliceRoutes } from './modules/alice/index.js';
 import { appSettingsRoutes } from './modules/app-settings/index.js';
 import { paymentsRoutes } from './modules/payments/index.js';
@@ -82,6 +83,7 @@ export function createApp() {
   app.use('/api/app', appSettingsRoutes);
   app.use('/api/profile', profileRoutes);
   app.use('/api/news', newsRoutes);
+  app.use('/api/articles', articleRoutes);
   app.use('/api/catalog', catalogRoutes);
   app.use('/api/payments', paymentsRoutes);
   app.use('/api/admin', adminRoutes);

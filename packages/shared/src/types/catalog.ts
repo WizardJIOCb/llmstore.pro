@@ -42,6 +42,11 @@ export interface CatalogItemMeta {
   docs_url: string | null;
   github_url: string | null;
   website_url: string | null;
+  primary_cta_label: string | null;
+  primary_cta_url: string | null;
+  secondary_cta_label: string | null;
+  secondary_cta_url: string | null;
+  reading_time_minutes: number | null;
   metadata_json: Record<string, unknown> | null;
 }
 
@@ -56,6 +61,11 @@ export interface CatalogItemCard {
   featured: boolean;
   views_count?: number;
   comments_count?: number;
+  likes_count?: number;
+  bookmarks_count?: number;
+  liked_by_me?: boolean;
+  bookmarked_by_me?: boolean;
+  ranking_score?: number;
   tags: TagSlim[];
   categories: CategorySlim[];
   meta: Pick<CatalogItemMeta, 'pricing_type' | 'deployment_type' | 'language_support' | 'privacy_type'>;

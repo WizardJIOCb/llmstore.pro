@@ -1,5 +1,5 @@
 import {
-  pgTable, uuid, varchar, text, timestamp, boolean, integer, index, uniqueIndex,
+  pgTable, uuid, varchar, text, timestamp, boolean, integer, index, uniqueIndex, date,
 } from 'drizzle-orm/pg-core';
 import { jsonb } from 'drizzle-orm/pg-core';
 import {
@@ -94,10 +94,68 @@ export const catalogItemMeta = pgTable('catalog_item_meta', {
   docs_url: text('docs_url'),
   github_url: text('github_url'),
   website_url: text('website_url'),
+  primary_cta_label: varchar('primary_cta_label', { length: 80 }),
+  primary_cta_url: text('primary_cta_url'),
+  secondary_cta_label: varchar('secondary_cta_label', { length: 80 }),
+  secondary_cta_url: text('secondary_cta_url'),
+  reading_time_minutes: integer('reading_time_minutes'),
   metadata_json: jsonb('metadata_json').$type<Record<string, unknown>>().default({}),
 }, (table) => [
   index('catalog_item_meta_pricing_idx').on(table.pricing_type),
   index('catalog_item_meta_deployment_idx').on(table.deployment_type),
   index('catalog_item_meta_language_idx').on(table.language_support),
   index('catalog_item_meta_privacy_idx').on(table.privacy_type),
+]);
+
+export const catalogItemReactions = pgTable('catalog_item_reactions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  item_id: uuid('item_id').notNull().references(() => catalogItems.id, { onDelete: 'cascade' }),
+  user_id: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex('catalog_item_reactions_item_user_idx').on(table.item_id, table.user_id),
+  index('catalog_item_reactions_item_idx').on(table.item_id),
+  index('catalog_item_reactions_item_created_idx').on(table.item_id, table.created_at),
+  index('catalog_item_reactions_user_idx').on(table.user_id),
+]);
+
+export const catalogItemBookmarks = pgTable('catalog_item_bookmarks', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  item_id: uuid('item_id').notNull().references(() => catalogItems.id, { onDelete: 'cascade' }),
+  user_id: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex('catalog_item_bookmarks_item_user_idx').on(table.item_id, table.user_id),
+  index('catalog_item_bookmarks_item_idx').on(table.item_id),
+  index('catalog_item_bookmarks_item_created_idx').on(table.item_id, table.created_at),
+  index('catalog_item_bookmarks_user_idx').on(table.user_id),
+]);
+
+export const catalogItemReports = pgTable('catalog_item_reports', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  item_id: uuid('item_id').notNull().references(() => catalogItems.id, { onDelete: 'cascade' }),
+  user_id: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  reason: varchar('reason', { length: 32 }).notNull(),
+  details: text('details'),
+  status: varchar('status', { length: 24 }).notNull().default('open'),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+}, (table) => [
+  uniqueIndex('catalog_item_reports_item_user_idx').on(table.item_id, table.user_id),
+  index('catalog_item_reports_item_idx').on(table.item_id),
+  index('catalog_item_reports_status_idx').on(table.status),
+  index('catalog_item_reports_user_idx').on(table.user_id),
+]);
+
+export const catalogItemViewEvents = pgTable('catalog_item_view_events', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  item_id: uuid('item_id').notNull().references(() => catalogItems.id, { onDelete: 'cascade' }),
+  user_id: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+  viewer_key: varchar('viewer_key', { length: 512 }).notNull(),
+  viewed_on: date('viewed_on').notNull(),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex('catalog_item_view_events_item_viewer_day_idx').on(table.item_id, table.viewer_key, table.viewed_on),
+  index('catalog_item_view_events_item_viewed_on_idx').on(table.item_id, table.viewed_on),
+  index('catalog_item_view_events_user_idx').on(table.user_id),
 ]);

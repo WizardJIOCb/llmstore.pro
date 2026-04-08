@@ -11,6 +11,8 @@ import { RegisterPage } from './pages/auth/RegisterPage';
 import { VerifyEmailPage } from './pages/auth/VerifyEmailPage';
 import { AdminCatalogListPage } from './pages/admin/AdminCatalogListPage';
 import { AdminCatalogFormPage } from './pages/admin/AdminCatalogFormPage';
+import { AdminArticlesListPage } from './pages/admin/AdminArticlesListPage';
+import { AdminArticleFormPage } from './pages/admin/AdminArticleFormPage';
 import { AdminUsersPage } from './pages/admin/AdminUsersPage';
 import { AdminAgentsPage } from './pages/admin/AdminAgentsPage';
 import { AdminNewsListPage } from './pages/admin/AdminNewsListPage';
@@ -39,6 +41,8 @@ import { PublicProfilePage } from './pages/profile/PublicProfilePage';
 import { ChatsPage } from './pages/chats/ChatsPage';
 import { GalleryPage } from './pages/gallery/GalleryPage';
 import { GuidesPage } from './pages/guides/GuidesPage';
+import { ArticlesPage } from './pages/articles/ArticlesPage';
+import { ArticleEditorPage } from './pages/articles/ArticleEditorPage';
 import { PricingPage } from './pages/legal/PricingPage';
 import { OfferPage } from './pages/legal/OfferPage';
 import { ContactsPage } from './pages/legal/ContactsPage';
@@ -84,7 +88,18 @@ export function App() {
         <Route path="/stacks/:slug" element={<CatalogDetailPage type="stack_preset" />} />
         <Route path="/guides" element={<GuidesPage />} />
         <Route path="/guides/:slug" element={<ArticleDetailPage />} />
-        <Route path="/articles" element={<GuidesPage />} />
+        <Route path="/articles" element={<ArticlesPage />} />
+        <Route path="/articles/new" element={
+          <ProtectedRoute>
+            <ArticleEditorPage />
+          </ProtectedRoute>
+        } />
+        <Route path="/articles/edit/:id" element={
+          <ProtectedRoute>
+            <ArticleEditorPage />
+          </ProtectedRoute>
+        } />
+        <Route path="/articles/:slug" element={<ArticleDetailPage />} />
         <Route path="/article/:slug" element={<ArticleDetailPage />} />
 
         {/* News routes */}
@@ -216,6 +231,30 @@ export function App() {
           element={
             <ProtectedRoute requireAdmin>
               <AdminChartsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/articles"
+          element={
+            <ProtectedRoute requireAdmin>
+              <AdminArticlesListPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/articles/new"
+          element={
+            <ProtectedRoute requireAdmin>
+              <AdminArticleFormPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/articles/:id"
+          element={
+            <ProtectedRoute requireAdmin>
+              <AdminArticleFormPage />
             </ProtectedRoute>
           }
         />
