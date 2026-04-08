@@ -1,27 +1,7 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
-import StarterKit from '@tiptap/starter-kit';
-import Link from '@tiptap/extension-link';
-import Placeholder from '@tiptap/extension-placeholder';
-import Underline from '@tiptap/extension-underline';
-import TextAlign from '@tiptap/extension-text-align';
-import Image from '@tiptap/extension-image';
 import { Button } from '../ui/Button';
-
-function parseContent(value: string | null | undefined) {
-  if (!value) {
-    return {
-      type: 'doc',
-      content: [{ type: 'paragraph' }],
-    };
-  }
-
-  try {
-    return JSON.parse(value);
-  } catch {
-    return value;
-  }
-}
+import { createArticleTiptapExtensions, parseArticleContent } from './tiptapArticleConfig';
 
 export function TiptapArticleEditor({
   value,
@@ -32,34 +12,11 @@ export function TiptapArticleEditor({
   onChange: (nextValue: string) => void;
   placeholder?: string;
 }) {
-  const parsedContent = useMemo(() => parseContent(value), [value]);
+  const parsedContent = useMemo(() => parseArticleContent(value), [value]);
+  const lastSyncedValueRef = useRef<string>('');
   const editor = useEditor({
     immediatelyRender: false,
-    extensions: [
-      StarterKit.configure({
-        heading: { levels: [2, 3] },
-      }),
-      Link.configure({
-        openOnClick: false,
-        autolink: true,
-        HTMLAttributes: {
-          rel: 'noopener noreferrer nofollow',
-          target: '_blank',
-        },
-      }),
-      Placeholder.configure({
-        placeholder,
-      }),
-      Underline,
-      TextAlign.configure({
-        types: ['heading', 'paragraph'],
-      }),
-      Image.configure({
-        HTMLAttributes: {
-          class: 'mx-auto h-auto max-w-full rounded-2xl border border-slate-200 shadow-sm',
-        },
-      }),
-    ],
+    extensions: createArticleTiptapExtensions(placeholder),
     content: parsedContent,
     editorProps: {
       attributes: {
@@ -67,18 +24,27 @@ export function TiptapArticleEditor({
       },
     },
     onUpdate: ({ editor: currentEditor }) => {
-      onChange(JSON.stringify(currentEditor.getJSON()));
+      const nextValue = JSON.stringify(currentEditor.getJSON());
+      lastSyncedValueRef.current = nextValue;
+      onChange(nextValue);
     },
   });
 
   useEffect(() => {
     if (!editor) return;
-    const nextContent = JSON.stringify(parsedContent);
-    const currentContent = JSON.stringify(editor.getJSON());
-    if (nextContent !== currentContent) {
-      editor.commands.setContent(parsedContent, { emitUpdate: false });
+
+    if (value === lastSyncedValueRef.current) {
+      return;
     }
-  }, [editor, parsedContent]);
+
+    editor.commands.setContent(parsedContent, { emitUpdate: false });
+    const normalizedValue = JSON.stringify(editor.getJSON());
+    lastSyncedValueRef.current = normalizedValue;
+
+    if (typeof parsedContent === 'string' && normalizedValue !== value) {
+      onChange(normalizedValue);
+    }
+  }, [editor, onChange, parsedContent, value]);
 
   const insertLink = () => {
     const previousUrl = editor?.getAttributes('link').href as string | undefined;
@@ -147,7 +113,7 @@ export function TiptapArticleEditor({
         </Button>
       </div>
 
-      <div className="px-5 py-5">
+      <div className="article-rich prose prose-slate max-w-none px-5 py-5 prose-headings:tracking-tight prose-p:leading-8 prose-li:leading-7 prose-img:rounded-2xl">
         <EditorContent editor={editor} />
       </div>
     </div>

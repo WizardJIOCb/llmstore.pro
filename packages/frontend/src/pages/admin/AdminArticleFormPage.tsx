@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { generateSlug } from '@llmstore/shared/utils';
 import { AdminLayout } from '../../components/admin/AdminLayout';
 import { TiptapArticleEditor } from '../../components/articles/TiptapArticleEditor';
+import { createEmptyArticleDoc } from '../../components/articles/tiptapArticleConfig';
 import { Button, Input, Select, Spinner, Textarea } from '../../components/ui';
 import { useAdminItem, useCreateItem, useUpdateItem } from '../../hooks/useAdmin';
 import { useUploadArticleHeroImage } from '../../hooks/useArticles';
@@ -14,13 +15,6 @@ const visibilityOptions = [
   { value: 'unlisted', label: 'По ссылке' },
   { value: 'private', label: 'Приватная' },
 ];
-
-function emptyDoc() {
-  return JSON.stringify({
-    type: 'doc',
-    content: [{ type: 'paragraph' }],
-  });
-}
 
 function toOptions(map: Record<string, string>) {
   return Object.entries(map).map(([value, label]) => ({ value, label }));
@@ -56,7 +50,7 @@ export function AdminArticleFormPage() {
     title: '',
     slug: '',
     short_description: '',
-    full_description: emptyDoc(),
+    full_description: JSON.stringify(createEmptyArticleDoc()),
     status: 'draft',
     visibility: 'public',
     featured: false,
@@ -82,7 +76,7 @@ export function AdminArticleFormPage() {
       title: existingItem.title ?? '',
       slug: existingItem.slug ?? '',
       short_description: existingItem.short_description ?? '',
-      full_description: existingItem.full_description ?? emptyDoc(),
+      full_description: existingItem.full_description ?? JSON.stringify(createEmptyArticleDoc()),
       status: existingItem.status ?? 'draft',
       visibility: existingItem.visibility ?? 'public',
       featured: existingItem.featured ?? false,
