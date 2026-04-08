@@ -1251,6 +1251,16 @@ function looksLikeLandingBuildRequest(request: string): boolean {
   return /(landing|landing page|лендинг|preview|превью|html|site|website|страниц|сайт|hero|page)/i.test(text);
 }
 
+function looksLikeLandingPreviewOnlyRequest(request: string): boolean {
+  const text = request.trim().toLowerCase();
+  if (!text) return false;
+
+  const wantsLanding = looksLikeLandingBuildRequest(text);
+  const excludesBackend = /(не делай backend|без backend|не нужен backend|frontend-only|only frontend|только frontend|только landing preview|только preview)/i.test(text);
+  const excludesDatabase = /(не делай базу|без базы|не делай postgresql|без postgresql|не делай project bundle|не нужен project bundle)/i.test(text);
+  return wantsLanding && (excludesBackend || excludesDatabase);
+}
+
 function looksLikeCodeLine(line: string): boolean {
   const value = line.trim();
   if (!value) return false;
@@ -3230,6 +3240,7 @@ ${agent.description.trim()}`);
   let gotTerminalAssistantMessage = false;
   let finalOutputWasTruncated = false;
   let partialAssistantMessageId: string | null = null;
+  let rawTerminalAssistantOutput = '';
 
   const persistPartialAssistantOutput = async (
     rawOutput: string,
@@ -3779,6 +3790,10 @@ ${agent.description.trim()}`);
       'LLM returned no choices during landing preview repair',
     );
     const repairedRaw = extractAssistantTextFromMessage(choice.message);
+    logger.info({
+      runId: run.id,
+      repairedLength: repairedRaw.trim().length,
+    }, 'Landing preview repair response received');
     const repaired = normalizeAssistantChatPayload(repairedRaw, null);
     const repairedPreview = repaired.codingReport?.preview;
     if (!repairedPreview || repairedPreview.type !== 'html' || !repairedPreview.html?.trim()) {
@@ -3804,8 +3819,32 @@ ${agent.description.trim()}`);
   };
 
   try {
+    const previewOnlyLandingRequest = looksLikeLandingPreviewOnlyRequest(latestUserMessage) && !strictPreviewEdit && toolParams.length === 0;
+    if (previewOnlyLandingRequest) {
+      await emitRunEvent('chat.run.status', {
+        run_id: run.id,
+        status: 'sectional_bootstrap',
+        label: 'Сразу запускаю секционную сборку preview',
+        detail: 'Для preview-only лендинга пропускаю длинный narrative-answer и собираю HTML напрямую по секциям.',
+      });
+      const sectionalPreview = await attemptSectionalLandingAssembly('');
+      if (sectionalPreview) {
+        gotTerminalAssistantMessage = true;
+        finalOutput = sectionalPreview.content;
+        rawTerminalAssistantOutput = finalOutput;
+        codingReport = sectionalPreview.codingReport;
+        finalOutputWasTruncated = false;
+        if (finalOutput.trim()) {
+          await persistPartialAssistantOutput(finalOutput, {
+            overrideReport: codingReport,
+            overrideContent: finalOutput,
+          });
+        }
+      }
+    }
+
     // 8. Main loop
-    for (let iteration = 0; iteration < maxIterations; iteration++) {
+    for (let iteration = 0; iteration < maxIterations && !codingReport?.preview; iteration++) {
       logger.info({ runId: run.id, iteration, messageCount: messages.length, hasTools: toolParams.length > 0 }, 'Runtime loop iteration');
       await emitRunEvent('chat.run.status', {
         run_id: run.id,
@@ -3980,6 +4019,7 @@ ${agent.description.trim()}`);
       // No tool calls: final answer
       gotTerminalAssistantMessage = true;
       const rawAssistantOutput = extractAssistantTextFromMessage(assistantMessage);
+      rawTerminalAssistantOutput = rawAssistantOutput;
       finalOutput = rawAssistantOutput;
       let combinedAssistantOutput = rawAssistantOutput;
       let finalFinishReason = choice.finish_reason;
@@ -4011,6 +4051,7 @@ ${agent.description.trim()}`);
             }
             finalOutput = mergeAssistantOutputChunks(finalOutput, chunk);
             combinedAssistantOutput = finalOutput;
+            rawTerminalAssistantOutput = combinedAssistantOutput;
             finalFinishReason = continuation.finishReason;
             await persistPartialAssistantOutput(finalOutput, {
               markTruncated: shouldContinueLongOutput(finalOutput, continuation.finishReason),
@@ -4041,6 +4082,7 @@ ${agent.description.trim()}`);
           }
           finalOutput = mergeAssistantOutputChunks(finalOutput, chunk);
           combinedAssistantOutput = finalOutput;
+          rawTerminalAssistantOutput = combinedAssistantOutput;
           finalFinishReason = continuation.finishReason;
           await persistPartialAssistantOutput(finalOutput, {
             markTruncated: shouldContinueLongOutput(finalOutput, continuation.finishReason),
@@ -4175,6 +4217,13 @@ ${agent.description.trim()}`);
     role: m.role,
     content_text: typeof m.content === 'string' ? m.content : (m.content ? JSON.stringify(m.content) : null),
   }));
+  if (gotTerminalAssistantMessage && rawTerminalAssistantOutput.trim()) {
+    allMessages.push({
+      run_id: run.id,
+      role: 'assistant',
+      content_text: rawTerminalAssistantOutput,
+    });
+  }
   if (allMessages.length > 0) {
     await db.insert(agentRunMessages).values(allMessages);
   }
