@@ -1440,6 +1440,20 @@ function buildModelEnvironmentContext(options?: {
   ].join('\n');
 }
 
+function buildLandingResponseDisciplineInstruction(userRequest: string): string {
+  return [
+    'Режим жёсткого ответа для landing/preview-задачи.',
+    'Нужен только валидный результат для LLMStore, без длинного narrative output.',
+    'Сначала верни <dev-report> с валидным JSON.',
+    'Если задача про landing или preview, не пиши ничего после </dev-report>.',
+    'Не пиши фразы вроде "готово", "ниже файлы", "могу продолжить", если вместе с этим не вернул валидный preview.html.',
+    'Если не помещается всё, приоритет номер один: preview.type="html" и полный preview.html.',
+    'Если пользователь просит runnable проект, после preview можно вернуть project, но только внутри dev-report JSON.',
+    'Не возвращай markdown-списки файлов вне project.files.',
+    `Запрос пользователя: ${userRequest}`,
+  ].join('\n');
+}
+
 function normalizeOpenRouterModelId(modelId: string): string {
   const value = modelId.trim();
   if (!value) return DEFAULT_MODEL;
@@ -3138,6 +3152,9 @@ ${runtimeConfig.chat_intro.trim()}`);
     systemParts.push(`Краткое описание агента:
 ${agent.description.trim()}`);
   }
+  if (looksLikeLandingBuildRequest(latestUserMessage) && !strictPreviewEdit) {
+    systemParts.push(buildLandingResponseDisciplineInstruction(latestUserMessage));
+  }
   if (strictPreviewEdit) {
     systemParts.push(buildStrictPreviewEditInstruction(strictPreviewEdit));
   }
@@ -3703,6 +3720,89 @@ ${agent.description.trim()}`);
     };
   };
 
+  const attemptLandingPreviewRepair = async (
+    currentOutput: string,
+  ): Promise<{ content: string; codingReport: CodingReport } | null> => {
+    if (!looksLikeLandingBuildRequest(latestUserMessage) || strictPreviewEdit) {
+      return null;
+    }
+
+    const snippet = clampText(stripContinuationNarration(currentOutput), 18_000) ?? '';
+    await emitRunEvent('chat.run.status', {
+      run_id: run.id,
+      status: 'preview_repair',
+      label: 'Пытаюсь восстановить preview',
+      detail: 'Модель не вернула валидный preview. Пробую переформатировать результат в корректный dev-report.',
+    });
+
+    const repairPrompt = [
+      'Предыдущий ответ не дал валидный preview для LLMStore.',
+      'Нужно исправить формат и вернуть только корректный <dev-report>...</dev-report>.',
+      'Не пиши markdown, пояснения и обычный текст после </dev-report>.',
+      'Верни минимум такие поля:',
+      '{',
+      '  "summary": "..." ,',
+      '  "preview": {',
+      '    "type": "html",',
+      '    "title": "Landing preview",',
+      '    "html": "<!doctype html>..."',
+      '  }',
+      '}',
+      'Если в предыдущем ответе был готовый HTML, используй его. Если готового HTML не было, собери полный standalone preview заново по исходному запросу.',
+      'HTML должен быть завершённым документом с <!doctype html>, <html>, <head> и <body>.',
+      `Исходный запрос пользователя: ${latestUserMessage}`,
+      snippet ? `Предыдущий ответ модели:\n${snippet}` : undefined,
+    ].filter(Boolean).join('\n\n');
+
+    const response = await openRouterClient.chatCompletion({
+      model: modelId,
+      messages: [
+        ...messages,
+        { role: 'assistant', content: currentOutput },
+        { role: 'user', content: repairPrompt },
+      ],
+      temperature: Math.min(effectiveTemperature, 0.1),
+      max_tokens: Math.min(responseMaxTokens, 9_000),
+      provider: providerPreferences,
+    }, {
+      timeoutMs: llmTimeoutMs,
+    });
+
+    if (response.usage) {
+      totalUsage.prompt_tokens += response.usage.prompt_tokens;
+      totalUsage.completion_tokens += response.usage.completion_tokens;
+      totalUsage.total_tokens += response.usage.total_tokens;
+    }
+
+    const choice = requireFirstChoice(
+      response,
+      'LLM returned no choices during landing preview repair',
+    );
+    const repairedRaw = extractAssistantTextFromMessage(choice.message);
+    const repaired = normalizeAssistantChatPayload(repairedRaw, null);
+    const repairedPreview = repaired.codingReport?.preview;
+    if (!repairedPreview || repairedPreview.type !== 'html' || !repairedPreview.html?.trim()) {
+      return null;
+    }
+
+    const repairedReport = sanitizeCodingReport({
+      ...(repaired.codingReport ?? {}),
+      notes: [
+        ...(repaired.codingReport?.notes ?? []),
+        'Preview автоматически восстановлен через repair-pass после невалидного финального ответа модели.',
+      ].slice(0, 12),
+    });
+
+    if (!repairedReport) {
+      return null;
+    }
+
+    return {
+      content: repaired.content.trim() || repairedReport.summary?.trim() || currentOutput.trim(),
+      codingReport: repairedReport,
+    };
+  };
+
   try {
     // 8. Main loop
     for (let iteration = 0; iteration < maxIterations; iteration++) {
@@ -3997,6 +4097,25 @@ ${agent.description.trim()}`);
       }
 
       const requiresLandingPreview = looksLikeLandingBuildRequest(latestUserMessage) && !strictPreviewEdit;
+      if (
+        runStatus === 'completed'
+        && requiresLandingPreview
+        && (!codingReport?.preview || codingReport.preview.type !== 'html' || !codingReport.preview.html?.trim())
+      ) {
+        const repairedPreview = await attemptLandingPreviewRepair(combinedAssistantOutput || finalOutput);
+        if (repairedPreview) {
+          finalOutput = repairedPreview.content;
+          codingReport = repairedPreview.codingReport;
+          finalOutputWasTruncated = false;
+          if (finalOutput.trim()) {
+            await persistPartialAssistantOutput(finalOutput, {
+              overrideReport: codingReport,
+              overrideContent: finalOutput,
+            });
+          }
+        }
+      }
+
       if (
         runStatus === 'completed'
         && requiresLandingPreview

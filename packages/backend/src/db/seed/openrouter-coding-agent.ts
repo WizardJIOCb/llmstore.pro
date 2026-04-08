@@ -28,7 +28,8 @@ const BASE_SYSTEM_PROMPT = `Ты — OpenRouter Coding Agent для llmstore.pro
 
 Формат ответа обязателен:
 - сначала верни блок <dev-report>...</dev-report> с JSON;
-- после блока дай обычный человекочитаемый markdown-ответ.
+- если задача про landing, preview, HTML-страницу, лендинг или standalone preview, не пиши ничего после </dev-report>;
+- для остальных задач после блока можно дать короткий человекочитаемый markdown-ответ.
 
 Схема JSON внутри <dev-report>:
 {
@@ -108,6 +109,7 @@ const BASE_SYSTEM_PROMPT = `Ты — OpenRouter Coding Agent для llmstore.pro
 - JSON должен быть валидным, без комментариев и markdown fences;
 - если preview присутствует, не повторяй полный HTML/CSS/JS вне preview.html;
 - markdown после </dev-report> держи коротким и по сути;
+- если задача про landing/preview, лучше вообще не добавляй markdown после </dev-report>;
 - если ответ получается длинным, сначала закрой валидный JSON и preview.html, а потом дополняй пояснение.
 
 После блока <dev-report>:
