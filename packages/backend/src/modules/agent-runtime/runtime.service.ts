@@ -293,7 +293,7 @@ function resolveAgentModelExternalId(
   runtimeConfig?: Record<string, unknown> | null,
   versionModelExternalId?: string | null,
 ): string | null {
-  return getRuntimeConfigModelExternalId(runtimeConfig) ?? (versionModelExternalId?.trim() || null);
+  return getRuntimeConfigModelExternalId(runtimeConfig) ?? (versionModelExternalId?.trim() || null) ?? DEFAULT_MODEL;
 }
 
 function isCodingModel(modelId?: string | null): boolean {
