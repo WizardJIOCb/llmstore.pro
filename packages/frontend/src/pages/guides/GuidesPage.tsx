@@ -302,8 +302,8 @@ export function GuidesPage() {
                   to="/articles"
                   className="inline-flex items-center gap-2 rounded-full bg-[#3d2b1f] px-5 py-3 text-sm font-medium text-white transition-transform hover:-translate-y-0.5"
                 >
-                  Статьи
                   <ArrowRight className="h-4 w-4" />
+                  Статьи
                 </Link>
                 <Link
                   to="/articles"
