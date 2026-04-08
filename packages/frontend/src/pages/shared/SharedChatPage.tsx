@@ -9,6 +9,7 @@ import { Button } from '../../components/ui/Button';
 import { apiClient } from '../../lib/api-client';
 import { chatsApi, type ChatAttachment, type ChatPendingRunState, type CodingReport } from '../../lib/api/chats';
 import { appendLiveProgressEvent, createLiveProgressEvent } from '../../lib/chat-live-progress';
+import { applyLiveBalanceDelta } from '../../lib/live-balance';
 import { cn } from '../../lib/utils';
 import { useAuth } from '../../hooks/useAuth';
 import { useProfile } from '../../hooks/useProfile';
@@ -59,6 +60,7 @@ interface SharedPageData {
 }
 
 interface LiveSharedEvent {
+  run_id?: string;
   id: string;
   event: string;
   label: string;
@@ -222,6 +224,7 @@ export function SharedChatPage() {
   const [streamEvents, setStreamEvents] = useState<LiveSharedEvent[]>([]);
   const [streamConnected, setStreamConnected] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const liveBalanceSeenCostsRef = useRef<Record<string, number>>({});
   const streamRunKeyRef = useRef<string | null>(null);
   const pendingProgressAnchorRef = useRef<HTMLDivElement | null>(null);
   const messagesEndAnchorRef = useRef<HTMLDivElement | null>(null);
@@ -326,6 +329,7 @@ export function SharedChatPage() {
     setStreamConnected(false);
 
     const pushEvent = (eventName: string, payload: {
+      run_id?: string;
       label?: string;
       detail?: string;
       status?: string;
@@ -354,6 +358,7 @@ export function SharedChatPage() {
         const message = raw as MessageEvent<string>;
         try {
           const payload = JSON.parse(message.data) as {
+            run_id?: string;
             label?: string;
             detail?: string;
             status?: string;
@@ -367,6 +372,7 @@ export function SharedChatPage() {
             usd_to_rub_rate?: number;
           };
           pushEvent(eventName, payload);
+          applyLiveBalanceDelta(queryClient, liveBalanceSeenCostsRef, payload);
           if (
             eventName === 'chat.message.completed'
             || eventName === 'chat.run.completed'

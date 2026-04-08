@@ -1,4 +1,5 @@
 export interface LiveProgressPayload {
+  run_id?: string;
   label?: string;
   detail?: string;
   status?: string;

@@ -46,6 +46,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { useProfile } from '../../hooks/useProfile';
 import { chatsApi } from '../../lib/api/chats';
 import { appendLiveProgressEvent, createLiveProgressEvent } from '../../lib/chat-live-progress';
+import { applyLiveBalanceDelta } from '../../lib/live-balance';
 import { UserLink } from '../../components/users/UserLink';
 import type {
   ChatAccess,
@@ -649,6 +650,7 @@ export function ChatsPage() {
   const messageEnterCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollAnimationFrameRef = useRef<number | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const liveBalanceSeenCostsRef = useRef<Record<string, number>>({});
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
   const previousMessageCountRef = useRef(0);
   const previousStreamEventsCountRef = useRef(0);
@@ -1043,6 +1045,7 @@ export function ChatsPage() {
     eventSourceRef.current = source;
 
     const pushEvent = (eventName: string, payload: {
+      run_id?: string;
       label?: string;
       detail?: string;
       status?: string;
@@ -1071,6 +1074,7 @@ export function ChatsPage() {
         const message = raw as MessageEvent<string>;
         try {
           const payload = JSON.parse(message.data) as {
+            run_id?: string;
             label?: string;
             detail?: string;
             status?: string;
@@ -1084,6 +1088,7 @@ export function ChatsPage() {
             usd_to_rub_rate?: number;
           };
           pushEvent(eventName, payload);
+          applyLiveBalanceDelta(queryClient, liveBalanceSeenCostsRef, payload);
 
           if (safeActiveChatId) {
             setAssistantResponseSlot((prev) => {
