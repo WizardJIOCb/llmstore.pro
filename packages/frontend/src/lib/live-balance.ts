@@ -8,6 +8,15 @@ interface LiveBalancePayload {
   usd_to_rub_rate?: number;
 }
 
+export function shouldApplyLiveBalanceEvent(eventName: string): boolean {
+  return (
+    eventName === 'chat.run.started'
+    || eventName === 'chat.run.status'
+    || eventName === 'chat.run.tool.started'
+    || eventName === 'chat.run.tool.finished'
+  );
+}
+
 function toFiniteNumber(value: unknown): number {
   const numeric = typeof value === 'string' ? Number(value) : Number(value ?? 0);
   return Number.isFinite(numeric) ? numeric : 0;

@@ -25,6 +25,7 @@ import { eq, desc, and, or, sql, asc, inArray } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import { openRouterClient } from '../openrouter/index.js';
 import { executeTool } from '../tool-execution/index.js';
+import { executeHttpRequest } from '../tool-execution/executors/http-request.executor.js';
 import { NotFoundError, AppError, ConflictError } from '../../middleware/error-handler.js';
 import { logger } from '../../lib/logger.js';
 import type { ChatCompletionChoice, ChatMessage, ToolDefinitionParam } from '../openrouter/types.js';
@@ -1259,6 +1260,67 @@ function looksLikeLandingPreviewOnlyRequest(request: string): boolean {
   const excludesBackend = /(не делай backend|без backend|не нужен backend|frontend-only|only frontend|только frontend|только landing preview|только preview)/i.test(text);
   const excludesDatabase = /(не делай базу|без базы|не делай postgresql|без postgresql|не делай project bundle|не нужен project bundle)/i.test(text);
   return wantsLanding && (excludesBackend || excludesDatabase);
+}
+
+function extractHttpUrls(text: string): string[] {
+  const matches = text.match(/https?:\/\/[^\s<>"')]+/gi) ?? [];
+  const unique = new Set<string>();
+
+  for (const raw of matches) {
+    const normalized = raw.trim().replace(/[),.;:!?]+$/u, '');
+    if (!normalized) continue;
+    unique.add(normalized);
+    if (unique.size >= 3) break;
+  }
+
+  return [...unique];
+}
+
+async function buildLandingReferenceContextFromUrls(request: string): Promise<string | null> {
+  const urls = extractHttpUrls(request);
+  if (urls.length === 0) return null;
+
+  const parts: string[] = [];
+
+  for (const url of urls) {
+    try {
+      const response = await executeHttpRequest(
+        { url, method: 'GET' },
+        { timeout_ms: 12_000, max_response_size: 24_000 },
+      );
+
+      const title = typeof response.title === 'string' ? response.title.trim() : '';
+      const body = typeof response.body === 'string' ? response.body.trim() : '';
+      const links = Array.isArray(response.links)
+        ? response.links
+          .slice(0, 5)
+          .map((item) => {
+            if (!item || typeof item !== 'object') return null;
+            const titleValue = typeof (item as { title?: unknown }).title === 'string'
+              ? String((item as { title?: unknown }).title).trim()
+              : '';
+            const urlValue = typeof (item as { url?: unknown }).url === 'string'
+              ? String((item as { url?: unknown }).url).trim()
+              : '';
+            if (!urlValue) return null;
+            return titleValue ? `- ${titleValue}: ${urlValue}` : `- ${urlValue}`;
+          })
+          .filter((value): value is string => Boolean(value))
+        : [];
+
+      parts.push([
+        `Источник: ${url}`,
+        title ? `Заголовок: ${title}` : null,
+        body ? `Краткое содержимое:\n${clampText(body, 8_000)}` : null,
+        links.length > 0 ? `Полезные ссылки со страницы:\n${links.join('\n')}` : null,
+      ].filter(Boolean).join('\n\n'));
+    } catch (error) {
+      logger.warn({ url, error }, 'Failed to fetch landing reference URL');
+    }
+  }
+
+  if (parts.length === 0) return null;
+  return parts.join('\n\n---\n\n');
 }
 
 function looksLikeCodeLine(line: string): boolean {
@@ -3151,6 +3213,10 @@ export async function startRun(
   // 5. Build messages
   const messages: ChatMessage[] = [];
   const systemParts: string[] = [];
+  const previewOnlyLandingRequest = looksLikeLandingPreviewOnlyRequest(latestUserMessage) && !strictPreviewEdit;
+  const landingReferenceContext = previewOnlyLandingRequest
+    ? await buildLandingReferenceContextFromUrls(latestUserMessage)
+    : null;
   if (typeof version.system_prompt === 'string' && version.system_prompt.trim().length > 0) {
     systemParts.push(version.system_prompt.trim());
   }
@@ -3164,6 +3230,9 @@ ${agent.description.trim()}`);
   }
   if (looksLikeLandingBuildRequest(latestUserMessage) && !strictPreviewEdit) {
     systemParts.push(buildLandingResponseDisciplineInstruction(latestUserMessage));
+  }
+  if (landingReferenceContext) {
+    systemParts.push(`Контекст по ссылкам из запроса пользователя:\n${landingReferenceContext}`);
   }
   if (strictPreviewEdit) {
     systemParts.push(buildStrictPreviewEditInstruction(strictPreviewEdit));
@@ -3189,7 +3258,14 @@ ${agent.description.trim()}`);
   const providerPreferences = resolveOpenRouterProviderPreferences(modelId, toolParams.length);
   const responseMaxTokens = resolveAgentResponseMaxTokens(runtimeConfig.max_tokens, modelId, toolParams.length);
 
-  logger.info({ runId: run.id, agentId, toolCount: toolParams.length, toolNames: tools.map(t => t.slug) }, 'Starting agent run');
+  logger.info({
+    runId: run.id,
+    agentId,
+    toolCount: toolParams.length,
+    toolNames: tools.map(t => t.slug),
+    previewOnlyLandingRequest,
+    hasLandingReferenceContext: Boolean(landingReferenceContext),
+  }, 'Starting agent run');
 
   // 7. Update run to running
   await db.update(agentRuns).set({ status: 'running' }).where(eq(agentRuns.id, run.id));
@@ -3819,7 +3895,6 @@ ${agent.description.trim()}`);
   };
 
   try {
-    const previewOnlyLandingRequest = looksLikeLandingPreviewOnlyRequest(latestUserMessage) && !strictPreviewEdit && toolParams.length === 0;
     if (previewOnlyLandingRequest) {
       await emitRunEvent('chat.run.status', {
         run_id: run.id,

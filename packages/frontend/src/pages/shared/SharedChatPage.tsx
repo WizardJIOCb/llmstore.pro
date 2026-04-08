@@ -9,7 +9,7 @@ import { Button } from '../../components/ui/Button';
 import { apiClient } from '../../lib/api-client';
 import { chatsApi, type ChatAttachment, type ChatPendingRunState, type CodingReport } from '../../lib/api/chats';
 import { appendLiveProgressEvent, createLiveProgressEvent } from '../../lib/chat-live-progress';
-import { applyLiveBalanceDelta } from '../../lib/live-balance';
+import { applyLiveBalanceDelta, shouldApplyLiveBalanceEvent } from '../../lib/live-balance';
 import { cn } from '../../lib/utils';
 import { useAuth } from '../../hooks/useAuth';
 import { useProfile } from '../../hooks/useProfile';
@@ -372,7 +372,9 @@ export function SharedChatPage() {
             usd_to_rub_rate?: number;
           };
           pushEvent(eventName, payload);
-          applyLiveBalanceDelta(queryClient, liveBalanceSeenCostsRef, payload);
+          if (shouldApplyLiveBalanceEvent(eventName)) {
+            applyLiveBalanceDelta(queryClient, liveBalanceSeenCostsRef, payload);
+          }
           if (
             eventName === 'chat.message.completed'
             || eventName === 'chat.run.completed'

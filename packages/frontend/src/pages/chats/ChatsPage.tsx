@@ -46,7 +46,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { useProfile } from '../../hooks/useProfile';
 import { chatsApi } from '../../lib/api/chats';
 import { appendLiveProgressEvent, createLiveProgressEvent } from '../../lib/chat-live-progress';
-import { applyLiveBalanceDelta } from '../../lib/live-balance';
+import { applyLiveBalanceDelta, shouldApplyLiveBalanceEvent } from '../../lib/live-balance';
 import { UserLink } from '../../components/users/UserLink';
 import type {
   ChatAccess,
@@ -1088,7 +1088,9 @@ export function ChatsPage() {
             usd_to_rub_rate?: number;
           };
           pushEvent(eventName, payload);
-          applyLiveBalanceDelta(queryClient, liveBalanceSeenCostsRef, payload);
+          if (shouldApplyLiveBalanceEvent(eventName)) {
+            applyLiveBalanceDelta(queryClient, liveBalanceSeenCostsRef, payload);
+          }
 
           if (safeActiveChatId) {
             setAssistantResponseSlot((prev) => {
