@@ -119,3 +119,9 @@ export function useUpdateArticle() {
     },
   });
 }
+
+export function useUploadArticleHeroImage() {
+  return useMutation({
+    mutationFn: (file: File) => articlesApi.uploadHeroImage(file),
+  });
+}

@@ -7,10 +7,12 @@ import { env } from './env.js';
 export const UPLOADS_DIR = path.resolve(env.UPLOADS_DIR);
 const NEWS_DIR = path.join(UPLOADS_DIR, 'news');
 const CHAT_DIR = path.join(UPLOADS_DIR, 'chat');
+const ARTICLES_DIR = path.join(UPLOADS_DIR, 'articles');
 
 // Ensure upload directories exist
 mkdirSync(NEWS_DIR, { recursive: true });
 mkdirSync(CHAT_DIR, { recursive: true });
+mkdirSync(ARTICLES_DIR, { recursive: true });
 
 const ALLOWED_MIME_TYPES = new Set([
   'image/jpeg',
@@ -116,6 +118,29 @@ const storage = multer.diskStorage({
   filename: (_req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
     cb(null, `${randomUUID()}${ext}`);
+  },
+});
+
+const articleStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, ARTICLES_DIR),
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
+    cb(null, `${randomUUID()}${ext}`);
+  },
+});
+
+export const articleUpload = multer({
+  storage: articleStorage,
+  fileFilter: (_req, file, cb) => {
+    if (ALLOWED_MIME_TYPES.has(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files (jpeg, png, webp, gif) are allowed'));
+    }
+  },
+  limits: {
+    fileSize: 5 * 1024 * 1024,
+    files: 1,
   },
 });
 

@@ -8,6 +8,7 @@ import {
   validateUpsertArticle,
 } from './articles.validators.js';
 import { requireAuth } from '../../middleware/auth-guard.js';
+import { articleUpload } from '../../config/upload.js';
 
 const router = Router();
 
@@ -16,6 +17,7 @@ router.get('/mine', requireAuth, controller.listMine);
 router.get('/mine/bookmarks', requireAuth, controller.listBookmarks);
 router.get('/mine/analytics', requireAuth, controller.analytics);
 router.get('/mine/:id', requireAuth, validateArticleIdParams, controller.getMineById);
+router.post('/upload/hero', requireAuth, articleUpload.single('image'), controller.uploadHeroImage);
 router.post('/', requireAuth, validateUpsertArticle, controller.create);
 router.put('/:id', requireAuth, validateArticleIdParams, validateUpsertArticle, controller.update);
 router.get('/:slug', validateArticleParams, controller.getBySlug);

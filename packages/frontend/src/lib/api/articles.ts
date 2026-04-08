@@ -99,6 +99,12 @@ export interface ArticleEditorRecord {
   use_case_ids: string[];
 }
 
+export interface UploadedArticleImage {
+  filename: string;
+  original_name: string;
+  url: string;
+}
+
 export interface UpsertArticlePayload {
   title: string;
   slug: string;
@@ -159,4 +165,14 @@ export const articlesApi = {
 
   update: (id: string, payload: UpsertArticlePayload) =>
     apiClient.put<{ data: ArticleEditorRecord }>(`/articles/${id}`, payload).then((response) => response.data.data),
+
+  uploadHeroImage: (file: File) => {
+    const formData = new FormData();
+    formData.append('image', file);
+    return apiClient
+      .post<{ data: UploadedArticleImage }>('/articles/upload/hero', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      .then((response) => response.data.data);
+  },
 };

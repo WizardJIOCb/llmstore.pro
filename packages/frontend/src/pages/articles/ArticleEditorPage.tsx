@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { generateSlug } from '@llmstore/shared/utils';
 import { useCategories, useTags, useUseCases } from '../../hooks/useTaxonomy';
-import { useCreateArticle, useMyArticle, useUpdateArticle } from '../../hooks/useArticles';
+import { useCreateArticle, useMyArticle, useUpdateArticle, useUploadArticleHeroImage } from '../../hooks/useArticles';
 import { TiptapArticleEditor } from '../../components/articles/TiptapArticleEditor';
 import { Button, Input, Spinner, Textarea } from '../../components/ui';
 
@@ -20,11 +20,14 @@ export function ArticleEditorPage() {
   const { data: article, isLoading } = useMyArticle(id ?? '', isEdit);
   const createMutation = useCreateArticle();
   const updateMutation = useUpdateArticle();
+  const uploadHeroMutation = useUploadArticleHeroImage();
   const { data: categories } = useCategories();
   const { data: tags } = useTags();
   const { data: useCases } = useUseCases();
+  const heroFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [slugTouched, setSlugTouched] = useState(false);
+  const [heroUploadError, setHeroUploadError] = useState('');
   const [form, setForm] = useState({
     title: '',
     slug: '',
@@ -77,6 +80,7 @@ export function ArticleEditorPage() {
   }, [form.title, slugTouched]);
 
   const isSaving = createMutation.isPending || updateMutation.isPending;
+  const isUploadingHero = uploadHeroMutation.isPending;
   const pageTitle = isEdit ? 'Редактирование статьи' : 'Новая статья';
 
   const handleToggle = (field: 'category_ids' | 'tag_ids' | 'use_case_ids', value: string) => {
@@ -124,6 +128,21 @@ export function ArticleEditorPage() {
 
     const result = await createMutation.mutateAsync(nextPayload);
     navigate(status === 'published' ? `/articles/${result.slug}` : '/articles');
+  };
+
+  const handleHeroUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    setHeroUploadError('');
+
+    try {
+      const uploaded = await uploadHeroMutation.mutateAsync(file);
+      setForm((current) => ({ ...current, hero_image_url: uploaded.url }));
+    } catch (error: any) {
+      setHeroUploadError(error?.response?.data?.error?.message || 'Не удалось загрузить обложку');
+    }
   };
 
   if (isEdit && isLoading) {
@@ -179,11 +198,50 @@ export function ArticleEditorPage() {
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium text-slate-700">Обложка</label>
-                <Input
-                  value={form.hero_image_url}
-                  onChange={(event) => setForm((current) => ({ ...current, hero_image_url: event.target.value }))}
-                  placeholder="https://..."
-                />
+                <div className="space-y-3">
+                  <Input
+                    value={form.hero_image_url}
+                    onChange={(event) => setForm((current) => ({ ...current, hero_image_url: event.target.value }))}
+                    placeholder="https://..."
+                  />
+                  <input
+                    ref={heroFileInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/gif"
+                    className="hidden"
+                    onChange={(event) => void handleHeroUpload(event)}
+                  />
+                  <div className="flex flex-wrap gap-3">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={isUploadingHero}
+                      onClick={() => heroFileInputRef.current?.click()}
+                    >
+                      {isUploadingHero ? 'Загружаю обложку...' : 'Загрузить файл'}
+                    </Button>
+                    {form.hero_image_url && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          setHeroUploadError('');
+                          setForm((current) => ({ ...current, hero_image_url: '' }));
+                        }}
+                      >
+                        Убрать
+                      </Button>
+                    )}
+                  </div>
+                  {heroUploadError && (
+                    <p className="text-sm text-rose-600">{heroUploadError}</p>
+                  )}
+                  {form.hero_image_url && (
+                    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
+                      <img src={form.hero_image_url} alt="Обложка статьи" className="h-48 w-full object-cover" />
+                    </div>
+                  )}
+                </div>
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium text-slate-700">Время чтения, минут</label>

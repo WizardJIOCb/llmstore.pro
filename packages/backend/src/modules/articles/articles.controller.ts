@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 import * as articleService from './articles.service.js';
+import { AppError } from '../../middleware/error-handler.js';
 
 function buildViewerKey(req: Request) {
   const ip = req.ip || req.socket.remoteAddress || 'unknown-ip';
@@ -122,6 +123,25 @@ export async function update(req: Request<{ id: string }>, res: Response, next: 
   try {
     const item = await articleService.updateMyArticle(req.params.id, req.body, req.session.userId!);
     res.json({ data: item });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function uploadHeroImage(req: Request, res: Response, next: NextFunction) {
+  try {
+    const file = req.file;
+    if (!file) {
+      throw new AppError(400, 'BAD_REQUEST', 'Не передано изображение для загрузки');
+    }
+
+    res.status(201).json({
+      data: {
+        filename: file.filename,
+        original_name: file.originalname,
+        url: `/uploads/articles/${file.filename}`,
+      },
+    });
   } catch (error) {
     next(error);
   }
