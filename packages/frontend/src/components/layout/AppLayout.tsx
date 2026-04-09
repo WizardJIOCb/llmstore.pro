@@ -284,11 +284,19 @@ export function AppLayout() {
       <header className="sticky top-0 z-50 border-b border-slate-200 bg-white md:border-slate-200 md:bg-white">
         <div className="container mx-auto flex h-16 items-center justify-between bg-[radial-gradient(circle_at_top_right,rgba(45,212,191,0.18),transparent_34%),linear-gradient(135deg,#0b1220,#111827_58%,#0f172a)] px-4 text-white md:bg-none md:text-inherit">
           <Link to="/" className="relative top-[-2px] inline-flex items-center gap-2.5 text-xl font-bold text-white md:text-primary">
-            <img
-              src="/site-icon-192.png"
-              alt="LLMStore.pro"
-              className="h-9 w-9 rounded-lg object-cover shadow-[0_0_0_1px_rgba(255,255,255,0.12)] md:h-10 md:w-10 md:rounded-none md:shadow-sm"
-            />
+            <span
+              className="h-9 w-9 overflow-hidden rounded-lg shadow-[0_0_0_1px_rgba(255,255,255,0.12)] md:h-[40px] md:w-[39px] md:rounded-none"
+              aria-hidden="true"
+            >
+              <video
+                className="h-full w-full scale-x-[1.03] object-cover"
+                src="/llm-store-preview-logo-v4.mp4"
+                autoPlay
+                muted
+                playsInline
+                preload="auto"
+              />
+            </span>
             <span className="tracking-[-0.04em]">LLMStore.pro</span>
           </Link>
 
