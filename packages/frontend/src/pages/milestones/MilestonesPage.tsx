@@ -719,7 +719,7 @@ const statusMeta: Record<MilestoneStatus, StatusMeta> = {
 };
 
 const summaryText =
-  'LLMStore уже выглядит не как каталог-обложка, а как рабочая платформа для runnable AI-проектов, статей с реальными CTA, галереи результатов и agent-first сценариев. Сейчас у продукта уже есть builder-поток, Tiptap-редактор статей, рейтинги по окнам времени, social-layer вокруг публикаций и живой галерейный слой. Следующий фокус: tools inside chat, bundles + deploy, наблюдаемость раннов, safe execution и нормальный цикл работы внутри runnable AI-продукта.';
+  'LLMStore это рабочая платформа для runnable AI-проектов, статей с реальными CTA, галереи результатов и agent-first сценариев. Сейчас у продукта уже есть builder-поток, Tiptap-редактор статей, рейтинги по окнам времени, social-layer вокруг публикаций и живой галерейный слой. Следующий фокус: tools inside chat, bundles + deploy, наблюдаемость раннов, safe execution и нормальный цикл работы внутри runnable AI-продукта.';
 
 function getItemsByStatus(status: MilestoneStatus) {
   return milestones.filter((item) => item.status === status);
