@@ -317,8 +317,8 @@ export function AppLayout() {
             </button>
           </div>
 
-          <div className="hidden items-center gap-4 md:flex">
-            <nav className="flex items-center gap-4">
+          <div className="hidden items-center gap-3 md:flex">
+            <nav className="flex items-center gap-3">
               {visibleNavItems.map((item) => (
                 item.href === '/chats' ? (
                   <button
@@ -326,8 +326,8 @@ export function AppLayout() {
                     type="button"
                     className={
                       isNavItemActive(item.href)
-                        ? `rounded-md ${activeMenuClass} px-[0.35rem] py-1.5 text-sm font-medium text-primary transition-colors`
-                        : 'rounded-md px-[0.35rem] py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground'
+                        ? `rounded-md ${activeMenuClass} px-1 py-1.5 text-sm font-medium text-primary transition-colors`
+                        : 'rounded-md px-1 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground'
                     }
                     onClick={openChatsSection}
                   >
@@ -339,8 +339,8 @@ export function AppLayout() {
                     to={item.href}
                     className={
                       isNavItemActive(item.href)
-                        ? `rounded-md ${activeMenuClass} px-[0.35rem] py-1.5 text-sm font-medium text-primary transition-colors`
-                        : 'rounded-md px-[0.35rem] py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground'
+                        ? `rounded-md ${activeMenuClass} px-1 py-1.5 text-sm font-medium text-primary transition-colors`
+                        : 'rounded-md px-1 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground'
                     }
                   >
                     {item.label}
@@ -356,8 +356,8 @@ export function AppLayout() {
                     to="/profile"
                     className={
                       isProfileActive
-                        ? `inline-flex max-w-[220px] items-center justify-center whitespace-nowrap rounded-md ${activeMenuClass} px-2.5 py-1.5 text-center font-medium leading-tight transition-colors`
-                        : 'inline-flex max-w-[220px] items-center justify-center whitespace-nowrap rounded-md px-2.5 py-1.5 text-center leading-tight transition-colors hover:text-foreground hover:underline'
+                        ? `inline-flex max-w-[220px] items-center justify-center whitespace-nowrap rounded-md ${activeMenuClass} px-2 py-1.5 text-center font-medium leading-tight transition-colors`
+                        : 'inline-flex max-w-[220px] items-center justify-center whitespace-nowrap rounded-md px-2 py-1.5 text-center leading-tight transition-colors hover:text-foreground hover:underline'
                     }
                   >
                     <span>{profileBaseLabel}</span>
