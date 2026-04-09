@@ -108,6 +108,7 @@ async function getBalanceHistory(userId: string): Promise<BalanceHistoryItem[]> 
     db.execute<{
       id: string;
       created_at: Date;
+      chat_id: string;
       chat_title: string;
       model: string | null;
       total_tokens: string;
@@ -116,6 +117,7 @@ async function getBalanceHistory(userId: string): Promise<BalanceHistoryItem[]> 
       SELECT
         ccm.id,
         ccm.created_at,
+        cc.id AS chat_id,
         cc.title AS chat_title,
         COALESCE(ccm.usage_json->>'model', cc.model_external_id) AS model,
         COALESCE(NULLIF(ccm.usage_json->>'total_tokens', '')::numeric, 0)::text AS total_tokens,
@@ -169,6 +171,7 @@ async function getBalanceHistory(userId: string): Promise<BalanceHistoryItem[]> 
       amount_usd: toFixedAmount(Math.abs(amount)),
       tokens: 0,
       model: null,
+      chat_id: null,
     };
     });
 
@@ -184,6 +187,7 @@ async function getBalanceHistory(userId: string): Promise<BalanceHistoryItem[]> 
       amount_usd: toFixedAmount(estimatedCost),
       tokens: Math.max(0, Math.trunc(toNumberOrZero(row.total_tokens))),
       model: row.model,
+      chat_id: row.chat_id,
     };
   }).filter((item) => Number(item.amount_usd) > 0 || item.tokens > 0);
 
@@ -199,6 +203,7 @@ async function getBalanceHistory(userId: string): Promise<BalanceHistoryItem[]> 
       amount_usd: toFixedAmount(estimatedCost),
       tokens: Math.max(0, Math.trunc(toNumberOrZero(row.total_tokens))),
       model: row.model,
+      chat_id: null,
     };
   }).filter((item) => Number(item.amount_usd) > 0 || item.tokens > 0);
 

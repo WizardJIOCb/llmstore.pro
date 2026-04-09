@@ -84,6 +84,22 @@ function formatLeaderboardPosition(position: number | null | undefined): string 
   return `#${position.toLocaleString('ru-RU')}`;
 }
 
+function renderBalanceHistoryTitle(item: { title: string; chat_id?: string | null }) {
+  if (!item.chat_id) {
+    return <p className="truncate font-medium">{item.title}</p>;
+  }
+
+  return (
+    <Link
+      to={`/chats?chat=${encodeURIComponent(item.chat_id)}`}
+      className="block truncate font-medium text-primary hover:underline"
+      title="Открыть связанный чат"
+    >
+      {item.title}
+    </Link>
+  );
+}
+
 function buildPageNumbers(currentPage: number, totalPages: number): number[] {
   if (totalPages <= 7) {
     return Array.from({ length: totalPages }, (_, idx) => idx + 1);
@@ -666,7 +682,7 @@ export function ProfilePage() {
                   <div key={item.id} className="rounded-lg border p-3">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="font-medium truncate">{item.title}</p>
+                        {renderBalanceHistoryTitle(item)}
                         <p className="text-xs text-muted-foreground mt-0.5">
                           {new Date(item.created_at).toLocaleString('ru-RU')}
                         </p>

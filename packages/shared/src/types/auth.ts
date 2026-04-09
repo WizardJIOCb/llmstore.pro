@@ -113,6 +113,7 @@ export interface BalanceHistoryItem {
   amount_usd: string;
   tokens: number;
   model: string | null;
+  chat_id?: string | null;
 }
 
 export interface UserProfile extends UserPublic {
