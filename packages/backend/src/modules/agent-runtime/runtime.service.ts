@@ -3922,7 +3922,11 @@ ${agent.description.trim()}`);
     }
 
     // 8. Main loop
-    for (let iteration = 0; iteration < maxIterations && !codingReport?.preview; iteration++) {
+    for (
+      let iteration = 0;
+      iteration < maxIterations && !codingReport?.preview && !previewOnlyLandingRequest;
+      iteration++
+    ) {
       logger.info({ runId: run.id, iteration, messageCount: messages.length, hasTools: toolParams.length > 0 }, 'Runtime loop iteration');
       await emitRunEvent('chat.run.status', {
         run_id: run.id,
