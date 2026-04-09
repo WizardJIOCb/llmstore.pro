@@ -47,6 +47,7 @@ export function AppLayout() {
   const outlet = useOutlet();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isMobileMenuClosing, setIsMobileMenuClosing] = useState(false);
+  const [showAnimatedLogo, setShowAnimatedLogo] = useState(true);
   const [isMobileChatOpen, setIsMobileChatOpen] = useState(
     () => window.location.pathname.startsWith('/chats') && hasPersistedActiveChat(),
   );
@@ -288,14 +289,24 @@ export function AppLayout() {
               className="h-9 w-9 overflow-hidden rounded-lg shadow-[0_0_0_1px_rgba(255,255,255,0.12)] md:h-[40px] md:w-[39px] md:rounded-none"
               aria-hidden="true"
             >
-              <video
-                className="h-full w-full scale-x-[1.03] object-cover"
-                src="/llm-store-preview-logo-v4.mp4"
-                autoPlay
-                muted
-                playsInline
-                preload="auto"
-              />
+              {showAnimatedLogo ? (
+                <video
+                  className="h-full w-full scale-x-[1.03] object-cover"
+                  src="/llm-store-preview-logo-v4.mp4"
+                  autoPlay
+                  muted
+                  playsInline
+                  preload="auto"
+                  onEnded={() => setShowAnimatedLogo(false)}
+                  onError={() => setShowAnimatedLogo(false)}
+                />
+              ) : (
+                <img
+                  className="h-full w-full object-cover"
+                  src="/site-icon-192.png"
+                  alt=""
+                />
+              )}
             </span>
             <span className="tracking-[-0.04em]">LLMStore.pro</span>
           </Link>
