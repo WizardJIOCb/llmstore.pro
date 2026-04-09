@@ -3379,7 +3379,11 @@ ${agent.description.trim()}`);
     },
   }));
   const llmTimeoutMs = resolveAgentOpenRouterTimeoutMs(modelId, toolParams.length);
-  const providerPreferences = resolveOpenRouterProviderPreferences(modelId, toolParams.length);
+  const providerPreferences = resolveOpenRouterProviderPreferences(
+    modelId,
+    toolParams.length,
+    previewOnlyLandingRequest,
+  );
   const responseMaxTokens = resolveAgentResponseMaxTokens(runtimeConfig.max_tokens, modelId, toolParams.length);
 
   logger.info({
@@ -4902,7 +4906,15 @@ function resolveAgentOpenRouterTimeoutMs(modelId: string, toolCount: number): nu
   return AGENT_OPENROUTER_TIMEOUT_MS;
 }
 
-function resolveOpenRouterProviderPreferences(modelId: string, toolCount: number) {
+function resolveOpenRouterProviderPreferences(
+  modelId: string,
+  toolCount: number,
+  previewOnlyLandingRequest = false,
+) {
+  if (previewOnlyLandingRequest) {
+    return undefined;
+  }
+
   if (isCodingModel(modelId) || toolCount > 0) {
     return {
       sort: 'throughput' as const,
