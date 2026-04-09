@@ -177,9 +177,14 @@ export function AgentsHubPage() {
               : 'Поиск по всем доступным агентам для чата: вашим и публичным агентам других пользователей.'}
           </p>
         </div>
-        <Link to="/builder/stack" className="w-full sm:w-auto">
-          <Button className="w-full sm:w-auto">Создать агента</Button>
-        </Link>
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+          <Link to="/tools" className="w-full sm:w-auto">
+            <Button variant="outline" className="w-full sm:w-auto">Инструменты</Button>
+          </Link>
+          <Link to="/builder/stack" className="w-full sm:w-auto">
+            <Button className="w-full sm:w-auto">Создать агента</Button>
+          </Link>
+        </div>
       </div>
 
       <div className="mb-6 grid w-full grid-cols-2 gap-2 rounded-lg border p-1">
