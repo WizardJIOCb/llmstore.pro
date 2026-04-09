@@ -1431,6 +1431,11 @@ function mergeAssistantOutputChunks(base: string, next: string): string {
 }
 
 function extractPartialCodingSummary(content: string): string | null {
+  const pseudoSummary = extractPseudoAssignment(content, 'coding_report.summary');
+  if (pseudoSummary?.trim()) {
+    return pseudoSummary.trim();
+  }
+
   const summaryMatch = content.match(/"summary"\s*:\s*"((?:\\.|[^"\\])*)"/i);
   if (!summaryMatch) return null;
 
@@ -2556,10 +2561,102 @@ function extractFirstJsonObject(value: string): { json: string; endIndex: number
   return null;
 }
 
+function decodePseudoAssignmentValue(raw: string, quote: '"' | '\'' | '`'): string {
+  if (quote === '`') {
+    return raw;
+  }
+
+  const normalized = raw
+    .replace(/\\r/g, '\r')
+    .replace(/\\n/g, '\n')
+    .replace(/\\t/g, '\t');
+
+  try {
+    if (quote === '"') {
+      return JSON.parse(`"${raw}"`);
+    }
+
+    const jsonCompatible = normalized
+      .replace(/\\/g, '\\\\')
+      .replace(/"/g, '\\"');
+    return JSON.parse(`"${jsonCompatible}"`);
+  } catch {
+    return normalized
+      .replace(/\\"/g, '"')
+      .replace(/\\'/g, '\'')
+      .replace(/\\\\/g, '\\');
+  }
+}
+
+function extractPseudoAssignment(content: string, path: string): string | null {
+  const marker = `${path} =`;
+  const markerIndex = content.indexOf(marker);
+  if (markerIndex === -1) return null;
+
+  let index = markerIndex + marker.length;
+  while (index < content.length && /\s/.test(content[index] ?? '')) {
+    index += 1;
+  }
+
+  const quote = content[index];
+  if (quote !== '"' && quote !== '\'' && quote !== '`') return null;
+  index += 1;
+
+  let value = '';
+  let escaped = false;
+  for (; index < content.length; index += 1) {
+    const char = content[index]!;
+
+    if (quote !== '`' && escaped) {
+      value += char;
+      escaped = false;
+      continue;
+    }
+
+    if (quote !== '`' && char === '\\') {
+      value += char;
+      escaped = true;
+      continue;
+    }
+
+    if (char === quote) {
+      return decodePseudoAssignmentValue(value, quote);
+    }
+
+    value += char;
+  }
+
+  return null;
+}
+
+function extractPseudoCodingReport(content: string): CodingReport | null {
+  const summary = extractPseudoAssignment(content, 'coding_report.summary');
+  const previewTitle = extractPseudoAssignment(content, 'coding_report.preview.title');
+  const previewHtml = extractPseudoAssignment(content, 'coding_report.preview.html');
+
+  if (!summary && !previewTitle && !previewHtml) {
+    return null;
+  }
+
+  return sanitizeCodingReport({
+    summary: summary ?? undefined,
+    preview: previewHtml
+      ? {
+        type: 'html',
+        title: previewTitle ?? 'Generated landing',
+        html: previewHtml,
+      }
+      : undefined,
+  });
+}
+
 function extractCodingReport(content: string): { cleanText: string; report: CodingReport | null } {
   const openMatch = content.match(/<dev-report>\s*/i);
   if (!openMatch || openMatch.index == null) {
-    return { cleanText: content.trim(), report: null };
+    return {
+      cleanText: content.trim(),
+      report: extractPseudoCodingReport(content),
+    };
   }
 
   const startIndex = openMatch.index;
