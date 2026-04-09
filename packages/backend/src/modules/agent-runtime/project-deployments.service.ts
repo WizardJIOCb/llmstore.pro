@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 import { spawn } from 'child_process';
 import type { Request } from 'express';
-import { mkdir, readFile, rm, writeFile } from 'fs/promises';
+import { appendFile, mkdir, readFile, rm, writeFile } from 'fs/promises';
 import net from 'net';
 import path from 'path';
 import { and, desc, eq, ilike, or, sql, type SQL } from 'drizzle-orm';
@@ -396,6 +396,14 @@ function getDeploymentWorkspaceDir(deploymentId: string): string {
   return path.join(PROJECT_DEPLOYMENTS_DIR, deploymentId, 'workspace');
 }
 
+function getDeploymentDir(deploymentId: string): string {
+  return path.join(PROJECT_DEPLOYMENTS_DIR, deploymentId);
+}
+
+function getDeploymentLogPath(deploymentId: string, stream: 'stdout' | 'stderr'): string {
+  return path.join(getDeploymentDir(deploymentId), `${stream}.log`);
+}
+
 function buildWebhookUrl(publicToken: string): string {
   return new URL(`/api/project-deployments/${publicToken}/webhook`, env.BACKEND_URL).toString();
 }
@@ -419,6 +427,48 @@ async function materializeProjectFiles(project: CodingReportProject, workspaceDi
     await mkdir(path.dirname(targetPath), { recursive: true });
     await writeFile(targetPath, file.content, 'utf8');
   }
+}
+
+async function resetDeploymentLogs(deploymentId: string): Promise<void> {
+  await mkdir(getDeploymentDir(deploymentId), { recursive: true });
+  await Promise.all([
+    writeFile(getDeploymentLogPath(deploymentId, 'stdout'), '', 'utf8'),
+    writeFile(getDeploymentLogPath(deploymentId, 'stderr'), '', 'utf8'),
+  ]);
+}
+
+function persistDeploymentLogChunk(
+  deploymentId: string,
+  stream: 'stdout' | 'stderr',
+  chunk: string,
+): void {
+  void appendFile(getDeploymentLogPath(deploymentId, stream), chunk, 'utf8').catch((error) => {
+    logger.warn({ err: error, deploymentId, stream }, 'Failed to persist deployment log chunk');
+  });
+}
+
+async function readDeploymentLogsForId(
+  deploymentId: string,
+): Promise<{ stdout: string; stderr: string }> {
+  const runtime = deploymentRuntimes.get(deploymentId);
+  if (runtime) {
+    return { stdout: runtime.stdout, stderr: runtime.stderr };
+  }
+
+  let stdout = '';
+  let stderr = '';
+  try {
+    stdout = await readFile(getDeploymentLogPath(deploymentId, 'stdout'), 'utf8');
+  } catch {
+    // noop
+  }
+  try {
+    stderr = await readFile(getDeploymentLogPath(deploymentId, 'stderr'), 'utf8');
+  } catch {
+    // noop
+  }
+
+  return { stdout: trimOutput(stdout), stderr: trimOutput(stderr) };
 }
 
 async function updateDeploymentState(
@@ -598,7 +648,7 @@ async function toProjectDeploymentRecord(
   row: Awaited<ReturnType<typeof getDeploymentWithAgentMeta>>,
 ): Promise<ProjectDeploymentRecord> {
   const runtime = row.runtime === 'python' ? 'python' : 'node';
-  const live = deploymentRuntimes.get(row.id);
+  const logs = await readDeploymentLogsForId(row.id);
   const services = await listProjectServicesForDeployment(row.id, row.user_id);
   const insights = await getDeploymentRunInsights(row.id);
   const modelInfo = resolveDeploymentModelInfo({
@@ -628,8 +678,8 @@ async function toProjectDeploymentRecord(
     last_error: row.last_error ?? null,
     last_exit_code: row.last_exit_code ?? null,
     last_signal: row.last_signal ?? null,
-    live_stdout: live?.stdout ?? '',
-    live_stderr: live?.stderr ?? '',
+    live_stdout: logs.stdout,
+    live_stderr: logs.stderr,
     run_stats: {
       total_runs: insights.total_runs,
       completed_runs: insights.completed_runs,
@@ -653,7 +703,7 @@ async function toAdminProjectDeploymentRecord(
   row: Awaited<ReturnType<typeof getDeploymentWithAdminMeta>>,
 ): Promise<AdminProjectDeploymentRecord> {
   const runtime = row.runtime === 'python' ? 'python' : 'node';
-  const live = deploymentRuntimes.get(row.id);
+  const logs = await readDeploymentLogsForId(row.id);
   const services = await listProjectServicesForDeployment(row.id, row.user_id);
   const insights = await getDeploymentRunInsights(row.id);
   const modelInfo = resolveDeploymentModelInfo({
@@ -691,8 +741,8 @@ async function toAdminProjectDeploymentRecord(
     last_error: row.last_error ?? null,
     last_exit_code: row.last_exit_code ?? null,
     last_signal: row.last_signal ?? null,
-    live_stdout: live?.stdout ?? '',
-    live_stderr: live?.stderr ?? '',
+    live_stdout: logs.stdout,
+    live_stderr: logs.stderr,
     run_stats: {
       total_runs: insights.total_runs,
       completed_runs: insights.completed_runs,
@@ -786,6 +836,7 @@ async function startDeploymentInternal(deploymentId: string, userId: string): Pr
     });
 
     const workspaceDir = getDeploymentWorkspaceDir(deploymentId);
+    await resetDeploymentLogs(deploymentId);
     await materializeProjectFiles(project, workspaceDir);
     const { env: serviceEnv } = await buildProjectServicesEnvForDeployment(deploymentId, userId, workspaceDir);
     const port = await reserveTcpPort();
@@ -831,9 +882,11 @@ async function startDeploymentInternal(deploymentId: string, userId: string): Pr
     child.stderr?.setEncoding('utf8');
     child.stdout?.on('data', (chunk: string) => {
       runtime.stdout = trimOutput(`${runtime.stdout}${chunk}`);
+      persistDeploymentLogChunk(deploymentId, 'stdout', chunk);
     });
     child.stderr?.on('data', (chunk: string) => {
       runtime.stderr = trimOutput(`${runtime.stderr}${chunk}`);
+      persistDeploymentLogChunk(deploymentId, 'stderr', chunk);
     });
 
     child.once('exit', async (exitCode, signal) => {
@@ -1200,25 +1253,7 @@ export async function readProjectDeploymentLogs(
   publicToken: string,
 ): Promise<{ stdout: string; stderr: string }> {
   const deployment = await getDeploymentByToken(publicToken);
-  const runtime = deploymentRuntimes.get(deployment.id);
-  if (runtime) {
-    return { stdout: runtime.stdout, stderr: runtime.stderr };
-  }
-
-  const workspaceDir = getDeploymentWorkspaceDir(deployment.id);
-  let stdout = '';
-  let stderr = '';
-  try {
-    stdout = await readFile(path.join(workspaceDir, 'stdout.log'), 'utf8');
-  } catch {
-    // noop
-  }
-  try {
-    stderr = await readFile(path.join(workspaceDir, 'stderr.log'), 'utf8');
-  } catch {
-    // noop
-  }
-  return { stdout: trimOutput(stdout), stderr: trimOutput(stderr) };
+  return readDeploymentLogsForId(deployment.id);
 }
 
 export async function listProjectDeploymentsForAdmin(
