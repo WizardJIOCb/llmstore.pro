@@ -2910,18 +2910,11 @@ export function ChatsPage() {
                     )}
                     <h1 className="min-w-0 flex-1 truncate font-semibold">{activeChat?.title ?? 'Чаты'}</h1>
                   </div>
-                  {(activeChat?.access !== 'public' && !isAdminForeignChat) || isAdminForeignChat ? (
+                  {isAdminForeignChat ? (
                     <div className="flex min-w-0 flex-wrap items-center gap-2">
-                      {activeChat && activeChat.access !== 'public' && !isAdminForeignChat && (
-                        <Badge variant="outline" className="border-slate-300 bg-slate-50 text-slate-700">
-                          {activeChat.access === 'restricted' ? 'Ограниченный' : 'Приватный'}
-                        </Badge>
-                      )}
-                      {isAdminForeignChat && (
-                        <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-800">
-                          Чужой чат
-                        </Badge>
-                      )}
+                      <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-800">
+                        Чужой чат
+                      </Badge>
                     </div>
                   ) : null}
                   <p className="truncate text-[11px] leading-4 text-muted-foreground">
