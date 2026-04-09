@@ -1582,7 +1582,7 @@ function buildModelEnvironmentContext(options?: {
 function buildLandingResponseDisciplineInstruction(userRequest: string): string {
   return [
     'Режим жёсткого ответа для landing/preview-задачи.',
-    'Нужен только валидный результат для LLMStore, без длинного narrative output.',
+    'Нужен только валидный структурированный результат, без длинного narrative output.',
     'Сначала верни <dev-report> с валидным JSON.',
     'Если задача про landing или preview, не пиши ничего после </dev-report>.',
     'Не пиши фразы вроде "готово", "ниже файлы", "могу продолжить", если вместе с этим не вернул валидный preview.html.',
@@ -4000,7 +4000,7 @@ ${agent.description.trim()}`);
     });
 
     const repairPrompt = [
-      'Предыдущий ответ не дал валидный preview для LLMStore.',
+      'Предыдущий ответ не дал валидный preview в ожидаемом формате.',
       'Нужно исправить формат и вернуть только корректный <dev-report>...</dev-report>.',
       'Не пиши markdown, пояснения и обычный текст после </dev-report>.',
       'Верни минимум такие поля:',
