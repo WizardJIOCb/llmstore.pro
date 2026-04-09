@@ -843,64 +843,6 @@ function sanitizeLandingSectionPlan(value: unknown): LandingSectionPlan | null {
   };
 }
 
-function buildLandingPlanSearchSpace(plan: LandingSectionPlan): string {
-  return [
-    plan.title,
-    plan.summary,
-    plan.style_direction,
-    ...plan.sections.flatMap((section) => [
-      section.id,
-      section.label,
-      section.goal,
-      ...(section.must_include ?? []),
-    ]),
-  ]
-    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-    .join(' ')
-    .toLowerCase();
-}
-
-function isLandingPlanRelevant(request: string, plan: LandingSectionPlan): boolean {
-  const requestText = request.toLowerCase();
-  const planText = buildLandingPlanSearchSpace(plan);
-
-  const offTopicSignals = [
-    'марс',
-    'starship',
-    'илон',
-    'elon',
-    'sci-fi',
-    'sci fi',
-    'space mission',
-    'dtf',
-    'космическ',
-  ];
-
-  for (const signal of offTopicSignals) {
-    if (planText.includes(signal) && !requestText.includes(signal)) {
-      return false;
-    }
-  }
-
-  if (requestText.includes('music-book.me') || requestText.includes('музык')) {
-    const expectedSignals = [
-      'книг',
-      'музык',
-      'театр',
-      'балет',
-      'роман',
-      'каталог',
-      'faq',
-      'контакт',
-    ];
-    if (!expectedSignals.some((signal) => planText.includes(signal))) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
 function buildHeuristicLandingSectionPlan(request: string, partialOutput: string): LandingSectionPlan {
   const recoveredSummary = clampText(
     extractPartialCodingSummary(partialOutput)
@@ -3657,16 +3599,6 @@ ${agent.description.trim()}`);
     );
     let plan = sanitizeLandingSectionPlan(extractJsonObjectFromAssistantContent(rawPlan));
     let usedHeuristicPlan = !plan;
-    if (plan && !isLandingPlanRelevant(latestUserMessage, plan)) {
-      plan = null;
-      usedHeuristicPlan = true;
-      await emitRunEvent('chat.run.status', {
-        run_id: run.id,
-        status: 'sectional_planning_rejected',
-        label: 'План секций отклонён как нерелевантный',
-        detail: 'Модель предложила план, который не похож на тему исходного сайта или запроса. Переключаюсь на безопасный fallback-план.',
-      });
-    }
     if (!plan) {
       plan = buildHeuristicLandingSectionPlan(latestUserMessage, partialOutput);
       await emitRunEvent('chat.run.status', {
