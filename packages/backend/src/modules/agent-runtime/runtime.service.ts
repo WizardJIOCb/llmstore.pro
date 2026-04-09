@@ -1011,10 +1011,27 @@ function escapeHtmlAttribute(value: string): string {
 
 function normalizeLandingSectionFragment(content: string, sectionId: string): string {
   const parsedContentReport = extractCodingReport(content).report;
-  const parsedJsonReport = sanitizeCodingReport(extractJsonObjectFromAssistantContent(content));
+  const extractedJsonObject = extractJsonObjectFromAssistantContent(content);
+  const parsedJsonReport = sanitizeCodingReport(extractedJsonObject);
+  const wrappedJsonReport = sanitizeCodingReport(
+    extractedJsonObject
+      && typeof extractedJsonObject.coding_report === 'object'
+      ? extractedJsonObject.coding_report
+      : null,
+  );
+  const directPreviewHtml = (
+    extractedJsonObject
+    && typeof extractedJsonObject.preview === 'object'
+    && extractedJsonObject.preview
+    && typeof (extractedJsonObject.preview as Record<string, unknown>).html === 'string'
+  )
+    ? String((extractedJsonObject.preview as Record<string, unknown>).html)
+    : null;
   const recoveredPreviewHtml = (
     (parsedContentReport?.preview?.type === 'html' ? parsedContentReport.preview.html : null)
     || (parsedJsonReport?.preview?.type === 'html' ? parsedJsonReport.preview.html : null)
+    || (wrappedJsonReport?.preview?.type === 'html' ? wrappedJsonReport.preview.html : null)
+    || directPreviewHtml
   );
 
   let html = (recoveredPreviewHtml ?? stripContinuationNarration(content))
