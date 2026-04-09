@@ -3246,7 +3246,9 @@ ${agent.description.trim()}`);
   }
 
   // 6. Build tools array
-  const toolParams: ToolDefinitionParam[] = tools.map(t => ({
+  const toolsDisabledForPreviewOnlyLanding = previewOnlyLandingRequest;
+  const effectiveTools = toolsDisabledForPreviewOnlyLanding ? [] : tools;
+  const toolParams: ToolDefinitionParam[] = effectiveTools.map(t => ({
     type: 'function' as const,
     function: {
       name: t.slug,
@@ -3262,9 +3264,10 @@ ${agent.description.trim()}`);
     runId: run.id,
     agentId,
     toolCount: toolParams.length,
-    toolNames: tools.map(t => t.slug),
+    toolNames: effectiveTools.map(t => t.slug),
     previewOnlyLandingRequest,
     hasLandingReferenceContext: Boolean(landingReferenceContext),
+    toolsDisabledForPreviewOnlyLanding,
   }, 'Starting agent run');
 
   // 7. Update run to running
