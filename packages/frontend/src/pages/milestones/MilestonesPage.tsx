@@ -1,5 +1,6 @@
 ﻿import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useEffect, useRef } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
   ArrowRight,
@@ -172,6 +173,20 @@ function ProjectCommitHeatmap({
 }) {
   const weeks = useMemo(() => buildCommitHeatmap(activity), [activity]);
   const mobileWeeks = useMemo(() => weeks.slice(-18), [weeks]);
+  const desktopScrollRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const container = desktopScrollRef.current;
+    if (!container || isLoading || weeks.length === 0) return;
+
+    const scrollToRight = () => {
+      container.scrollLeft = container.scrollWidth;
+    };
+
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(scrollToRight);
+    });
+  }, [isLoading, weeks.length]);
 
   return (
     <div className="mt-8 rounded-[28px] border border-slate-200/80 bg-white/80 p-4 shadow-[0_20px_60px_-38px_rgba(15,23,42,0.35)] backdrop-blur sm:p-5">
@@ -286,7 +301,7 @@ function ProjectCommitHeatmap({
             </div>
           </div>
 
-          <div className="mt-4 hidden overflow-x-auto pb-2 sm:block">
+          <div ref={desktopScrollRef} className="mt-4 hidden overflow-x-auto pb-2 sm:block">
             <div className="min-w-max">
               <div className="mb-[6px] flex gap-[3px] pl-8">
                 {weeks.map((week) => (
