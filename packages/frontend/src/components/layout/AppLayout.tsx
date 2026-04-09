@@ -356,8 +356,8 @@ export function AppLayout() {
                     to="/profile"
                     className={
                       isProfileActive
-                        ? `inline-flex max-w-[220px] flex-wrap items-center justify-center rounded-md ${activeMenuClass} px-2.5 py-1.5 text-center font-medium leading-tight transition-colors`
-                        : 'inline-flex max-w-[220px] flex-wrap items-center justify-center rounded-md px-2.5 py-1.5 text-center leading-tight transition-colors hover:text-foreground hover:underline'
+                        ? `inline-flex max-w-[220px] items-center justify-center whitespace-nowrap rounded-md ${activeMenuClass} px-2.5 py-1.5 text-center font-medium leading-tight transition-colors`
+                        : 'inline-flex max-w-[220px] items-center justify-center whitespace-nowrap rounded-md px-2.5 py-1.5 text-center leading-tight transition-colors hover:text-foreground hover:underline'
                     }
                   >
                     <span>{profileBaseLabel}</span>
