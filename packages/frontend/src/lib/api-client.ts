@@ -1,7 +1,6 @@
 import axios from 'axios';
 
 const PROTECTED_ROUTE_PREFIXES = [
-  '/chats',
   '/my/agents',
   '/builder/agent',
   '/playground/agent',

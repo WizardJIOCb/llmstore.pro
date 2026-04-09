@@ -34,7 +34,7 @@ const navItems = [
   { label: 'Статьи', href: '/articles' },
   { label: 'Планы', href: '/milestones' },
   { label: 'Галерея', href: '/gallery' },
-  { label: 'Чаты', href: '/chats', requiresAuth: true },
+  { label: 'Чаты', href: '/chats' },
   { label: 'Агенты', href: '/my/agents', requiresAuth: true },
 ];
 

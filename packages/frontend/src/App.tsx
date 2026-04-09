@@ -142,11 +142,7 @@ export function App() {
         } />
 
         {/* Chats */}
-        <Route path="/chats" element={
-          <ProtectedRoute>
-            <ChatsPage />
-          </ProtectedRoute>
-        } />
+        <Route path="/chats" element={<ChatsPage />} />
 
         {/* Profile */}
         <Route path="/profile" element={

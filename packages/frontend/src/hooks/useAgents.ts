@@ -23,10 +23,11 @@ export function useAgent(id: string | undefined) {
   });
 }
 
-export function useBuiltinTools() {
+export function useBuiltinTools(enabled = true) {
   return useQuery({
     queryKey: ['builtin-tools'],
     queryFn: () => agentApi.listBuiltinTools(),
+    enabled,
     staleTime: 5 * 60 * 1000, // 5 min
   });
 }

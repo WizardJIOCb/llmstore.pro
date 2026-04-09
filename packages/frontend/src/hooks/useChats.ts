@@ -43,10 +43,11 @@ export function useDeleteGalleryReaction() {
   });
 }
 
-export function useChatAgents() {
+export function useChatAgents(enabled = true) {
   return useQuery({
     queryKey: ['chat-agents'],
     queryFn: chatsApi.listAgents,
+    enabled,
     staleTime: 30_000,
   });
 }

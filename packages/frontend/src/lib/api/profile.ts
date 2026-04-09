@@ -29,8 +29,9 @@ export function getOAuthLinkUrl(provider: string, deviceFingerprint?: string): s
   return `/api/auth/oauth/${provider}?${params.toString()}`;
 }
 
-export function getOAuthLoginUrl(provider: string, deviceFingerprint?: string): string {
+export function getOAuthLoginUrl(provider: string, deviceFingerprint?: string, next?: string | null): string {
   const params = new URLSearchParams({ mode: 'login' });
   if (deviceFingerprint) params.set('device_fingerprint', deviceFingerprint);
+  if (next) params.set('next', next);
   return `/api/auth/oauth/${provider}?${params.toString()}`;
 }

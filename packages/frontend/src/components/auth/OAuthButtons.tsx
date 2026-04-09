@@ -32,7 +32,7 @@ const OAUTH_PROVIDERS = [
   },
 ] as const;
 
-export function OAuthButtons() {
+export function OAuthButtons({ next = null }: { next?: string | null }) {
   const deviceFingerprint = getOrCreateDeviceFingerprint();
 
   return (
@@ -40,7 +40,7 @@ export function OAuthButtons() {
       {OAUTH_PROVIDERS.map((provider) => (
         <a
           key={provider.id}
-          href={getOAuthLoginUrl(provider.id, deviceFingerprint)}
+          href={getOAuthLoginUrl(provider.id, deviceFingerprint, next)}
           className={cn(
             'group flex min-h-12 w-full items-center justify-center gap-3 rounded-[18px] border px-4 py-3 text-sm font-semibold tracking-[-0.015em] transition-all duration-200 hover:text-white hover:shadow-[0_0_0_1px_rgba(103,232,249,0.16),0_0_28px_rgba(45,212,191,0.14)]',
             provider.className,

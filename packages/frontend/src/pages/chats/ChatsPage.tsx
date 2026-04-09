@@ -21,6 +21,8 @@ import { ChatLiveProgressPanel, ChatLiveProgressTrailingBusy } from '../../compo
 import { ChatMessage } from '../../components/agents/ChatMessage';
 import { ChatThinkingBubble } from '../../components/agents/ChatThinkingBubble';
 import { RunMetadata } from '../../components/agents/RunMetadata';
+import { OAuthButtons } from '../../components/auth/OAuthButtons';
+import { TurnstileWidget } from '../../components/auth/TurnstileWidget';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
@@ -48,6 +50,7 @@ import { useAppSettings } from '../../hooks/useAppSettings';
 import { useAuth } from '../../hooks/useAuth';
 import { useProfile } from '../../hooks/useProfile';
 import { chatsApi } from '../../lib/api/chats';
+import { getOrCreateDeviceFingerprint } from '../../lib/device-fingerprint';
 import { appendLiveProgressEvent, createLiveProgressEvent } from '../../lib/chat-live-progress';
 import { applyLiveBalanceDelta, shouldApplyLiveBalanceEvent } from '../../lib/live-balance';
 import { UserLink } from '../../components/users/UserLink';
@@ -80,10 +83,56 @@ const DIALOG_CLOSE_ANIMATION_MS = 200;
 const LIVE_AUTO_SCROLL_THRESHOLD_PX = 50;
 const EMPTY_MESSAGES: ChatMessageType[] = [];
 const LAST_CHAT_SELECTION_STORAGE_KEY = 'llmstore.last-chat-selection';
+const GUEST_CHAT_DRAFT_STORAGE_KEY = 'llmstore.guest-chat-draft';
+
+interface GuestChatDraft {
+  id: string;
+  message: string;
+  created_at: string;
+}
 
 interface PersistedChatSelection {
   activeChatId: string | null;
   adminViewChatId: string | null;
+}
+
+function readGuestChatDraft(): GuestChatDraft | null {
+  try {
+    const raw = window.localStorage.getItem(GUEST_CHAT_DRAFT_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<GuestChatDraft>;
+    if (
+      typeof parsed.id !== 'string'
+      || typeof parsed.message !== 'string'
+      || typeof parsed.created_at !== 'string'
+      || !parsed.message.trim()
+    ) {
+      return null;
+    }
+    return {
+      id: parsed.id,
+      message: parsed.message,
+      created_at: parsed.created_at,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeGuestChatDraft(draft: GuestChatDraft): void {
+  try {
+    window.localStorage.setItem(GUEST_CHAT_DRAFT_STORAGE_KEY, JSON.stringify(draft));
+  } catch {
+    // noop
+  }
+}
+
+function clearGuestChatDraft(): void {
+  try {
+    window.localStorage.removeItem(GUEST_CHAT_DRAFT_STORAGE_KEY);
+  } catch {
+    // noop
+  }
 }
 
 const GENERAL_MODELS: GeneralModelOption[] = GENERAL_CHAT_MODELS;
@@ -554,20 +603,237 @@ function snapScrollContainerToBottom(container: HTMLDivElement | null, passes = 
   window.setTimeout(apply, 90);
 }
 
-export function ChatsPage() {
+function GuestChatsPage() {
+  const { register } = useAuth();
+  const [registerForm, setRegisterForm] = useState({ username: '', email: '', password: '' });
+  const [registerError, setRegisterError] = useState('');
+  const [registerLoading, setRegisterLoading] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState('');
+  const [draft, setDraft] = useState<GuestChatDraft | null>(() => readGuestChatDraft());
+  const turnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY?.trim() || '';
+  const isTurnstileEnabled = Boolean(turnstileSiteKey);
+
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('mobile-chat-active', { detail: false }));
+  }, []);
+
+  const nextUrl = typeof window !== 'undefined'
+    ? `${window.location.origin}/chats?guest_auth=1`
+    : '/chats?guest_auth=1';
+
+  const handleGuestSend = async (message: string) => {
+    const trimmed = message.trim();
+    if (!trimmed) return;
+
+    const nextDraft: GuestChatDraft = {
+      id: `guest-chat-${Date.now()}`,
+      message: trimmed,
+      created_at: new Date().toISOString(),
+    };
+    writeGuestChatDraft(nextDraft);
+    setDraft(nextDraft);
+    setRegisterError('');
+  };
+
+  const handleGuestRegister = async (event: React.FormEvent) => {
+    event.preventDefault();
+
+    if (!draft?.message.trim()) {
+      setRegisterError('Сначала напишите сообщение выше.');
+      return;
+    }
+
+    if (!registerForm.username.trim()) {
+      setRegisterError('Введите логин.');
+      return;
+    }
+
+    if (isTurnstileEnabled && !turnstileToken) {
+      setRegisterError('Подтвердите, что вы не робот.');
+      return;
+    }
+
+    setRegisterError('');
+    setRegisterLoading(true);
+
+    try {
+      await register({
+        email: registerForm.email.trim(),
+        password: registerForm.password,
+        username: registerForm.username.trim(),
+        device_fingerprint: getOrCreateDeviceFingerprint(),
+        turnstile_token: turnstileToken || undefined,
+      });
+
+      window.location.assign(nextUrl);
+    } catch (err: any) {
+      const responseError = err?.response?.data?.error;
+      const usernameErrors = responseError?.details?.fieldErrors?.username;
+      const emailErrors = responseError?.details?.fieldErrors?.email;
+      const passwordErrors = responseError?.details?.fieldErrors?.password;
+
+      if (Array.isArray(usernameErrors) && usernameErrors.length > 0) {
+        setRegisterError('Логин может содержать только латинские буквы, цифры и _.');
+      } else if (Array.isArray(emailErrors) && emailErrors.length > 0) {
+        setRegisterError('Проверьте email: он должен быть в корректном формате.');
+      } else if (Array.isArray(passwordErrors) && passwordErrors.length > 0) {
+        setRegisterError('Пароль должен быть длиной от 8 до 128 символов.');
+      } else {
+        setRegisterError(responseError?.message || 'Не удалось зарегистрироваться.');
+      }
+    } finally {
+      setRegisterLoading(false);
+    }
+  };
+
+  return (
+    <div className="flex h-[calc(100dvh-4rem)] min-h-[calc(100dvh-4rem)] w-full max-w-full flex-col overflow-hidden px-4 py-4">
+      <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 overflow-hidden rounded-xl border bg-white">
+        <section className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          <div className="border-b px-4 py-4">
+            <div className="space-y-1">
+              <h1 className="text-lg font-semibold text-slate-950">Чаты</h1>
+              <p className="text-sm text-muted-foreground">
+                Можно сразу написать сообщение. После быстрого входа через VK, Яндекс или Google мы автоматически отправим его в чат и покажем ответ.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto bg-[linear-gradient(180deg,#ffffff,#f8fafc)] px-4 py-6">
+            <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
+              {!draft && (
+                <div className="rounded-2xl border border-dashed border-slate-300 bg-white/90 p-5 text-sm text-slate-600 shadow-sm">
+                  Напишите любой вопрос или задачу. Мы попросим быстро войти через соцлогин и сразу продолжим уже в полноценном чате LLMStore.
+                </div>
+              )}
+
+              {draft && (
+                <>
+                  <div className="ml-auto max-w-[85%] rounded-2xl bg-slate-950 px-4 py-3 text-sm text-white shadow-sm">
+                    {draft.message}
+                  </div>
+                  <div className="max-w-[85%] rounded-2xl border border-cyan-200 bg-[linear-gradient(135deg,rgba(236,254,255,0.92),rgba(239,246,255,0.94))] px-4 py-4 shadow-sm">
+                    <p className="text-sm font-medium text-slate-950">
+                      Чтобы отправить сообщение на обработку, войдите или зарегистрируйтесь за 10 секунд.
+                    </p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      После авторизации мы автоматически создадим чат, отправим это сообщение и покажем ответ здесь же.
+                    </p>
+                    <div className="mt-4">
+                      <OAuthButtons next={nextUrl} />
+                    </div>
+                    <div className="relative my-4">
+                      <div className="absolute inset-0 flex items-center">
+                        <span className="w-full border-t border-cyan-200/80" />
+                      </div>
+                      <div className="relative flex justify-center text-[10px] uppercase tracking-[0.2em]">
+                        <span className="bg-[linear-gradient(135deg,rgba(236,254,255,0.96),rgba(239,246,255,0.98))] px-2 text-slate-400">или регистрация</span>
+                      </div>
+                    </div>
+                    <form className="space-y-3" onSubmit={handleGuestRegister}>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-slate-700">Логин</label>
+                        <Input
+                          value={registerForm.username}
+                          onChange={(e) => setRegisterForm((prev) => ({ ...prev, username: e.target.value }))}
+                          placeholder="username"
+                          autoComplete="username"
+                          required
+                          disabled={registerLoading}
+                        />
+                        <p className="mt-1 text-xs text-slate-500">
+                          Только латинские буквы, цифры и <code>_</code>.
+                        </p>
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-slate-700">Email</label>
+                        <Input
+                          type="email"
+                          value={registerForm.email}
+                          onChange={(e) => setRegisterForm((prev) => ({ ...prev, email: e.target.value }))}
+                          placeholder="you@example.com"
+                          autoComplete="email"
+                          required
+                          disabled={registerLoading}
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-slate-700">Пароль</label>
+                        <Input
+                          type="password"
+                          value={registerForm.password}
+                          onChange={(e) => setRegisterForm((prev) => ({ ...prev, password: e.target.value }))}
+                          placeholder="Минимум 8 символов"
+                          autoComplete="new-password"
+                          minLength={8}
+                          required
+                          disabled={registerLoading}
+                        />
+                      </div>
+                      {isTurnstileEnabled && (
+                        <div className="rounded-xl border border-cyan-200/80 bg-white/70 p-3">
+                          <TurnstileWidget
+                            siteKey={turnstileSiteKey}
+                            onVerify={(token) => {
+                              setTurnstileToken(token);
+                              setRegisterError('');
+                            }}
+                            onExpire={() => setTurnstileToken('')}
+                            onError={() => {
+                              setTurnstileToken('');
+                              setRegisterError('Не удалось загрузить защитную проверку.');
+                            }}
+                          />
+                        </div>
+                      )}
+                      {registerError && (
+                        <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                          {registerError}
+                        </div>
+                      )}
+                      <Button type="submit" className="w-full" disabled={registerLoading}>
+                        {registerLoading ? 'Регистрирую...' : 'Зарегистрироваться и отправить'}
+                      </Button>
+                    </form>
+                    <p className="mt-3 text-xs text-slate-500">
+                      Можно войти через VK, Яндекс, Google или сразу зарегистрироваться по email.
+                    </p>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          <div className="border-t bg-white px-4 py-4">
+            <div className="mx-auto w-full max-w-3xl">
+              <ChatInput
+                onSend={handleGuestSend}
+                disabled={false}
+                allowAttachments={false}
+                placeholder="Напишите сообщение, и мы продолжим после быстрого входа..."
+              />
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function AuthenticatedChatsPage() {
   const initialChatSelectionRef = useRef<PersistedChatSelection | null>(null);
   if (!initialChatSelectionRef.current) {
     initialChatSelectionRef.current = readPersistedChatSelection();
   }
 
-  const { isAdmin } = useAuth();
+  const { isAdmin, isAuthenticated } = useAuth();
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { data: chats, isLoading: chatsLoading } = useChatsList();
-  const { data: agents, isLoading: agentsLoading } = useChatAgents();
-  const { data: availableTools } = useBuiltinTools();
+  const { data: chats, isLoading: chatsLoading } = useChatsList(isAuthenticated);
+  const { data: agents, isLoading: agentsLoading } = useChatAgents(isAuthenticated);
+  const { data: availableTools } = useBuiltinTools(isAuthenticated);
   const { data: appSettings } = useAppSettings();
-  const { data: profile } = useProfile();
+  const { data: profile } = useProfile(isAuthenticated);
   const createChatMutation = useCreateChat();
   const updateChatMutation = useUpdateChat();
   const deleteChatMutation = useDeleteChat();
@@ -642,6 +908,7 @@ export function ChatsPage() {
   const [enteringMessageIds, setEnteringMessageIds] = useState<string[]>([]);
   const [publishedLandingByMessageId, setPublishedLandingByMessageId] = useState<Record<string, PublishedLanding | null>>({});
   const [landingActionMessageIds, setLandingActionMessageIds] = useState<string[]>([]);
+  const guestDraftDispatchRef = useRef<string | null>(null);
 
   const menuRef = useRef<HTMLDivElement>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
@@ -726,6 +993,7 @@ export function ChatsPage() {
   const requestedChatId = searchParams.get('chat');
   const requestedAdminChatId = searchParams.get('admin_chat_id');
   const requestedPrefill = searchParams.get('prefill');
+  const shouldResumeGuestDraft = searchParams.get('guest_auth') === '1' || searchParams.get('oauth') === 'success';
   const activeAdminViewChatId = isAdmin ? (requestedAdminChatId ?? adminViewChatId) : null;
   const isAdminRequestedChat = Boolean(activeAdminViewChatId);
   const safeActiveChatId = activeChatId && (
@@ -810,6 +1078,53 @@ export function ChatsPage() {
     [messages],
   );
   const mobileChatActionButtonClass = 'flex w-full items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-left text-sm font-medium text-slate-900 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60';
+
+  useEffect(() => {
+    if (!shouldResumeGuestDraft) return;
+
+    const draft = readGuestChatDraft();
+    if (!draft?.message.trim()) return;
+    if (guestDraftDispatchRef.current === draft.id) return;
+    if (sendMessageMutation.isPending || createChatMutation.isPending) return;
+
+    guestDraftDispatchRef.current = draft.id;
+
+    const sendDraft = async () => {
+      try {
+        let chatId = safeActiveChatId;
+        if (!chatId || !knownChatIds.has(chatId) || isAdminForeignChat) {
+          const createdChat = await createChatMutation.mutateAsync({});
+          chatId = createdChat.id;
+          setActiveChatId(createdChat.id);
+        }
+
+        await performSendMessage({ chatId, content: draft.message });
+        clearGuestChatDraft();
+
+        const nextParams = new URLSearchParams(searchParams);
+        nextParams.delete('guest_auth');
+        nextParams.delete('oauth');
+        nextParams.delete('provider');
+        nextParams.delete('message');
+        setSearchParams(nextParams, { replace: true });
+      } catch {
+        guestDraftDispatchRef.current = null;
+        showLocalError('Не удалось автоматически отправить сообщение после входа');
+      }
+    };
+
+    void sendDraft();
+  }, [
+    shouldResumeGuestDraft,
+    searchParams,
+    setSearchParams,
+    safeActiveChatId,
+    knownChatIds,
+    isAdminForeignChat,
+    createChatMutation,
+    sendMessageMutation.isPending,
+    createChatMutation.isPending,
+  ]);
 
   const showLocalError = (message: string, action: LocalNoticeAction | null = null) => {
     setLocalNoticeTone('error');
@@ -4377,4 +4692,10 @@ export function ChatsPage() {
       )}
     </div>
   );
+}
+
+export function ChatsPage() {
+  const { isAuthenticated } = useAuth();
+
+  return isAuthenticated ? <AuthenticatedChatsPage /> : <GuestChatsPage />;
 }
