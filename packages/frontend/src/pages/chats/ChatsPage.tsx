@@ -9,6 +9,7 @@ import {
   Link2,
   Lock,
   PencilLine,
+  Pin,
   Settings2,
   Share2,
   Trash2,
@@ -2716,6 +2717,15 @@ export function ChatsPage() {
               title={getChatWebsiteTitle(chat)}
             >
               <Globe className="h-3.5 w-3.5" />
+            </span>
+          )}
+          {chat.pinned_at && (
+            <span
+              className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-amber-600"
+              aria-label="Чат закреплён сверху"
+              title="Чат закреплён сверху"
+            >
+              <Pin className="h-3.5 w-3.5 fill-current" />
             </span>
           )}
           <p className="min-w-0 flex-1 truncate text-sm font-medium">{chat.title}</p>
