@@ -453,7 +453,7 @@ const milestones: MilestoneItem[] = [
     title: 'Private Links & Sharing',
     status: 'done',
     description: 'Приватные ссылки и шаринг упростили точечный показ проектов, превью и результатов работы.',
-    ctaLabel: 'Смотреть gallery',
+    ctaLabel: 'Смотреть галерею',
     ctaHref: '/gallery',
   },
   {
@@ -525,7 +525,7 @@ const milestones: MilestoneItem[] = [
     title: 'GitHub Import & Project Forks',
     status: 'planned',
     description: 'Импорт из GitHub и форки нужны, чтобы не стартовать с нуля каждый раз.',
-    ctaLabel: 'Смотреть gallery',
+    ctaLabel: 'Смотреть галерею',
     ctaHref: '/gallery',
   },
   {
@@ -773,7 +773,7 @@ export function MilestonesPage() {
                   to="/gallery"
                   className="inline-flex items-center gap-2 rounded-full bg-slate-950 px-5 py-3 text-sm font-medium text-white transition-transform hover:-translate-y-0.5"
                 >
-                  Смотреть gallery
+                  Смотреть галерею
                   <ArrowRight className="h-4 w-4" />
                 </Link>
                 <Link
