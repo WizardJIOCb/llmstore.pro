@@ -48,6 +48,7 @@ export function AppLayout() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isMobileMenuClosing, setIsMobileMenuClosing] = useState(false);
   const [showAnimatedLogo, setShowAnimatedLogo] = useState(true);
+  const [logoPlaybackNonce, setLogoPlaybackNonce] = useState(0);
   const [isMobileChatOpen, setIsMobileChatOpen] = useState(
     () => window.location.pathname.startsWith('/chats') && hasPersistedActiveChat(),
   );
@@ -241,6 +242,11 @@ export function AppLayout() {
     navigate('/admin/users');
   };
 
+  const restartLogoAnimation = () => {
+    setShowAnimatedLogo(true);
+    setLogoPlaybackNonce((current) => current + 1);
+  };
+
   const mobileNavActions = visibleNavItems.map((item, index) => ({
     key: item.href,
     render: item.href === '/chats' ? (
@@ -284,13 +290,24 @@ export function AppLayout() {
     <div className={cn('min-h-screen flex flex-col', isChatsPage && 'h-screen overflow-hidden')}>
       <header className="sticky top-0 z-50 border-b border-slate-200 bg-white md:border-slate-200 md:bg-white">
         <div className="container mx-auto flex h-16 items-center justify-between bg-[radial-gradient(circle_at_top_right,rgba(45,212,191,0.18),transparent_34%),linear-gradient(135deg,#0b1220,#111827_58%,#0f172a)] px-4 text-white md:bg-none md:text-inherit">
-          <Link to="/" className="relative top-[-2px] inline-flex items-center gap-2.5 text-xl font-bold text-white md:text-primary">
+          <Link
+            to="/"
+            className="relative top-[-2px] inline-flex items-center gap-2.5 text-xl font-bold text-white md:text-primary"
+            onClick={(event) => {
+              const target = event.target as HTMLElement | null;
+              if (target?.closest('[data-logo-media="true"]')) {
+                restartLogoAnimation();
+              }
+            }}
+          >
             <span
+              data-logo-media="true"
               className="h-9 w-9 overflow-hidden rounded-lg shadow-[0_0_0_1px_rgba(255,255,255,0.12)] md:h-[40px] md:w-[39px] md:rounded-none"
               aria-hidden="true"
             >
               {showAnimatedLogo ? (
                 <video
+                  key={logoPlaybackNonce}
                   className="h-full w-full scale-x-[1.03] object-cover"
                   src="/llm-store-preview-logo-v4.mp4"
                   autoPlay
