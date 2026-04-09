@@ -1147,6 +1147,39 @@ function buildBrokenLandingSectionFallback(sectionId: string, reason?: string | 
   ].join('\n');
 }
 
+function buildSafeLandingSectionFallback(section: LandingSectionPlanSection, index: number, reason?: string | null): string {
+  const safeSectionId = escapeHtmlAttribute(section.id);
+  const safeLabel = escapeHtmlText(section.label);
+  const safeGoal = escapeHtmlText(section.goal);
+  const safeReason = escapeHtmlText(reason ?? 'Секция была автоматически восстановлена в безопасном формате.');
+  const items = (section.must_include ?? [])
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0)
+    .slice(0, 6);
+
+  const listHtml = items.length > 0
+    ? [
+      '<ul class="llmstore-safe-fallback__list">',
+      ...items.map((item) => `  <li>${escapeHtmlText(item)}</li>`),
+      '</ul>',
+    ].join('\n')
+    : `<p class="llmstore-safe-fallback__text">${safeGoal}</p>`;
+
+  return [
+    `<section id="${safeSectionId}" class="llmstore-safe-fallback llmstore-safe-fallback--${index + 1}">`,
+    '  <div class="container">',
+    '    <div class="card llmstore-safe-fallback__card">',
+    `      <span class="eyebrow">Раздел ${index + 1}</span>`,
+    `      <h2>${safeLabel}</h2>`,
+    `      <p class="llmstore-safe-fallback__text">${safeGoal}</p>`,
+    `      <p class="llmstore-safe-fallback__reason">${safeReason}</p>`,
+    `      ${listHtml}`,
+    '    </div>',
+    '  </div>',
+    '</section>',
+  ].join('\n');
+}
+
 function repairSectionalPreviewHtml(html: string): string {
   if (!/<!--\s*llmstore-section:/i.test(html)) {
     return html;
@@ -1182,6 +1215,10 @@ function buildFallbackLandingTheme(plan: LandingSectionPlan): LandingThemeBundle
       '.eyebrow{display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border-radius:999px;background:rgba(56,189,248,.12);color:var(--accent);font-size:13px;letter-spacing:.14em;text-transform:uppercase;}',
       '.card{background:var(--surface);border:1px solid var(--border);border-radius:28px;box-shadow:0 24px 80px rgba(2,6,23,.28);backdrop-filter:blur(18px);}',
       '.grid{display:grid;gap:24px;}',
+      '.llmstore-safe-fallback__card{padding:32px;}',
+      '.llmstore-safe-fallback__text{margin:0 0 14px;color:var(--muted);}',
+      '.llmstore-safe-fallback__reason{margin:0 0 18px;color:var(--accent);font-size:14px;}',
+      '.llmstore-safe-fallback__list{margin:0;padding-left:20px;color:var(--text);display:grid;gap:10px;}',
       '@media (max-width: 768px){section{padding:56px 0;}.container{width:min(100% - 28px,1120px);}}',
     ].join('\n'),
   };
@@ -3750,13 +3787,14 @@ ${agent.description.trim()}`);
         '- HTML должен быть завершённым: закрой все теги, не обрывай CSS или атрибуты посередине.',
       ].filter(Boolean);
 
+      const maxRenderAttempts = 3;
       let fragment: string | null = null;
       let fragmentIssue: string | null = null;
-      for (let renderAttempt = 0; renderAttempt < 2; renderAttempt += 1) {
+      for (let renderAttempt = 0; renderAttempt < maxRenderAttempts; renderAttempt += 1) {
         const sectionPrompt = [
           ...sectionPromptBase,
           renderAttempt > 0 && fragmentIssue
-            ? `Предыдущая попытка была некорректной: ${fragmentIssue} Верни заново полностью завершённый HTML-фрагмент секции.`
+            ? `Предыдущая попытка была некорректной: ${fragmentIssue} Верни заново полностью завершённый HTML-фрагмент секции. Только один корневой блок, без markdown и без пояснений.`
             : undefined,
         ].filter(Boolean).join('\n\n');
 
@@ -3782,24 +3820,33 @@ ${agent.description.trim()}`);
           run_id: run.id,
           status: 'sectional_rendering_retry',
           label: `Повторно собираю секцию ${index + 1}/${plan.sections.length}`,
-          detail: `${section.label}: предыдущий HTML-фрагмент был повреждён (${fragmentIssue}).`,
+          detail: `${section.label}: предыдущий HTML-фрагмент был повреждён (${fragmentIssue}). Попробую сгенерировать секцию ещё раз.`,
         });
       }
 
       if (!fragment) {
+        fragment = buildSafeLandingSectionFallback(section, index, fragmentIssue);
         artifact.sections[index] = {
           ...artifact.sections[index],
-          status: 'failed',
+          status: 'completed',
+          html: fragment,
         };
         await syncArtifactSnapshot(
-          'failed',
-          `Не удалось собрать секцию ${section.label}. Останавливаю секционную сборку.`,
+          'rendering_sections',
+          `Секция ${section.label} была восстановлена в безопасном fallback-формате. Продолжаю сборку лендинга.`,
           [
-            'Одна из секций не была сгенерирована корректно.',
+            'Одна из секций не была сгенерирована корректно и была автоматически заменена безопасным fallback-блоком.',
             ...(fragmentIssue ? [`Последняя ошибка секции: ${fragmentIssue}`] : []),
           ],
         );
-        return null;
+        await emitRunEvent('chat.run.status', {
+          run_id: run.id,
+          status: 'sectional_rendering_fallback',
+          label: `Секция ${index + 1}/${plan.sections.length} восстановлена`,
+          detail: `${section.label} не удалось сгенерировать чисто, поэтому я вставил безопасный fallback и продолжаю сборку.`,
+        });
+        sectionFragments.push({ id: section.id, html: fragment });
+        continue;
       }
 
       sectionFragments.push({ id: section.id, html: fragment });
