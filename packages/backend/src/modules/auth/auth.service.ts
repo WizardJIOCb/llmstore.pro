@@ -8,7 +8,7 @@ import {
   isSignupBonusEmailVerificationRequired,
   sendEmailVerificationEmail,
 } from './email-verification.service.js';
-import { markUserLoggedIn } from './login-activity.service.js';
+import { markUserActive, markUserLoggedIn } from './login-activity.service.js';
 import { grantSignupBonusIfEligible, normalizeIpAddress } from './signup-bonus.service.js';
 import { normalizeEmail } from '../../lib/email.js';
 
@@ -63,6 +63,7 @@ export async function register(input: {
 
   const password_hash = await argon2.hash(input.password);
   const requiresEmailVerification = await isSignupBonusEmailVerificationRequired();
+  const now = new Date();
 
   const [user] = await db
     .insert(users)
@@ -74,7 +75,8 @@ export async function register(input: {
       role: 'user',
       status: 'active',
       balance_usd: '0',
-      last_login_at: new Date(),
+      last_login_at: now,
+      last_activity_at: now,
     })
     .returning(userPublicColumns);
 
@@ -95,6 +97,8 @@ export async function register(input: {
       userAgent: input.signup_user_agent,
     });
   }
+
+  await markUserActive(user.id, now);
 
   return {
     user: {

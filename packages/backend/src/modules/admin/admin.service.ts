@@ -587,7 +587,7 @@ interface AdminUsersQuery {
   search?: string;
   role?: string;
   status?: string;
-  sort_by?: 'spent_usd' | 'spent_tokens' | 'agents_count' | 'chats_count' | 'balance_usd' | 'last_login_at' | 'created_at' | 'role';
+  sort_by?: 'spent_usd' | 'spent_tokens' | 'agents_count' | 'chats_count' | 'balance_usd' | 'last_activity_at' | 'last_login_at' | 'created_at' | 'role';
   sort_order?: 'asc' | 'desc';
 }
 
@@ -670,6 +670,8 @@ export async function listUsers(query: AdminUsersQuery) {
         return users.balance_usd;
       case 'role':
         return roleOrderExpr;
+      case 'last_activity_at':
+        return users.last_activity_at;
       case 'last_login_at':
         return users.last_login_at;
       case 'created_at':
@@ -690,6 +692,7 @@ export async function listUsers(query: AdminUsersQuery) {
         status: users.status,
         balance_usd: users.balance_usd,
         created_at: users.created_at,
+        last_activity_at: users.last_activity_at,
         last_login_at: users.last_login_at,
         updated_at: users.updated_at,
         chats_count: sql<number>`coalesce(${chatCounts.chats_count}, 0)::int`,
@@ -726,6 +729,7 @@ export async function listUsers(query: AdminUsersQuery) {
       spent_tokens: r.spent_tokens ?? 0,
       spent_usd: Number(r.spent_usd ?? 0),
       created_at: r.created_at.toISOString(),
+      last_activity_at: r.last_activity_at?.toISOString() ?? null,
       last_login_at: r.last_login_at?.toISOString() ?? null,
       updated_at: r.updated_at.toISOString(),
     })),
@@ -750,6 +754,7 @@ export async function getUserById(id: string) {
       status: users.status,
       balance_usd: users.balance_usd,
       created_at: users.created_at,
+      last_activity_at: users.last_activity_at,
       last_login_at: users.last_login_at,
       updated_at: users.updated_at,
     })
@@ -779,6 +784,7 @@ export async function getUserById(id: string) {
   return {
     ...user,
     created_at: user.created_at.toISOString(),
+    last_activity_at: user.last_activity_at?.toISOString() ?? null,
     last_login_at: user.last_login_at?.toISOString() ?? null,
     updated_at: user.updated_at.toISOString(),
     agents_count: agentCount?.count ?? 0,
@@ -1338,6 +1344,13 @@ export async function getDashboardCharts(query: AdminDashboardChartsQuery) {
       GROUP BY timezone('UTC', ar.started_at)::date
     ),
     activity_events AS (
+      SELECT uda.day, uda.user_id
+      FROM user_daily_activity uda
+      INNER JOIN params ON true
+      WHERE uda.day BETWEEN params.activity_start_day AND params.end_day
+
+      UNION
+
       SELECT DISTINCT timezone('UTC', cc.created_at)::date AS day, cc.user_id
       FROM chat_conversations cc
       INNER JOIN params ON true

@@ -14,8 +14,49 @@ export interface AdminUsersParams {
   search?: string;
   role?: string;
   status?: string;
-  sort_by?: 'spent_usd' | 'spent_tokens' | 'agents_count' | 'chats_count' | 'balance_usd' | 'last_login_at' | 'created_at' | 'role';
+  sort_by?: 'spent_usd' | 'spent_tokens' | 'agents_count' | 'chats_count' | 'balance_usd' | 'last_activity_at' | 'last_login_at' | 'created_at' | 'role';
   sort_order?: 'asc' | 'desc';
+}
+
+export interface AdminUserListItem {
+  id: string;
+  email: string;
+  username: string | null;
+  name: string | null;
+  avatar_url: string | null;
+  role: string;
+  status: string;
+  balance_usd: number;
+  created_at: string;
+  last_activity_at: string | null;
+  last_login_at: string | null;
+  updated_at: string;
+  chats_count: number;
+  agents_count: number;
+  spent_tokens: number;
+  spent_usd: number;
+}
+
+export interface AdminUsersListResponse {
+  data: AdminUserListItem[];
+  meta: {
+    total: number;
+    page: number;
+    per_page: number;
+    total_pages: number;
+  };
+}
+
+export interface AdminUserDetails extends Omit<AdminUserListItem, 'chats_count' | 'spent_tokens' | 'spent_usd'> {
+  runs_count: number;
+  recent_transactions: Array<{
+    id: string;
+    amount: string | number;
+    balance_after: string | number;
+    type: string;
+    description: string | null;
+    created_at: string;
+  }>;
 }
 
 export interface AdminAgentsParams {
@@ -499,10 +540,10 @@ export const adminApi = {
 
   // Users
   listUsers: (params: AdminUsersParams) =>
-    apiClient.get('/admin/users', { params }).then((r) => r.data),
+    apiClient.get<AdminUsersListResponse>('/admin/users', { params }).then((r) => r.data),
 
   getUser: (id: string) =>
-    apiClient.get(`/admin/users/${id}`).then((r) => r.data.data),
+    apiClient.get<{ data: AdminUserDetails }>(`/admin/users/${id}`).then((r) => r.data.data),
 
   updateUserRole: (id: string, role: string) =>
     apiClient.put(`/admin/users/${id}/role`, { role }).then((r) => r.data.data),

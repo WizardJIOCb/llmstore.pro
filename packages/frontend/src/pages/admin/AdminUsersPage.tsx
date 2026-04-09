@@ -6,10 +6,11 @@ import { AdminLayout } from '../../components/admin/AdminLayout';
 import { useAdminUsers, useUpdateUserRole, useUpdateUserStatus, useAdjustUserBalance, useResetUserPassword, useImpersonateUser } from '../../hooks/useAdmin';
 import { Button, Badge, Spinner } from '../../components/ui';
 import { UserLink } from '../../components/users/UserLink';
+import type { AdminUserListItem } from '../../lib/api/admin';
 import { formatUsd } from '../../lib/utils';
 import { useAuth } from '../../hooks/useAuth';
 
-type SortField = 'spent_usd' | 'spent_tokens' | 'agents_count' | 'chats_count' | 'balance_usd' | 'last_login_at' | 'created_at' | 'role';
+type SortField = 'spent_usd' | 'spent_tokens' | 'agents_count' | 'chats_count' | 'balance_usd' | 'last_activity_at' | 'last_login_at' | 'created_at' | 'role';
 type SortOrder = 'asc' | 'desc';
 
 const roleLabels: Record<string, string> = {
@@ -262,13 +263,14 @@ export function AdminUsersPage() {
                   <th className="px-4 py-3 text-left font-medium">{renderSortableHeader('Роль', 'role')}</th>
                   <th className="px-4 py-3 text-left font-medium">Статус</th>
                   <th className="px-4 py-3 text-right font-medium">{renderSortableHeader('Баланс, $', 'balance_usd', 'right')}</th>
+                  <th className="px-4 py-3 text-left font-medium">{renderSortableHeader('Последняя активность', 'last_activity_at')}</th>
                   <th className="px-4 py-3 text-left font-medium">{renderSortableHeader('Последний вход', 'last_login_at')}</th>
                   <th className="px-4 py-3 text-left font-medium">{renderSortableHeader('Регистрация', 'created_at')}</th>
                   <th className="px-4 py-3 text-right font-medium">Действия</th>
                 </tr>
               </thead>
               <tbody>
-                {users.map((user: any) => (
+                {users.map((user: AdminUserListItem) => (
                   <tr key={user.id} className="border-b hover:bg-muted/30">
                     <td className="px-4 py-3">
                       <div className="font-medium">{user.email}</div>
@@ -301,6 +303,9 @@ export function AdminUsersPage() {
                     </td>
                     <td className="px-4 py-3 text-right font-mono">
                       {formatUsd(user.balance_usd)}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground">
+                      {formatDateTime(user.last_activity_at)}
                     </td>
                     <td className="px-4 py-3 text-xs text-muted-foreground">
                       {formatDateTime(user.last_login_at)}
@@ -354,7 +359,7 @@ export function AdminUsersPage() {
                               className="w-full rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-accent"
                               onClick={() => {
                                 setOpenActionMenuUserId(null);
-                                setBalanceModal({ userId: user.id, email: user.email, balanceUsd: user.balance_usd });
+                                setBalanceModal({ userId: user.id, email: user.email, balanceUsd: String(user.balance_usd) });
                               }}
                             >
                               Баланс

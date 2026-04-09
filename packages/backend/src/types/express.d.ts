@@ -5,6 +5,7 @@ declare module 'express-session' {
   interface SessionData {
     userId: string;
     userRole: string;
+    lastActivityTrackedAt?: string;
     impersonatorUserId?: string;
     impersonatorUserRole?: string;
     oauthState?: string;

@@ -6,7 +6,7 @@ import { users, authAccounts } from '../../db/schema/index.js';
 import { env } from '../../config/env.js';
 import { AppError, ConflictError } from '../../middleware/error-handler.js';
 import type { UserPublic } from '@llmstore/shared';
-import { markUserLoggedIn } from './login-activity.service.js';
+import { markUserActive, markUserLoggedIn } from './login-activity.service.js';
 import { grantSignupBonusIfEligible, normalizeIpAddress } from './signup-bonus.service.js';
 import { normalizeEmail } from '../../lib/email.js';
 
@@ -359,6 +359,8 @@ export async function handleCallback(opts: HandleCallbackOptions): Promise<UserP
     return getUserPublicById(existingUser.id as string);
   }
 
+  const now = new Date();
+
   const [newUser] = await db
     .insert(users)
     .values({
@@ -368,8 +370,9 @@ export async function handleCallback(opts: HandleCallbackOptions): Promise<UserP
       role: 'user',
       status: 'active',
       balance_usd: '0',
-      email_verified_at: new Date(),
-      last_login_at: new Date(),
+      email_verified_at: now,
+      last_login_at: now,
+      last_activity_at: now,
     })
     .returning(userPublicColumns);
 
@@ -385,6 +388,8 @@ export async function handleCallback(opts: HandleCallbackOptions): Promise<UserP
     provider_account_id: userInfo.provider_account_id,
     access_token: token.accessToken,
   });
+
+  await markUserActive(newUser.id as string, now);
 
   return toUserPublic(newUser);
 }

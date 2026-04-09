@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import { eq } from 'drizzle-orm';
 import { db } from '../../config/database.js';
 import { env } from '../../config/env.js';
-import { emailVerificationTokens, users } from '../../db/schema/index.js';
+import { emailVerificationTokens, userDailyActivity, users } from '../../db/schema/index.js';
 import { getSignupBonusSettings } from '../../lib/app-settings.js';
 import { isMailerConfigured, sendMail } from '../../lib/mailer.js';
 import { AppError, NotFoundError } from '../../middleware/error-handler.js';
@@ -175,13 +175,28 @@ export async function verifyEmailToken(input: {
   await db.transaction(async (tx) => {
     await tx
       .update(users)
-      .set({ email_verified_at: verifiedAt, last_login_at: now })
+      .set({ email_verified_at: verifiedAt, last_login_at: now, last_activity_at: now })
       .where(eq(users.id, row.user_id));
 
     await tx
       .update(emailVerificationTokens)
       .set({ used_at: now })
       .where(eq(emailVerificationTokens.id, row.token_id));
+
+    await tx
+      .insert(userDailyActivity)
+      .values({
+        user_id: row.user_id,
+        day: now.toISOString().slice(0, 10),
+        last_activity_at: now,
+      })
+      .onConflictDoUpdate({
+        target: [userDailyActivity.user_id, userDailyActivity.day],
+        set: {
+          last_activity_at: now,
+          updated_at: new Date(),
+        },
+      });
   });
 
   const signupBonusGranted = await grantSignupBonusIfEligible(row.user_id, {

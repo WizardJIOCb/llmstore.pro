@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { pgTable, uuid, varchar, text, numeric, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, numeric, timestamp, date, index, uniqueIndex } from 'drizzle-orm/pg-core';
 import { userRoleEnum, userStatusEnum, authProviderEnum } from './enums';
 
 export const users = pgTable('users', {
@@ -14,10 +14,12 @@ export const users = pgTable('users', {
   balance_usd: numeric('balance_usd', { precision: 12, scale: 4 }).notNull().default('0'),
   email_verified_at: timestamp('email_verified_at', { withTimezone: true }),
   last_login_at: timestamp('last_login_at', { withTimezone: true }),
+  last_activity_at: timestamp('last_activity_at', { withTimezone: true }),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (table) => [
   uniqueIndex('users_email_lower_idx').on(sql`lower(${table.email})`),
+  index('users_last_activity_at_idx').on(table.last_activity_at),
 ]);
 
 export const authAccounts = pgTable('auth_accounts', {
@@ -42,6 +44,19 @@ export const sessions = pgTable('sessions', {
 }, (table) => [
   index('sessions_user_id_idx').on(table.user_id),
   index('sessions_expires_at_idx').on(table.expires_at),
+]);
+
+export const userDailyActivity = pgTable('user_daily_activity', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  user_id: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  day: date('day').notNull(),
+  last_activity_at: timestamp('last_activity_at', { withTimezone: true }).notNull(),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+}, (table) => [
+  uniqueIndex('user_daily_activity_user_day_idx').on(table.user_id, table.day),
+  index('user_daily_activity_day_idx').on(table.day),
+  index('user_daily_activity_last_activity_idx').on(table.last_activity_at),
 ]);
 
 export const signupBonusGrants = pgTable('signup_bonus_grants', {

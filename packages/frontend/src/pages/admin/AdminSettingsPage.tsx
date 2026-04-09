@@ -12,7 +12,7 @@ interface BalanceTargetUser {
   email: string;
   username: string | null;
   name: string | null;
-  balance_usd: string;
+  balance_usd: number;
 }
 
 function formatBalanceUsd(value: string | number): string {
@@ -98,8 +98,8 @@ export function AdminSettingsPage() {
     enabled: searchTerm.length >= 2,
   });
 
-  const foundUsers = useMemo(
-    () => (usersQuery.data?.data ?? []) as BalanceTargetUser[],
+  const foundUsers = useMemo<BalanceTargetUser[]>(
+    () => usersQuery.data?.data ?? [],
     [usersQuery.data],
   );
 

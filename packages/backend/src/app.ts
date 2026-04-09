@@ -6,6 +6,7 @@ import { RedisStore } from 'connect-redis';
 import { env } from './config/env.js';
 import { redis } from './config/redis.js';
 import { errorHandler } from './middleware/error-handler.js';
+import { trackUserActivity } from './middleware/user-activity.js';
 import { logger } from './lib/logger.js';
 import { authRoutes } from './modules/auth/index.js';
 import { catalogRoutes } from './modules/catalog/index.js';
@@ -77,6 +78,8 @@ export function createApp() {
   app.get('/api/health', (_req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
+
+  app.use('/api', trackUserActivity);
 
   // Module routes
   app.use('/api/auth', authRoutes);
