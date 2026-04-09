@@ -33,6 +33,7 @@ const updateChatSchema = z.object({
   tool_ids: z.array(z.string().uuid()).max(64).optional(),
   access: z.enum(['public', 'private', 'restricted']).optional(),
   access_identifiers: z.array(z.string().min(1).max(255)).max(200).optional(),
+  pin_to_top: z.boolean().optional(),
 });
 
 const sendMessageSchema = z.object({

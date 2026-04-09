@@ -183,6 +183,7 @@ export interface ChatListItem {
   message_count: number;
   last_message_preview: string | null;
   pending_run?: ChatPendingRunState | null;
+  pinned_at: string | null;
   last_message_at: string;
   created_at: string;
   updated_at: string;
@@ -500,6 +501,7 @@ export const chatsApi = {
       tool_ids?: string[];
       access?: ChatAccess;
       access_identifiers?: string[];
+      pin_to_top?: boolean;
     },
   ) => apiClient.patch<{ data: ChatListItem }>(`/chats/${chatId}`, payload).then((r) => r.data.data),
 

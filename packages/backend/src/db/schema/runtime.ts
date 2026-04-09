@@ -103,10 +103,12 @@ export const chatConversations = pgTable('chat_conversations', {
   settings_json: jsonb('settings_json').$type<Record<string, unknown>>(),
   total_view_count: integer('total_view_count').notNull().default(0),
   unique_view_count: integer('unique_view_count').notNull().default(0),
+  pinned_at: timestamp('pinned_at', { withTimezone: true }),
   last_message_at: timestamp('last_message_at', { withTimezone: true }).notNull().defaultNow(),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
+  index('chat_conversations_user_pinned_idx').on(table.user_id, table.pinned_at),
   index('chat_conversations_user_last_message_idx').on(table.user_id, table.last_message_at),
   index('chat_conversations_agent_idx').on(table.agent_id),
   uniqueIndex('chat_conversations_share_token_idx').on(table.share_token),

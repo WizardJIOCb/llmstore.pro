@@ -116,6 +116,7 @@ export function useUpdateChat() {
       tool_ids?: string[];
       access?: ChatAccess;
       access_identifiers?: string[];
+      pin_to_top?: boolean;
     }) => chatsApi.update(chatId, payload),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['chats'] });

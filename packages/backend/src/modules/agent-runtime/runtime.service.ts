@@ -5002,6 +5002,7 @@ interface ChatConversationRow {
   access_identifiers: string[];
   share_token: string | null;
   settings_json: Record<string, unknown> | null;
+  pinned_at: Date | null;
   last_message_at: Date;
   created_at: Date;
   updated_at: Date;
@@ -5024,6 +5025,7 @@ interface ConversationListItem {
   message_count: number;
   last_message_preview: string | null;
   pending_run: SharedPendingRunState | null;
+  pinned_at: string | null;
   last_message_at: string;
   created_at: string;
   updated_at: string;
@@ -6295,7 +6297,11 @@ export async function listChats(userId: string): Promise<ConversationListItem[]>
     .select()
     .from(chatConversations)
     .where(eq(chatConversations.user_id, userId))
-    .orderBy(desc(chatConversations.last_message_at))
+    .orderBy(
+      sql`case when ${chatConversations.pinned_at} is null then 1 else 0 end`,
+      desc(chatConversations.pinned_at),
+      desc(chatConversations.last_message_at),
+    )
     .limit(200);
 
   const ids = chats.map((chat) => chat.id);
@@ -6435,6 +6441,7 @@ export async function listChats(userId: string): Promise<ConversationListItem[]>
       message_count: countMap.get(chat.id) ?? 0,
       last_message_preview: previewMap.get(chat.id) ?? null,
       pending_run: pendingRunMap.get(chat.id) ?? null,
+      pinned_at: chat.pinned_at ? toIso(chat.pinned_at) : null,
       last_message_at: toIso(chat.last_message_at),
       created_at: toIso(chat.created_at),
       updated_at: toIso(chat.updated_at),
@@ -6851,6 +6858,7 @@ export async function createChat(userId: string, input: {
     share_token: chat.share_token ?? null,
     message_count: 0,
     last_message_preview: null,
+    pinned_at: chat.pinned_at ? toIso(chat.pinned_at) : null,
     last_message_at: toIso(chat.last_message_at),
     created_at: toIso(chat.created_at),
     updated_at: toIso(chat.updated_at),
@@ -6892,6 +6900,7 @@ export async function getChatById(chatId: string, userId: string): Promise<Conve
       tool_ids: tools.map((tool) => tool.id),
       tools,
       pending_run,
+      pinned_at: chat.pinned_at ? toIso(chat.pinned_at) : null,
       last_message_at: toIso(chat.last_message_at),
       created_at: toIso(chat.created_at),
       updated_at: toIso(chat.updated_at),
@@ -7447,6 +7456,7 @@ export async function updateChat(chatId: string, userId: string, input: {
   tool_ids?: string[];
   access?: ChatAccess;
   access_identifiers?: string[];
+  pin_to_top?: boolean;
 }, userRole?: string) {
   const existing = await getConversationForUser(chatId, userId);
   const nextMode = input.mode ?? existing.mode;
@@ -7514,6 +7524,7 @@ export async function updateChat(chatId: string, userId: string, input: {
       access: nextAccess,
       access_identifiers: nextAccessIdentifiers,
       share_token: ensuredShareToken,
+      pinned_at: input.pin_to_top ? new Date() : existing.pinned_at,
       settings_json: buildChatSettingsJson(existing.settings_json, {
         tool_ids: nextToolIds,
         tool_agent_id: toolAgentId,
@@ -7552,6 +7563,7 @@ export async function updateChat(chatId: string, userId: string, input: {
     share_token: chat.share_token ?? null,
     message_count: countRow?.count ?? 0,
     last_message_preview: null,
+    pinned_at: chat.pinned_at ? toIso(chat.pinned_at) : null,
     last_message_at: toIso(chat.last_message_at),
     created_at: toIso(chat.created_at),
     updated_at: toIso(chat.updated_at),
@@ -8338,6 +8350,7 @@ export async function importChatBundle(
     message_count: orderedMessages.length,
     last_message_preview: orderedMessages[orderedMessages.length - 1]?.content.slice(0, 160) ?? null,
     pending_run: null,
+    pinned_at: chat.pinned_at ? toIso(chat.pinned_at) : null,
     last_message_at: toIso(chat.last_message_at),
     created_at: toIso(chat.created_at),
     updated_at: toIso(chat.updated_at),

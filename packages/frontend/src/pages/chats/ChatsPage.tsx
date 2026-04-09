@@ -195,12 +195,14 @@ function getChatOwnerLabel(chat: Pick<ChatListItem, 'owner_name' | 'owner_userna
 }
 
 function getChatActionIcon(
-  action: 'rename' | 'properties' | 'export' | 'privacy' | 'transfer' | 'delete' | 'share' | 'copy_link' | 'agents',
+  action: 'rename' | 'pin' | 'properties' | 'export' | 'privacy' | 'transfer' | 'delete' | 'share' | 'copy_link' | 'agents',
   access?: ChatAccess,
 ) {
   switch (action) {
     case 'rename':
       return <PencilLine className="h-4 w-4 shrink-0 text-slate-500" />;
+    case 'pin':
+      return <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-xs font-semibold text-slate-500">↑</span>;
     case 'properties':
       return <Settings2 className="h-4 w-4 shrink-0 text-slate-500" />;
     case 'export':
@@ -2203,6 +2205,20 @@ export function ChatsPage() {
     }
   };
 
+  const pinChatToTop = async (chat: ChatListItem) => {
+    setLocalError(null);
+    try {
+      await updateChatMutation.mutateAsync({
+        chatId: chat.id,
+        pin_to_top: true,
+      });
+    } catch {
+      showLocalError('Не удалось закрепить чат сверху');
+    } finally {
+      setOpenMenu(null);
+    }
+  };
+
   const openProperties = (chatId: string) => {
     setActiveChatId(chatId);
     setOpenMenu(null);
@@ -2742,6 +2758,15 @@ export function ChatsPage() {
               {getChatActionIcon('rename')}
               <span>Переименовать</span>
             </button>
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+              onClick={() => void pinChatToTop(chat)}
+              disabled={updateChatMutation.isPending}
+            >
+              {getChatActionIcon('pin')}
+              <span>Закрепить сверху</span>
+            </button>
             <button type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent" onClick={() => openProperties(chat.id)}>
               {getChatActionIcon('properties')}
               <span>Свойства</span>
@@ -2917,6 +2942,21 @@ export function ChatsPage() {
                           <span className="flex items-center gap-2">
                             {getChatActionIcon('rename')}
                             <span>Переименовать</span>
+                          </span>
+                          <span className="text-xs text-slate-400">↗</span>
+                        </button>
+                        <button
+                          type="button"
+                          className={`${mobileChatActionButtonClass} mt-2`}
+                          onClick={() => {
+                            if (!activeChatMenuTarget) return;
+                            void pinChatToTop(activeChatMenuTarget);
+                          }}
+                          disabled={updateChatMutation.isPending}
+                        >
+                          <span className="flex items-center gap-2">
+                            {getChatActionIcon('pin')}
+                            <span>Закрепить сверху</span>
                           </span>
                           <span className="text-xs text-slate-400">↗</span>
                         </button>
