@@ -2707,6 +2707,15 @@ export function ChatsPage() {
               <ChatPrivacyIcon access={chat.access} className="h-3.5 w-3.5" />
             </span>
           )}
+          {chat.pinned_at && (
+            <span
+              className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-amber-200/80 bg-amber-50 text-amber-500"
+              aria-label="Чат закреплён сверху"
+              title="Чат закреплён сверху"
+            >
+              <Pin className="h-2.75 w-2.75 -rotate-12" />
+            </span>
+          )}
           {chat.has_site_preview && (
             <span
               className={cn(
@@ -2717,15 +2726,6 @@ export function ChatsPage() {
               title={getChatWebsiteTitle(chat)}
             >
               <Globe className="h-3.5 w-3.5" />
-            </span>
-          )}
-          {chat.pinned_at && (
-            <span
-              className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-amber-600"
-              aria-label="Чат закреплён сверху"
-              title="Чат закреплён сверху"
-            >
-              <Pin className="h-3.5 w-3.5 fill-current" />
             </span>
           )}
           <p className="min-w-0 flex-1 truncate text-sm font-medium">{chat.title}</p>
