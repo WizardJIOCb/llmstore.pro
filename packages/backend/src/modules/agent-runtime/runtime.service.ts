@@ -1082,6 +1082,14 @@ function detectLandingSectionFragmentIssue(html: string): string | null {
     return 'Пустой HTML-фрагмент секции.';
   }
 
+  if (/<style\b[^>]*>/i.test(trimmed)) {
+    return 'Секция не должна содержать <style>; вынеси стили в глобальный theme-step.';
+  }
+
+  if (/<script\b[^>]*>/i.test(trimmed)) {
+    return 'Секция не должна содержать <script>; вынеси скрипты в глобальный theme-step.';
+  }
+
   const styleOpenCount = (trimmed.match(/<style\b[^>]*>/gi) ?? []).length;
   const styleCloseCount = (trimmed.match(/<\/style>/gi) ?? []).length;
   if (styleOpenCount !== styleCloseCount) {
@@ -3728,6 +3736,7 @@ ${agent.description.trim()}`);
         'Требования:',
         '- верни только HTML для этой секции;',
         '- не возвращай <html>, <head> или <body>;',
+        '- не возвращай <style> или <script>; общий CSS и JS уже собираются на theme-step;',
         '- секция должна быть самодостаточной и готовой к вставке в общий документ;',
         '- не используй несуществующие локальные файлы вроде hero.png, image.jpg, ./foo.webp или dtf-commentator1.png;',
         '- не используй example.com, via.placeholder.com, placehold.co, picsum.photos и другие фейковые/демо-ассеты;',
