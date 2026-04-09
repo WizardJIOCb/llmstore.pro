@@ -301,6 +301,7 @@ export function GalleryPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [textChatPage, setTextChatPage] = useState(1);
   const [search, setSearch] = useState('');
+  const [gallerySort, setGallerySort] = useState<GalleryTextChatSort>('newest');
   const [textChatSort, setTextChatSort] = useState<GalleryTextChatSort>('newest');
   const [kindFilter, setKindFilter] = useState<GalleryKindFilter>('preview');
   const [runningMessageId, setRunningMessageId] = useState<string | null>(null);
@@ -363,6 +364,31 @@ export function GalleryPage() {
       return buildSearchText(item).includes(query);
     });
   }, [items, kindFilter, search]);
+  const sortedFilteredItems = useMemo(() => {
+    const nextItems = [...filteredItems];
+    nextItems.sort((a, b) => {
+      switch (gallerySort) {
+        case 'oldest':
+          return Date.parse(a.created_at) - Date.parse(b.created_at);
+        case 'views_day':
+          return b.recent_view_count_day - a.recent_view_count_day || Date.parse(b.created_at) - Date.parse(a.created_at);
+        case 'views_week':
+          return b.recent_view_count_week - a.recent_view_count_week || Date.parse(b.created_at) - Date.parse(a.created_at);
+        case 'views_month':
+          return b.recent_view_count_month - a.recent_view_count_month || Date.parse(b.created_at) - Date.parse(a.created_at);
+        case 'views_all':
+          return b.total_view_count - a.total_view_count || Date.parse(b.created_at) - Date.parse(a.created_at);
+        case 'message_count':
+          return b.message_count - a.message_count || Date.parse(b.created_at) - Date.parse(a.created_at);
+        case 'total_cost':
+          return b.total_usd_cost - a.total_usd_cost || Date.parse(b.created_at) - Date.parse(a.created_at);
+        case 'newest':
+        default:
+          return Date.parse(b.created_at) - Date.parse(a.created_at);
+      }
+    });
+    return nextItems;
+  }, [filteredItems, gallerySort]);
   const textChatTotalPages = Math.max(1, Math.ceil(filteredTextChats.length / TEXT_CHAT_PAGE_SIZE));
   const textChatPageButtons = useMemo(
     () => buildPageButtons(textChatTotalPages, textChatPage),
@@ -372,16 +398,16 @@ export function GalleryPage() {
     const start = (textChatPage - 1) * TEXT_CHAT_PAGE_SIZE;
     return filteredTextChats.slice(start, start + TEXT_CHAT_PAGE_SIZE);
   }, [filteredTextChats, textChatPage]);
-  const totalPages = Math.max(1, Math.ceil(filteredItems.length / pageSize));
+  const totalPages = Math.max(1, Math.ceil(sortedFilteredItems.length / pageSize));
   const pageButtons = useMemo(() => buildPageButtons(totalPages, currentPage), [currentPage, totalPages]);
   const currentItems = useMemo(() => {
     const start = (currentPage - 1) * pageSize;
-    return filteredItems.slice(start, start + pageSize);
-  }, [currentPage, filteredItems, pageSize]);
+    return sortedFilteredItems.slice(start, start + pageSize);
+  }, [currentPage, sortedFilteredItems, pageSize]);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [kindFilter, pageSize, search]);
+  }, [gallerySort, kindFilter, pageSize, search]);
 
   useEffect(() => {
     setTextChatPage(1);
@@ -470,13 +496,20 @@ export function GalleryPage() {
               <p className="text-sm text-muted-foreground">
                 Найдено {filteredItems.length} из {items.length} элементов, страница {currentPage} из {totalPages}
               </p>
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <span className="text-sm text-muted-foreground">Показывать</span>
                 <Select
                   value={String(pageSize)}
                   onChange={(event) => setPageSize(Number(event.target.value))}
                   options={PAGE_SIZE_OPTIONS.map((value) => ({ value: String(value), label: String(value) }))}
                   className="h-9 min-w-[88px]"
+                />
+                <span className="text-sm text-muted-foreground">Сортировка</span>
+                <Select
+                  value={gallerySort}
+                  onChange={(event) => setGallerySort(event.target.value as GalleryTextChatSort)}
+                  options={TEXT_CHAT_SORT_OPTIONS}
+                  className="h-9 min-w-[240px]"
                 />
               </div>
             </div>

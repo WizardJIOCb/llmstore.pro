@@ -1,5 +1,5 @@
 import {
-  pgTable, uuid, varchar, text, timestamp, integer, index, uniqueIndex,
+  pgTable, uuid, varchar, text, timestamp, integer, index, uniqueIndex, date,
 } from 'drizzle-orm/pg-core';
 import { jsonb } from 'drizzle-orm/pg-core';
 import { users } from './auth';
@@ -210,6 +210,20 @@ export const chatConversationViewers = pgTable('chat_conversation_viewers', {
 }, (table) => [
   uniqueIndex('chat_conversation_viewers_conversation_viewer_idx').on(table.conversation_id, table.viewer_key),
   index('chat_conversation_viewers_conversation_idx').on(table.conversation_id),
+]);
+
+export const chatConversationDailyViews = pgTable('chat_conversation_daily_views', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  conversation_id: uuid('conversation_id').notNull().references(() => chatConversations.id, { onDelete: 'cascade' }),
+  day: date('day').notNull(),
+  total_views: integer('total_views').notNull().default(0),
+  unique_views: integer('unique_views').notNull().default(0),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex('chat_conversation_daily_views_conversation_day_idx').on(table.conversation_id, table.day),
+  index('chat_conversation_daily_views_conversation_idx').on(table.conversation_id),
+  index('chat_conversation_daily_views_day_idx').on(table.day),
 ]);
 
 export const chatConversationReactions = pgTable('chat_conversation_reactions', {

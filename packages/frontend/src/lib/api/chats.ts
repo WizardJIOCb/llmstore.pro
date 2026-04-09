@@ -275,6 +275,10 @@ export interface GalleryPreviewItem {
   view_count: number;
   unique_view_count: number;
   total_view_count: number;
+  recent_view_count_day: number;
+  recent_view_count_week: number;
+  recent_view_count_month: number;
+  message_count: number;
   reaction_counts: Record<ChatReactionType, number>;
   my_reaction: ChatReactionType | null;
   created_at: string;

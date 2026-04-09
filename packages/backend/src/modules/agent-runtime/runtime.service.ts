@@ -14,6 +14,7 @@ import {
   chatConversations,
   chatConversationMessages,
   chatConversationViewers,
+  chatConversationDailyViews,
   chatConversationReactions,
   chatProjectDeployments,
   publishedLandings,
@@ -5202,6 +5203,10 @@ interface GalleryPreviewItem {
   view_count: number;
   unique_view_count: number;
   total_view_count: number;
+  recent_view_count_day: number;
+  recent_view_count_week: number;
+  recent_view_count_month: number;
+  message_count: number;
   reaction_counts: Record<ChatReactionType, number>;
   my_reaction: ChatReactionType | null;
   created_at: string;
@@ -6197,6 +6202,7 @@ async function registerConversationView(
   if (chat.user_id === viewerUserId) return;
 
   const now = new Date();
+  const dayKey = now.toISOString().slice(0, 10);
 
   await db.transaction(async (tx) => {
     await tx.update(chatConversations)
@@ -6221,6 +6227,24 @@ async function registerConversationView(
         .set({ unique_view_count: sql`${chatConversations.unique_view_count} + 1` })
         .where(eq(chatConversations.id, chat.id));
 
+      await tx.insert(chatConversationDailyViews)
+        .values({
+          conversation_id: chat.id,
+          day: dayKey,
+          total_views: 1,
+          unique_views: 1,
+          created_at: now,
+          updated_at: now,
+        })
+        .onConflictDoUpdate({
+          target: [chatConversationDailyViews.conversation_id, chatConversationDailyViews.day],
+          set: {
+            total_views: sql`${chatConversationDailyViews.total_views} + 1`,
+            unique_views: sql`${chatConversationDailyViews.unique_views} + 1`,
+            updated_at: now,
+          },
+        });
+
       return;
     }
 
@@ -6233,6 +6257,23 @@ async function registerConversationView(
         eq(chatConversationViewers.conversation_id, chat.id),
         eq(chatConversationViewers.viewer_key, viewerKey),
       ));
+
+    await tx.insert(chatConversationDailyViews)
+      .values({
+        conversation_id: chat.id,
+        day: dayKey,
+        total_views: 1,
+        unique_views: 0,
+        created_at: now,
+        updated_at: now,
+      })
+      .onConflictDoUpdate({
+        target: [chatConversationDailyViews.conversation_id, chatConversationDailyViews.day],
+        set: {
+          total_views: sql`${chatConversationDailyViews.total_views} + 1`,
+          updated_at: now,
+        },
+      });
   });
 }
 
@@ -8520,16 +8561,52 @@ export async function listGalleryPreviews(limit = 24, viewerUserId?: string | nu
   }>();
 
   if (chatIds.length > 0) {
-    const usageRows = await db
-      .select({
-        conversation_id: chatConversationMessages.conversation_id,
-        usage_json: chatConversationMessages.usage_json,
-      })
-      .from(chatConversationMessages)
-      .where(and(
-        inArray(chatConversationMessages.conversation_id, chatIds),
-        eq(chatConversationMessages.role, 'assistant'),
-      ));
+    const [usageRows, messageCountRows, dailyViewRows] = await Promise.all([
+      db
+        .select({
+          conversation_id: chatConversationMessages.conversation_id,
+          usage_json: chatConversationMessages.usage_json,
+        })
+        .from(chatConversationMessages)
+        .where(and(
+          inArray(chatConversationMessages.conversation_id, chatIds),
+          eq(chatConversationMessages.role, 'assistant'),
+        )),
+      db
+        .select({
+          conversation_id: chatConversationMessages.conversation_id,
+          count: sql<number>`count(*)::int`,
+        })
+        .from(chatConversationMessages)
+        .where(inArray(chatConversationMessages.conversation_id, chatIds))
+        .groupBy(chatConversationMessages.conversation_id),
+      db
+        .select({
+          conversation_id: chatConversationDailyViews.conversation_id,
+          day: chatConversationDailyViews.day,
+          total_views: chatConversationDailyViews.total_views,
+        })
+        .from(chatConversationDailyViews)
+        .where(inArray(chatConversationDailyViews.conversation_id, chatIds)),
+    ]);
+
+    const messageCountMap = new Map(messageCountRows.map((row) => [row.conversation_id, row.count]));
+    const recentViewCounts = new Map<string, { day: number; week: number; month: number }>();
+    const now = new Date();
+    const todayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+    const weekAgoUtc = todayUtc - (6 * 24 * 60 * 60 * 1000);
+    const monthAgoUtc = todayUtc - (29 * 24 * 60 * 60 * 1000);
+
+    for (const row of dailyViewRows) {
+      const dayMs = Date.parse(`${row.day}T00:00:00.000Z`);
+      if (!Number.isFinite(dayMs)) continue;
+
+      const existing = recentViewCounts.get(row.conversation_id) ?? { day: 0, week: 0, month: 0 };
+      if (dayMs >= todayUtc) existing.day += row.total_views ?? 0;
+      if (dayMs >= weekAgoUtc) existing.week += row.total_views ?? 0;
+      if (dayMs >= monthAgoUtc) existing.month += row.total_views ?? 0;
+      recentViewCounts.set(row.conversation_id, existing);
+    }
 
     for (const row of usageRows) {
       const rawUsage = (row.usage_json as Record<string, unknown> | null) ?? null;
@@ -8574,6 +8651,34 @@ export async function listGalleryPreviews(limit = 24, viewerUserId?: string | nu
         }
       }
       chatReactions.set(row.conversation_id, existing);
+    }
+
+    for (const row of selectedRows) {
+      const recentViews = recentViewCounts.get(row.chat_id) ?? { day: 0, week: 0, month: 0 };
+      (row as typeof row & {
+        recent_view_count_day?: number;
+        recent_view_count_week?: number;
+        recent_view_count_month?: number;
+        message_count?: number;
+      }).recent_view_count_day = recentViews.day;
+      (row as typeof row & {
+        recent_view_count_day?: number;
+        recent_view_count_week?: number;
+        recent_view_count_month?: number;
+        message_count?: number;
+      }).recent_view_count_week = recentViews.week;
+      (row as typeof row & {
+        recent_view_count_day?: number;
+        recent_view_count_week?: number;
+        recent_view_count_month?: number;
+        message_count?: number;
+      }).recent_view_count_month = recentViews.month;
+      (row as typeof row & {
+        recent_view_count_day?: number;
+        recent_view_count_week?: number;
+        recent_view_count_month?: number;
+        message_count?: number;
+      }).message_count = messageCountMap.get(row.chat_id) ?? 0;
     }
   }
 
@@ -8634,6 +8739,10 @@ export async function listGalleryPreviews(limit = 24, viewerUserId?: string | nu
       view_count: uniqueViewCount,
       unique_view_count: uniqueViewCount,
       total_view_count: totalViewCount,
+      recent_view_count_day: (row as typeof row & { recent_view_count_day?: number }).recent_view_count_day ?? 0,
+      recent_view_count_week: (row as typeof row & { recent_view_count_week?: number }).recent_view_count_week ?? 0,
+      recent_view_count_month: (row as typeof row & { recent_view_count_month?: number }).recent_view_count_month ?? 0,
+      message_count: (row as typeof row & { message_count?: number }).message_count ?? 0,
       reaction_counts: reactions.reaction_counts,
       my_reaction: reactions.my_reaction,
       created_at: toIso(row.created_at),
@@ -8750,7 +8859,7 @@ export async function listGalleryTextChats(
     return [];
   }
 
-  const [messageCountRows, usageRows, viewerRows] = await Promise.all([
+  const [messageCountRows, usageRows, dailyViewRows] = await Promise.all([
     db
       .select({
         conversation_id: chatConversationMessages.conversation_id,
@@ -8771,11 +8880,12 @@ export async function listGalleryTextChats(
       )),
     db
       .select({
-        conversation_id: chatConversationViewers.conversation_id,
-        last_viewed_at: chatConversationViewers.last_viewed_at,
+        conversation_id: chatConversationDailyViews.conversation_id,
+        day: chatConversationDailyViews.day,
+        total_views: chatConversationDailyViews.total_views,
       })
-      .from(chatConversationViewers)
-      .where(inArray(chatConversationViewers.conversation_id, chatIds)),
+      .from(chatConversationDailyViews)
+      .where(inArray(chatConversationDailyViews.conversation_id, chatIds)),
   ]);
 
   const messageCountMap = new Map(messageCountRows.map((row) => [row.conversation_id, row.count]));
@@ -8804,19 +8914,19 @@ export async function listGalleryTextChats(
     usageTotalsMap.set(row.conversation_id, existing);
   }
   const recentViewCounts = new Map<string, { day: number; week: number; month: number }>();
-  const nowMs = Date.now();
-  const dayAgoMs = nowMs - (24 * 60 * 60 * 1000);
-  const weekAgoMs = nowMs - (7 * 24 * 60 * 60 * 1000);
-  const monthAgoMs = nowMs - (30 * 24 * 60 * 60 * 1000);
+  const now = new Date();
+  const todayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const weekAgoUtc = todayUtc - (6 * 24 * 60 * 60 * 1000);
+  const monthAgoUtc = todayUtc - (29 * 24 * 60 * 60 * 1000);
 
-  for (const row of viewerRows) {
-    const viewedAtMs = new Date(row.last_viewed_at).getTime();
-    if (!Number.isFinite(viewedAtMs)) continue;
+  for (const row of dailyViewRows) {
+    const dayMs = Date.parse(`${row.day}T00:00:00.000Z`);
+    if (!Number.isFinite(dayMs)) continue;
 
     const existing = recentViewCounts.get(row.conversation_id) ?? { day: 0, week: 0, month: 0 };
-    if (viewedAtMs >= dayAgoMs) existing.day += 1;
-    if (viewedAtMs >= weekAgoMs) existing.week += 1;
-    if (viewedAtMs >= monthAgoMs) existing.month += 1;
+    if (dayMs >= todayUtc) existing.day += row.total_views ?? 0;
+    if (dayMs >= weekAgoUtc) existing.week += row.total_views ?? 0;
+    if (dayMs >= monthAgoUtc) existing.month += row.total_views ?? 0;
     recentViewCounts.set(row.conversation_id, existing);
   }
 
