@@ -502,6 +502,7 @@ export const chatsApi = {
       access?: ChatAccess;
       access_identifiers?: string[];
       pin_to_top?: boolean;
+      unpin_from_top?: boolean;
     },
   ) => apiClient.patch<{ data: ChatListItem }>(`/chats/${chatId}`, payload).then((r) => r.data.data),
 

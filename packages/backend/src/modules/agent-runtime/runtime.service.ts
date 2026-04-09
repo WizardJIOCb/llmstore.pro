@@ -7457,6 +7457,7 @@ export async function updateChat(chatId: string, userId: string, input: {
   access?: ChatAccess;
   access_identifiers?: string[];
   pin_to_top?: boolean;
+  unpin_from_top?: boolean;
 }, userRole?: string) {
   const existing = await getConversationForUser(chatId, userId);
   const nextMode = input.mode ?? existing.mode;
@@ -7524,7 +7525,7 @@ export async function updateChat(chatId: string, userId: string, input: {
       access: nextAccess,
       access_identifiers: nextAccessIdentifiers,
       share_token: ensuredShareToken,
-      pinned_at: input.pin_to_top ? new Date() : existing.pinned_at,
+      pinned_at: input.unpin_from_top ? null : (input.pin_to_top ? new Date() : existing.pinned_at),
       settings_json: buildChatSettingsJson(existing.settings_json, {
         tool_ids: nextToolIds,
         tool_agent_id: toolAgentId,

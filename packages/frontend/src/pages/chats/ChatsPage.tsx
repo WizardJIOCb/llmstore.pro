@@ -2,6 +2,8 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
+  ArrowDown,
+  ArrowUp,
   ArrowRightLeft,
   Bot,
   Download,
@@ -196,14 +198,16 @@ function getChatOwnerLabel(chat: Pick<ChatListItem, 'owner_name' | 'owner_userna
 }
 
 function getChatActionIcon(
-  action: 'rename' | 'pin' | 'properties' | 'export' | 'privacy' | 'transfer' | 'delete' | 'share' | 'copy_link' | 'agents',
+  action: 'rename' | 'pin' | 'unpin' | 'properties' | 'export' | 'privacy' | 'transfer' | 'delete' | 'share' | 'copy_link' | 'agents',
   access?: ChatAccess,
 ) {
   switch (action) {
     case 'rename':
       return <PencilLine className="h-4 w-4 shrink-0 text-slate-500" />;
     case 'pin':
-      return <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-xs font-semibold text-slate-500">↑</span>;
+      return <ArrowUp className="h-4 w-4 shrink-0 text-slate-500" />;
+    case 'unpin':
+      return <ArrowDown className="h-4 w-4 shrink-0 text-slate-500" />;
     case 'properties':
       return <Settings2 className="h-4 w-4 shrink-0 text-slate-500" />;
     case 'export':
@@ -2220,6 +2224,20 @@ export function ChatsPage() {
     }
   };
 
+  const unpinChatFromTop = async (chat: ChatListItem) => {
+    setLocalError(null);
+    try {
+      await updateChatMutation.mutateAsync({
+        chatId: chat.id,
+        unpin_from_top: true,
+      });
+    } catch {
+      showLocalError('Не удалось открепить чат');
+    } finally {
+      setOpenMenu(null);
+    }
+  };
+
   const openProperties = (chatId: string) => {
     setActiveChatId(chatId);
     setOpenMenu(null);
@@ -2782,6 +2800,17 @@ export function ChatsPage() {
               {getChatActionIcon('pin')}
               <span>Закрепить сверху</span>
             </button>
+            {chat.pinned_at && (
+              <button
+                type="button"
+              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+              onClick={() => void unpinChatFromTop(chat)}
+              disabled={updateChatMutation.isPending}
+            >
+              {getChatActionIcon('unpin')}
+              <span>Открепить</span>
+            </button>
+            )}
             <button type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent" onClick={() => openProperties(chat.id)}>
               {getChatActionIcon('properties')}
               <span>Свойства</span>
@@ -2968,6 +2997,23 @@ export function ChatsPage() {
                           </span>
                           <span className="text-xs text-slate-400">↗</span>
                         </button>
+                        {activeChatMenuTarget?.pinned_at && (
+                          <button
+                            type="button"
+                            className={`${mobileChatActionButtonClass} mt-2`}
+                            onClick={() => {
+                              if (!activeChatMenuTarget) return;
+                              void unpinChatFromTop(activeChatMenuTarget);
+                            }}
+                            disabled={updateChatMutation.isPending}
+                          >
+                            <span className="flex items-center gap-2">
+                              {getChatActionIcon('unpin')}
+                              <span>Открепить</span>
+                            </span>
+                            <span className="text-xs text-slate-400">↗</span>
+                          </button>
+                        )}
                         <button
                           type="button"
                           className={`${mobileChatActionButtonClass} mt-2`}

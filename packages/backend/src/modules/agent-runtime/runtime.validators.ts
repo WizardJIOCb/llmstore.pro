@@ -34,6 +34,7 @@ const updateChatSchema = z.object({
   access: z.enum(['public', 'private', 'restricted']).optional(),
   access_identifiers: z.array(z.string().min(1).max(255)).max(200).optional(),
   pin_to_top: z.boolean().optional(),
+  unpin_from_top: z.boolean().optional(),
 });
 
 const sendMessageSchema = z.object({
