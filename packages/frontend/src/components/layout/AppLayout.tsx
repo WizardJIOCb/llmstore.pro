@@ -13,6 +13,7 @@ import { authApi } from '../../lib/api/auth';
 const DEFAULT_ROUTE_TRANSITION_MODE: RouteTransitionMode = 'soft';
 const MOBILE_MENU_CLOSE_MS = 220;
 const MOBILE_MENU_ITEM_STAGGER_MS = 28;
+const MOBILE_MENU_ITEM_MAX_DELAY_MS = 140;
 const LAST_CHAT_SELECTION_STORAGE_KEY = 'llmstore.last-chat-selection';
 
 function hasPersistedActiveChat(): boolean {
@@ -249,6 +250,8 @@ export function AppLayout() {
     setLogoPlaybackNonce((current) => current + 1);
   };
 
+  const getMobileMenuAnimationDelay = (index: number) => `${Math.min(index * MOBILE_MENU_ITEM_STAGGER_MS, MOBILE_MENU_ITEM_MAX_DELAY_MS)}ms`;
+
   const mobileNavActions = visibleNavItems.map((item, index) => ({
     key: item.href,
     render: item.href === '/chats' ? (
@@ -262,7 +265,7 @@ export function AppLayout() {
             ? 'border-cyan-300/60 bg-[linear-gradient(135deg,rgba(16,24,40,0.95),rgba(16,40,48,0.92))] text-white shadow-[0_0_0_1px_rgba(103,232,249,0.35),0_0_34px_rgba(45,212,191,0.22)]'
             : 'border-transparent bg-transparent text-white/88 active:text-white',
         )}
-        style={{ animationDelay: `${index * MOBILE_MENU_ITEM_STAGGER_MS}ms` }}
+        style={{ animationDelay: getMobileMenuAnimationDelay(index) }}
       >
         <span>{item.label}</span>
         <span className="text-xs text-slate-400">↗</span>
@@ -277,7 +280,7 @@ export function AppLayout() {
             ? 'border-cyan-300/60 bg-[linear-gradient(135deg,rgba(16,24,40,0.95),rgba(16,40,48,0.92))] text-white shadow-[0_0_0_1px_rgba(103,232,249,0.35),0_0_34px_rgba(45,212,191,0.22)]'
             : 'border-transparent bg-transparent text-white/88 active:text-white',
         )}
-        style={{ animationDelay: `${index * MOBILE_MENU_ITEM_STAGGER_MS}ms` }}
+        style={{ animationDelay: getMobileMenuAnimationDelay(index) }}
       >
         <span>{item.label}</span>
         <span className="text-xs text-slate-400">↗</span>
@@ -458,13 +461,14 @@ export function AppLayout() {
         >
           <div className="absolute inset-0 bg-[rgba(3,7,18,0.72)] backdrop-blur-[10px]" />
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_78%_22%,rgba(45,212,191,0.2),transparent_24%),radial-gradient(circle_at_72%_54%,rgba(103,232,249,0.14),transparent_22%),radial-gradient(circle_at_38%_70%,rgba(255,255,255,0.08),transparent_14%),radial-gradient(circle_at_64%_78%,rgba(255,255,255,0.08),transparent_12%),linear-gradient(180deg,rgba(7,12,24,0.96),rgba(6,10,20,0.98))]" />
-          <div className="mobile-popover-shell pointer-events-none absolute inset-x-0 top-0 flex justify-end">
+          <div className="mobile-popover-shell absolute inset-x-0 top-0 flex justify-end">
             <div
               className={cn(
-                'mobile-popover-panel pointer-events-auto h-full w-full overflow-y-auto border-t border-white/10 bg-transparent px-4 pb-4 pt-3 text-white [&_p]:text-white/80 [&_a]:text-white [&_button]:text-white',
+                'mobile-popover-panel h-full w-full touch-manipulation overflow-y-auto border-t border-white/10 bg-transparent px-4 pb-4 pt-3 text-white [&_p]:text-white/80 [&_a]:text-white [&_button]:text-white',
                 isMobileMenuClosing ? 'mobile-popover-panel--out' : 'mobile-popover-panel--in',
               )}
               onClick={(event) => event.stopPropagation()}
+              onPointerDown={(event) => event.stopPropagation()}
             >
               <div className="mb-3 flex items-start justify-between gap-3 text-white">
                 <div>
@@ -487,13 +491,13 @@ export function AppLayout() {
 
               {isAuthenticated && (
                 <div className="mt-4 rounded-[22px] border border-white/10 bg-white/[0.04] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
-                  <div className="mobile-popover-item mobile-popover-item--in" style={{ animationDelay: `${mobileActionDelayBase * MOBILE_MENU_ITEM_STAGGER_MS}ms` }}>
+                  <div className="mobile-popover-item mobile-popover-item--in" style={{ animationDelay: getMobileMenuAnimationDelay(mobileActionDelayBase) }}>
                     <p className="text-xs uppercase tracking-[0.22em] text-slate-400">{mobileChatsCountLabel}</p>
                   </div>
                   {(!chats || chats.length === 0) ? (
                     <div
                       className="mobile-popover-item mobile-popover-item--in mt-2 space-y-2"
-                      style={{ animationDelay: `${(mobileActionDelayBase + 1) * MOBILE_MENU_ITEM_STAGGER_MS}ms` }}
+                      style={{ animationDelay: getMobileMenuAnimationDelay(mobileActionDelayBase + 1) }}
                     >
                       <p className="text-sm text-slate-600">Пока нет чатов</p>
                       <Button
@@ -522,7 +526,7 @@ export function AppLayout() {
                             'mobile-popover-item flex min-h-[2.4rem] w-full touch-manipulation items-center rounded-[18px] border border-white/10 bg-white/[0.03] px-3 py-1.5 text-left text-[0.92rem] leading-tight text-white/78 transition-colors active:bg-white/[0.06] active:text-white',
                             isMobileMenuClosing ? 'mobile-popover-item--out' : 'mobile-popover-item--in',
                           )}
-                          style={{ animationDelay: `${(mobileActionDelayBase + 1 + index) * MOBILE_MENU_ITEM_STAGGER_MS}ms` }}
+                          style={{ animationDelay: getMobileMenuAnimationDelay(mobileActionDelayBase + 1 + index) }}
                           onClick={() => selectChat(chat.id)}
                         >
                           <span className="block min-w-0 truncate whitespace-nowrap">
@@ -544,7 +548,7 @@ export function AppLayout() {
                         'mobile-popover-item block touch-manipulation rounded-[18px] border border-cyan-300/20 bg-[linear-gradient(135deg,rgba(12,20,34,0.78),rgba(15,32,44,0.62))] px-3.5 py-2.5 text-sm font-medium text-cyan-100 transition-colors active:border-cyan-300/40 active:text-white',
                         isMobileMenuClosing ? 'mobile-popover-item--out' : 'mobile-popover-item--in',
                       )}
-                      style={{ animationDelay: `${(mobileActionDelayBase + 2) * MOBILE_MENU_ITEM_STAGGER_MS}ms` }}
+                      style={{ animationDelay: getMobileMenuAnimationDelay(mobileActionDelayBase + 2) }}
                       onClick={closeMobileMenu}
                     >
                       {profileLabel}
@@ -557,7 +561,7 @@ export function AppLayout() {
                           'mobile-popover-item flex w-full touch-manipulation rounded-[18px] border border-transparent px-3 py-2.5 text-[0.98rem] font-medium leading-tight tracking-[-0.015em] text-white/82 transition-colors active:text-white',
                           isMobileMenuClosing ? 'mobile-popover-item--out' : 'mobile-popover-item--in',
                         )}
-                        style={{ animationDelay: `${(mobileActionDelayBase + 3) * MOBILE_MENU_ITEM_STAGGER_MS}ms` }}
+                        style={{ animationDelay: getMobileMenuAnimationDelay(mobileActionDelayBase + 3) }}
                         onClick={closeMobileMenu}
                       >
                         Админ
@@ -569,7 +573,7 @@ export function AppLayout() {
                         'mobile-popover-item',
                         isMobileMenuClosing ? 'mobile-popover-item--out' : 'mobile-popover-item--in',
                       )}
-                      style={{ animationDelay: `${(mobileActionDelayBase + 4) * MOBILE_MENU_ITEM_STAGGER_MS}ms` }}
+                      style={{ animationDelay: getMobileMenuAnimationDelay(mobileActionDelayBase + 4) }}
                     >
                       <Button className="w-full rounded-[18px] border-cyan-300/35 bg-[linear-gradient(135deg,rgba(12,20,34,0.94),rgba(15,32,44,0.88))] text-white shadow-[0_0_0_1px_rgba(103,232,249,0.14),0_0_22px_rgba(45,212,191,0.12),inset_0_1px_0_rgba(255,255,255,0.06)] hover:border-cyan-300/50 hover:bg-[linear-gradient(135deg,rgba(16,26,42,0.98),rgba(18,40,54,0.94))] hover:text-white" variant="outline" size="sm" onClick={handleLogout}>Выйти</Button>
                     </div>
@@ -581,7 +585,7 @@ export function AppLayout() {
                         'mobile-popover-item',
                         isMobileMenuClosing ? 'mobile-popover-item--out' : 'mobile-popover-item--in',
                       )}
-                      style={{ animationDelay: `${(mobileActionDelayBase + 2) * MOBILE_MENU_ITEM_STAGGER_MS}ms` }}
+                      style={{ animationDelay: getMobileMenuAnimationDelay(mobileActionDelayBase + 2) }}
                     >
                       <Link to="/login" onClick={closeMobileMenu}>
                         <Button
@@ -598,7 +602,7 @@ export function AppLayout() {
                         'mobile-popover-item',
                         isMobileMenuClosing ? 'mobile-popover-item--out' : 'mobile-popover-item--in',
                       )}
-                      style={{ animationDelay: `${(mobileActionDelayBase + 3) * MOBILE_MENU_ITEM_STAGGER_MS}ms` }}
+                      style={{ animationDelay: getMobileMenuAnimationDelay(mobileActionDelayBase + 3) }}
                     >
                       <Link to="/register" onClick={closeMobileMenu}>
                         <Button
