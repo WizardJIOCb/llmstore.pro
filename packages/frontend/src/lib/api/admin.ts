@@ -31,6 +31,11 @@ export interface AdminRuntimesParams {
   status?: 'all' | 'deploying' | 'running' | 'stopped' | 'failed';
 }
 
+export interface AdminDebugChatsParams {
+  query: string;
+  limit?: number;
+}
+
 export interface AdminDashboardChartsParams {
   date_from?: string;
   date_to?: string;
@@ -297,6 +302,124 @@ export interface AdminRuntimeItem {
   last_stopped_at: string | null;
 }
 
+export interface AdminDebugChatMatch {
+  id: string;
+  title: string;
+  mode: string;
+  access: string;
+  share_token: string | null;
+  model_external_id: string | null;
+  created_at: string;
+  updated_at: string;
+  last_message_at: string;
+  total_view_count: number;
+  unique_view_count: number;
+  message_count: number;
+  assistant_message_count: number;
+  run_count: number;
+  owner: {
+    id: string;
+    name: string | null;
+    username: string | null;
+    email: string;
+  };
+  agent: {
+    id: string;
+    name: string | null;
+  } | null;
+}
+
+export interface AdminDebugToolCall {
+  id: string;
+  tool_definition_id: string | null;
+  tool_call_id: string;
+  tool_name: string;
+  tool_input: Record<string, unknown> | null;
+  tool_output: Record<string, unknown> | null;
+  status: string;
+  duration_ms: number | null;
+  error_message: string | null;
+  created_at: string;
+}
+
+export interface AdminDebugRunMessage {
+  id: string;
+  role: string;
+  content_text: string | null;
+  content_json: Record<string, unknown> | null;
+  token_estimate: number | null;
+  created_at: string;
+}
+
+export interface AdminDebugRun {
+  id: string;
+  status: string;
+  mode: string;
+  model_id: string | null;
+  model_external_id: string | null;
+  provider_name: string | null;
+  external_generation_id: string | null;
+  external_response_id: string | null;
+  session_key: string | null;
+  trace_id: string;
+  started_at: string;
+  completed_at: string | null;
+  latency_ms: number | null;
+  error_message: string | null;
+  input_summary: string | null;
+  output_summary: string | null;
+  final_output: string | null;
+  final_output_json: Record<string, unknown> | null;
+  run_messages: AdminDebugRunMessage[];
+  tool_calls: AdminDebugToolCall[];
+}
+
+export interface AdminDebugChatMessage {
+  id: string;
+  role: string;
+  content_text: string;
+  run_id: string | null;
+  usage_json: Record<string, unknown> | null;
+  preview_view_count: number;
+  project_run_count: number;
+  latency_ms: number | null;
+  created_at: string;
+  run: AdminDebugRun | null;
+}
+
+export interface AdminDebugChatDetail {
+  conversation: {
+    id: string;
+    title: string;
+    mode: string;
+    access: string;
+    share_token: string | null;
+    model_external_id: string | null;
+    system_prompt: string | null;
+    settings_json: Record<string, unknown> | null;
+    total_view_count: number;
+    unique_view_count: number;
+    created_at: string;
+    updated_at: string;
+    last_message_at: string;
+    message_count: number;
+    user_message_count: number;
+    assistant_message_count: number;
+    owner: {
+      id: string;
+      name: string | null;
+      username: string | null;
+      email: string;
+    };
+    agent: {
+      id: string;
+      name: string | null;
+      slug: string | null;
+    } | null;
+  };
+  messages: AdminDebugChatMessage[];
+}
+
 export const adminApi = {
   // Dashboard
   getDashboardStats: () =>
@@ -307,6 +430,12 @@ export const adminApi = {
 
   listRuntimes: (params: AdminRuntimesParams) =>
     apiClient.get<{ data: AdminRuntimeItem[]; meta: { total: number } }>('/admin/runtimes', { params }).then((r) => r.data),
+
+  searchDebugChats: (params: AdminDebugChatsParams) =>
+    apiClient.get<{ data: AdminDebugChatMatch[] }>('/admin/debug/chats', { params }).then((r) => r.data.data),
+
+  getDebugChat: (id: string) =>
+    apiClient.get<{ data: AdminDebugChatDetail }>(`/admin/debug/chats/${id}`).then((r) => r.data.data),
 
   startRuntime: (id: string) =>
     apiClient.post<{ data: AdminRuntimeItem }>(`/admin/runtimes/${id}/start`).then((r) => r.data.data),

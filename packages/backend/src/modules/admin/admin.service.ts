@@ -1,5 +1,5 @@
 import argon2 from 'argon2';
-import { eq, and, desc, asc, ilike, sql, count, inArray, type SQL } from 'drizzle-orm';
+import { eq, and, or, desc, asc, ilike, sql, count, inArray, type SQL } from 'drizzle-orm';
 import { db } from '../../config/database.js';
 import {
   catalogItems, catalogItemMeta,
@@ -10,6 +10,7 @@ import {
   agents, agentRuns,
   toolDefinitions,
   chatConversations, chatConversationMessages,
+  agentRunMessages, agentRunToolCalls, aiModels,
 } from '../../db/schema/index.js';
 import { NotFoundError, ConflictError, AppError } from '../../middleware/error-handler.js';
 import type { CreateCatalogItemInput, UpdateCatalogItemInput } from '@llmstore/shared/schemas';
@@ -874,6 +875,18 @@ interface AdminRuntimesQuery {
   status?: string;
 }
 
+interface AdminDebugChatsQuery {
+  query?: string;
+  limit?: number;
+}
+
+interface AdminDebugChatLocator {
+  raw: string;
+  conversationId: string | null;
+  shareToken: string | null;
+  searchText: string | null;
+}
+
 export async function resetUserPassword(adminUserId: string, id: string, password: string) {
   const [user] = await db
     .select({
@@ -1119,6 +1132,58 @@ function toSafeNumber(value: string | number | null | undefined): number {
 
 function roundMetric(value: number, digits = 6): number {
   return Number(value.toFixed(digits));
+}
+
+function normalizeAdminDebugLocator(value?: string | null): AdminDebugChatLocator {
+  const raw = value?.trim() ?? '';
+  if (!raw) {
+    return {
+      raw: '',
+      conversationId: null,
+      shareToken: null,
+      searchText: null,
+    };
+  }
+
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const directUuid = uuidPattern.test(raw) ? raw : null;
+
+  let conversationId: string | null = directUuid;
+  let shareToken: string | null = null;
+
+  try {
+    const parsedUrl = new URL(raw);
+    const chatParam = parsedUrl.searchParams.get('chat') || parsedUrl.searchParams.get('admin_chat_id');
+    if (chatParam && uuidPattern.test(chatParam)) {
+      conversationId = chatParam;
+    }
+
+    const pathMatch = parsedUrl.pathname.match(/^\/(?:shared\/)?chats?\/([^/?#]+)/i);
+    if (pathMatch?.[1]) {
+      shareToken = pathMatch[1];
+    }
+  } catch {
+    const chatQueryMatch = raw.match(/[?&](?:chat|admin_chat_id)=([0-9a-f-]{36})/i);
+    if (chatQueryMatch?.[1] && uuidPattern.test(chatQueryMatch[1])) {
+      conversationId = chatQueryMatch[1];
+    }
+
+    const pathMatch = raw.match(/\/(?:shared\/)?chats?\/([^/?#]+)/i);
+    if (pathMatch?.[1]) {
+      shareToken = pathMatch[1];
+    }
+  }
+
+  if (!shareToken && !conversationId && /^[A-Za-z0-9_-]{8,128}$/.test(raw)) {
+    shareToken = raw;
+  }
+
+  return {
+    raw,
+    conversationId,
+    shareToken,
+    searchText: raw,
+  };
 }
 
 function normalizeDashboardChartsRange(query: AdminDashboardChartsQuery) {
@@ -1723,6 +1788,338 @@ export async function startRuntime(id: string): Promise<AdminProjectDeploymentRe
 
 export async function stopRuntime(id: string): Promise<AdminProjectDeploymentRecord> {
   return stopProjectDeploymentAsAdmin(id);
+}
+
+export async function searchDebugChats(query: AdminDebugChatsQuery) {
+  const locator = normalizeAdminDebugLocator(query.query);
+  const limit = Math.min(Math.max(query.limit ?? 12, 1), 50);
+  const conditions: SQL[] = [];
+
+  if (locator.conversationId) {
+    conditions.push(eq(chatConversations.id, locator.conversationId));
+  }
+
+  if (locator.shareToken) {
+    conditions.push(eq(chatConversations.share_token, locator.shareToken));
+  }
+
+  if (locator.searchText) {
+    const term = `%${locator.searchText}%`;
+    conditions.push(or(
+      ilike(chatConversations.title, term),
+      ilike(users.email, term),
+      ilike(sql`coalesce(${users.username}, '')`, term),
+      ilike(sql`coalesce(${users.name}, '')`, term),
+      ilike(sql`coalesce(${agents.name}, '')`, term),
+    )!);
+  }
+
+  const where = conditions.length > 0 ? or(...conditions) : undefined;
+
+  const rows = await db
+    .select({
+      id: chatConversations.id,
+      title: chatConversations.title,
+      mode: chatConversations.mode,
+      access: chatConversations.access,
+      share_token: chatConversations.share_token,
+      model_external_id: chatConversations.model_external_id,
+      created_at: chatConversations.created_at,
+      updated_at: chatConversations.updated_at,
+      last_message_at: chatConversations.last_message_at,
+      total_view_count: chatConversations.total_view_count,
+      unique_view_count: chatConversations.unique_view_count,
+      owner_id: users.id,
+      owner_name: users.name,
+      owner_username: users.username,
+      owner_email: users.email,
+      agent_id: agents.id,
+      agent_name: agents.name,
+      message_count: sql<number>`(
+        select count(*)::int
+        from ${chatConversationMessages}
+        where ${chatConversationMessages.conversation_id} = ${chatConversations.id}
+      )`,
+      assistant_message_count: sql<number>`(
+        select count(*)::int
+        from ${chatConversationMessages}
+        where ${chatConversationMessages.conversation_id} = ${chatConversations.id}
+          and ${chatConversationMessages.role} = 'assistant'
+      )`,
+      run_count: sql<number>`(
+        select count(*)::int
+        from ${agentRuns}
+        where ${agentRuns.id} in (
+          select ${chatConversationMessages.run_id}
+          from ${chatConversationMessages}
+          where ${chatConversationMessages.conversation_id} = ${chatConversations.id}
+            and ${chatConversationMessages.run_id} is not null
+        )
+      )`,
+    })
+    .from(chatConversations)
+    .innerJoin(users, eq(chatConversations.user_id, users.id))
+    .leftJoin(agents, eq(chatConversations.agent_id, agents.id))
+    .where(where)
+    .orderBy(desc(chatConversations.updated_at))
+    .limit(limit);
+
+  return rows.map((row) => ({
+    id: row.id,
+    title: row.title,
+    mode: row.mode,
+    access: row.access,
+    share_token: row.share_token,
+    model_external_id: row.model_external_id,
+    created_at: row.created_at.toISOString(),
+    updated_at: row.updated_at.toISOString(),
+    last_message_at: row.last_message_at.toISOString(),
+    total_view_count: row.total_view_count,
+    unique_view_count: row.unique_view_count,
+    owner: {
+      id: row.owner_id,
+      name: row.owner_name,
+      username: row.owner_username,
+      email: row.owner_email,
+    },
+    agent: row.agent_id ? { id: row.agent_id, name: row.agent_name } : null,
+    message_count: toSafeNumber(row.message_count),
+    assistant_message_count: toSafeNumber(row.assistant_message_count),
+    run_count: toSafeNumber(row.run_count),
+  }));
+}
+
+export async function getDebugChatById(conversationId: string) {
+  const [conversation] = await db
+    .select({
+      id: chatConversations.id,
+      title: chatConversations.title,
+      mode: chatConversations.mode,
+      access: chatConversations.access,
+      share_token: chatConversations.share_token,
+      model_external_id: chatConversations.model_external_id,
+      system_prompt: chatConversations.system_prompt,
+      settings_json: chatConversations.settings_json,
+      total_view_count: chatConversations.total_view_count,
+      unique_view_count: chatConversations.unique_view_count,
+      created_at: chatConversations.created_at,
+      updated_at: chatConversations.updated_at,
+      last_message_at: chatConversations.last_message_at,
+      owner_id: users.id,
+      owner_name: users.name,
+      owner_username: users.username,
+      owner_email: users.email,
+      agent_id: agents.id,
+      agent_name: agents.name,
+      agent_slug: agents.slug,
+      message_count: sql<number>`(
+        select count(*)::int
+        from ${chatConversationMessages}
+        where ${chatConversationMessages.conversation_id} = ${chatConversations.id}
+      )`,
+      user_message_count: sql<number>`(
+        select count(*)::int
+        from ${chatConversationMessages}
+        where ${chatConversationMessages.conversation_id} = ${chatConversations.id}
+          and ${chatConversationMessages.role} = 'user'
+      )`,
+      assistant_message_count: sql<number>`(
+        select count(*)::int
+        from ${chatConversationMessages}
+        where ${chatConversationMessages.conversation_id} = ${chatConversations.id}
+          and ${chatConversationMessages.role} = 'assistant'
+      )`,
+    })
+    .from(chatConversations)
+    .innerJoin(users, eq(chatConversations.user_id, users.id))
+    .leftJoin(agents, eq(chatConversations.agent_id, agents.id))
+    .where(eq(chatConversations.id, conversationId))
+    .limit(1);
+
+  if (!conversation) {
+    throw new NotFoundError('Чат не найден');
+  }
+
+  const messages = await db
+    .select({
+      id: chatConversationMessages.id,
+      role: chatConversationMessages.role,
+      content_text: chatConversationMessages.content_text,
+      run_id: chatConversationMessages.run_id,
+      usage_json: chatConversationMessages.usage_json,
+      preview_view_count: chatConversationMessages.preview_view_count,
+      project_run_count: chatConversationMessages.project_run_count,
+      latency_ms: chatConversationMessages.latency_ms,
+      created_at: chatConversationMessages.created_at,
+    })
+    .from(chatConversationMessages)
+    .where(eq(chatConversationMessages.conversation_id, conversationId))
+    .orderBy(asc(chatConversationMessages.created_at));
+
+  const runIds = [...new Set(messages.map((message) => message.run_id).filter((value): value is string => Boolean(value)))];
+
+  const [runs, runMessages, toolCalls] = await Promise.all([
+    runIds.length > 0
+      ? db
+        .select({
+          id: agentRuns.id,
+          status: agentRuns.status,
+          mode: agentRuns.mode,
+          model_id: agentRuns.model_id,
+          model_external_id: aiModels.external_model_id,
+          provider_name: agentRuns.provider_name,
+          external_generation_id: agentRuns.external_generation_id,
+          external_response_id: agentRuns.external_response_id,
+          session_key: agentRuns.session_key,
+          trace_id: agentRuns.trace_id,
+          started_at: agentRuns.started_at,
+          completed_at: agentRuns.completed_at,
+          latency_ms: agentRuns.latency_ms,
+          error_message: agentRuns.error_message,
+          input_summary: agentRuns.input_summary,
+          output_summary: agentRuns.output_summary,
+          final_output: agentRuns.final_output,
+          final_output_json: agentRuns.final_output_json,
+        })
+        .from(agentRuns)
+        .leftJoin(aiModels, eq(agentRuns.model_id, aiModels.id))
+        .where(inArray(agentRuns.id, runIds))
+        .orderBy(asc(agentRuns.started_at))
+      : Promise.resolve([]),
+    runIds.length > 0
+      ? db
+        .select({
+          id: agentRunMessages.id,
+          run_id: agentRunMessages.run_id,
+          role: agentRunMessages.role,
+          content_text: agentRunMessages.content_text,
+          content_json: agentRunMessages.content_json,
+          token_estimate: agentRunMessages.token_estimate,
+          created_at: agentRunMessages.created_at,
+        })
+        .from(agentRunMessages)
+        .where(inArray(agentRunMessages.run_id, runIds))
+        .orderBy(asc(agentRunMessages.created_at))
+      : Promise.resolve([]),
+    runIds.length > 0
+      ? db
+        .select({
+          id: agentRunToolCalls.id,
+          run_id: agentRunToolCalls.run_id,
+          tool_definition_id: agentRunToolCalls.tool_definition_id,
+          tool_call_id: agentRunToolCalls.tool_call_id,
+          tool_name: agentRunToolCalls.tool_name,
+          tool_input: agentRunToolCalls.tool_input,
+          tool_output: agentRunToolCalls.tool_output,
+          status: agentRunToolCalls.status,
+          duration_ms: agentRunToolCalls.duration_ms,
+          error_message: agentRunToolCalls.error_message,
+          created_at: agentRunToolCalls.created_at,
+        })
+        .from(agentRunToolCalls)
+        .where(inArray(agentRunToolCalls.run_id, runIds))
+        .orderBy(asc(agentRunToolCalls.created_at))
+      : Promise.resolve([]),
+  ]);
+
+  const runMessagesByRunId = new Map<string, typeof runMessages>();
+  for (const message of runMessages) {
+    const bucket = runMessagesByRunId.get(message.run_id) ?? [];
+    bucket.push(message);
+    runMessagesByRunId.set(message.run_id, bucket);
+  }
+
+  const toolCallsByRunId = new Map<string, typeof toolCalls>();
+  for (const toolCall of toolCalls) {
+    const bucket = toolCallsByRunId.get(toolCall.run_id) ?? [];
+    bucket.push(toolCall);
+    toolCallsByRunId.set(toolCall.run_id, bucket);
+  }
+
+  const runsById = new Map(runs.map((run) => [run.id, {
+    id: run.id,
+    status: run.status,
+    mode: run.mode,
+    model_id: run.model_id,
+    model_external_id: run.model_external_id,
+    provider_name: run.provider_name,
+    external_generation_id: run.external_generation_id,
+    external_response_id: run.external_response_id,
+    session_key: run.session_key,
+    trace_id: run.trace_id,
+    started_at: run.started_at.toISOString(),
+    completed_at: run.completed_at?.toISOString() ?? null,
+    latency_ms: run.latency_ms,
+    error_message: run.error_message,
+    input_summary: run.input_summary,
+    output_summary: run.output_summary,
+    final_output: run.final_output,
+    final_output_json: run.final_output_json,
+    run_messages: (runMessagesByRunId.get(run.id) ?? []).map((message) => ({
+      id: message.id,
+      role: message.role,
+      content_text: message.content_text,
+      content_json: message.content_json,
+      token_estimate: message.token_estimate,
+      created_at: message.created_at.toISOString(),
+    })),
+    tool_calls: (toolCallsByRunId.get(run.id) ?? []).map((toolCall) => ({
+      id: toolCall.id,
+      tool_definition_id: toolCall.tool_definition_id,
+      tool_call_id: toolCall.tool_call_id,
+      tool_name: toolCall.tool_name,
+      tool_input: toolCall.tool_input,
+      tool_output: toolCall.tool_output,
+      status: toolCall.status,
+      duration_ms: toolCall.duration_ms,
+      error_message: toolCall.error_message,
+      created_at: toolCall.created_at.toISOString(),
+    })),
+  }]));
+
+  return {
+    conversation: {
+      id: conversation.id,
+      title: conversation.title,
+      mode: conversation.mode,
+      access: conversation.access,
+      share_token: conversation.share_token,
+      model_external_id: conversation.model_external_id,
+      system_prompt: conversation.system_prompt,
+      settings_json: conversation.settings_json,
+      total_view_count: conversation.total_view_count,
+      unique_view_count: conversation.unique_view_count,
+      created_at: conversation.created_at.toISOString(),
+      updated_at: conversation.updated_at.toISOString(),
+      last_message_at: conversation.last_message_at.toISOString(),
+      owner: {
+        id: conversation.owner_id,
+        name: conversation.owner_name,
+        username: conversation.owner_username,
+        email: conversation.owner_email,
+      },
+      agent: conversation.agent_id ? {
+        id: conversation.agent_id,
+        name: conversation.agent_name,
+        slug: conversation.agent_slug,
+      } : null,
+      message_count: toSafeNumber(conversation.message_count),
+      user_message_count: toSafeNumber(conversation.user_message_count),
+      assistant_message_count: toSafeNumber(conversation.assistant_message_count),
+    },
+    messages: messages.map((message) => ({
+      id: message.id,
+      role: message.role,
+      content_text: message.content_text,
+      run_id: message.run_id,
+      usage_json: message.usage_json,
+      preview_view_count: message.preview_view_count,
+      project_run_count: message.project_run_count,
+      latency_ms: message.latency_ms,
+      created_at: message.created_at.toISOString(),
+      run: message.run_id ? (runsById.get(message.run_id) ?? null) : null,
+    })),
+  };
 }
 
 export async function getDashboardStats() {

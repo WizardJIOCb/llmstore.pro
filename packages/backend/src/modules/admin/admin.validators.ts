@@ -32,6 +32,13 @@ const adminRuntimesQuerySchema = z.object({
 
 export const validateAdminRuntimesQuery = validate(adminRuntimesQuerySchema, 'query');
 
+const adminDebugChatsQuerySchema = z.object({
+  query: z.string().trim().min(1).max(1000),
+  limit: z.coerce.number().int().min(1).max(50).optional(),
+});
+
+export const validateAdminDebugChatsQuery = validate(adminDebugChatsQuerySchema, 'query');
+
 const taxonomyCreateSchema = z.object({
   name: z.string().min(1).max(255),
   slug: z.string().min(1).max(255).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),

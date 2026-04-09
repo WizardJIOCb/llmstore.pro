@@ -318,6 +318,24 @@ export async function listRuntimes(req: Request, res: Response, next: NextFuncti
   }
 }
 
+export async function searchDebugChats(req: Request, res: Response, next: NextFunction) {
+  try {
+    const result = await adminService.searchDebugChats(req.query as any);
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getDebugChat(req: Request<IdParams>, res: Response, next: NextFunction) {
+  try {
+    const result = await adminService.getDebugChatById(req.params.id);
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function startRuntime(req: Request<IdParams>, res: Response, next: NextFunction) {
   try {
     const runtime = await adminService.startRuntime(req.params.id);

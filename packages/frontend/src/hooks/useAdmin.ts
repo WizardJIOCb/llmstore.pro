@@ -6,6 +6,7 @@ import {
   type AdminAgentsParams,
   type AdminDashboardChartsParams,
   type AdminRuntimesParams,
+  type AdminDebugChatsParams,
 } from '../lib/api/admin';
 
 export function useAdminDashboardStats() {
@@ -35,6 +36,23 @@ export function useAdminRuntimes(params: AdminRuntimesParams) {
     placeholderData: (previousData) => previousData,
     refetchInterval: 5_000,
     refetchIntervalInBackground: true,
+  });
+}
+
+export function useAdminDebugChats(params: AdminDebugChatsParams, enabled = true) {
+  return useQuery({
+    queryKey: ['admin', 'debug', 'chats', params],
+    queryFn: () => adminApi.searchDebugChats(params),
+    enabled,
+    placeholderData: (previousData) => previousData,
+  });
+}
+
+export function useAdminDebugChat(id: string, enabled = true) {
+  return useQuery({
+    queryKey: ['admin', 'debug', 'chat', id],
+    queryFn: () => adminApi.getDebugChat(id),
+    enabled: enabled && Boolean(id),
   });
 }
 

@@ -4,7 +4,7 @@ import {
   validateCreateItem, validateUpdateItem, validateAdminListQuery,
   validateTaxonomyCreate, validateTaxonomyUpdate,
   validateCreateTool, validateUpdateTool,
-  validateUpdateAdminSettings, validateAdminChartsQuery, validateAdminRuntimesQuery, validateResetUserPassword,
+  validateUpdateAdminSettings, validateAdminChartsQuery, validateAdminRuntimesQuery, validateAdminDebugChatsQuery, validateResetUserPassword,
 } from './admin.validators.js';
 import { validateCreateNews, validateUpdateNews, validateAdminNewsListQuery } from '../news/news.validators.js';
 import { requireRole } from '../../middleware/auth-guard.js';
@@ -19,6 +19,8 @@ router.use(requireRole('admin', 'curator'));
 router.get('/dashboard/stats', controller.getDashboardStats);
 router.get('/dashboard/charts', validateAdminChartsQuery, controller.getDashboardCharts);
 router.get('/runtimes', validateAdminRuntimesQuery, controller.listRuntimes);
+router.get('/debug/chats', validateAdminDebugChatsQuery, controller.searchDebugChats);
+router.get('/debug/chats/:id', controller.getDebugChat);
 router.post('/runtimes/:id/start', controller.startRuntime);
 router.post('/runtimes/:id/stop', controller.stopRuntime);
 

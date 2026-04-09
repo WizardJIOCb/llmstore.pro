@@ -12,6 +12,7 @@ const adminNav = [
   { to: '/admin/users', label: 'Пользователи' },
   { to: '/admin/agents', label: 'Агенты' },
   { to: '/admin/runtimes', label: 'RunTime' },
+  { to: '/admin/debug', label: 'Отладка' },
 ];
 
 export function AdminLayout({ children }: { children: React.ReactNode }) {

@@ -22,6 +22,7 @@ import { AdminChartsPage } from './pages/admin/AdminChartsPage';
 import { AdminToolsPage } from './pages/admin/AdminToolsPage';
 import { AdminSettingsPage } from './pages/admin/AdminSettingsPage';
 import { AdminRuntimesPage } from './pages/admin/AdminRuntimesPage';
+import { AdminDebugPage } from './pages/admin/AdminDebugPage';
 import { NewsListPage } from './pages/news/NewsListPage';
 import { NewsDetailPage } from './pages/news/NewsDetailPage';
 import { MilestonesPage } from './pages/milestones/MilestonesPage';
@@ -315,6 +316,14 @@ export function App() {
           element={
             <ProtectedRoute requireAdmin>
               <AdminRuntimesPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/debug"
+          element={
+            <ProtectedRoute requireAdmin>
+              <AdminDebugPage />
             </ProtectedRoute>
           }
         />
