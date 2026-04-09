@@ -843,6 +843,64 @@ function sanitizeLandingSectionPlan(value: unknown): LandingSectionPlan | null {
   };
 }
 
+function buildLandingPlanSearchSpace(plan: LandingSectionPlan): string {
+  return [
+    plan.title,
+    plan.summary,
+    plan.style_direction,
+    ...plan.sections.flatMap((section) => [
+      section.id,
+      section.label,
+      section.goal,
+      ...(section.must_include ?? []),
+    ]),
+  ]
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .join(' ')
+    .toLowerCase();
+}
+
+function isLandingPlanRelevant(request: string, plan: LandingSectionPlan): boolean {
+  const requestText = request.toLowerCase();
+  const planText = buildLandingPlanSearchSpace(plan);
+
+  const offTopicSignals = [
+    'марс',
+    'starship',
+    'илон',
+    'elon',
+    'sci-fi',
+    'sci fi',
+    'space mission',
+    'dtf',
+    'космическ',
+  ];
+
+  for (const signal of offTopicSignals) {
+    if (planText.includes(signal) && !requestText.includes(signal)) {
+      return false;
+    }
+  }
+
+  if (requestText.includes('music-book.me') || requestText.includes('музык')) {
+    const expectedSignals = [
+      'книг',
+      'музык',
+      'театр',
+      'балет',
+      'роман',
+      'каталог',
+      'faq',
+      'контакт',
+    ];
+    if (!expectedSignals.some((signal) => planText.includes(signal))) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 function buildHeuristicLandingSectionPlan(request: string, partialOutput: string): LandingSectionPlan {
   const recoveredSummary = clampText(
     extractPartialCodingSummary(partialOutput)
@@ -853,50 +911,50 @@ function buildHeuristicLandingSectionPlan(request: string, partialOutput: string
   return {
     title: 'Generated landing',
     summary: recoveredSummary
-      ?? 'Нарративный sci-fi landing с путешествием на Марс, таймлайном, сценами при скролле и сатирической атмосферой.',
-    style_direction: 'Cinematic sci-fi storytelling, long-scroll scenes, satirical crowd energy, bold transitions, scroll-driven reveal moments.',
+      ?? 'Премиальный landing с сильным первым экраном, каталогом, преимуществами, историей бренда, FAQ, контактами и финальным CTA.',
+    style_direction: 'Editorial premium landing, strong typography, atmospheric visuals, warm palette, deliberate spacing, elegant long-scroll composition.',
     sections: [
       {
         id: 'hero',
         label: 'Hero',
-        goal: 'Сильный первый экран с оффером истории и ощущением большого космического путешествия.',
-        must_include: ['крупный заголовок', 'подзаголовок', 'визуальный фокус на запуске миссии', 'индикатор scroll'],
+        goal: 'Сильный первый экран с оффером, эмоциональным позиционированием и заметным CTA.',
+        must_include: ['крупный заголовок', 'подзаголовок', 'основной CTA', 'визуальный акцент'],
       },
       {
-        id: 'launch',
-        label: 'Старт миссии',
-        goal: 'Показать подготовку к полёту, ключевых героев и запуск Starship.',
-        must_include: ['Денис Ширяев', 'Илон Маск', 'Starship', 'атмосфера старта'],
+        id: 'catalog',
+        label: 'Каталог',
+        goal: 'Показать основные продукты, книги или направления с краткими описаниями.',
+        must_include: ['карточки каталога', 'названия', 'краткие описания', 'визуальная сетка'],
       },
       {
-        id: 'timeline',
-        label: 'Таймлайн миссии',
-        goal: 'Сверстать хронологию событий от старта до кульминации на Марсе.',
-        must_include: ['этапы путешествия', 'таймлайн', 'анимации при скролле'],
+        id: 'benefits',
+        label: 'Преимущества',
+        goal: 'Раскрыть ключевые преимущества продукта или бренда в удобном читаемом блоке.',
+        must_include: ['3-6 преимуществ', 'короткие подписи', 'ясная структура'],
       },
       {
-        id: 'dtf-crowd',
-        label: 'Толпа DTF на Марсе',
-        goal: 'Показать конфликтную встречу с комментаторами и визуально оформить их реплики.',
-        must_include: ['speech bubbles', 'ироничные реплики толпы', 'ощущение хаоса и движения'],
+        id: 'brand-story',
+        label: 'История бренда',
+        goal: 'Показать происхождение идеи, ценности и контекст бренда.',
+        must_include: ['история', 'ценности', 'эмоциональный контекст'],
       },
       {
-        id: 'journey',
-        label: 'Путь к центру Марса',
-        goal: 'Провести героев через несколько биомов и сцен по дороге к финалу.',
-        must_include: ['дороги', 'леса', 'пустыни', 'несколько сюжетных эпизодов'],
+        id: 'author',
+        label: 'Автор или основатель',
+        goal: 'Познакомить с автором, основателем или ключевой фигурой проекта.',
+        must_include: ['портретный блок', 'краткая биография', 'личная мотивация'],
       },
       {
-        id: 'throne-room',
-        label: 'Зал правителя Марса',
-        goal: 'Собрать кульминацию истории в тронном зале правителя Марса.',
-        must_include: ['финальная сцена', 'властная атмосфера', 'кульминационный диалог или развязка'],
+        id: 'faq',
+        label: 'FAQ',
+        goal: 'Закрыть ключевые вопросы пользователя перед решением или покупкой.',
+        must_include: ['вопросы и ответы', 'понятные формулировки'],
       },
       {
-        id: 'finale',
-        label: 'Финал',
-        goal: 'Сделать запоминающееся завершение истории на последнем экране.',
-        must_include: ['финальная фраза', 'сильный визуальный акцент', 'ощущение завершённости'],
+        id: 'contacts',
+        label: 'Контакты и CTA',
+        goal: 'Собрать контактные данные, форму заявки и финальный призыв к действию.',
+        must_include: ['контакты', 'форма заявки', 'финальный CTA'],
       },
     ],
   };
@@ -3598,7 +3656,17 @@ ${agent.description.trim()}`);
       Math.min(responseMaxTokens, 1800),
     );
     let plan = sanitizeLandingSectionPlan(extractJsonObjectFromAssistantContent(rawPlan));
-    const usedHeuristicPlan = !plan;
+    let usedHeuristicPlan = !plan;
+    if (plan && !isLandingPlanRelevant(latestUserMessage, plan)) {
+      plan = null;
+      usedHeuristicPlan = true;
+      await emitRunEvent('chat.run.status', {
+        run_id: run.id,
+        status: 'sectional_planning_rejected',
+        label: 'План секций отклонён как нерелевантный',
+        detail: 'Модель предложила план, который не похож на тему исходного сайта или запроса. Переключаюсь на безопасный fallback-план.',
+      });
+    }
     if (!plan) {
       plan = buildHeuristicLandingSectionPlan(latestUserMessage, partialOutput);
       await emitRunEvent('chat.run.status', {
