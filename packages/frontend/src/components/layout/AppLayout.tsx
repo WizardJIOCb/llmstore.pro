@@ -13,7 +13,7 @@ import { authApi } from '../../lib/api/auth';
 const DEFAULT_ROUTE_TRANSITION_MODE: RouteTransitionMode = 'soft';
 const MOBILE_MENU_CLOSE_MS = 220;
 const MOBILE_MENU_ITEM_STAGGER_MS = 28;
-const MOBILE_MENU_ITEM_MAX_DELAY_MS = 140;
+const MOBILE_MENU_ITEM_MAX_DELAY_MS = 280;
 const LAST_CHAT_SELECTION_STORAGE_KEY = 'llmstore.last-chat-selection';
 
 function hasPersistedActiveChat(): boolean {
