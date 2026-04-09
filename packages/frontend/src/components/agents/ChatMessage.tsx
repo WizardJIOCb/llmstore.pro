@@ -3077,25 +3077,25 @@ export function ChatMessage({
                         </div>
                         <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2 xl:grid-cols-4">
                           <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2">
-                            Запросов: {formatCompactNumber(projectDeployment.run_stats.total_runs)}
+                            Запросов: <span className="font-semibold text-foreground">{formatCompactNumber(projectDeployment.run_stats.total_runs)}</span>
                           </div>
                           <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2">
-                            Токенов: {formatCompactNumber(projectDeployment.run_stats.total_tokens)}
+                            Токенов: <span className="font-semibold text-foreground">{formatCompactNumber(projectDeployment.run_stats.total_tokens)}</span>
                           </div>
                           <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2">
-                            Стоимость: {formatUsdAmount(projectDeployment.run_stats.total_cost_usd)}
+                            Стоимость: <span className="font-semibold text-foreground">{formatUsdAmount(projectDeployment.run_stats.total_cost_usd)}</span>
                           </div>
                           <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2">
-                            В рублях: {formatRubAmount(projectDeployment.run_stats.total_cost_rub)}
+                            В рублях: <span className="font-semibold text-foreground">{formatRubAmount(projectDeployment.run_stats.total_cost_rub)}</span>
                           </div>
                           <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2">
-                            Успешно: {formatCompactNumber(projectDeployment.run_stats.completed_runs)}
+                            Успешно: <span className="font-semibold text-foreground">{formatCompactNumber(projectDeployment.run_stats.completed_runs)}</span>
                           </div>
                           <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2">
-                            Ошибок: {formatCompactNumber(projectDeployment.run_stats.failed_runs)}
+                            Ошибок: <span className="font-semibold text-foreground">{formatCompactNumber(projectDeployment.run_stats.failed_runs)}</span>
                           </div>
                           <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2 sm:col-span-2">
-                            Последний запрос: {formatDateTime(projectDeployment.run_stats.last_run_at)}
+                            Последний запрос: <span className="font-semibold text-foreground">{formatDateTime(projectDeployment.run_stats.last_run_at)}</span>
                           </div>
                         </div>
                         {deploymentLogLines.length > 0 && (
@@ -3139,8 +3139,8 @@ export function ChatMessage({
                                     </p>
                                   )}
                                   <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
-                                    <span>Токены: {formatCompactNumber(run.total_tokens)}</span>
-                                    <span>Стоимость: {formatUsdAmount(run.estimated_cost_usd)}</span>
+                                    <span>Токены: <span className="font-semibold text-foreground">{formatCompactNumber(run.total_tokens)}</span></span>
+                                    <span>Стоимость: <span className="font-semibold text-foreground">{formatUsdAmount(run.estimated_cost_usd)}</span></span>
                                   </div>
                                   {run.error_message && (
                                     <p className="mt-2 line-clamp-2 text-xs text-rose-600">
