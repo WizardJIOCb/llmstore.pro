@@ -3,6 +3,7 @@ import {
   chatsApi,
   type ChatAccess,
   type ChatAttachment,
+  type GalleryTextChatSort,
   type ChatListItem,
   type ChatMode,
 } from '../lib/api/chats';
@@ -19,6 +20,13 @@ export function useGalleryPreviews(limit = 24) {
   return useQuery({
     queryKey: ['gallery-previews', limit],
     queryFn: () => chatsApi.gallery(limit),
+  });
+}
+
+export function useGalleryTextChats(limit = 8, sort: GalleryTextChatSort = 'newest') {
+  return useQuery({
+    queryKey: ['gallery-text-chats', limit, sort],
+    queryFn: () => chatsApi.galleryTextChats(limit, sort),
   });
 }
 

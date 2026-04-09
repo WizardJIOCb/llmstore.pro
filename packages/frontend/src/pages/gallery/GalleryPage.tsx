@@ -2,9 +2,9 @@
 import { Link } from 'react-router-dom';
 import { useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useDeleteGalleryReaction, useGalleryPreviews, useSetGalleryReaction } from '../../hooks/useChats';
+import { useDeleteGalleryReaction, useGalleryPreviews, useGalleryTextChats, useSetGalleryReaction } from '../../hooks/useChats';
 import { chatsApi } from '../../lib/api/chats';
-import type { ChatReactionType, GalleryPreviewItem, ProjectRunResult } from '../../lib/api/chats';
+import type { ChatReactionType, GalleryPreviewItem, GalleryTextChatItem, GalleryTextChatSort, ProjectRunResult } from '../../lib/api/chats';
 import { Spinner } from '../../components/ui/Spinner';
 import { Button } from '../../components/ui/Button';
 import { Select } from '../../components/ui/Select';
@@ -26,6 +26,16 @@ const GALLERY_KIND_FILTERS = [
   { value: 'project', label: 'Runnable Projects' },
   { value: 'preview', label: 'Лендинги и Preview' },
 ] as const;
+const TEXT_CHAT_SORT_OPTIONS: Array<{ value: GalleryTextChatSort; label: string }> = [
+  { value: 'newest', label: 'Сначала новые' },
+  { value: 'oldest', label: 'Сначала старые' },
+  { value: 'views_day', label: 'Макс. просмотры за день' },
+  { value: 'views_week', label: 'Макс. просмотры за неделю' },
+  { value: 'views_month', label: 'Макс. просмотры за месяц' },
+  { value: 'views_all', label: 'Макс. просмотры за всё время' },
+  { value: 'message_count', label: 'По количеству сообщений' },
+  { value: 'total_cost', label: 'По цене чата' },
+];
 
 type GalleryKindFilter = (typeof GALLERY_KIND_FILTERS)[number]['value'];
 
@@ -200,6 +210,13 @@ function buildGalleryChatTarget(item: GalleryPreviewItem): string {
   return item.chat_url || `/chats?chat=${encodeURIComponent(item.chat_id)}`;
 }
 
+function buildGalleryTextChatTarget(item: GalleryTextChatItem): string {
+  if (item.is_owner) {
+    return `/chats?chat=${encodeURIComponent(item.chat_id)}`;
+  }
+  return item.chat_url || `/chats?chat=${encodeURIComponent(item.chat_id)}`;
+}
+
 function GalleryArtifactFrame({
   item,
   projectRunCount,
@@ -274,12 +291,17 @@ export function GalleryPage() {
     message: string;
     message_id?: string;
   };
+  const TEXT_CHAT_PAGE_SIZE = 6;
 
+  const textChatsTopRef = useRef<HTMLDivElement | null>(null);
   const resultsTopRef = useRef<HTMLDivElement | null>(null);
+  const previousTextChatPageRef = useRef(1);
   const previousPageRef = useRef(1);
   const [pageSize, setPageSize] = useState(4);
   const [currentPage, setCurrentPage] = useState(1);
+  const [textChatPage, setTextChatPage] = useState(1);
   const [search, setSearch] = useState('');
+  const [textChatSort, setTextChatSort] = useState<GalleryTextChatSort>('newest');
   const [kindFilter, setKindFilter] = useState<GalleryKindFilter>('preview');
   const [runningMessageId, setRunningMessageId] = useState<string | null>(null);
   const [projectRunCounts, setProjectRunCounts] = useState<Record<string, number>>({});
@@ -301,10 +323,32 @@ export function GalleryPage() {
     staleTime: 30_000,
   });
   const { data, isLoading, error } = useGalleryPreviews(120);
+  const { data: textChatsData, isLoading: textChatsLoading } = useGalleryTextChats(120, textChatSort);
   const setReactionMutation = useSetGalleryReaction();
   const deleteReactionMutation = useDeleteGalleryReaction();
 
   const items = data ?? [];
+  const textChats = textChatsData ?? [];
+  const filteredTextChats = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return textChats.filter((item) => {
+      if (!query) {
+        return true;
+      }
+
+      return [
+        item.chat_title,
+        item.text_preview,
+        item.author_name,
+        item.author_username,
+        item.model,
+      ]
+        .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+        .join(' ')
+        .toLowerCase()
+        .includes(query);
+    });
+  }, [search, textChats]);
   const filteredItems = useMemo(() => {
     const query = search.trim().toLowerCase();
     return items.filter((item) => {
@@ -319,6 +363,15 @@ export function GalleryPage() {
       return buildSearchText(item).includes(query);
     });
   }, [items, kindFilter, search]);
+  const textChatTotalPages = Math.max(1, Math.ceil(filteredTextChats.length / TEXT_CHAT_PAGE_SIZE));
+  const textChatPageButtons = useMemo(
+    () => buildPageButtons(textChatTotalPages, textChatPage),
+    [textChatPage, textChatTotalPages],
+  );
+  const currentTextChats = useMemo(() => {
+    const start = (textChatPage - 1) * TEXT_CHAT_PAGE_SIZE;
+    return filteredTextChats.slice(start, start + TEXT_CHAT_PAGE_SIZE);
+  }, [filteredTextChats, textChatPage]);
   const totalPages = Math.max(1, Math.ceil(filteredItems.length / pageSize));
   const pageButtons = useMemo(() => buildPageButtons(totalPages, currentPage), [currentPage, totalPages]);
   const currentItems = useMemo(() => {
@@ -329,6 +382,16 @@ export function GalleryPage() {
   useEffect(() => {
     setCurrentPage(1);
   }, [kindFilter, pageSize, search]);
+
+  useEffect(() => {
+    setTextChatPage(1);
+  }, [search, textChatSort]);
+
+  useEffect(() => {
+    if (textChatPage > textChatTotalPages) {
+      setTextChatPage(textChatTotalPages);
+    }
+  }, [textChatPage, textChatTotalPages]);
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -342,6 +405,13 @@ export function GalleryPage() {
     }
     previousPageRef.current = currentPage;
   }, [currentPage]);
+
+  useEffect(() => {
+    if (previousTextChatPageRef.current !== textChatPage) {
+      textChatsTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    previousTextChatPageRef.current = textChatPage;
+  }, [textChatPage]);
 
   const getDisplayedProjectRunCount = (item: GalleryPreviewItem): number =>
     projectRunCounts[item.message_id] ?? item.project_run_count ?? 0;
@@ -383,13 +453,19 @@ export function GalleryPage() {
         <div className="space-y-2">
           <h1 className="text-3xl font-bold">Галерея</h1>
           <p className="max-w-3xl text-sm text-muted-foreground">
-            Здесь собраны публичные результаты из общих чатов: лендинги и preview, а также runnable project bundle.
-            Можно быстро отфильтровать нужный тип, найти проект по названию и открыть исходный чат.
+            Здесь собраны публичные результаты из общих чатов: сначала runnable projects, лендинги и preview, ниже интересные текстовые диалоги.
+            Можно быстро найти интересный сценарий, открыть исходный чат и продолжить уже у себя.
           </p>
         </div>
 
         {!isLoading && !error && items.length > 0 && (
           <div className="space-y-4 rounded-2xl border bg-white p-4 shadow-sm">
+            <div className="space-y-1">
+              <p className="text-lg font-semibold text-slate-950">Runnable Projects и лендинги</p>
+              <p className="text-sm text-muted-foreground">
+                Визуальные результаты, preview и runnable bundle, которые можно открыть, изучить и запустить.
+              </p>
+            </div>
             <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <p className="text-sm text-muted-foreground">
                 Найдено {filteredItems.length} из {items.length} элементов, страница {currentPage} из {totalPages}
@@ -578,7 +654,7 @@ export function GalleryPage() {
 
                     <div className="flex items-center gap-2">
                       <Link to={buildGalleryChatTarget(item)}>
-                        <Button size="sm">Перейти в чат</Button>
+                        <Button size="sm">Открыть чат</Button>
                       </Link>
                       {(item.kind === 'project' || item.kind === 'hybrid') && (
                         <Button
@@ -650,6 +726,131 @@ export function GalleryPage() {
                 ))}
             </div>
           </div>
+        )}
+
+        {!textChatsLoading && filteredTextChats.length > 0 && (
+          <section ref={textChatsTopRef} className="space-y-3 rounded-2xl border bg-[linear-gradient(180deg,#ffffff,#f8fafc)] p-4 shadow-sm">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+              <div className="space-y-1">
+                <p className="text-lg font-semibold text-slate-950">Интересные текстовые чаты</p>
+                <p className="text-sm text-muted-foreground">
+                  Небольшая подборка удачных публичных диалогов, которые можно сразу открыть и продолжить.
+                </p>
+              </div>
+              <div className="flex flex-col gap-2">
+                <p className="text-xs text-muted-foreground">
+                  {filteredTextChats.length} {filteredTextChats.length === 1 ? 'чат' : filteredTextChats.length < 5 ? 'чата' : 'чатов'} Страница {textChatPage} из {textChatTotalPages}
+                </p>
+                <Select
+                  value={textChatSort}
+                  onChange={(event) => setTextChatSort(event.target.value as GalleryTextChatSort)}
+                  options={TEXT_CHAT_SORT_OPTIONS}
+                  className="h-9 min-w-[240px]"
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-3 lg:grid-cols-3">
+              {currentTextChats.map((item) => (
+                <article key={item.chat_id} className="flex min-h-[188px] flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                      <span className="rounded-full border bg-slate-50 px-2.5 py-1">Текстовый чат</span>
+                      {formatModelName(item.model) && (
+                        <span className="rounded-full border bg-slate-50 px-2.5 py-1">
+                          {formatModelName(item.model)}
+                        </span>
+                      )}
+                    </div>
+                    <Link to={buildGalleryTextChatTarget(item)} className="line-clamp-2 text-base font-semibold text-slate-950 transition-colors hover:text-primary">
+                      {item.chat_title}
+                    </Link>
+                    <p className="line-clamp-4 text-sm leading-6 text-slate-600">
+                      {item.text_preview}
+                    </p>
+                  </div>
+
+                  <div className="mt-auto space-y-3 pt-4">
+                    <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                      <span className="rounded-full border bg-muted/20 px-2.5 py-1">
+                        Автор:{' '}
+                        <UserLink
+                          username={item.author_username}
+                          name={item.author_name}
+                          fallback="Пользователь"
+                          className="text-foreground hover:text-primary hover:underline"
+                        />
+                      </span>
+                      <span className="rounded-full border bg-muted/20 px-2.5 py-1">
+                        Просмотры: {formatViews(item.total_view_count)}
+                      </span>
+                      <span className="rounded-full border bg-muted/20 px-2.5 py-1">
+                        Сообщений: {formatViews(item.message_count)}
+                      </span>
+                      <span className="rounded-full border bg-muted/20 px-2.5 py-1">
+                        Стоимость: {formatUsdCost(item.total_usd_cost)}
+                      </span>
+                      {formatModelName(item.model) && (
+                        <span className="rounded-full border bg-muted/20 px-2.5 py-1">
+                          Модель: {formatModelName(item.model)}
+                        </span>
+                      )}
+                      <span className="rounded-full border bg-muted/20 px-2.5 py-1">
+                        {formatDate(item.created_at)}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <Link to={buildGalleryTextChatTarget(item)}>
+                        <Button size="sm">Открыть чат</Button>
+                      </Link>
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+
+            {textChatTotalPages > 1 && (
+              <div className="flex flex-col gap-4 rounded-2xl border bg-white/80 p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setTextChatPage((value) => Math.max(1, value - 1))}
+                    disabled={textChatPage === 1}
+                  >
+                    Предыдущая
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setTextChatPage((value) => Math.min(textChatTotalPages, value + 1))}
+                    disabled={textChatPage === textChatTotalPages}
+                  >
+                    Следующая
+                  </Button>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  {textChatPageButtons.map((value, index) =>
+                    value === 'ellipsis' ? (
+                      <span key={`text-ellipsis-${index}`} className="px-2 text-sm text-muted-foreground">
+                        ...
+                      </span>
+                    ) : (
+                      <Button
+                        key={`text-page-${value}`}
+                        variant={value === textChatPage ? 'primary' : 'outline'}
+                        size="sm"
+                        onClick={() => setTextChatPage(value)}
+                      >
+                        {value}
+                      </Button>
+                    ))}
+                </div>
+              </div>
+            )}
+          </section>
         )}
 
         {runError && !runError.message_id && (

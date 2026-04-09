@@ -202,6 +202,21 @@ export async function listGalleryPreviews(req: Request, res: Response, next: Nex
   }
 }
 
+export async function listGalleryTextChats(req: Request, res: Response, next: NextFunction) {
+  try {
+    const limit = typeof req.query.limit === 'string' ? Number(req.query.limit) : undefined;
+    const sort = typeof req.query.sort === 'string' ? req.query.sort : undefined;
+    const items = await runtimeService.listGalleryTextChats(
+      Number.isFinite(limit) ? Number(limit) : undefined,
+      req.session?.userId,
+      sort,
+    );
+    res.json({ data: items });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function setGalleryPreviewReaction(req: Request<{ chatId: string }>, res: Response, next: NextFunction) {
   try {
     const result = await runtimeService.setGalleryPreviewReaction(

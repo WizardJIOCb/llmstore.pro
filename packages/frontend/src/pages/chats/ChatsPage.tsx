@@ -911,6 +911,7 @@ function AuthenticatedChatsPage() {
   const guestDraftDispatchRef = useRef<string | null>(null);
 
   const menuRef = useRef<HTMLDivElement>(null);
+  const chatListScrollRef = useRef<HTMLDivElement>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const messagesContentRef = useRef<HTMLDivElement | null>(null);
   const assistantSlotNodeRef = useRef<HTMLDivElement | null>(null);
@@ -924,6 +925,7 @@ function AuthenticatedChatsPage() {
   const messageEnterCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollAnimationFrameRef = useRef<number | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const pendingChatListScrollIdRef = useRef<string | null>(null);
   const liveBalanceSeenCostsRef = useRef<Record<string, number>>({});
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
   const previousMessageCountRef = useRef(0);
@@ -932,6 +934,7 @@ function AuthenticatedChatsPage() {
   const initializedAnimatedChatIdsRef = useRef<Set<string>>(new Set());
   const animatedMessageIdsRef = useRef<Set<string>>(new Set());
   const lateReplyRecoveryAttemptedRef = useRef<Set<string>>(new Set());
+  const chatRowRefs = useRef(new Map<string, HTMLDivElement>());
   const messageNodeRefs = useRef(new Map<string, HTMLDivElement>());
   const messageVisualKeyByIdRef = useRef(new Map<string, string>());
   const knownChatIds = useMemo(() => new Set((chats ?? []).map((chat) => chat.id)), [chats]);
@@ -1231,6 +1234,7 @@ function AuthenticatedChatsPage() {
 
   useEffect(() => {
     if (!requestedChatId || !chats?.some((chat) => chat.id === requestedChatId)) return;
+    pendingChatListScrollIdRef.current = requestedChatId;
     setActiveChatId(requestedChatId);
     const nextParams = new URLSearchParams(searchParams);
     nextParams.delete('chat');
@@ -1239,12 +1243,38 @@ function AuthenticatedChatsPage() {
 
   useEffect(() => {
     if (!isAdmin || !requestedAdminChatId) return;
+    pendingChatListScrollIdRef.current = requestedAdminChatId;
     setAdminViewChatId(requestedAdminChatId);
     setActiveChatId(requestedAdminChatId);
     const nextParams = new URLSearchParams(searchParams);
     nextParams.delete('admin_chat_id');
     setSearchParams(nextParams, { replace: true });
   }, [isAdmin, requestedAdminChatId, searchParams, setSearchParams]);
+
+  useEffect(() => {
+    const pendingChatId = pendingChatListScrollIdRef.current;
+    if (!pendingChatId || activeChatId !== pendingChatId) return;
+
+    const container = chatListScrollRef.current;
+    const row = chatRowRefs.current.get(pendingChatId);
+    if (!container || !row) return;
+
+    pendingChatListScrollIdRef.current = null;
+
+    const scrollToChatRow = () => {
+      const containerRect = container.getBoundingClientRect();
+      const rowRect = row.getBoundingClientRect();
+      const nextTop = rowRect.top - containerRect.top + container.scrollTop - 8;
+      container.scrollTo({
+        top: Math.max(0, nextTop),
+        behavior: 'smooth',
+      });
+    };
+
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(scrollToChatRow);
+    });
+  }, [activeChatId, chats]);
 
   useEffect(() => {
     if (!activeChatId || !adminViewChatId) return;
@@ -2994,6 +3024,13 @@ function AuthenticatedChatsPage() {
   const renderChatRow = (chat: ChatListItem) => (
     <div
       key={chat.id}
+      ref={(node) => {
+        if (node) {
+          chatRowRefs.current.set(chat.id, node);
+        } else {
+          chatRowRefs.current.delete(chat.id);
+        }
+      }}
       className={cn(
         'relative rounded-md px-2 py-2 transition-colors',
         activeChatId === chat.id ? 'bg-accent text-foreground' : 'hover:bg-accent/60',
@@ -3209,7 +3246,7 @@ function AuthenticatedChatsPage() {
             </div>
             <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Поиск чата..." />
           </div>
-          <div className="flex-1 overflow-y-auto p-2 space-y-4">
+          <div ref={chatListScrollRef} className="flex-1 overflow-y-auto p-2 space-y-4">
             {sidebarLoading && <div className="flex justify-center py-8"><Spinner /></div>}
             {!sidebarLoading && draftChats.length > 0 && <section className="space-y-1"><p className="px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{`Черновики: ${draftChats.length}`}</p>{draftChats.map(renderChatRow)}</section>}
             {!sidebarLoading && regularChats.length > 0 && <section className="space-y-1"><p className="px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{`Чаты: ${regularChats.length}`}</p>{regularChats.map(renderChatRow)}</section>}

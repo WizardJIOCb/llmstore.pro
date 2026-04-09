@@ -29,6 +29,7 @@ router.get('/shared/chat/:token', controller.getSharedChat);
 // Conversations V2 (authenticated)
 router.get('/emoji/:code.svg', controller.getEmojiSvg);
 router.get('/gallery/previews', controller.listGalleryPreviews);
+router.get('/gallery/text-chats', controller.listGalleryTextChats);
 router.get('/public/agents/:agentId/chats', controller.listPublicChatsByAgent);
 router.get('/public/model-chats', controller.listPublicChatsByModel);
 router.post('/gallery/previews/:chatId/reaction', requireAuth, validateSetGalleryReaction, controller.setGalleryPreviewReaction);

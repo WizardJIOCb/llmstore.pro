@@ -283,6 +283,35 @@ export interface GalleryPreviewItem {
   model: string | null;
 }
 
+export interface GalleryTextChatItem {
+  chat_id: string;
+  chat_title: string;
+  chat_url: string;
+  is_owner: boolean;
+  author_name: string;
+  author_username: string | null;
+  text_preview: string;
+  created_at: string;
+  unique_view_count: number;
+  total_view_count: number;
+  recent_view_count_day: number;
+  recent_view_count_week: number;
+  recent_view_count_month: number;
+  message_count: number;
+  total_usd_cost: number;
+  model: string | null;
+}
+
+export type GalleryTextChatSort =
+  | 'newest'
+  | 'oldest'
+  | 'views_day'
+  | 'views_week'
+  | 'views_month'
+  | 'views_all'
+  | 'message_count'
+  | 'total_cost';
+
 export interface GalleryReactionState {
   reaction_counts: Record<ChatReactionType, number>;
   my_reaction: ChatReactionType | null;
@@ -513,6 +542,9 @@ export const chatsApi = {
 
   gallery: (limit = 24) =>
     apiClient.get<{ data: GalleryPreviewItem[] }>(`/gallery/previews?limit=${encodeURIComponent(String(limit))}`).then((r) => r.data.data),
+
+  galleryTextChats: (limit = 8, sort: GalleryTextChatSort = 'newest') =>
+    apiClient.get<{ data: GalleryTextChatItem[] }>(`/gallery/text-chats?limit=${encodeURIComponent(String(limit))}&sort=${encodeURIComponent(sort)}`).then((r) => r.data.data),
 
   setGalleryReaction: (chatId: string, reactionType: ChatReactionType) =>
     apiClient

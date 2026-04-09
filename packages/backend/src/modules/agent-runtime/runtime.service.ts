@@ -5210,6 +5210,35 @@ interface GalleryPreviewItem {
   model: string | null;
 }
 
+interface GalleryTextChatItem {
+  chat_id: string;
+  chat_title: string;
+  chat_url: string;
+  is_owner: boolean;
+  author_name: string;
+  author_username: string | null;
+  text_preview: string;
+  created_at: string;
+  unique_view_count: number;
+  total_view_count: number;
+  recent_view_count_day: number;
+  recent_view_count_week: number;
+  recent_view_count_month: number;
+  message_count: number;
+  total_usd_cost: number;
+  model: string | null;
+}
+
+type GalleryTextChatSort =
+  | 'newest'
+  | 'oldest'
+  | 'views_day'
+  | 'views_week'
+  | 'views_month'
+  | 'views_all'
+  | 'message_count'
+  | 'total_cost';
+
 interface ChatStatsModelBreakdown {
   model: string;
   prompt_tokens: number;
@@ -5264,6 +5293,27 @@ function toNumberOrNull(value: unknown): number | null {
 function compactTitle(content: string): string {
   const text = content.replace(/\s+/g, ' ').trim();
   return text.length > 80 ? `${text.slice(0, 80)}...` : text || 'Новый чат';
+}
+
+function compactTextPreview(content: string, maxLength = 220): string {
+  const text = content.replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  return text.length > maxLength ? `${text.slice(0, maxLength).trimEnd()}...` : text;
+}
+
+function resolveGalleryTextChatSort(value: unknown): GalleryTextChatSort {
+  switch (value) {
+    case 'oldest':
+    case 'views_day':
+    case 'views_week':
+    case 'views_month':
+    case 'views_all':
+    case 'message_count':
+    case 'total_cost':
+      return value;
+    default:
+      return 'newest';
+  }
 }
 
 function extractStarterPrompts(value: unknown): string[] {
@@ -8605,6 +8655,225 @@ export async function listGalleryPreviews(limit = 24, viewerUserId?: string | nu
   }
 
   return dedupedItems.slice(0, galleryLimit);
+}
+
+export async function listGalleryTextChats(
+  limit = 8,
+  viewerUserId?: string | null,
+  sortByInput: unknown = 'newest',
+): Promise<GalleryTextChatItem[]> {
+  const galleryLimit = Math.max(1, Math.min(limit, 120));
+  const sortBy = resolveGalleryTextChatSort(sortByInput);
+
+  const candidateRows = await db
+    .select({
+      chat_id: chatConversations.id,
+      chat_title: chatConversations.title,
+      share_token: chatConversations.share_token,
+      owner_user_id: chatConversations.user_id,
+      author_email: users.email,
+      author_username: users.username,
+      author_name_raw: users.name,
+      total_view_count: chatConversations.total_view_count,
+      unique_view_count: chatConversations.unique_view_count,
+      chat_model_external_id: chatConversations.model_external_id,
+      created_at: chatConversations.created_at,
+      latest_assistant_content_text: sql<string | null>`(
+        select ${chatConversationMessages.content_text}
+        from ${chatConversationMessages}
+        where ${chatConversationMessages.conversation_id} = ${chatConversations.id}
+          and ${chatConversationMessages.role} = 'assistant'
+        order by ${chatConversationMessages.created_at} desc
+        limit 1
+      )`,
+      latest_assistant_usage_json: sql<Record<string, unknown> | null>`(
+        select ${chatConversationMessages.usage_json}
+        from ${chatConversationMessages}
+        where ${chatConversationMessages.conversation_id} = ${chatConversations.id}
+          and ${chatConversationMessages.role} = 'assistant'
+        order by ${chatConversationMessages.created_at} desc
+        limit 1
+      )`,
+      latest_assistant_created_at: sql<Date | null>`(
+        select ${chatConversationMessages.created_at}
+        from ${chatConversationMessages}
+        where ${chatConversationMessages.conversation_id} = ${chatConversations.id}
+          and ${chatConversationMessages.role} = 'assistant'
+        order by ${chatConversationMessages.created_at} desc
+        limit 1
+      )`,
+    })
+    .from(chatConversations)
+    .innerJoin(users, eq(users.id, chatConversations.user_id))
+    .where(eq(chatConversations.access, 'public'));
+
+  const getGalleryItemKind = (report?: CodingReport | null): GalleryItemKind | null => {
+    const preview = report?.preview;
+    const project = report?.project;
+    const hasPreview = Boolean(preview && (preview.type === 'html' || preview.type === 'url'));
+    const hasProject = Boolean(project && project.runtime && Array.isArray(project.files) && project.files.length > 0);
+
+    if (hasPreview && hasProject) return 'hybrid';
+    if (hasProject) return 'project';
+    if (hasPreview) return 'preview';
+    return null;
+  };
+
+  const textChatCandidates = candidateRows
+    .map((row) => {
+      const rawText = row.latest_assistant_content_text?.trim() ?? '';
+      if (!rawText) return null;
+
+      const rawUsage = (row.latest_assistant_usage_json as Record<string, unknown> | null) ?? null;
+      const normalized = normalizeAssistantChatPayload(rawText, rawUsage);
+
+      if (getGalleryItemKind(normalized.codingReport)) {
+        return null;
+      }
+
+      const textPreview = compactTextPreview(normalized.content || rawText);
+      if (textPreview.length < 80) {
+        return null;
+      }
+
+      return {
+        ...row,
+        rawUsage,
+        text_preview: textPreview,
+        latest_created_at: row.latest_assistant_created_at ?? row.created_at,
+      };
+    })
+    .filter((row): row is NonNullable<typeof row> => Boolean(row));
+
+  const chatIds = textChatCandidates.map((row) => row.chat_id);
+  if (chatIds.length === 0) {
+    return [];
+  }
+
+  const [messageCountRows, usageRows, viewerRows] = await Promise.all([
+    db
+      .select({
+        conversation_id: chatConversationMessages.conversation_id,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(chatConversationMessages)
+      .where(inArray(chatConversationMessages.conversation_id, chatIds))
+      .groupBy(chatConversationMessages.conversation_id),
+    db
+      .select({
+        conversation_id: chatConversationMessages.conversation_id,
+        usage_json: chatConversationMessages.usage_json,
+      })
+      .from(chatConversationMessages)
+      .where(and(
+        inArray(chatConversationMessages.conversation_id, chatIds),
+        eq(chatConversationMessages.role, 'assistant'),
+      )),
+    db
+      .select({
+        conversation_id: chatConversationViewers.conversation_id,
+        last_viewed_at: chatConversationViewers.last_viewed_at,
+      })
+      .from(chatConversationViewers)
+      .where(inArray(chatConversationViewers.conversation_id, chatIds)),
+  ]);
+
+  const messageCountMap = new Map(messageCountRows.map((row) => [row.conversation_id, row.count]));
+  const usageTotalsMap = new Map<string, { usd_cost: number; model_costs: Map<string, number> }>();
+  for (const row of usageRows) {
+    const rawUsage = (row.usage_json as Record<string, unknown> | null) ?? null;
+    const usage = recalculateUsageCost(rawUsage);
+    if (!usage) continue;
+
+    const promptTokens = toNumberOrNull(usage.prompt_tokens) ?? 0;
+    const completionTokens = toNumberOrNull(usage.completion_tokens) ?? 0;
+    const model = (
+      typeof usage.model === 'string'
+      && usage.model.trim().length > 0
+        ? usage.model.trim()
+        : textChatCandidates.find((candidate) => candidate.chat_id === row.conversation_id)?.chat_model_external_id
+    ) || DEFAULT_GENERAL_MODEL;
+    const usdCost = Number(estimateCost(model, promptTokens, completionTokens));
+
+    const existing = usageTotalsMap.get(row.conversation_id) ?? {
+      usd_cost: 0,
+      model_costs: new Map<string, number>(),
+    };
+    existing.usd_cost += usdCost;
+    existing.model_costs.set(model, (existing.model_costs.get(model) ?? 0) + usdCost);
+    usageTotalsMap.set(row.conversation_id, existing);
+  }
+  const recentViewCounts = new Map<string, { day: number; week: number; month: number }>();
+  const nowMs = Date.now();
+  const dayAgoMs = nowMs - (24 * 60 * 60 * 1000);
+  const weekAgoMs = nowMs - (7 * 24 * 60 * 60 * 1000);
+  const monthAgoMs = nowMs - (30 * 24 * 60 * 60 * 1000);
+
+  for (const row of viewerRows) {
+    const viewedAtMs = new Date(row.last_viewed_at).getTime();
+    if (!Number.isFinite(viewedAtMs)) continue;
+
+    const existing = recentViewCounts.get(row.conversation_id) ?? { day: 0, week: 0, month: 0 };
+    if (viewedAtMs >= dayAgoMs) existing.day += 1;
+    if (viewedAtMs >= weekAgoMs) existing.week += 1;
+    if (viewedAtMs >= monthAgoMs) existing.month += 1;
+    recentViewCounts.set(row.conversation_id, existing);
+  }
+
+  const items = await Promise.all(textChatCandidates.map(async (row) => {
+    const shareToken = await ensureChatShareToken(row.chat_id, row.share_token);
+    const recentViews = recentViewCounts.get(row.chat_id) ?? { day: 0, week: 0, month: 0 };
+    const usageTotals = usageTotalsMap.get(row.chat_id);
+    const dominantModel = usageTotals
+      ? [...usageTotals.model_costs.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
+      : null;
+    return {
+      chat_id: row.chat_id,
+      chat_title: row.chat_title,
+      chat_url: `/shared/chats/${shareToken}`,
+      is_owner: Boolean(viewerUserId && row.owner_user_id === viewerUserId),
+      author_name: formatAuthorName({
+        email: row.author_email,
+        username: row.author_username,
+        name: row.author_name_raw,
+      }),
+      author_username: row.author_username,
+      text_preview: row.text_preview,
+      created_at: toIso(row.created_at),
+      unique_view_count: row.unique_view_count ?? 0,
+      total_view_count: row.total_view_count ?? 0,
+      recent_view_count_day: recentViews.day,
+      recent_view_count_week: recentViews.week,
+      recent_view_count_month: recentViews.month,
+      message_count: messageCountMap.get(row.chat_id) ?? 0,
+      total_usd_cost: usageTotals?.usd_cost ?? 0,
+      model: dominantModel ?? row.chat_model_external_id ?? null,
+    };
+  }));
+
+  const sortedItems = items.sort((a, b) => {
+    switch (sortBy) {
+      case 'oldest':
+        return Date.parse(a.created_at) - Date.parse(b.created_at);
+      case 'views_day':
+        return b.recent_view_count_day - a.recent_view_count_day || Date.parse(b.created_at) - Date.parse(a.created_at);
+      case 'views_week':
+        return b.recent_view_count_week - a.recent_view_count_week || Date.parse(b.created_at) - Date.parse(a.created_at);
+      case 'views_month':
+        return b.recent_view_count_month - a.recent_view_count_month || Date.parse(b.created_at) - Date.parse(a.created_at);
+      case 'views_all':
+        return b.total_view_count - a.total_view_count || Date.parse(b.created_at) - Date.parse(a.created_at);
+      case 'message_count':
+        return b.message_count - a.message_count || Date.parse(b.created_at) - Date.parse(a.created_at);
+      case 'total_cost':
+        return b.total_usd_cost - a.total_usd_cost || Date.parse(b.created_at) - Date.parse(a.created_at);
+      case 'newest':
+      default:
+        return Date.parse(b.created_at) - Date.parse(a.created_at);
+    }
+  });
+
+  return sortedItems.slice(0, galleryLimit);
 }
 
 export async function setGalleryPreviewReaction(chatId: string, userId: string, reactionType: ChatReactionType) {
