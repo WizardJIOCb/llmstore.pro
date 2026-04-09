@@ -2664,6 +2664,11 @@ export function ChatsPage() {
         'relative rounded-md px-2 py-2 transition-colors',
         activeChatId === chat.id ? 'bg-accent text-foreground' : 'hover:bg-accent/60',
       )}
+      onContextMenu={(e) => {
+        if (chat.is_admin_view) return;
+        e.preventDefault();
+        setOpenMenu({ kind: 'chat', id: chat.id });
+      }}
     >
       {(() => {
         const livePendingRun = isPendingRunLive(chat.pending_run ?? null)
