@@ -719,7 +719,7 @@ const statusMeta: Record<MilestoneStatus, StatusMeta> = {
 };
 
 const summaryText =
-  'LLMStore уже выглядит не как каталог-обложка, а как рабочая платформа для runnable AI-проектов, статей с реальными CTA, галереи результатов и agent-first сценариев. Сейчас у продукта уже есть builder-поток, Tiptap-редактор статей, рейтинги по окнам времени, social-layer вокруг публикаций и живой галерейный слой. Следующий фокус: tools inside chat, bundles + deploy, наблюдаемость раннов, safe execution и нормальный цикл "запустил -> увидел проблему -> быстро починил -> показал результат".';
+  'LLMStore уже выглядит не как каталог-обложка, а как рабочая платформа для runnable AI-проектов, статей с реальными CTA, галереи результатов и agent-first сценариев. Сейчас у продукта уже есть builder-поток, Tiptap-редактор статей, рейтинги по окнам времени, social-layer вокруг публикаций и живой галерейный слой. Следующий фокус: tools inside chat, bundles + deploy, наблюдаемость раннов, safe execution и нормальный цикл работы внутри runnable AI-продукта.';
 
 function getItemsByStatus(status: MilestoneStatus) {
   return milestones.filter((item) => item.status === status);
@@ -796,7 +796,13 @@ export function MilestonesPage() {
                 </div>
               </div>
 
-              <p className="mt-6 text-[15px] leading-7 text-slate-600 md:text-base">{summaryText}</p>
+              <p className="mt-6 text-[15px] leading-7 text-slate-600 md:text-base">
+                <span className="font-semibold text-slate-900">
+                  Написал сообщение -&gt; запустил -&gt; увидел результат -&gt; что то добавил -&gt; радуешься.
+                </span>
+                <br />
+                {summaryText}
+              </p>
 
               <div className="mt-7 grid grid-cols-4 gap-1.5 sm:gap-3">
                 <div className="min-w-0 rounded-2xl border border-emerald-200 bg-emerald-50 px-1.5 py-3 text-center sm:p-4">
