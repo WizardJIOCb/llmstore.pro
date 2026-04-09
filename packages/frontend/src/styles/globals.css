@@ -441,6 +441,14 @@
   }
 }
 
+@media (hover: none), (pointer: coarse) {
+  .mobile-popover-panel a,
+  .mobile-popover-panel button {
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+}
+
 @keyframes chat-thinking-spin {
   0% {
     transform: rotate(0deg) scale(0.96);

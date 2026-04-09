@@ -52,6 +52,7 @@ export function AppLayout() {
   const [isMobileChatOpen, setIsMobileChatOpen] = useState(
     () => window.location.pathname.startsWith('/chats') && hasPersistedActiveChat(),
   );
+  const mobileMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const mobileMenuTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isChatsPage = location.pathname.startsWith('/chats');
   const { data: chats } = useChatsList(isAuthenticated);
@@ -67,6 +68,7 @@ export function AppLayout() {
     clearMobileMenuTimer();
     setIsMobileMenuClosing(false);
     setIsMobileMenuOpen(true);
+    requestAnimationFrame(() => mobileMenuButtonRef.current?.blur());
   };
 
   const closeMobileMenu = () => {
@@ -254,31 +256,31 @@ export function AppLayout() {
         type="button"
         onClick={openMobileChatsSection}
         className={cn(
-          'mobile-popover-item group flex w-full items-center justify-between rounded-[18px] border px-3 py-2.5 text-left text-[0.98rem] font-medium leading-tight tracking-[-0.015em] transition-all',
+          'mobile-popover-item flex w-full touch-manipulation items-center justify-between rounded-[18px] border px-3 py-2.5 text-left text-[0.98rem] font-medium leading-tight tracking-[-0.015em] transition-all',
           isMobileMenuClosing ? 'mobile-popover-item--out' : 'mobile-popover-item--in',
           isNavItemActive(item.href)
             ? 'border-cyan-300/60 bg-[linear-gradient(135deg,rgba(16,24,40,0.95),rgba(16,40,48,0.92))] text-white shadow-[0_0_0_1px_rgba(103,232,249,0.35),0_0_34px_rgba(45,212,191,0.22)]'
-            : 'border-transparent bg-transparent text-white/88 hover:text-white',
+            : 'border-transparent bg-transparent text-white/88 active:text-white',
         )}
         style={{ animationDelay: `${index * MOBILE_MENU_ITEM_STAGGER_MS}ms` }}
       >
         <span>{item.label}</span>
-        <span className="text-xs text-slate-400 transition-transform group-hover:translate-x-0.5">↗</span>
+        <span className="text-xs text-slate-400">↗</span>
       </button>
     ) : (
       <Link
         to={item.href}
         className={cn(
-          'mobile-popover-item group flex w-full items-center justify-between rounded-[18px] border px-3 py-2.5 text-[0.98rem] font-medium leading-tight tracking-[-0.015em] transition-all',
+          'mobile-popover-item flex w-full touch-manipulation items-center justify-between rounded-[18px] border px-3 py-2.5 text-[0.98rem] font-medium leading-tight tracking-[-0.015em] transition-all',
           isMobileMenuClosing ? 'mobile-popover-item--out' : 'mobile-popover-item--in',
           isNavItemActive(item.href)
             ? 'border-cyan-300/60 bg-[linear-gradient(135deg,rgba(16,24,40,0.95),rgba(16,40,48,0.92))] text-white shadow-[0_0_0_1px_rgba(103,232,249,0.35),0_0_34px_rgba(45,212,191,0.22)]'
-            : 'border-transparent bg-transparent text-white/88 hover:text-white',
+            : 'border-transparent bg-transparent text-white/88 active:text-white',
         )}
         style={{ animationDelay: `${index * MOBILE_MENU_ITEM_STAGGER_MS}ms` }}
       >
         <span>{item.label}</span>
-        <span className="text-xs text-slate-400 transition-transform group-hover:translate-x-0.5">↗</span>
+        <span className="text-xs text-slate-400">↗</span>
       </Link>
     ),
   }));
@@ -340,8 +342,9 @@ export function AppLayout() {
               </button>
             )}
             <button
+              ref={mobileMenuButtonRef}
               type="button"
-              className="inline-flex items-center gap-2 rounded-full border border-cyan-300/45 bg-[linear-gradient(135deg,rgba(12,20,34,0.96),rgba(15,32,44,0.9))] px-4 py-2 text-lg font-semibold tracking-[-0.02em] text-white shadow-[0_0_0_1px_rgba(103,232,249,0.18),0_0_28px_rgba(45,212,191,0.18),inset_0_1px_0_rgba(255,255,255,0.08)] transition-transform active:scale-[0.98]"
+              className="inline-flex touch-manipulation items-center gap-2 rounded-full border border-cyan-300/45 bg-[linear-gradient(135deg,rgba(12,20,34,0.96),rgba(15,32,44,0.9))] px-4 py-2 text-lg font-semibold tracking-[-0.02em] text-white shadow-[0_0_0_1px_rgba(103,232,249,0.18),0_0_28px_rgba(45,212,191,0.18),inset_0_1px_0_rgba(255,255,255,0.08)] transition-transform active:scale-[0.98]"
               onClick={toggleMobileMenu}
               aria-label="Открыть меню"
               aria-expanded={isMobileMenuOpen}
@@ -516,7 +519,7 @@ export function AppLayout() {
                           key={chat.id}
                           type="button"
                           className={cn(
-                            'mobile-popover-item flex min-h-[2.4rem] w-full items-center rounded-[18px] border border-white/10 bg-white/[0.03] px-3 py-1.5 text-left text-[0.92rem] leading-tight text-white/78 transition-colors hover:bg-white/[0.06] hover:text-white',
+                            'mobile-popover-item flex min-h-[2.4rem] w-full touch-manipulation items-center rounded-[18px] border border-white/10 bg-white/[0.03] px-3 py-1.5 text-left text-[0.92rem] leading-tight text-white/78 transition-colors active:bg-white/[0.06] active:text-white',
                             isMobileMenuClosing ? 'mobile-popover-item--out' : 'mobile-popover-item--in',
                           )}
                           style={{ animationDelay: `${(mobileActionDelayBase + 1 + index) * MOBILE_MENU_ITEM_STAGGER_MS}ms` }}
@@ -538,7 +541,7 @@ export function AppLayout() {
                     <Link
                       to="/profile"
                       className={cn(
-                        'mobile-popover-item block rounded-[18px] border border-cyan-300/20 bg-[linear-gradient(135deg,rgba(12,20,34,0.78),rgba(15,32,44,0.62))] px-3.5 py-2.5 text-sm font-medium text-cyan-100 transition-colors hover:border-cyan-300/40 hover:text-white',
+                        'mobile-popover-item block touch-manipulation rounded-[18px] border border-cyan-300/20 bg-[linear-gradient(135deg,rgba(12,20,34,0.78),rgba(15,32,44,0.62))] px-3.5 py-2.5 text-sm font-medium text-cyan-100 transition-colors active:border-cyan-300/40 active:text-white',
                         isMobileMenuClosing ? 'mobile-popover-item--out' : 'mobile-popover-item--in',
                       )}
                       style={{ animationDelay: `${(mobileActionDelayBase + 2) * MOBILE_MENU_ITEM_STAGGER_MS}ms` }}
@@ -551,7 +554,7 @@ export function AppLayout() {
                       <Link
                         to="/admin"
                         className={cn(
-                          'mobile-popover-item flex w-full rounded-[18px] border border-transparent px-3 py-2.5 text-[0.98rem] font-medium leading-tight tracking-[-0.015em] text-white/82 transition-colors hover:text-white',
+                          'mobile-popover-item flex w-full touch-manipulation rounded-[18px] border border-transparent px-3 py-2.5 text-[0.98rem] font-medium leading-tight tracking-[-0.015em] text-white/82 transition-colors active:text-white',
                           isMobileMenuClosing ? 'mobile-popover-item--out' : 'mobile-popover-item--in',
                         )}
                         style={{ animationDelay: `${(mobileActionDelayBase + 3) * MOBILE_MENU_ITEM_STAGGER_MS}ms` }}
