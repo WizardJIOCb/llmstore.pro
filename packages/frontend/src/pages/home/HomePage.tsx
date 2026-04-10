@@ -96,9 +96,16 @@ export function HomePage() {
       <section className="bg-gradient-to-b from-primary/5 to-background py-20">
         <div className="container mx-auto px-4 text-center">
           <h1 className="mb-6 text-4xl font-bold tracking-tight md:text-5xl">
-            Создавайте AI-агентов,
-            <br />
-            <span className="text-primary">запускайте их в чатах</span>
+            <span className="block md:hidden">
+              <span className="block">Создавайте</span>
+              <span className="block">AI-агентов,</span>
+              <span className="block text-primary">запускайте их в чатах</span>
+            </span>
+            <span className="hidden md:inline">
+              Создавайте AI-агентов,
+              <br />
+              <span className="text-primary">запускайте их в чатах</span>
+            </span>
           </h1>
           <p className="mx-auto mb-8 max-w-2xl text-lg text-muted-foreground">
             LLMStore.pro помогает собрать агента под задачу, выбрать модель и инструменты,

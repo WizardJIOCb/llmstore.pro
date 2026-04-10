@@ -82,6 +82,12 @@ export function AppLayout() {
     }, MOBILE_MENU_CLOSE_MS);
   };
 
+  const dismissMobileMenuImmediately = () => {
+    clearMobileMenuTimer();
+    setIsMobileMenuOpen(false);
+    setIsMobileMenuClosing(false);
+  };
+
   const toggleMobileMenu = () => {
     if (isMobileMenuOpen && !isMobileMenuClosing) {
       closeMobileMenu();
@@ -95,6 +101,11 @@ export function AppLayout() {
     closeMobileMenu();
     await logout();
     navigate('/');
+  };
+
+  const navigateFromMobileMenu = (href: string) => {
+    dismissMobileMenuImmediately();
+    navigate(href);
   };
 
   const selectChat = (chatId: string) => {
@@ -271,8 +282,9 @@ export function AppLayout() {
         <span className="text-xs text-slate-400">↗</span>
       </button>
     ) : (
-      <Link
-        to={item.href}
+      <button
+        type="button"
+        onClick={() => navigateFromMobileMenu(item.href)}
         className={cn(
           'mobile-popover-item flex w-full touch-manipulation items-center justify-between rounded-[18px] border px-3 py-2.5 text-[0.98rem] font-medium leading-tight tracking-[-0.015em] transition-all',
           isMobileMenuClosing ? 'mobile-popover-item--out' : 'mobile-popover-item--in',
@@ -284,7 +296,7 @@ export function AppLayout() {
       >
         <span>{item.label}</span>
         <span className="text-xs text-slate-400">↗</span>
-      </Link>
+      </button>
     ),
   }));
 
@@ -542,30 +554,30 @@ export function AppLayout() {
               <div className="mt-4 border-t border-white/12 pt-4">
                 {isAuthenticated ? (
                   <div className="space-y-1.5">
-                    <Link
-                      to="/profile"
+                    <button
+                      type="button"
+                      onClick={() => navigateFromMobileMenu('/profile')}
                       className={cn(
                         'mobile-popover-item block touch-manipulation rounded-[18px] border border-cyan-300/20 bg-[linear-gradient(135deg,rgba(12,20,34,0.78),rgba(15,32,44,0.62))] px-3.5 py-2.5 text-sm font-medium text-cyan-100 transition-colors active:border-cyan-300/40 active:text-white',
                         isMobileMenuClosing ? 'mobile-popover-item--out' : 'mobile-popover-item--in',
                       )}
                       style={{ animationDelay: getMobileMenuAnimationDelay(mobileActionDelayBase + 2) }}
-                      onClick={closeMobileMenu}
                     >
                       {profileLabel}
-                    </Link>
+                    </button>
 
                     {isAdmin && (
-                      <Link
-                        to="/admin"
+                      <button
+                        type="button"
+                        onClick={() => navigateFromMobileMenu('/admin')}
                         className={cn(
                           'mobile-popover-item flex w-full touch-manipulation rounded-[18px] border border-transparent px-3 py-2.5 text-[0.98rem] font-medium leading-tight tracking-[-0.015em] text-white/82 transition-colors active:text-white',
                           isMobileMenuClosing ? 'mobile-popover-item--out' : 'mobile-popover-item--in',
                         )}
                         style={{ animationDelay: getMobileMenuAnimationDelay(mobileActionDelayBase + 3) }}
-                        onClick={closeMobileMenu}
                       >
                         Админ
-                      </Link>
+                      </button>
                     )}
 
                     <div
@@ -587,15 +599,14 @@ export function AppLayout() {
                       )}
                       style={{ animationDelay: getMobileMenuAnimationDelay(mobileActionDelayBase + 2) }}
                     >
-                      <Link to="/login" onClick={closeMobileMenu}>
-                        <Button
-                          className="w-full rounded-[18px] border border-white/12 bg-[linear-gradient(135deg,rgba(12,20,34,0.82),rgba(15,32,44,0.68))] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] hover:border-cyan-300/28 hover:bg-[linear-gradient(135deg,rgba(16,26,42,0.94),rgba(18,40,54,0.88))] hover:text-white"
-                          variant="outline"
-                          size="sm"
-                        >
-                          Войти
-                        </Button>
-                      </Link>
+                      <Button
+                        className="w-full rounded-[18px] border border-white/12 bg-[linear-gradient(135deg,rgba(12,20,34,0.82),rgba(15,32,44,0.68))] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] hover:border-cyan-300/28 hover:bg-[linear-gradient(135deg,rgba(16,26,42,0.94),rgba(18,40,54,0.88))] hover:text-white"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => navigateFromMobileMenu('/login')}
+                      >
+                        Войти
+                      </Button>
                     </div>
                     <div
                       className={cn(
@@ -604,15 +615,14 @@ export function AppLayout() {
                       )}
                       style={{ animationDelay: getMobileMenuAnimationDelay(mobileActionDelayBase + 3) }}
                     >
-                      <Link to="/register" onClick={closeMobileMenu}>
-                        <Button
-                          className="w-full rounded-[18px] border-cyan-300/35 bg-[linear-gradient(135deg,rgba(12,20,34,0.94),rgba(15,32,44,0.88))] text-white shadow-[0_0_0_1px_rgba(103,232,249,0.14),0_0_22px_rgba(45,212,191,0.12),inset_0_1px_0_rgba(255,255,255,0.06)] hover:border-cyan-300/50 hover:bg-[linear-gradient(135deg,rgba(16,26,42,0.98),rgba(18,40,54,0.94))] hover:text-white"
-                          variant="outline"
-                          size="sm"
-                        >
-                          Регистрация
-                        </Button>
-                      </Link>
+                      <Button
+                        className="w-full rounded-[18px] border-cyan-300/35 bg-[linear-gradient(135deg,rgba(12,20,34,0.94),rgba(15,32,44,0.88))] text-white shadow-[0_0_0_1px_rgba(103,232,249,0.14),0_0_22px_rgba(45,212,191,0.12),inset_0_1px_0_rgba(255,255,255,0.06)] hover:border-cyan-300/50 hover:bg-[linear-gradient(135deg,rgba(16,26,42,0.98),rgba(18,40,54,0.94))] hover:text-white"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => navigateFromMobileMenu('/register')}
+                      >
+                        Регистрация
+                      </Button>
                     </div>
                   </div>
                 )}
