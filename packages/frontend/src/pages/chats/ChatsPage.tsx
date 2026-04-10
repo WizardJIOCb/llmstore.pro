@@ -83,6 +83,7 @@ const DIALOG_CLOSE_ANIMATION_MS = 200;
 const LIVE_AUTO_SCROLL_THRESHOLD_PX = 50;
 const EMPTY_MESSAGES: ChatMessageType[] = [];
 const LAST_CHAT_SELECTION_STORAGE_KEY = 'llmstore.last-chat-selection';
+const CHAT_LIST_SCROLL_STORAGE_KEY = 'llmstore.chat-list-scroll-top';
 const GUEST_CHAT_DRAFT_STORAGE_KEY = 'llmstore.guest-chat-draft';
 
 interface GuestChatDraft {
@@ -581,6 +582,37 @@ function writePersistedChatSelection(selection: PersistedChatSelection) {
   }
 }
 
+function readPersistedChatListScrollTop(): number {
+  if (typeof window === 'undefined') return 0;
+
+  try {
+    const raw = window.sessionStorage.getItem(CHAT_LIST_SCROLL_STORAGE_KEY);
+    if (!raw) return 0;
+
+    const parsed = Number.parseFloat(raw);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return 0;
+    }
+
+    return Math.round(parsed);
+  } catch {
+    return 0;
+  }
+}
+
+function writePersistedChatListScrollTop(scrollTop: number): void {
+  if (typeof window === 'undefined') return;
+
+  try {
+    window.sessionStorage.setItem(
+      CHAT_LIST_SCROLL_STORAGE_KEY,
+      String(Math.max(0, Math.round(scrollTop))),
+    );
+  } catch {
+    // Ignore storage write issues and keep chat UX working.
+  }
+}
+
 function snapScrollContainerToBottom(container: HTMLDivElement | null, passes = 3) {
   if (!container || typeof window === 'undefined') return;
 
@@ -925,6 +957,9 @@ function AuthenticatedChatsPage() {
   const messageEnterCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollAnimationFrameRef = useRef<number | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const persistedChatListScrollTopRef = useRef(readPersistedChatListScrollTop());
+  const hasRestoredChatListScrollRef = useRef(false);
+  const shouldScrollChatListToTopRef = useRef(false);
   const pendingChatListScrollIdRef = useRef<string | null>(null);
   const liveBalanceSeenCostsRef = useRef<Record<string, number>>({});
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -1082,6 +1117,18 @@ function AuthenticatedChatsPage() {
   );
   const mobileChatActionButtonClass = 'flex w-full items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-left text-sm font-medium text-slate-900 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60';
 
+  const persistChatListScrollTop = (scrollTop?: number) => {
+    const nextScrollTop = typeof scrollTop === 'number'
+      ? scrollTop
+      : chatListScrollRef.current?.scrollTop;
+
+    if (typeof nextScrollTop !== 'number' || !Number.isFinite(nextScrollTop)) return;
+
+    const normalizedScrollTop = Math.max(0, Math.round(nextScrollTop));
+    persistedChatListScrollTopRef.current = normalizedScrollTop;
+    writePersistedChatListScrollTop(normalizedScrollTop);
+  };
+
   useEffect(() => {
     if (!shouldResumeGuestDraft) return;
 
@@ -1097,6 +1144,8 @@ function AuthenticatedChatsPage() {
         let chatId = safeActiveChatId;
         if (!chatId || !knownChatIds.has(chatId) || isAdminForeignChat) {
           const createdChat = await createChatMutation.mutateAsync({});
+          shouldScrollChatListToTopRef.current = true;
+          persistChatListScrollTop(0);
           chatId = createdChat.id;
           setActiveChatId(createdChat.id);
         }
@@ -1233,6 +1282,19 @@ function AuthenticatedChatsPage() {
   }, [activeChatId, chats, isDesktop]);
 
   useEffect(() => {
+    const handlePageHide = () => {
+      persistChatListScrollTop();
+    };
+
+    window.addEventListener('pagehide', handlePageHide);
+
+    return () => {
+      window.removeEventListener('pagehide', handlePageHide);
+      persistChatListScrollTop();
+    };
+  }, []);
+
+  useEffect(() => {
     if (!requestedChatId || !chats?.some((chat) => chat.id === requestedChatId)) return;
     pendingChatListScrollIdRef.current = requestedChatId;
     setActiveChatId(requestedChatId);
@@ -1250,6 +1312,51 @@ function AuthenticatedChatsPage() {
     nextParams.delete('admin_chat_id');
     setSearchParams(nextParams, { replace: true });
   }, [isAdmin, requestedAdminChatId, searchParams, setSearchParams]);
+
+  useEffect(() => {
+    if (pendingChatListScrollIdRef.current) return;
+    if (shouldScrollChatListToTopRef.current) return;
+    if (hasRestoredChatListScrollRef.current) return;
+    if (chatsLoading) return;
+
+    const container = chatListScrollRef.current;
+    if (!container) return;
+
+    hasRestoredChatListScrollRef.current = true;
+    const savedScrollTop = persistedChatListScrollTopRef.current;
+    if (savedScrollTop <= 0) return;
+
+    const restoreScrollPosition = () => {
+      container.scrollTop = savedScrollTop;
+    };
+
+    window.requestAnimationFrame(() => {
+      restoreScrollPosition();
+      window.requestAnimationFrame(restoreScrollPosition);
+    });
+    window.setTimeout(restoreScrollPosition, 90);
+  }, [chats, chatsLoading]);
+
+  useEffect(() => {
+    if (!shouldScrollChatListToTopRef.current) return;
+
+    const container = chatListScrollRef.current;
+    if (!container) return;
+
+    shouldScrollChatListToTopRef.current = false;
+
+    const scrollToTop = () => {
+      container.scrollTo({
+        top: 0,
+        behavior: 'smooth',
+      });
+      persistChatListScrollTop(0);
+    };
+
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(scrollToTop);
+    });
+  }, [activeChatId, chats]);
 
   useEffect(() => {
     const pendingChatId = pendingChatListScrollIdRef.current;
@@ -1357,6 +1464,7 @@ function AuthenticatedChatsPage() {
     const handler = (event: Event) => {
       const custom = event as CustomEvent<string>;
       if (typeof custom.detail === 'string' && custom.detail.length > 0) {
+        pendingChatListScrollIdRef.current = custom.detail;
         setActiveChatId(custom.detail);
       }
     };
@@ -2347,6 +2455,8 @@ function AuthenticatedChatsPage() {
     setLocalError(null);
     try {
       const imported = await importChatBundleMutation.mutateAsync(file);
+      shouldScrollChatListToTopRef.current = true;
+      persistChatListScrollTop(0);
       setActiveChatId(imported.id);
       setLocalNoticeTone('warning');
       setLocalError(`Чат импортирован: ${imported.title}`);
@@ -2380,6 +2490,8 @@ function AuthenticatedChatsPage() {
         agent_id: newChatMode === 'agent' ? newChatAgentId : null,
         model_external_id: newChatMode === 'general' ? newChatModel : null,
       });
+      shouldScrollChatListToTopRef.current = true;
+      persistChatListScrollTop(0);
       setActiveChatId(created.id);
       if (createDialogTimerRef.current) clearTimeout(createDialogTimerRef.current);
       setIsCreateDialogOpen(false);
@@ -3246,7 +3358,11 @@ function AuthenticatedChatsPage() {
             </div>
             <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Поиск чата..." />
           </div>
-          <div ref={chatListScrollRef} className="flex-1 overflow-y-auto p-2 space-y-4">
+          <div
+            ref={chatListScrollRef}
+            className="flex-1 overflow-y-auto p-2 space-y-4"
+            onScroll={() => persistChatListScrollTop()}
+          >
             {sidebarLoading && <div className="flex justify-center py-8"><Spinner /></div>}
             {!sidebarLoading && draftChats.length > 0 && <section className="space-y-1"><p className="px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{`Черновики: ${draftChats.length}`}</p>{draftChats.map(renderChatRow)}</section>}
             {!sidebarLoading && regularChats.length > 0 && <section className="space-y-1"><p className="px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{`Чаты: ${regularChats.length}`}</p>{regularChats.map(renderChatRow)}</section>}
