@@ -4,6 +4,9 @@ import Link from '@tiptap/extension-link';
 import Placeholder from '@tiptap/extension-placeholder';
 import Underline from '@tiptap/extension-underline';
 import TextAlign from '@tiptap/extension-text-align';
+import { Color } from '@tiptap/extension-color';
+import { FontFamily } from '@tiptap/extension-font-family';
+import { TextStyle } from '@tiptap/extension-text-style';
 import Image from '@tiptap/extension-image';
 import { TiptapVideoEmbed } from './tiptapVideoEmbed';
 
@@ -51,6 +54,13 @@ export function createArticleTiptapExtensions(placeholder?: string) {
       ? [Placeholder.configure({ placeholder })]
       : []),
     Underline,
+    TextStyle,
+    FontFamily.configure({
+      types: ['textStyle'],
+    }),
+    Color.configure({
+      types: ['textStyle'],
+    }),
     TextAlign.configure({
       types: ['heading', 'paragraph'],
     }),

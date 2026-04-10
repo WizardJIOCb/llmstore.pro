@@ -11,6 +11,8 @@ const ALLOWED_TAGS = new Set([
   'h3',
   'h4',
   'hr',
+  'iframe',
+  'img',
   'i',
   'li',
   'ol',
@@ -24,6 +26,7 @@ const ALLOWED_TAGS = new Set([
 const BLOCK_TAGS = new Set(['blockquote', 'div', 'h1', 'h2', 'h3', 'h4', 'ol', 'p', 'ul']);
 const VOID_TAGS = new Set(['br', 'hr']);
 const ALLOWED_STYLE_PROPERTIES = new Set([
+  'color',
   'font-family',
   'font-size',
   'font-style',
@@ -49,6 +52,10 @@ function sanitizeStyleValue(property: string, value: string): string | null {
   if (!normalizedValue) return null;
 
   switch (property) {
+    case 'color':
+      return /^(#[0-9a-f]{3,8}|rgb\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*\)|rgba\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*(0|1|0?\.\d+)\s*\))$/i.test(normalizedValue)
+        ? normalizedValue
+        : null;
     case 'text-align':
       return /^(left|center|right|justify)$/i.test(normalizedValue) ? normalizedValue.toLowerCase() : null;
     case 'font-family': {
@@ -104,6 +111,38 @@ function sanitizeHref(value: string): string | null {
   return null;
 }
 
+function sanitizeMediaSrc(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (/^(https?:|\/)/i.test(trimmed)) return trimmed;
+  return null;
+}
+
+function sanitizeIframeSrc(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  try {
+    const url = new URL(trimmed);
+    const host = url.hostname.replace(/^www\./, '');
+    if ([
+      'youtube.com',
+      'm.youtube.com',
+      'youtube-nocookie.com',
+      'rutube.ru',
+      'vkvideo.ru',
+      'vk.com',
+      'm.vk.com',
+    ].includes(host)) {
+      return trimmed;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
 function sanitizeNode(node: Node): string {
   if (node.nodeType === Node.TEXT_NODE) {
     return escapeHtml(node.textContent ?? '');
@@ -141,10 +180,45 @@ function sanitizeNode(node: Node): string {
     }
   }
 
+  if (tagName === 'img') {
+    const src = sanitizeMediaSrc(element.getAttribute('src') ?? '');
+    if (!src) {
+      return '';
+    }
+    attributes.push(`src="${escapeAttribute(src)}"`);
+    const alt = (element.getAttribute('alt') ?? '').trim();
+    if (alt) {
+      attributes.push(`alt="${escapeAttribute(alt)}"`);
+    }
+    attributes.push('loading="lazy"');
+  }
+
+  if (tagName === 'iframe') {
+    const src = sanitizeIframeSrc(element.getAttribute('src') ?? '');
+    if (!src) {
+      return '';
+    }
+    attributes.push(`src="${escapeAttribute(src)}"`);
+    attributes.push(
+      'allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"',
+      'allowfullscreen="true"',
+      'loading="lazy"',
+      'referrerpolicy="strict-origin-when-cross-origin"',
+    );
+  }
+
+  if (tagName === 'div' && element.classList.contains('article-video-embed')) {
+    attributes.push('class="article-video-embed"', 'data-article-video="true"');
+  }
+
   if (tagName === 'font') {
     const face = (element.getAttribute('face') ?? '').trim();
     if (face) {
       attributes.push(`face="${escapeAttribute(face.replace(/[^a-zA-Z0-9 _,-]/g, ''))}"`);
+    }
+    const color = sanitizeStyleValue('color', element.getAttribute('color') ?? '');
+    if (color) {
+      attributes.push(`color="${escapeAttribute(color)}"`);
     }
   }
 
@@ -153,7 +227,7 @@ function sanitizeNode(node: Node): string {
   const alignment = /^(left|center|right|justify)$/.test(align) ? `text-align: ${align}` : null;
   const mergedStyle = [styleValue, alignment].filter(Boolean).join('; ');
 
-  if (mergedStyle && (tagName === 'div' || tagName === 'p' || tagName === 'blockquote' || tagName === 'span' || tagName.startsWith('h'))) {
+  if (mergedStyle && (tagName === 'div' || tagName === 'p' || tagName === 'blockquote' || tagName === 'span' || tagName === 'font' || tagName.startsWith('h'))) {
     attributes.push(`style="${escapeAttribute(mergedStyle)}"`);
   }
 

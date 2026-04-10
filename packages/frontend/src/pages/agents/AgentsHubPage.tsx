@@ -13,6 +13,7 @@ import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { Spinner } from '../../components/ui/Spinner';
 import { UserLink } from '../../components/users/UserLink';
+import { RouteTransitionShell } from '../../components/layout/RouteTransitionShell';
 import type { AgentStats } from '../../lib/api/agents';
 
 const statusLabels: Record<string, string> = {
@@ -174,7 +175,7 @@ export function AgentsHubPage() {
           <p className="mt-1 text-sm text-muted-foreground">
             {tab === 'my'
               ? 'Ваши собственные агенты, черновики и рабочие версии.'
-              : 'Поиск по всем доступным агентам для чата: вашим и публичным агентам других пользователей.'}
+              : 'Поиск по всем агентам для чата: вашим и публичным агентам других пользователей.'}
           </p>
         </div>
         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
@@ -182,7 +183,7 @@ export function AgentsHubPage() {
             <Button variant="outline" className="w-full sm:w-auto">Инструменты</Button>
           </Link>
           <Link to="/builder/stack" className="w-full sm:w-auto">
-            <Button className="w-full sm:w-auto">Создать агента</Button>
+            <Button className="w-full whitespace-nowrap sm:w-auto">Создать агента</Button>
           </Link>
         </div>
       </div>
@@ -196,8 +197,9 @@ export function AgentsHubPage() {
         </Button>
       </div>
 
-      {tab === 'my' && (
-        <>
+      <RouteTransitionShell routeKey={tab} enabled={true} mode="soft">
+        {tab === 'my' ? (
+          <>
           <div className="mb-6 rounded-xl border bg-slate-50 p-4">
             <p className="text-sm font-medium text-slate-900">Мои агенты</p>
             <p className="mt-1 text-sm text-muted-foreground">
@@ -305,11 +307,9 @@ export function AgentsHubPage() {
               })}
             </div>
           )}
-        </>
-      )}
-
-      {tab === 'search' && (
-        <>
+          </>
+        ) : (
+          <>
           <div className="mb-6 rounded-xl border bg-slate-50 p-4">
             <p className="text-sm font-medium text-slate-900">Глобальный поиск</p>
             <p className="mt-1 text-sm text-muted-foreground">
@@ -382,8 +382,9 @@ export function AgentsHubPage() {
               })}
             </div>
           )}
-        </>
-      )}
+          </>
+        )}
+      </RouteTransitionShell>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 ﻿import { Link, useLocation } from 'react-router-dom';
 import { cn } from '../../lib/utils';
+import { RouteTransitionShell } from '../layout/RouteTransitionShell';
 
 const adminNav = [
   { to: '/admin/dashboard', label: 'Дашборд' },
@@ -16,7 +17,8 @@ const adminNav = [
 ];
 
 export function AdminLayout({ children }: { children: React.ReactNode }) {
-  const { pathname } = useLocation();
+  const { pathname, search, hash } = useLocation();
+  const contentRouteKey = `${pathname}${search}${hash}`;
 
   return (
     <div className="container mx-auto w-full px-4 py-8">
@@ -44,7 +46,9 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
           })}
         </nav>
       </div>
-      {children}
+      <RouteTransitionShell routeKey={contentRouteKey} enabled={true} mode="soft">
+        {children}
+      </RouteTransitionShell>
     </div>
   );
 }

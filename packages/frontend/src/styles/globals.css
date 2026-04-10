@@ -372,6 +372,13 @@
     max-width: 100%;
   }
 
+  .article-rich-content img {
+    display: block;
+    margin: 1.5rem auto;
+    max-width: 100%;
+    border-radius: 1rem;
+  }
+
   .article-editor-content .article-video-embed,
   .article-rich .article-video-embed {
     position: relative;
@@ -386,6 +393,25 @@
 
   .article-editor-content .article-video-embed iframe,
   .article-rich .article-video-embed iframe {
+    position: absolute;
+    inset: 0;
+    height: 100%;
+    width: 100%;
+    border: 0;
+  }
+
+  .article-rich-content .article-video-embed {
+    position: relative;
+    margin: 1.6rem 0;
+    overflow: hidden;
+    border-radius: 1.5rem;
+    border: 1px solid rgb(226 232 240);
+    background: rgb(15 23 42);
+    padding-top: 56.25%;
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.12);
+  }
+
+  .article-rich-content .article-video-embed iframe {
     position: absolute;
     inset: 0;
     height: 100%;

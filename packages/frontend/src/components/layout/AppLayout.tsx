@@ -229,8 +229,11 @@ export function AppLayout() {
   const isProfileActive = location.pathname === '/profile' || location.pathname.startsWith('/profile/');
   const isAdminActive = location.pathname === '/admin' || location.pathname.startsWith('/admin/');
   const shouldAnimateRouteContent = !location.pathname.startsWith('/shared/chat/')
-    && !location.pathname.startsWith('/shared/chats/');
-  const routeTransitionKey = `${location.pathname}${location.search}${location.hash}`;
+    && !location.pathname.startsWith('/shared/chats/')
+    && !location.pathname.startsWith('/admin');
+  const routeTransitionKey = location.pathname === '/my/agents'
+    ? `${location.pathname}${location.hash}`
+    : `${location.pathname}${location.search}${location.hash}`;
   const activeMenuClass = 'bg-[hsl(222.2deg_53.33%_74.69%_/_10%)]';
   const profileBaseLabel = user?.name || user?.email || 'Профиль';
   const compactHeaderRubBalance = profile

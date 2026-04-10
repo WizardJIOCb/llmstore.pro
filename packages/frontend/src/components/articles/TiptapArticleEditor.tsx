@@ -1,11 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { EditorContent, useEditor } from '@tiptap/react';
 import { Button, Input } from '../ui';
+import { Select } from '../ui/Select';
 import { useUploadArticleImage } from '../../hooks/useArticles';
 import { createArticleTiptapExtensions, parseArticleContent } from './tiptapArticleConfig';
 import { resolveArticleVideoEmbed } from './videoEmbeds';
 
 type MediaDialogMode = 'image' | 'video' | null;
+const DEFAULT_TEXT_COLOR = '#0f172a';
+const FONT_OPTIONS = [
+  { value: '', label: 'Шрифт по умолчанию' },
+  { value: 'Arial', label: 'Sans' },
+  { value: 'Georgia', label: 'Serif' },
+  { value: 'Courier New', label: 'Mono' },
+];
 
 export function TiptapArticleEditor({
   value,
@@ -134,6 +142,15 @@ export function TiptapArticleEditor({
 
   const toolbarButtonClass = 'min-w-[2.5rem]';
   const isUploadingImage = uploadImageMutation.isPending;
+  const activeTextColor = typeof editor.getAttributes('textStyle').color === 'string'
+    ? editor.getAttributes('textStyle').color
+    : DEFAULT_TEXT_COLOR;
+  const activeFontFamily = typeof editor.getAttributes('textStyle').fontFamily === 'string'
+    ? editor.getAttributes('textStyle').fontFamily
+    : '';
+  const normalizedTextColor = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(activeTextColor)
+    ? activeTextColor
+    : DEFAULT_TEXT_COLOR;
 
   return (
     <div className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">
@@ -174,6 +191,20 @@ export function TiptapArticleEditor({
         <Button type="button" size="sm" variant={editor.isActive('link') ? 'primary' : 'outline'} onClick={insertLink}>
           Ссылка
         </Button>
+        <label className="inline-flex h-8 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-xs text-slate-700">
+          <span>Цвет</span>
+          <input
+            type="color"
+            value={normalizedTextColor}
+            className="h-5 w-7 cursor-pointer rounded border border-slate-200 bg-transparent p-0"
+            onChange={(event) => {
+              editor.chain().focus().setColor(event.target.value).run();
+            }}
+          />
+        </label>
+        <Button type="button" size="sm" variant="outline" onClick={() => editor.chain().focus().unsetColor().run()}>
+          Сброс цвета
+        </Button>
         <Button type="button" size="sm" variant="outline" onClick={() => setDialogMode('image')}>
           Картинка
         </Button>
@@ -183,6 +214,20 @@ export function TiptapArticleEditor({
         <Button type="button" size="sm" variant="ghost" onClick={() => editor.chain().focus().clearNodes().unsetAllMarks().run()}>
           Очистить
         </Button>
+        <div className="min-w-[12rem] flex-1 sm:max-w-[14rem]">
+          <Select
+            options={FONT_OPTIONS}
+            value={FONT_OPTIONS.some((option) => option.value === activeFontFamily) ? activeFontFamily : ''}
+            onChange={(event) => {
+              const nextValue = event.target.value;
+              if (!nextValue) {
+                editor.chain().focus().unsetFontFamily().run();
+                return;
+              }
+              editor.chain().focus().setFontFamily(nextValue).run();
+            }}
+          />
+        </div>
       </div>
 
       <div className="article-rich prose prose-slate max-w-none px-5 py-5 prose-headings:tracking-tight prose-p:leading-8 prose-li:leading-7 prose-img:rounded-2xl">
