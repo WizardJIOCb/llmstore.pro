@@ -83,6 +83,7 @@ export function useChat(chatId: string | undefined, options?: { adminView?: bool
     queryKey: ['chats', chatId, options?.adminView ? 'admin-view' : 'default-view'],
     queryFn: () => chatsApi.get(chatId!),
     enabled: !!chatId,
+    placeholderData: (previousData) => previousData,
   });
 }
 

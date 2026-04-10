@@ -3531,8 +3531,15 @@ function AuthenticatedChatsPage() {
             )}
           </div>
 
-          <div ref={messagesScrollRef} className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4 pt-2 pb-4 md:py-4">
-            <div ref={messagesContentRef} className="space-y-4">
+          <div className="route-transition-shell flex min-h-0 flex-1 flex-col">
+            <div
+              key={activeChat?.id ?? '__empty__'}
+              className={cn(
+                'route-transition__content animate-[fadeIn_160ms_ease-out] flex min-h-0 flex-1 flex-col',
+              )}
+            >
+              <div ref={messagesScrollRef} className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4 pt-2 pb-4 md:py-4">
+                <div ref={messagesContentRef} className="space-y-4">
             {isAdminForeignChat && (
               <div className="mx-auto max-w-3xl rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                 Открыт чат другого пользователя в режиме только для чтения. Владелец: {activeChatOwnerLabel}.
@@ -3966,10 +3973,12 @@ function AuthenticatedChatsPage() {
                   : isAdminForeignChat
                     ? 'Чат другого пользователя открыт только для чтения'
                     : hasAvailableBalance
-                    ? 'Введите сообщение...'
+                      ? 'Введите сообщение...'
                     : 'Баланс закончился'
               }
             />
+          </div>
+            </div>
           </div>
         </section>
       </div>
