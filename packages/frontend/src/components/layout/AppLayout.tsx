@@ -309,7 +309,7 @@ export function AppLayout() {
   return (
     <div className={cn('min-h-screen flex flex-col', isChatsPage && 'h-screen overflow-hidden')}>
       <header className="sticky top-0 z-50 border-b border-slate-200 bg-white md:border-slate-200 md:bg-white">
-        <div className="container mx-auto flex h-16 items-center justify-between bg-[radial-gradient(circle_at_top_right,rgba(45,212,191,0.18),transparent_34%),linear-gradient(135deg,#0b1220,#111827_58%,#0f172a)] px-4 text-white md:bg-none md:text-inherit">
+        <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between bg-[radial-gradient(circle_at_top_right,rgba(45,212,191,0.18),transparent_34%),linear-gradient(135deg,#0b1220,#111827_58%,#0f172a)] px-4 text-white md:bg-none md:text-inherit">
           <Link
             to="/"
             className="relative top-[-2px] inline-flex items-center gap-2.5 text-xl font-bold text-white md:text-primary"
