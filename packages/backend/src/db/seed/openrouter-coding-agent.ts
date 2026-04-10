@@ -1,7 +1,7 @@
 ﻿import { db } from '../../config/database.js';
-import { agents, agentVersions } from '../schema/agents.js';
+import { agents, agentVersions, agentVersionTools, toolDefinitions } from '../schema/agents.js';
 import { users } from '../schema/auth.js';
-import { eq } from 'drizzle-orm';
+import { eq, and, inArray } from 'drizzle-orm';
 
 const BASE_SYSTEM_PROMPT = `Ты — OpenRouter Coding Agent для llmstore.pro.
 
@@ -117,12 +117,28 @@ const BASE_SYSTEM_PROMPT = `Ты — OpenRouter Coding Agent для llmstore.pro
 - при необходимости добавь кодовые блоки с ключевыми файлами;
 - если есть ограничения, перечисли их коротко.`;
 
+const KIMI_FULLSTACK_ORCHESTRATOR_APPENDIX = `
+Дополнительный режим для этой версии агента:
+- работай как orchestration-first техлид для крупных задач;
+- если задача похожа на лендинг, большой fullstack-сайт, продуктовую платформу или большую аналитику, сначала декомпозируй её на треки;
+- для точечной делегации используй инструмент llm-orchestrator-worker, когда выгодно отдать отдельную подзадачу специализированной worker-модели;
+- разделяй работу как минимум на frontend, backend, data/integrations, content/UX и verification;
+- для каждого трека формулируй цель, входы, выходы, риски и критерии готовности;
+- если архитектура ещё не ясна, не спеши писать много кода до появления понятных контрактов между частями системы;
+- если пользователь просит runnable bundle, после декомпозиции переходи к реализации и возвращай полный dev-report;
+- не утверждай, что ты реально запустил другие модели или воркеры, если этого не происходило: ты выполняешь orchestration внутри одного ответа.
+`;
+
+const KIMI_FULLSTACK_ORCHESTRATOR_SYSTEM_PROMPT = `${BASE_SYSTEM_PROMPT}\n${KIMI_FULLSTACK_ORCHESTRATOR_APPENDIX}`;
+
 interface CodingPreset {
   slug: string;
   name: string;
   description: string;
   model_external_id: string;
   version_number: number;
+  system_prompt?: string;
+  tool_slugs?: string[];
   chat_intro: string;
   starter_prompts: string[];
   max_iterations: number;
@@ -146,6 +162,12 @@ const HEAVY_CODING_STARTER_PROMPTS = [
   'Разбери сложное ТЗ и предложи подробный план реализации',
   'Спроектируй архитектуру и перечисли ключевые trade-offs',
   'Подготовь план большого рефакторинга по шагам',
+];
+
+const ORCHESTRATOR_STARTER_PROMPTS = [
+  'Разбей большой fullstack-проект на этапы: frontend, backend, data, integrations и verification',
+  'Спроектируй лендинг или маркетинговый сайт с backend-частью и опиши контракты между слоями',
+  'Проведи глубокую аналитику статьи, исследования или большого материала и выдай структуру выводов и следующих задач',
 ];
 
 const CODING_PRESETS: CodingPreset[] = [
@@ -181,6 +203,20 @@ const CODING_PRESETS: CodingPreset[] = [
     version_number: 2,
     chat_intro: 'Премиальный coding-agent на Claude Opus 4.6. Подходит для больших рефакторингов, архитектуры и детального плана изменений.',
     starter_prompts: HEAVY_CODING_STARTER_PROMPTS,
+    max_iterations: 8,
+    temperature: 0.15,
+    max_tokens: 12288,
+  },
+  {
+    slug: 'openrouter-coding-agent-kimi-k2-5-orchestrator',
+    name: 'Kimi K2.5 Fullstack Orchestrator',
+    description: 'Orchestration-first агент на Kimi K2.5 для лендингов, крупных fullstack-проектов и большой аналитики.',
+    model_external_id: 'moonshotai/kimi-k2.5',
+    version_number: 1,
+    system_prompt: KIMI_FULLSTACK_ORCHESTRATOR_SYSTEM_PROMPT,
+    tool_slugs: ['llm-orchestrator-worker', 'web-search-cascade'],
+    chat_intro: 'Kimi K2.5 в orchestration-first режиме. Сначала раскладываю большие задачи на треки и контракты между частями системы, затем довожу до реализации, если это нужно.',
+    starter_prompts: ORCHESTRATOR_STARTER_PROMPTS,
     max_iterations: 8,
     temperature: 0.15,
     max_tokens: 12288,
@@ -292,6 +328,44 @@ async function ensureCodingAgentPreset(adminId: string, preset: CodingPreset) {
     chat_intro: preset.chat_intro,
     starter_prompts: preset.starter_prompts,
   };
+  const systemPrompt = preset.system_prompt ?? BASE_SYSTEM_PROMPT;
+  const syncPresetTools = async (agentVersionId: string) => {
+    await db.delete(agentVersionTools).where(eq(agentVersionTools.agent_version_id, agentVersionId));
+
+    const toolSlugs = preset.tool_slugs ?? [];
+    if (toolSlugs.length === 0) return;
+
+    const rows = await db
+      .select({ id: toolDefinitions.id, slug: toolDefinitions.slug })
+      .from(toolDefinitions)
+      .where(and(
+        inArray(toolDefinitions.slug, toolSlugs),
+        eq(toolDefinitions.is_active, true),
+      ));
+
+    const toolIdsBySlug = new Map(rows.map((row) => [row.slug, row.id]));
+    const values = toolSlugs
+      .map((slug, orderIndex) => {
+        const toolDefinitionId = toolIdsBySlug.get(slug);
+        if (!toolDefinitionId) return null;
+        return {
+          agent_version_id: agentVersionId,
+          tool_definition_id: toolDefinitionId,
+          is_required: slug === 'llm-orchestrator-worker',
+          order_index: orderIndex,
+        };
+      })
+      .filter((value): value is {
+        agent_version_id: string;
+        tool_definition_id: string;
+        is_required: boolean;
+        order_index: number;
+      } => Boolean(value));
+
+    if (values.length > 0) {
+      await db.insert(agentVersionTools).values(values);
+    }
+  };
 
   const [existing] = await db
     .select()
@@ -313,7 +387,7 @@ async function ensureCodingAgentPreset(adminId: string, preset: CodingPreset) {
         agent_id: existing.id,
         version_number: preset.version_number,
         runtime_engine: 'openrouter_chat',
-        system_prompt: BASE_SYSTEM_PROMPT,
+        system_prompt: systemPrompt,
         response_mode: 'text',
         runtime_config: runtimeConfig,
       })
@@ -321,7 +395,7 @@ async function ensureCodingAgentPreset(adminId: string, preset: CodingPreset) {
         target: [agentVersions.agent_id, agentVersions.version_number],
         set: {
           runtime_engine: 'openrouter_chat',
-          system_prompt: BASE_SYSTEM_PROMPT,
+          system_prompt: systemPrompt,
           response_mode: 'text',
           runtime_config: runtimeConfig,
         },
@@ -329,6 +403,7 @@ async function ensureCodingAgentPreset(adminId: string, preset: CodingPreset) {
       .returning();
 
     await db.update(agents).set({ current_version_id: version.id }).where(eq(agents.id, existing.id));
+    await syncPresetTools(version.id);
     console.log(`Ensured ${preset.name}`);
     return;
   }
@@ -351,13 +426,14 @@ async function ensureCodingAgentPreset(adminId: string, preset: CodingPreset) {
       agent_id: agent.id,
       version_number: preset.version_number,
       runtime_engine: 'openrouter_chat',
-      system_prompt: BASE_SYSTEM_PROMPT,
+      system_prompt: systemPrompt,
       response_mode: 'text',
       runtime_config: runtimeConfig,
     })
     .returning();
 
   await db.update(agents).set({ current_version_id: version.id }).where(eq(agents.id, agent.id));
+  await syncPresetTools(version.id);
   console.log(`Seeded ${preset.name}`);
 }
 

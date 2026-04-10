@@ -790,7 +790,8 @@ export function StackBuilderPage() {
 
   const selectedPackObjects = capabilityPacks.filter((pack) => selectedPackIds.includes(pack.id));
   const preferredCodingAgent = useMemo(
-    () => chatAgents.find((agent) => agent.is_coding_model && /coding/i.test(agent.name))
+    () => chatAgents.find((agent) => agent.is_coding_model && /(orchestrator|fullstack|kimi)/i.test(agent.name))
+      ?? chatAgents.find((agent) => agent.is_coding_model && /coding/i.test(agent.name))
       ?? chatAgents.find((agent) => agent.is_coding_model)
       ?? null,
     [chatAgents],

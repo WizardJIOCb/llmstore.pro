@@ -55,4 +55,16 @@ export interface ToolExecutionResult {
   result: Record<string, unknown>;
   duration_ms: number;
   cached?: boolean;
+  usage?: ToolUsageSummary | ToolUsageSummary[];
+}
+
+export interface ToolUsageSummary {
+  provider: 'openrouter';
+  provider_name?: string;
+  model_external_id: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  estimated_cost: string;
+  raw_usage_json?: Record<string, unknown>;
 }

@@ -43,6 +43,13 @@ export const GENERAL_CHAT_MODELS: GeneralModelOption[] = [
     pricing_output_usd_per_million: 10.00,
   },
   {
+    value: 'moonshotai/kimi-k2.5',
+    label: 'Kimi K2.5',
+    description: 'Сильный long-context и orchestration-first вариант для больших аналитических задач, planning-heavy запросов и fullstack-разработки.',
+    pricing_input_usd_per_million: 0.3827,
+    pricing_output_usd_per_million: 1.72,
+  },
+  {
     value: 'openai/gpt-4o',
     label: 'GPT-4o',
     description: 'Стабильный premium-класс для качественного мультимодального общения и общего использования.',

@@ -91,6 +91,46 @@ const OPENROUTER_CODING_TEMPLATE = {
   },
 };
 
+const KIMI_ORCHESTRATOR_TEMPLATE = {
+  name: 'Kimi K2.5 Fullstack Orchestrator',
+  description: 'Orchestration-first агент для крупных задач: лендинги, большие fullstack-проекты, архитектура и глубокая аналитика материалов.',
+  system_prompt: `Ты — Kimi K2.5 Fullstack Orchestrator для llmstore.pro.
+
+Роль:
+- принимаешь большие продуктовые, fullstack и аналитические задачи;
+- сначала раскладываешь их на понятные потоки работ;
+- проектируешь контракты между частями системы;
+- при необходимости переходишь к коду, runnable bundle и preview.
+
+Как работать:
+1. Всегда отвечай на русском.
+2. Если задача крупная, сначала дай декомпозицию на frontend, backend, data/integrations, content/UX и verification.
+3. Для каждого потока фиксируй цель, входы, выходы, риски и критерии готовности.
+4. Если пользователь просит код сразу, после декомпозиции переходи к реализации без лишней воды.
+5. Если пользователь приложил файлы или материалы, опирайся на них как на основной контекст.
+6. Когда выгодно, используй инструмент llm-orchestrator-worker для делегации отдельных подзадач worker-моделям.
+7. Не утверждай, что ты реально делегировал задачу другим моделям, если этого не происходило.
+8. Если уместно показать standalone preview, верни его.
+9. Для runnable проектов и preview используй тот же dev-report формат, что и coding-agent.
+
+Формат ответа:
+- сначала блок <dev-report>...</dev-report> с валидным JSON;
+- затем короткий markdown-ответ по сути;
+- если задача про landing или preview, после dev-report можно ничего не писать.`,
+  runtime_config: {
+    max_iterations: 8,
+    temperature: 0.15,
+    max_tokens: 12288,
+    model_external_id: 'moonshotai/kimi-k2.5',
+    chat_intro: 'Опишите большой проект, лендинг, fullstack-задачу или материал для анализа. Агент сначала соберёт карту работ и архитектуру, а затем сможет перейти к реализации.',
+    starter_prompts: [
+      'Разбей большой fullstack-проект на этапы: frontend, backend, data, integrations и verification',
+      'Спроектируй лендинг с backend-частью и опиши контракты между слоями',
+      'Проведи глубокую аналитику статьи или исследования и выдай структуру выводов и следующих задач',
+    ],
+  },
+};
+
 export function AgentBuilderPage() {
   const navigate = useNavigate();
   const [step, setStep] = useState<'template' | 'form' | 'wizard'>('template');
@@ -116,6 +156,14 @@ export function AgentBuilderPage() {
       .map((t) => t.id);
   };
 
+  const getToolIdsBySlug = (slugs: string[]) => {
+    if (!tools) return [];
+    const slugSet = new Set(slugs);
+    return tools
+      .filter((tool) => slugSet.has(tool.slug))
+      .map((tool) => tool.id);
+  };
+
   const getInitialData = () => {
     if (templateId === 'dtf-news') {
       return {
@@ -136,6 +184,13 @@ export function AgentBuilderPage() {
           ...OPENROUTER_CODING_TEMPLATE.runtime_config,
           starter_prompts: appSettings?.starter_prompts.openrouter_coding_agent ?? [],
         },
+      };
+    }
+
+    if (templateId === 'kimi-orchestrator') {
+      return {
+        ...KIMI_ORCHESTRATOR_TEMPLATE,
+        tool_ids: getToolIdsBySlug(['llm-orchestrator-worker', 'web-search-cascade']),
       };
     }
 

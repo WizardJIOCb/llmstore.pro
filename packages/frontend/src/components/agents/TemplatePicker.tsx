@@ -28,6 +28,12 @@ const templates: Template[] = [
     icon: '🛠',
   },
   {
+    id: 'kimi-orchestrator',
+    name: 'Kimi K2.5 Orchestrator',
+    description: 'Отдельный orchestration-first шаблон под лендинги, large fullstack и большую аналитику: сначала план и декомпозиция, потом код.',
+    icon: '🧩',
+  },
+  {
     id: 'blank',
     name: 'Пустой агент',
     description: 'Создайте агента с нуля. Выберите инструменты и напишите системный промпт самостоятельно.',

@@ -216,6 +216,8 @@ const MODEL_PRICING: Record<string, { input: number; output: number }> = {
   'google/gemini-2.5-flash': { input: 0.30, output: 2.50 },
   'google/gemini-2.5-flash-preview': { input: 0.15, output: 0.60 },
   'google/gemini-2.5-pro': { input: 1.25, output: 10.00 },
+  'moonshotai/kimi-k2.5': { input: 0.3827, output: 1.72 },
+  'kimi-k2.5': { input: 0.3827, output: 1.72 },
   'openai/gpt-4o': { input: 2.50, output: 10.00 },
   'gpt-4o': { input: 2.50, output: 10.00 },
   'openai/gpt-4o-mini': { input: 0.15, output: 0.60 },
@@ -251,6 +253,8 @@ const MODEL_LABELS: Record<string, string> = {
   'claude-sonnet-4.6': 'Claude Sonnet 4.6',
   'anthropic/claude-opus-4.6': 'Claude Opus 4.6',
   'claude-opus-4.6': 'Claude Opus 4.6',
+  'moonshotai/kimi-k2.5': 'Kimi K2.5',
+  'kimi-k2.5': 'Kimi K2.5',
   'openai/gpt-5.4': 'GPT-5.4',
   'gpt-5.4': 'GPT-5.4',
   'openai/gpt-5.4-mini': 'GPT-5.4 Mini',
@@ -276,6 +280,8 @@ const CODING_MODEL_IDS = new Set([
   'claude-sonnet-4.6',
   'anthropic/claude-opus-4.6',
   'claude-opus-4.6',
+  'moonshotai/kimi-k2.5',
+  'kimi-k2.5',
   'openai/gpt-5.4',
   'gpt-5.4',
   'openai/gpt-5.4-mini',
@@ -331,6 +337,84 @@ function estimateCost(model: string, promptTokens: number, completionTokens: num
   const pricing = MODEL_PRICING[normalizedModel] ?? { input: 0.10, output: 0.40 };
   const cost = (promptTokens * pricing.input + completionTokens * pricing.output) / 1_000_000;
   return cost.toFixed(6);
+}
+
+function accumulateUsageBreakdown(
+  breakdown: Map<string, {
+    model: string;
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+    estimated_cost_num: number;
+    sources: Set<string>;
+  }>,
+  input: {
+    model: string;
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens?: number;
+    source: string;
+  },
+) {
+  const model = input.model.trim();
+  if (!model) return;
+
+  const promptTokens = Math.max(0, Math.round(input.prompt_tokens));
+  const completionTokens = Math.max(0, Math.round(input.completion_tokens));
+  const totalTokens = input.total_tokens == null
+    ? (promptTokens + completionTokens)
+    : Math.max(0, Math.round(input.total_tokens));
+  const estimatedCost = Number(estimateCost(model, promptTokens, completionTokens));
+
+  const existing = breakdown.get(model) ?? {
+    model,
+    prompt_tokens: 0,
+    completion_tokens: 0,
+    total_tokens: 0,
+    estimated_cost_num: 0,
+    sources: new Set<string>(),
+  };
+
+  existing.prompt_tokens += promptTokens;
+  existing.completion_tokens += completionTokens;
+  existing.total_tokens += totalTokens;
+  existing.estimated_cost_num += estimatedCost;
+  existing.sources.add(input.source);
+  breakdown.set(model, existing);
+}
+
+function serializeUsageBreakdown(
+  breakdown: Map<string, {
+    model: string;
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+    estimated_cost_num: number;
+    sources: Set<string>;
+  }>,
+): UsageBreakdownEntry[] {
+  return [...breakdown.values()].map((entry) => ({
+    model: entry.model,
+    prompt_tokens: entry.prompt_tokens,
+    completion_tokens: entry.completion_tokens,
+    total_tokens: entry.total_tokens,
+    estimated_cost: entry.estimated_cost_num.toFixed(6),
+    sources: [...entry.sources],
+  }));
+}
+
+function sumUsageBreakdownCost(
+  breakdown: Map<string, {
+    model: string;
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+    estimated_cost_num: number;
+    sources: Set<string>;
+  }>,
+): string {
+  const total = [...breakdown.values()].reduce((sum, entry) => sum + entry.estimated_cost_num, 0);
+  return total.toFixed(6);
 }
 
 function recalculateUsageCost<T extends Record<string, unknown> | null>(usage: T): T {
@@ -649,6 +733,7 @@ interface RunResult {
     estimated_cost: string;
     model: string;
     usd_to_rub_rate?: number;
+    by_model?: UsageBreakdownEntry[];
   } | null;
   latency_ms: number;
   coding_report?: CodingReport | null;
@@ -677,6 +762,15 @@ interface ToolTrace {
   status: string;
   duration_ms: number | null;
   error?: string;
+}
+
+interface UsageBreakdownEntry {
+  model: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  estimated_cost: string;
+  sources?: string[];
 }
 
 const TEXT_ATTACHMENT_EXTENSIONS = new Set([
@@ -3437,7 +3531,55 @@ ${agent.description.trim()}`);
   // 7. Update run to running
   await db.update(agentRuns).set({ status: 'running' }).where(eq(agentRuns.id, run.id));
   let totalUsage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+  const usageBreakdown = new Map<string, {
+    model: string;
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+    estimated_cost_num: number;
+    sources: Set<string>;
+  }>();
   let usageEventRateCache: number | null = null;
+  const recordUsage = (
+    usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number },
+    usageModel: string,
+    source: string,
+  ) => {
+    totalUsage.prompt_tokens += usage.prompt_tokens;
+    totalUsage.completion_tokens += usage.completion_tokens;
+    totalUsage.total_tokens += usage.total_tokens;
+    accumulateUsageBreakdown(usageBreakdown, {
+      model: usageModel,
+      prompt_tokens: usage.prompt_tokens,
+      completion_tokens: usage.completion_tokens,
+      total_tokens: usage.total_tokens,
+      source,
+    });
+  };
+  const getEstimatedCostTotal = () => (
+    usageBreakdown.size > 0
+      ? sumUsageBreakdownCost(usageBreakdown)
+      : estimateCost(modelId, totalUsage.prompt_tokens, totalUsage.completion_tokens)
+  );
+  const getUsageBreakdownPayload = () => serializeUsageBreakdown(usageBreakdown);
+  const normalizeToolUsageEntries = (value: unknown) => {
+    const rawItems = Array.isArray(value) ? value : (value ? [value] : []);
+    return rawItems
+      .filter((item) => item && typeof item === 'object')
+      .map((item) => item as {
+        model_external_id?: unknown;
+        prompt_tokens?: unknown;
+        completion_tokens?: unknown;
+        total_tokens?: unknown;
+      })
+      .map((item) => ({
+        model_external_id: typeof item.model_external_id === 'string' ? item.model_external_id.trim() : '',
+        prompt_tokens: Number(item.prompt_tokens ?? 0),
+        completion_tokens: Number(item.completion_tokens ?? 0),
+        total_tokens: Number(item.total_tokens ?? 0),
+      }))
+      .filter((item) => item.model_external_id && Number.isFinite(item.prompt_tokens) && Number.isFinite(item.completion_tokens));
+  };
   const getUsageEventPayload = async () => {
     const usdToRubRate = usageEventRateCache ?? await getUsdToRubRate();
     usageEventRateCache = usdToRubRate;
@@ -3445,8 +3587,9 @@ ${agent.description.trim()}`);
       prompt_tokens: totalUsage.prompt_tokens,
       completion_tokens: totalUsage.completion_tokens,
       total_tokens: totalUsage.total_tokens,
-      estimated_cost: estimateCost(modelId, totalUsage.prompt_tokens, totalUsage.completion_tokens),
+      estimated_cost: getEstimatedCostTotal(),
       usd_to_rub_rate: usdToRubRate,
+      by_model: getUsageBreakdownPayload(),
     };
   };
   const emitRunEvent = async (
@@ -3531,9 +3674,10 @@ ${agent.description.trim()}`);
     const usagePayload = totalUsage.total_tokens > 0
       ? {
         ...totalUsage,
-        estimated_cost: estimateCost(modelId, totalUsage.prompt_tokens, totalUsage.completion_tokens),
+        estimated_cost: getEstimatedCostTotal(),
         model: modelId,
         usd_to_rub_rate: await getUsdToRubRate(),
+        by_model: getUsageBreakdownPayload(),
         tool_traces: toolTraces,
         coding_report: nextCodingReport,
       }
@@ -3603,9 +3747,7 @@ ${agent.description.trim()}`);
     });
 
     if (response.usage) {
-      totalUsage.prompt_tokens += response.usage.prompt_tokens;
-      totalUsage.completion_tokens += response.usage.completion_tokens;
-      totalUsage.total_tokens += response.usage.total_tokens;
+      recordUsage(response.usage, response.model || modelId, 'sectional_landing');
     }
 
     const choice = requireFirstChoice(
@@ -3948,9 +4090,7 @@ ${agent.description.trim()}`);
     });
 
     if (continuationResponse.usage) {
-      totalUsage.prompt_tokens += continuationResponse.usage.prompt_tokens;
-      totalUsage.completion_tokens += continuationResponse.usage.completion_tokens;
-      totalUsage.total_tokens += continuationResponse.usage.total_tokens;
+      recordUsage(continuationResponse.usage, continuationResponse.model || modelId, 'final_continuation');
     }
 
     const continuationChoice = requireFirstChoice(
@@ -4034,9 +4174,7 @@ ${agent.description.trim()}`);
     });
 
     if (response.usage) {
-      totalUsage.prompt_tokens += response.usage.prompt_tokens;
-      totalUsage.completion_tokens += response.usage.completion_tokens;
-      totalUsage.total_tokens += response.usage.total_tokens;
+      recordUsage(response.usage, response.model || modelId, 'preview_repair');
     }
 
     const choice = requireFirstChoice(
@@ -4127,9 +4265,7 @@ ${agent.description.trim()}`);
 
       // Accumulate usage
       if (response.usage) {
-        totalUsage.prompt_tokens += response.usage.prompt_tokens;
-        totalUsage.completion_tokens += response.usage.completion_tokens;
-        totalUsage.total_tokens += response.usage.total_tokens;
+        recordUsage(response.usage, response.model || modelId, 'orchestrator');
       }
 
       const choice = requireFirstChoice(response, 'LLM returned no choices');
@@ -4190,6 +4326,13 @@ ${agent.description.trim()}`);
           let trace: ToolTrace;
           try {
             const execResult = await executeTool(toolSlug, toolInput, toolDef?.config_json ?? undefined);
+            for (const usageEntry of normalizeToolUsageEntries(execResult.usage)) {
+              recordUsage({
+                prompt_tokens: usageEntry.prompt_tokens,
+                completion_tokens: usageEntry.completion_tokens,
+                total_tokens: usageEntry.total_tokens || (usageEntry.prompt_tokens + usageEntry.completion_tokens),
+              }, usageEntry.model_external_id, `tool:${toolSlug}`);
+            }
 
             // Update tool call record
             await db.update(agentRunToolCalls).set({
@@ -4486,20 +4629,39 @@ ${agent.description.trim()}`);
   }
 
   // 10. Persist usage
-  const estCost = estimateCost(modelId, totalUsage.prompt_tokens, totalUsage.completion_tokens);
+  const estCost = getEstimatedCostTotal();
   const usdToRubRate = await getUsdToRubRate();
+  const usageBreakdownPayload = getUsageBreakdownPayload();
   if (totalUsage.total_tokens > 0) {
-    await db.insert(usageLedger).values({
-      run_id: run.id,
-      provider: 'openrouter',
-      model_external_id: modelId,
-      provider_name: 'openrouter',
-      prompt_tokens: totalUsage.prompt_tokens,
-      completion_tokens: totalUsage.completion_tokens,
-      total_tokens: totalUsage.total_tokens,
-      estimated_cost: estCost,
-      raw_usage_json: totalUsage as unknown as Record<string, unknown>,
-    });
+    const ledgerRows = usageBreakdownPayload.length > 0
+      ? usageBreakdownPayload.map((entry) => ({
+        run_id: run.id,
+        provider: 'openrouter',
+        model_external_id: entry.model,
+        provider_name: 'openrouter',
+        prompt_tokens: entry.prompt_tokens,
+        completion_tokens: entry.completion_tokens,
+        total_tokens: entry.total_tokens,
+        estimated_cost: entry.estimated_cost,
+        raw_usage_json: {
+          ...entry,
+          orchestrator_model: modelId,
+          run_total_tokens: totalUsage.total_tokens,
+          run_total_estimated_cost: estCost,
+        } as Record<string, unknown>,
+      }))
+      : [{
+        run_id: run.id,
+        provider: 'openrouter',
+        model_external_id: modelId,
+        provider_name: 'openrouter',
+        prompt_tokens: totalUsage.prompt_tokens,
+        completion_tokens: totalUsage.completion_tokens,
+        total_tokens: totalUsage.total_tokens,
+        estimated_cost: estCost,
+        raw_usage_json: totalUsage as unknown as Record<string, unknown>,
+      }];
+    await db.insert(usageLedger).values(ledgerRows);
   }
 
   // 11. Update run with final state
@@ -4520,6 +4682,7 @@ ${agent.description.trim()}`);
         estimated_cost: estCost,
         model: modelId,
         usd_to_rub_rate: usdToRubRate,
+        by_model: usageBreakdownPayload,
         tool_traces: toolTraces,
         coding_report: codingReport,
       }
@@ -4594,7 +4757,13 @@ ${agent.description.trim()}`);
     output: finalOutput,
     tool_traces: toolTraces,
     usage: totalUsage.total_tokens > 0
-      ? { ...totalUsage, estimated_cost: estCost, model: modelId, usd_to_rub_rate: usdToRubRate }
+      ? {
+        ...totalUsage,
+        estimated_cost: estCost,
+        model: modelId,
+        usd_to_rub_rate: usdToRubRate,
+        by_model: usageBreakdownPayload,
+      }
       : null,
     latency_ms: latencyMs,
     coding_report: codingReport,
