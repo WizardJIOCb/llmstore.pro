@@ -23,6 +23,7 @@ const registerLimiter = rateLimit({
 
 router.post('/register', registerLimiter, validateRegister, controller.register);
 router.post('/login', validateLogin, controller.login);
+router.post('/oauth/mobile/exchange', controller.exchangeMobileOAuth);
 router.post('/logout', requireAuth, controller.logout);
 router.get('/me', requireAuth, controller.me);
 router.post('/stop-impersonation', requireAuth, controller.stopImpersonation);

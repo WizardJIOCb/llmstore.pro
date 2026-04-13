@@ -13,6 +13,7 @@ declare module 'express-session' {
     oauthCodeVerifier?: string;
     oauthDeviceFingerprint?: string;
     oauthNextPath?: string;
+    oauthMobileRedirectUri?: string;
     aliceAuthorizeRequest?: AliceAuthorizeRequest;
   }
 }

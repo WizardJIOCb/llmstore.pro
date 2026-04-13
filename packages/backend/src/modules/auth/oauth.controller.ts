@@ -6,6 +6,8 @@ import { normalizeIpAddress } from './signup-bonus.service.js';
 
 type ProviderParams = { provider: string };
 
+const ALLOWED_MOBILE_REDIRECT_PROTOCOLS = new Set(['llmstore-mobile:']);
+
 function resolveSafeFrontendNextPath(next: unknown): string | null {
   if (typeof next !== 'string' || next.trim().length === 0) return null;
 
@@ -19,12 +21,52 @@ function resolveSafeFrontendNextPath(next: unknown): string | null {
   }
 }
 
+function resolveSafeMobileRedirectUri(value: unknown): string | null {
+  if (typeof value !== 'string' || value.trim().length === 0) return null;
+
+  try {
+    const url = new URL(value);
+    if (!ALLOWED_MOBILE_REDIRECT_PROTOCOLS.has(url.protocol)) return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
 function appendQueryParams(path: string, params: Record<string, string>): string {
   const url = new URL(path, env.FRONTEND_URL);
   Object.entries(params).forEach(([key, value]) => {
     url.searchParams.set(key, value);
   });
   return `${url.pathname}${url.search}${url.hash}`;
+}
+
+function appendQueryParamsToUrl(targetUrl: string, params: Record<string, string>): string {
+  const url = new URL(targetUrl);
+  Object.entries(params).forEach(([key, value]) => {
+    url.searchParams.set(key, value);
+  });
+  return url.toString();
+}
+
+function redirectWithParams(
+  res: Response,
+  params: Record<string, string>,
+  options?: {
+    nextPath?: string | null;
+    mobileRedirectUri?: string | null;
+    defaultPath?: string;
+  },
+) {
+  const nextPath = options?.nextPath ?? null;
+  const mobileRedirectUri = options?.mobileRedirectUri ?? null;
+  const defaultPath = options?.defaultPath ?? '/login';
+
+  const target = mobileRedirectUri
+    ? appendQueryParamsToUrl(mobileRedirectUri, params)
+    : `${env.FRONTEND_URL}${appendQueryParams(nextPath ?? defaultPath, params)}`;
+
+  res.redirect(target);
 }
 
 export async function startOAuth(req: Request<ProviderParams>, res: Response, next: NextFunction) {
@@ -39,6 +81,7 @@ export async function startOAuth(req: Request<ProviderParams>, res: Response, ne
       ? req.query.device_fingerprint
       : undefined;
     req.session.oauthNextPath = resolveSafeFrontendNextPath(req.query.next) ?? undefined;
+    req.session.oauthMobileRedirectUri = resolveSafeMobileRedirectUri(req.query.redirect_uri) ?? undefined;
 
     let codeChallenge: string | undefined;
     if (provider === 'vk') {
@@ -59,25 +102,26 @@ export async function handleCallback(req: Request<ProviderParams>, res: Response
     const provider = req.params.provider;
     const { code, state, error, device_id } = req.query;
     const nextPath = req.session.oauthNextPath;
+    const mobileRedirectUri = req.session.oauthMobileRedirectUri;
 
     console.log(`[OAuth] callback ${provider}: code=${code ? 'present' : 'missing'}, state=${state ? 'present' : 'missing'}, device_id=${device_id || 'none'}, error=${error || 'none'}`);
     console.log(`[OAuth] session state: ${req.session.oauthState || 'missing'}, mode: ${req.session.oauthMode || 'missing'}, codeVerifier: ${req.session.oauthCodeVerifier ? 'present' : 'missing'}`);
 
     if (error) {
       console.log(`[OAuth] provider returned error: ${error}`);
-      res.redirect(`${env.FRONTEND_URL}${appendQueryParams(nextPath ?? '/login', {
+      redirectWithParams(res, {
         oauth: 'error',
         message: String(error),
-      })}`);
+      }, { nextPath, mobileRedirectUri });
       return;
     }
 
     if (!state || state !== req.session.oauthState) {
       console.log(`[OAuth] state mismatch: got ${state}, expected ${req.session.oauthState}`);
-      res.redirect(`${env.FRONTEND_URL}${appendQueryParams(nextPath ?? '/login', {
+      redirectWithParams(res, {
         oauth: 'error',
         message: 'Неверный state параметр. Попробуйте ещё раз.',
-      })}`);
+      }, { nextPath, mobileRedirectUri });
       return;
     }
 
@@ -91,6 +135,7 @@ export async function handleCallback(req: Request<ProviderParams>, res: Response
     delete req.session.oauthCodeVerifier;
     delete req.session.oauthDeviceFingerprint;
     delete req.session.oauthNextPath;
+    delete req.session.oauthMobileRedirectUri;
 
     const user = await oauthService.handleCallback({
       provider,
@@ -112,25 +157,41 @@ export async function handleCallback(req: Request<ProviderParams>, res: Response
     req.session.save((err) => {
       if (err) {
         console.error('[OAuth] session save error:', err);
-        res.redirect(`${env.FRONTEND_URL}${appendQueryParams(nextPath ?? '/login', {
+        redirectWithParams(res, {
           oauth: 'error',
           message: 'Ошибка сессии',
-        })}`);
+        }, { nextPath, mobileRedirectUri });
+        return;
+      }
+
+      if (mobileRedirectUri) {
+        redirectWithParams(res, {
+          oauth: 'success',
+          provider,
+          token: oauthService.createMobileAuthToken({
+            userId: user.id,
+            provider,
+            mode,
+          }),
+        }, { mobileRedirectUri });
         return;
       }
 
       const redirectPath = mode === 'link' ? '/profile' : (nextPath ?? '/');
-      res.redirect(`${env.FRONTEND_URL}${appendQueryParams(redirectPath, {
+      redirectWithParams(res, {
         oauth: 'success',
         provider,
-      })}`);
+      }, { nextPath: redirectPath });
     });
   } catch (err) {
     console.error('[OAuth] callback error:', err);
     const message = err instanceof Error ? err.message : 'Неизвестная ошибка';
-    res.redirect(`${env.FRONTEND_URL}${appendQueryParams('/login', {
+    const nextPath = req.session.oauthNextPath;
+    const mobileRedirectUri = req.session.oauthMobileRedirectUri;
+    delete req.session.oauthMobileRedirectUri;
+    redirectWithParams(res, {
       oauth: 'error',
       message,
-    })}`);
+    }, { nextPath, mobileRedirectUri });
   }
 }

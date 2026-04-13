@@ -4,6 +4,7 @@ import {
   sendEmailVerificationEmail,
   verifyEmailToken,
 } from './email-verification.service.js';
+import * as oauthService from './oauth.service.js';
 import { normalizeIpAddress } from './signup-bonus.service.js';
 import { verifyTurnstileToken } from './turnstile.service.js';
 import { AppError } from '../../middleware/error-handler.js';
@@ -52,6 +53,24 @@ export async function register(req: Request, res: Response, next: NextFunction) 
 export async function login(req: Request, res: Response, next: NextFunction) {
   try {
     const user = await authService.login(req.body);
+    req.session.userId = user.id;
+    req.session.userRole = user.role;
+    clearImpersonationSession(req);
+    res.json({ data: user });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function exchangeMobileOAuth(req: Request, res: Response, next: NextFunction) {
+  try {
+    const token = typeof req.body?.token === 'string' ? req.body.token.trim() : '';
+    if (!token) {
+      throw new AppError(400, 'INVALID_MOBILE_OAUTH_TOKEN', 'Не передан mobile OAuth токен');
+    }
+
+    const payload = oauthService.verifyMobileAuthToken(token);
+    const user = await authService.getById(payload.userId);
     req.session.userId = user.id;
     req.session.userRole = user.role;
     clearImpersonationSession(req);

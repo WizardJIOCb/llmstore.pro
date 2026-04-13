@@ -62,6 +62,7 @@ const PROVIDER_CONFIG: Record<string, {
 };
 
 const SUPPORTED_PROVIDERS = Object.keys(PROVIDER_CONFIG);
+const MOBILE_AUTH_TOKEN_TTL_MS = 5 * 60_000;
 
 export function validateProvider(provider: string): void {
   if (!SUPPORTED_PROVIDERS.includes(provider)) {
@@ -392,4 +393,78 @@ export async function handleCallback(opts: HandleCallbackOptions): Promise<UserP
   await markUserActive(newUser.id as string, now);
 
   return toUserPublic(newUser);
+}
+
+interface MobileAuthTokenPayload {
+  userId: string;
+  provider: string;
+  mode: 'login' | 'link';
+  exp: number;
+  nonce: string;
+}
+
+function signMobileAuthPayload(payloadEncoded: string): string {
+  return crypto
+    .createHmac('sha256', env.SESSION_SECRET)
+    .update(payloadEncoded)
+    .digest('base64url');
+}
+
+export function createMobileAuthToken(payload: {
+  userId: string;
+  provider: string;
+  mode: 'login' | 'link';
+}): string {
+  const body: MobileAuthTokenPayload = {
+    ...payload,
+    exp: Date.now() + MOBILE_AUTH_TOKEN_TTL_MS,
+    nonce: crypto.randomBytes(16).toString('base64url'),
+  };
+
+  const encodedPayload = Buffer.from(JSON.stringify(body), 'utf8').toString('base64url');
+  const signature = signMobileAuthPayload(encodedPayload);
+  return `${encodedPayload}.${signature}`;
+}
+
+export function verifyMobileAuthToken(token: string): MobileAuthTokenPayload {
+  const [encodedPayload, signature] = token.split('.');
+  if (!encodedPayload || !signature) {
+    throw new AppError(400, 'INVALID_MOBILE_OAUTH_TOKEN', 'Некорректный mobile OAuth токен');
+  }
+
+  const expectedSignature = signMobileAuthPayload(encodedPayload);
+  const actualSignature = Buffer.from(signature, 'utf8');
+  const expectedSignatureBuffer = Buffer.from(expectedSignature, 'utf8');
+
+  if (
+    actualSignature.length !== expectedSignatureBuffer.length
+    || !crypto.timingSafeEqual(actualSignature, expectedSignatureBuffer)
+  ) {
+    throw new AppError(400, 'INVALID_MOBILE_OAUTH_TOKEN', 'Некорректная подпись mobile OAuth токена');
+  }
+
+  let payload: MobileAuthTokenPayload;
+  try {
+    payload = JSON.parse(Buffer.from(encodedPayload, 'base64url').toString('utf8')) as MobileAuthTokenPayload;
+  } catch {
+    throw new AppError(400, 'INVALID_MOBILE_OAUTH_TOKEN', 'Некорректное содержимое mobile OAuth токена');
+  }
+
+  if (
+    typeof payload.userId !== 'string'
+    || typeof payload.provider !== 'string'
+    || (payload.mode !== 'login' && payload.mode !== 'link')
+    || typeof payload.exp !== 'number'
+    || typeof payload.nonce !== 'string'
+  ) {
+    throw new AppError(400, 'INVALID_MOBILE_OAUTH_TOKEN', 'Некорректный формат mobile OAuth токена');
+  }
+
+  if (payload.exp < Date.now()) {
+    throw new AppError(400, 'EXPIRED_MOBILE_OAUTH_TOKEN', 'Срок действия mobile OAuth токена истёк');
+  }
+
+  validateProvider(payload.provider);
+
+  return payload;
 }
