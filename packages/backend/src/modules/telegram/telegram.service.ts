@@ -194,6 +194,13 @@ export async function handleTelegramWebhookUpdate(update: TelegramUpdate): Promi
     return;
   }
 
+  logger.info({
+    updateId: update.update_id ?? null,
+    chatId,
+    telegramUserId,
+    text: text || null,
+  }, 'telegram webhook update');
+
   try {
     const linkCode = extractLinkCommandCode(text);
 
