@@ -534,87 +534,6 @@ export function ProfilePage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Алиса</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex flex-wrap gap-2">
-            <Badge variant={profile.alice?.status.is_linked ? 'success' : 'outline'}>
-              {profile.alice?.status.is_linked ? 'Аккаунт Алисы привязан' : 'Аккаунт Алисы пока не привязан'}
-            </Badge>
-            {profile.alice?.status.last_seen_at ? (
-              <Badge variant="outline">
-                Активность: {new Date(profile.alice.status.last_seen_at).toLocaleString('ru-RU')}
-              </Badge>
-            ) : null}
-          </div>
-
-          <div className="rounded-lg border bg-muted/30 p-4 text-sm">
-            <p className="font-medium">Как привязать Алису</p>
-            <p className="mt-2 text-muted-foreground">
-              Получите одноразовый код и скажите: <span className="font-medium">«Алиса, запусти навык LLM Store и привяжи аккаунт 123456»</span>.
-            </p>
-            <p className="mt-2 text-muted-foreground">
-              После этого новые запросы и Alice-чат будут связаны с вашим аккаунтом LLM Store.
-            </p>
-          </div>
-
-          {profile.alice?.link_code ? (
-            <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Код привязки</p>
-                  <p className="mt-1 text-3xl font-bold tracking-[0.2em]">{profile.alice.link_code.code}</p>
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    Действует до {new Date(profile.alice.link_code.expires_at).toLocaleString('ru-RU')}
-                  </p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    После истечения срока можно будет получить новый код.
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => void navigator.clipboard.writeText(profile.alice!.link_code!.code)}
-                  >
-                    Скопировать код
-                  </Button>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <Button
-              onClick={() => createAliceLinkCodeMutation.mutate()}
-              disabled={createAliceLinkCodeMutation.isPending}
-            >
-              {createAliceLinkCodeMutation.isPending ? 'Создаю код...' : 'Получить код привязки'}
-            </Button>
-          )}
-
-          {createAliceLinkCodeMutation.error ? (
-            <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-              {getApiErrorMessage(createAliceLinkCodeMutation.error) ?? 'Не удалось создать код привязки Алисы.'}
-            </div>
-          ) : null}
-
-          {profile.alice?.status.linked_skill_user_id ? (
-            <div className="rounded-lg border p-4 text-sm">
-              <p className="font-medium">Текущая привязка</p>
-              <p className="mt-2 break-all text-muted-foreground">
-                Skill user id: {profile.alice.status.linked_skill_user_id}
-              </p>
-              {profile.alice.status.linked_at ? (
-                <p className="mt-1 text-muted-foreground">
-                  Привязан: {new Date(profile.alice.status.linked_at).toLocaleString('ru-RU')}
-                </p>
-              ) : null}
-            </div>
-          ) : null}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
           <CardTitle>Информация</CardTitle>
         </CardHeader>
         <CardContent>
@@ -981,6 +900,82 @@ export function ProfilePage() {
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
+            <div className="rounded-xl border bg-muted/20 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="space-y-3">
+                  <div className="flex flex-wrap gap-2">
+                    <Badge variant={profile.alice?.status.is_linked ? 'success' : 'outline'}>
+                      {profile.alice?.status.is_linked ? 'Аккаунт Алисы привязан' : 'Аккаунт Алисы пока не привязан'}
+                    </Badge>
+                    {profile.alice?.status.last_seen_at ? (
+                      <Badge variant="outline">
+                        Активность: {new Date(profile.alice.status.last_seen_at).toLocaleString('ru-RU')}
+                      </Badge>
+                    ) : null}
+                  </div>
+
+                  <div>
+                    <p className="font-medium">Алиса</p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Получите одноразовый код и скажите: <span className="font-medium">«Алиса, запусти навык LLM Store и привяжи аккаунт 123456»</span>.
+                    </p>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      После этого новые запросы и Alice-чат будут связаны с вашим аккаунтом LLM Store.
+                    </p>
+                  </div>
+                </div>
+
+                {profile.alice?.link_code ? (
+                  <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 sm:min-w-[320px]">
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Код привязки</p>
+                    <p className="mt-1 text-3xl font-bold tracking-[0.2em]">{profile.alice.link_code.code}</p>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Действует до {new Date(profile.alice.link_code.expires_at).toLocaleString('ru-RU')}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      После истечения срока можно будет получить новый код.
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void navigator.clipboard.writeText(profile.alice!.link_code!.code)}
+                      >
+                        Скопировать код
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <Button
+                    onClick={() => createAliceLinkCodeMutation.mutate()}
+                    disabled={createAliceLinkCodeMutation.isPending}
+                  >
+                    {createAliceLinkCodeMutation.isPending ? 'Создаю код...' : 'Получить код привязки'}
+                  </Button>
+                )}
+              </div>
+
+              {createAliceLinkCodeMutation.error ? (
+                <div className="mt-3 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+                  {getApiErrorMessage(createAliceLinkCodeMutation.error) ?? 'Не удалось создать код привязки Алисы.'}
+                </div>
+              ) : null}
+
+              {profile.alice?.status.linked_skill_user_id ? (
+                <div className="mt-3 rounded-lg border p-4 text-sm">
+                  <p className="font-medium">Текущая привязка</p>
+                  <p className="mt-2 break-all text-muted-foreground">
+                    Skill user id: {profile.alice.status.linked_skill_user_id}
+                  </p>
+                  {profile.alice.status.linked_at ? (
+                    <p className="mt-1 text-muted-foreground">
+                      Привязан: {new Date(profile.alice.status.linked_at).toLocaleString('ru-RU')}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+
             {isLeaderboardOpen && (
               <div
                 className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 p-4"
