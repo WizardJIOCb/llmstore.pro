@@ -99,6 +99,45 @@ function sanitizeAliceOutput(value: string, maxLength: number): string {
   return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
 }
 
+function normalizeAliceTextOutput(value: string): string {
+  const normalized = value
+    .replace(/\r\n/g, '\n')
+    .replace(/```[a-zA-Z0-9_-]*\n?/g, '')
+    .replace(/```/g, '')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1: $2')
+    .replace(/\n[ \t]+/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  return normalized || 'Готово.';
+}
+
+function sanitizeAliceTextOutput(value: string, maxLength: number): string {
+  const normalized = normalizeAliceTextOutput(value);
+
+  if (!normalized) return 'Готово.';
+  if (normalized.length <= maxLength) return normalized;
+
+  return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
+function sanitizeAliceTtsOutput(value: string, maxLength: number): string {
+  const normalized = squeezeWhitespace(
+    value
+      .replace(/```[\s\S]*?```/g, ' ')
+      .replace(/`([^`]+)`/g, '$1')
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1')
+      .replace(/[*_~#>-]+/g, ' '),
+  );
+
+  if (!normalized) return 'Готово.';
+  if (normalized.length <= maxLength) return normalized;
+
+  return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
 async function updateAliceLastTaskState(
   userId: string,
   input: {
@@ -145,7 +184,7 @@ function getAliceResponseChunk(value: string, offset = 0, maxLength = ALICE_TEXT
   nextOffset: number;
   hasMore: boolean;
 } {
-  const normalized = normalizeAliceOutput(value);
+  const normalized = normalizeAliceTextOutput(value);
   const safeOffset = Math.max(0, Math.min(offset, normalized.length));
   if (safeOffset >= normalized.length) {
     return { chunk: '', nextOffset: normalized.length, hasMore: false };
@@ -187,7 +226,7 @@ function buildAliceTaskStatusText(input: {
   if (input.status === 'completed') {
     if (input.responseText?.trim()) {
       const suffix = input.hasMore ? ' Чтобы получить продолжение, скажите: Алиса, запусти навык LLM Store и продолжи ответ.' : '';
-      return `Последняя задача уже завершена. Вот ответ: ${sanitizeAliceOutput(input.responseText, 900)}${suffix}`;
+      return `Последняя задача уже завершена. Вот ответ: ${sanitizeAliceTextOutput(input.responseText, 900)}${suffix}`;
     }
 
     return 'Последняя задача уже завершена. Результат сохранён в вашем чате LLM Store.';
@@ -195,7 +234,7 @@ function buildAliceTaskStatusText(input: {
 
   if (input.status === 'failed') {
     return input.errorText?.trim()
-      ? `Последняя задача завершилась с ошибкой: ${sanitizeAliceOutput(input.errorText, 350)}`
+      ? `Последняя задача завершилась с ошибкой: ${sanitizeAliceTextOutput(input.errorText, 350)}`
       : 'Последняя задача завершилась с ошибкой. Попробуйте переформулировать запрос или запустить её ещё раз.';
   }
 
@@ -734,8 +773,8 @@ export async function sendAliceChatMessage(
     : (result.assistant_message?.content || 'Готово.');
 
   return {
-    text: sanitizeAliceOutput(rawText, ALICE_TEXT_LIMIT),
-    tts: sanitizeAliceOutput(rawText, ALICE_TTS_LIMIT),
+    text: sanitizeAliceTextOutput(rawText, ALICE_TEXT_LIMIT),
+    tts: sanitizeAliceTtsOutput(rawText, ALICE_TTS_LIMIT),
     context,
   };
 }
@@ -771,8 +810,8 @@ export async function sendAliceChatMessageTracked(
       : (result.assistant_message?.content || 'Готово.');
 
     const responseChunk = !result.processing ? getAliceResponseChunk(rawText, 0) : null;
-    const text = sanitizeAliceOutput(responseChunk?.chunk || rawText, ALICE_TEXT_LIMIT);
-    const tts = sanitizeAliceOutput(responseChunk?.chunk || rawText, ALICE_TTS_LIMIT);
+    const text = sanitizeAliceTextOutput(responseChunk?.chunk || rawText, ALICE_TEXT_LIMIT);
+    const tts = sanitizeAliceTtsOutput(responseChunk?.chunk || rawText, ALICE_TTS_LIMIT);
 
     await updateAliceLastTaskState(context.userId, {
       command: content.trim(),
