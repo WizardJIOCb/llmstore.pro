@@ -232,6 +232,13 @@ function isAliceCapabilitiesCommand(command: string): boolean {
     || command === 'что ты такое';
 }
 
+function isAliceCommandListCommand(command: string): boolean {
+  return command === 'список команд'
+    || command === 'покажи список команд'
+    || command === 'покажи команды'
+    || command === 'перечень команд';
+}
+
 function isAliceTaskStatusCommand(command: string): boolean {
   return command.includes('статус задачи')
     || command.includes('уточни статус')
@@ -433,8 +440,28 @@ function buildAliceCommandsText(): string {
   return 'Я навык LLM Store. Могу помочь с текстами, кодом, идеями и задачами в ваших чатах. Попробуйте сказать: «объясни ошибку в коде», «напиши письмо клиенту» или «сгенерируй лендинг про аптеку». Также доступны команды: «уточни статус задачи», «продолжи ответ», «сколько у меня чатов», «какой у меня баланс», «открой последний чат», «прочитай последнее сообщение» и «что ты ответил на мой последний вопрос».';
 }
 
+function buildAliceCommandListText(): string {
+  return [
+    'Доступные команды:',
+    '1. объясни ошибку в коде',
+    '2. напиши письмо клиенту',
+    '3. сгенерируй лендинг про аптеку',
+    '4. уточни статус задачи',
+    '5. продолжи ответ',
+    '6. сколько у меня чатов',
+    '7. какой у меня баланс',
+    '8. открой последний чат',
+    '9. прочитай последнее сообщение',
+    '10. что ты ответил на мой последний вопрос',
+  ].join('\n');
+}
+
 function buildAliceCommandsTts(): string {
   return 'Я навык LLM Store. Можно сказать: объясни ошибку в коде, напиши письмо клиенту, сгенерируй лендинг про аптеку, уточни статус задачи, продолжи ответ, сколько у меня чатов, какой у меня баланс, открой последний чат или прочитай последнее сообщение.';
+}
+
+function buildAliceCommandListTts(): string {
+  return 'Вот основные команды. Объясни ошибку в коде. Напиши письмо клиенту. Сгенерируй лендинг про аптеку. Уточни статус задачи. Продолжи ответ. Сколько у меня чатов. Какой у меня баланс. Открой последний чат. Прочитай последнее сообщение.';
 }
 
 function buildAliceWelcomeText(): string {
@@ -822,6 +849,15 @@ async function legacyWebhook(req: Request, res: Response, next: NextFunction) {
     }
 
     if (
+      isAliceCommandListCommand(normalizedCommand)
+      || isAliceCommandListCommand(normalizedRawCommand)
+    ) {
+      await aliceChatService.ensureAliceSessionContext(skillUserId, applicationId);
+      res.status(200).json(aliceTextResponse(buildAliceCommandListText(), buildAliceCommandListTts()));
+      return;
+    }
+
+    if (
       isAliceCapabilitiesCommand(normalizedCommand)
       || isAliceCapabilitiesCommand(normalizedRawCommand)
       || isAliceHelpCommand(normalizedCommand)
@@ -947,6 +983,15 @@ export async function webhook(req: Request, res: Response, _next: NextFunction) 
     if (hasAccountLinkingCompleteEvent(payload)) {
       context = await aliceChatService.ensureAliceSessionContext(skillUserId, applicationId);
       await respond(aliceTextResponse(buildAliceReadyText(context)), { context });
+      return;
+    }
+
+    if (
+      isAliceCommandListCommand(normalizedCommand)
+      || isAliceCommandListCommand(normalizedRawCommand)
+    ) {
+      context = await aliceChatService.ensureAliceSessionContext(skillUserId, applicationId);
+      await respond(aliceTextResponse(buildAliceCommandListText(), buildAliceCommandListTts()), { context });
       return;
     }
 
