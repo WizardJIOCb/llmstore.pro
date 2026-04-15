@@ -7,6 +7,7 @@ import {
   type AdminDashboardChartsParams,
   type AdminRuntimesParams,
   type AdminDebugChatsParams,
+  type AdminAliceLogsParams,
 } from '../lib/api/admin';
 
 export function useAdminDashboardStats() {
@@ -33,6 +34,16 @@ export function useAdminRuntimes(params: AdminRuntimesParams) {
   return useQuery({
     queryKey: ['admin', 'runtimes', params],
     queryFn: () => adminApi.listRuntimes(params),
+    placeholderData: (previousData) => previousData,
+    refetchInterval: 5_000,
+    refetchIntervalInBackground: true,
+  });
+}
+
+export function useAdminAliceLogs(params: AdminAliceLogsParams) {
+  return useQuery({
+    queryKey: ['admin', 'alice', 'logs', params],
+    queryFn: () => adminApi.listAliceLogs(params),
     placeholderData: (previousData) => previousData,
     refetchInterval: 5_000,
     refetchIntervalInBackground: true,

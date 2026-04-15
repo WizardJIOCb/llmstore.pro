@@ -23,6 +23,7 @@ import { AdminToolsPage } from './pages/admin/AdminToolsPage';
 import { AdminSettingsPage } from './pages/admin/AdminSettingsPage';
 import { AdminRuntimesPage } from './pages/admin/AdminRuntimesPage';
 import { AdminDebugPage } from './pages/admin/AdminDebugPage';
+import { AdminAlicePage } from './pages/admin/AdminAlicePage';
 import { NewsListPage } from './pages/news/NewsListPage';
 import { NewsDetailPage } from './pages/news/NewsDetailPage';
 import { MilestonesPage } from './pages/milestones/MilestonesPage';
@@ -192,6 +193,14 @@ export function App() {
           element={
             <ProtectedRoute requireAdmin>
               <AdminSettingsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/alice"
+          element={
+            <ProtectedRoute requireAdmin>
+              <AdminAlicePage />
             </ProtectedRoute>
           }
         />

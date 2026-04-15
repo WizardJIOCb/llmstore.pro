@@ -6,6 +6,7 @@ const adminNav = [
   { to: '/admin/dashboard', label: 'Дашборд' },
   { to: '/admin/charts', label: 'Графики' },
   { to: '/admin/settings', label: 'Настройки' },
+  { to: '/admin/alice', label: 'Алиса' },
   { to: '/admin/news', label: 'Новости' },
   { to: '/admin', label: 'Каталог', exact: true },
   { to: '/admin/articles', label: 'Статьи' },

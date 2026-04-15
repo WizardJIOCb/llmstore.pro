@@ -1,11 +1,16 @@
 import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import { logger } from '../../lib/logger.js';
 
 const execFileAsync = promisify(execFile);
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../..');
+const MOBILE_REPO_CANDIDATES = [
+  path.resolve(REPO_ROOT, '../llmstore.pro - mobile'),
+  path.resolve(REPO_ROOT, '../llmstore.pro - iOS'),
+];
 const CACHE_TTL_MS = 10 * 60_000;
 const ACTIVITY_DAYS = 365;
 
@@ -53,38 +58,76 @@ function buildEmptyActivity(rangeStart: Date, rangeEnd: Date): ProjectCommitActi
   };
 }
 
+function isGitRepo(repoRoot: string): boolean {
+  return existsSync(path.join(repoRoot, '.git'));
+}
+
+function resolveTrackedRepoRoots(): string[] {
+  const roots = [REPO_ROOT];
+  const mobileRepo = MOBILE_REPO_CANDIDATES.find((candidate) => candidate !== REPO_ROOT && isGitRepo(candidate));
+
+  if (mobileRepo) {
+    roots.push(mobileRepo);
+  }
+
+  return roots;
+}
+
+async function loadCommitCounts(repoRoot: string, rangeStartIso: string, rangeEndIso: string): Promise<Map<string, number>> {
+  const counts = new Map<string, number>();
+  const { stdout } = await execFileAsync(
+    'git',
+    [
+      '-C',
+      repoRoot,
+      'log',
+      '--no-merges',
+      `--since=${rangeStartIso}T00:00:00`,
+      `--until=${rangeEndIso}T23:59:59`,
+      '--date=short',
+      '--pretty=format:%cs',
+    ],
+    { maxBuffer: 1024 * 1024 },
+  );
+
+  for (const line of stdout.split(/\r?\n/)) {
+    const date = line.trim();
+    if (!date) continue;
+    counts.set(date, (counts.get(date) ?? 0) + 1);
+  }
+
+  return counts;
+}
+
 async function loadProjectCommitActivity(): Promise<ProjectCommitActivity> {
   const rangeEnd = startOfUtcDay(new Date());
   const rangeStart = addUtcDays(rangeEnd, -(ACTIVITY_DAYS - 1));
   const empty = buildEmptyActivity(rangeStart, rangeEnd);
+  const repoRoots = resolveTrackedRepoRoots();
+  const mergedCounts = new Map<string, number>();
 
   try {
-    const { stdout } = await execFileAsync(
-      'git',
-      [
-        '-C',
-        REPO_ROOT,
-        'log',
-        '--no-merges',
-        `--since=${empty.range_start}T00:00:00`,
-        `--until=${empty.range_end}T23:59:59`,
-        '--date=short',
-        '--pretty=format:%cs',
-      ],
-      { maxBuffer: 1024 * 1024 },
+    await Promise.all(
+      repoRoots.map(async (repoRoot) => {
+        try {
+          const counts = await loadCommitCounts(repoRoot, empty.range_start, empty.range_end);
+          for (const [date, count] of counts.entries()) {
+            mergedCounts.set(date, (mergedCounts.get(date) ?? 0) + count);
+          }
+        } catch (error) {
+          logger.warn({ err: error, repoRoot }, 'Failed to load project git activity for repo');
+        }
+      }),
     );
 
-    const counts = new Map<string, number>();
-    for (const line of stdout.split(/\r?\n/)) {
-      const date = line.trim();
-      if (!date) continue;
-      counts.set(date, (counts.get(date) ?? 0) + 1);
+    if (mergedCounts.size === 0) {
+      return empty;
     }
 
     let totalCommits = 0;
     let maxCommitsPerDay = 0;
     const days = empty.days.map((day) => {
-      const count = counts.get(day.date) ?? 0;
+      const count = mergedCounts.get(day.date) ?? 0;
       totalCommits += count;
       if (count > maxCommitsPerDay) maxCommitsPerDay = count;
       return { ...day, count };

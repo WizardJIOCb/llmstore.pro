@@ -461,6 +461,62 @@ export interface AdminDebugChatDetail {
   messages: AdminDebugChatMessage[];
 }
 
+export interface AdminAliceLogsParams {
+  page?: number;
+  per_page?: number;
+  search?: string;
+  status?: 'all' | 'success' | 'error';
+}
+
+export interface AdminAliceLogItem {
+  id: string;
+  status: 'success' | 'error';
+  response_status_code: number;
+  yandex_skill_user_id: string | null;
+  yandex_application_id: string | null;
+  session_id: string | null;
+  request_id: string | null;
+  message_id: number | null;
+  request_type: string | null;
+  command: string | null;
+  original_utterance: string | null;
+  response_text: string | null;
+  error_code: string | null;
+  error_message: string | null;
+  is_new_user: boolean | null;
+  bonus_granted: boolean | null;
+  ip_address: string | null;
+  user_agent: string | null;
+  duration_ms: number | null;
+  response_size_bytes: number | null;
+  request_json: Record<string, unknown> | null;
+  response_json: Record<string, unknown> | null;
+  created_at: string;
+  user: {
+    id: string;
+    email: string | null;
+    name: string | null;
+    username: string | null;
+  } | null;
+  chat: {
+    id: string;
+    title: string | null;
+  } | null;
+  alice_link: {
+    skill_user_id: string;
+  } | null;
+}
+
+export interface AdminAliceLogsResponse {
+  data: AdminAliceLogItem[];
+  meta: {
+    total: number;
+    page: number;
+    per_page: number;
+    total_pages: number;
+  };
+}
+
 export const adminApi = {
   // Dashboard
   getDashboardStats: () =>
@@ -468,6 +524,9 @@ export const adminApi = {
 
   getDashboardCharts: (params: AdminDashboardChartsParams) =>
     apiClient.get<{ data: AdminDashboardCharts }>('/admin/dashboard/charts', { params }).then((r) => r.data.data),
+
+  listAliceLogs: (params: AdminAliceLogsParams) =>
+    apiClient.get<AdminAliceLogsResponse>('/admin/alice/logs', { params }).then((r) => r.data),
 
   listRuntimes: (params: AdminRuntimesParams) =>
     apiClient.get<{ data: AdminRuntimeItem[]; meta: { total: number } }>('/admin/runtimes', { params }).then((r) => r.data),

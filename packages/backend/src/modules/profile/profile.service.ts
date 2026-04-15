@@ -1,9 +1,12 @@
 ﻿import { eq, sql } from 'drizzle-orm';
 import { db } from '../../config/database.js';
+import { desc } from 'drizzle-orm';
 import argon2 from 'argon2';
 import {
   users,
   authAccounts,
+  aliceSkillLinks,
+  aliceUserSettings,
   balanceTransactions,
   emailVerificationTokens,
 } from '../../db/schema/index.js';
@@ -449,7 +452,7 @@ export async function getProfile(userId: string): Promise<UserProfile> {
     throw new NotFoundError('Пользователь не найден');
   }
 
-  const [accounts, usage, balanceHistory, pendingVerificationTokens] = await Promise.all([
+  const [accounts, usage, balanceHistory, pendingVerificationTokens, aliceLink, aliceSettings] = await Promise.all([
     db.select({
       provider: authAccounts.provider,
       provider_account_id: authAccounts.provider_account_id,
@@ -464,6 +467,32 @@ export async function getProfile(userId: string): Promise<UserProfile> {
       .from(emailVerificationTokens)
       .where(sql`${emailVerificationTokens.user_id} = ${userId} AND ${emailVerificationTokens.used_at} IS NULL AND ${emailVerificationTokens.expires_at} > now()`)
       .limit(1),
+    db
+      .select({
+        linked_at: aliceSkillLinks.linked_at,
+        last_seen_at: aliceSkillLinks.last_seen_at,
+        linked_skill_user_id: aliceSkillLinks.yandex_skill_user_id,
+      })
+      .from(aliceSkillLinks)
+      .where(eq(aliceSkillLinks.user_id, userId))
+      .orderBy(desc(aliceSkillLinks.linked_at))
+      .limit(1)
+      .then((rows) => rows[0] ?? null),
+    db
+      .select({
+        is_enabled: aliceUserSettings.is_enabled,
+        default_target_type: aliceUserSettings.default_target_type,
+        default_chat_id: aliceUserSettings.default_chat_id,
+        default_agent_id: aliceUserSettings.default_agent_id,
+        default_model_external_id: aliceUserSettings.default_model_external_id,
+        save_messages: aliceUserSettings.save_messages,
+        tts_mode: aliceUserSettings.tts_mode,
+        max_tts_chars: aliceUserSettings.max_tts_chars,
+      })
+      .from(aliceUserSettings)
+      .where(eq(aliceUserSettings.user_id, userId))
+      .limit(1)
+      .then((rows) => rows[0] ?? null),
   ]);
 
   const linked_accounts: LinkedAccount[] = accounts.map((a) => ({
@@ -477,6 +506,24 @@ export async function getProfile(userId: string): Promise<UserProfile> {
   const balanceRub = (balanceUsd * usdToRubRate).toFixed(2);
 
   const limits: UserLimits = ROLE_LIMITS[user.role as UserRole] ?? ROLE_LIMITS.user;
+  const aliceProfile = aliceLink || aliceSettings ? {
+    settings: {
+      is_enabled: aliceSettings?.is_enabled ?? true,
+      default_target_type: aliceSettings?.default_target_type ?? 'general_chat',
+      default_chat_id: aliceSettings?.default_chat_id ?? null,
+      default_agent_id: aliceSettings?.default_agent_id ?? null,
+      default_model_external_id: aliceSettings?.default_model_external_id ?? null,
+      save_messages: aliceSettings?.save_messages ?? true,
+      tts_mode: aliceSettings?.tts_mode ?? 'brief',
+      max_tts_chars: aliceSettings?.max_tts_chars ?? 900,
+    },
+    status: {
+      is_linked: Boolean(aliceLink),
+      linked_at: aliceLink?.linked_at ? aliceLink.linked_at.toISOString() : null,
+      last_seen_at: aliceLink?.last_seen_at ? aliceLink.last_seen_at.toISOString() : null,
+      linked_skill_user_id: aliceLink?.linked_skill_user_id ?? null,
+    },
+  } : null;
 
   return {
     id: user.id,
@@ -494,7 +541,7 @@ export async function getProfile(userId: string): Promise<UserProfile> {
     balance_rub: balanceRub,
     usd_to_rub_rate: usdToRubRate,
     linked_accounts,
-    alice: null,
+    alice: aliceProfile,
     usage,
     balance_history: balanceHistory,
     limits,

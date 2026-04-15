@@ -91,7 +91,14 @@ export async function startOAuth(req: Request<ProviderParams>, res: Response, ne
     }
 
     const url = oauthService.getOAuthUrl(provider, state, codeChallenge);
-    res.redirect(url);
+    req.session.save((err) => {
+      if (err) {
+        next(err);
+        return;
+      }
+
+      res.redirect(url);
+    });
   } catch (err) {
     next(err);
   }

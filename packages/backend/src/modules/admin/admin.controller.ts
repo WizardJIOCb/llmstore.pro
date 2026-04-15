@@ -26,6 +26,15 @@ export async function getDashboardCharts(req: Request, res: Response, next: Next
   }
 }
 
+export async function listAliceLogs(req: Request, res: Response, next: NextFunction) {
+  try {
+    const result = await adminService.listAliceLogs(req.query as any);
+    res.json({ data: result.items, meta: result.meta });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function getAdminSettings(_req: Request, res: Response, next: NextFunction) {
   try {
     const settings = await adminService.getAdminSettings();

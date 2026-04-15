@@ -5271,6 +5271,7 @@ interface ConversationMessage {
   content: string;
   run_id: string | null;
   usage: Record<string, unknown> | null;
+  attachments: ChatAttachmentMeta[];
   project_run_count: number;
   latency_ms: number | null;
   created_at: string;
@@ -6324,6 +6325,7 @@ function toConversationMessage(
     ? normalizeAssistantChatPayload(row.content_text, rawUsage)
     : { content: row.content_text, usage: rawUsage, codingReport: null };
   const normalizedUsage = recalculateUsageCost(normalized.usage);
+  const attachments = extractUsageAttachments(normalizedUsage);
 
   return {
     id: row.id,
@@ -6331,6 +6333,7 @@ function toConversationMessage(
     content: normalized.content,
     run_id: row.run_id ?? null,
     usage: attachUsdToRubRate(normalizedUsage, usdToRubRate),
+    attachments,
     project_run_count: row.project_run_count ?? 0,
     latency_ms: row.latency_ms ?? null,
     created_at: toIso(row.created_at),
@@ -6631,6 +6634,7 @@ export async function listChats(userId: string): Promise<ConversationListItem[]>
       content: m.content_text,
       run_id: m.run_id ?? null,
       usage: (m.usage_json as Record<string, unknown> | null) ?? null,
+      attachments: extractUsageAttachments((m.usage_json as Record<string, unknown> | null) ?? null),
       project_run_count: m.project_run_count ?? 0,
       latency_ms: m.latency_ms ?? null,
       created_at: toIso(m.created_at),
@@ -8026,6 +8030,7 @@ export async function sendChatMessage(
     run_id: null,
     project_run_count: 0,
     usage: attachmentMetas.length > 0 ? ({ attachments: attachmentMetas } as Record<string, unknown>) : null,
+    attachments: attachmentMetas,
     latency_ms: null,
     created_at: new Date().toISOString(),
   };
@@ -8368,6 +8373,7 @@ export async function getSharedChatById(token: string, viewerUserId?: string | n
       role: m.role,
       content: m.content,
       usage: m.usage,
+      attachments: m.attachments,
       project_run_count: m.project_run_count,
       created_at: m.created_at,
       })),

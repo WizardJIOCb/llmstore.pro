@@ -11,6 +11,7 @@ import {
   toolDefinitions,
   chatConversations, chatConversationMessages,
   agentRunMessages, agentRunToolCalls, aiModels,
+  aliceWebhookLogs, aliceSkillLinks,
 } from '../../db/schema/index.js';
 import { NotFoundError, ConflictError, AppError } from '../../middleware/error-handler.js';
 import type { CreateCatalogItemInput, UpdateCatalogItemInput } from '@llmstore/shared/schemas';
@@ -884,6 +885,13 @@ interface AdminRuntimesQuery {
 interface AdminDebugChatsQuery {
   query?: string;
   limit?: number;
+}
+
+interface AdminAliceLogsQuery {
+  page?: number;
+  per_page?: number;
+  search?: string;
+  status?: 'all' | 'success' | 'error';
 }
 
 interface AdminDebugChatLocator {
@@ -1801,6 +1809,140 @@ export async function startRuntime(id: string): Promise<AdminProjectDeploymentRe
 
 export async function stopRuntime(id: string): Promise<AdminProjectDeploymentRecord> {
   return stopProjectDeploymentAsAdmin(id);
+}
+
+export async function listAliceLogs(query: AdminAliceLogsQuery) {
+  const page = query.page ?? 1;
+  const perPage = query.per_page ?? 20;
+  const offset = (page - 1) * perPage;
+
+  const conditions: SQL[] = [];
+
+  if (query.status && query.status !== 'all') {
+    conditions.push(eq(aliceWebhookLogs.status, query.status));
+  }
+
+  if (query.search?.trim()) {
+    const term = `%${query.search.trim()}%`;
+    conditions.push(
+      or(
+        ilike(aliceWebhookLogs.command, term),
+        ilike(aliceWebhookLogs.original_utterance, term),
+        ilike(aliceWebhookLogs.response_text, term),
+        ilike(aliceWebhookLogs.yandex_skill_user_id, term),
+        ilike(aliceWebhookLogs.session_id, term),
+        ilike(users.email, term),
+        ilike(users.name, term),
+        ilike(users.username, term),
+      )!,
+    );
+  }
+
+  const where = conditions.length > 0 ? and(...conditions) : undefined;
+
+  const [rows, countResult] = await Promise.all([
+    db
+      .select({
+        id: aliceWebhookLogs.id,
+        status: aliceWebhookLogs.status,
+        response_status_code: aliceWebhookLogs.response_status_code,
+        yandex_skill_user_id: aliceWebhookLogs.yandex_skill_user_id,
+        yandex_application_id: aliceWebhookLogs.yandex_application_id,
+        session_id: aliceWebhookLogs.session_id,
+        request_id: aliceWebhookLogs.request_id,
+        message_id: aliceWebhookLogs.message_id,
+        request_type: aliceWebhookLogs.request_type,
+        command: aliceWebhookLogs.command,
+        original_utterance: aliceWebhookLogs.original_utterance,
+        response_text: aliceWebhookLogs.response_text,
+        error_code: aliceWebhookLogs.error_code,
+        error_message: aliceWebhookLogs.error_message,
+        is_new_user: aliceWebhookLogs.is_new_user,
+        bonus_granted: aliceWebhookLogs.bonus_granted,
+        ip_address: aliceWebhookLogs.ip_address,
+        user_agent: aliceWebhookLogs.user_agent,
+        duration_ms: aliceWebhookLogs.duration_ms,
+        response_size_bytes: aliceWebhookLogs.response_size_bytes,
+        request_json: aliceWebhookLogs.request_json,
+        response_json: aliceWebhookLogs.response_json,
+        created_at: aliceWebhookLogs.created_at,
+        user_id: users.id,
+        user_email: users.email,
+        user_name: users.name,
+        user_username: users.username,
+        chat_id: chatConversations.id,
+        chat_title: chatConversations.title,
+        linked_skill_user_id: aliceSkillLinks.yandex_skill_user_id,
+      })
+      .from(aliceWebhookLogs)
+      .leftJoin(users, eq(aliceWebhookLogs.user_id, users.id))
+      .leftJoin(chatConversations, eq(aliceWebhookLogs.chat_id, chatConversations.id))
+      .leftJoin(
+        aliceSkillLinks,
+        and(
+          eq(aliceSkillLinks.user_id, aliceWebhookLogs.user_id),
+          eq(aliceSkillLinks.yandex_skill_user_id, aliceWebhookLogs.yandex_skill_user_id),
+        ),
+      )
+      .where(where)
+      .orderBy(desc(aliceWebhookLogs.created_at))
+      .limit(perPage)
+      .offset(offset),
+    db
+      .select({ count: count() })
+      .from(aliceWebhookLogs)
+      .leftJoin(users, eq(aliceWebhookLogs.user_id, users.id))
+      .where(where),
+  ]);
+
+  const total = countResult[0]?.count ?? 0;
+
+  return {
+    items: rows.map((row) => ({
+      id: row.id,
+      status: row.status,
+      response_status_code: row.response_status_code,
+      yandex_skill_user_id: row.yandex_skill_user_id,
+      yandex_application_id: row.yandex_application_id,
+      session_id: row.session_id,
+      request_id: row.request_id,
+      message_id: row.message_id,
+      request_type: row.request_type,
+      command: row.command,
+      original_utterance: row.original_utterance,
+      response_text: row.response_text,
+      error_code: row.error_code,
+      error_message: row.error_message,
+      is_new_user: row.is_new_user,
+      bonus_granted: row.bonus_granted,
+      ip_address: row.ip_address,
+      user_agent: row.user_agent,
+      duration_ms: row.duration_ms,
+      response_size_bytes: row.response_size_bytes,
+      request_json: row.request_json,
+      response_json: row.response_json,
+      created_at: row.created_at.toISOString(),
+      user: row.user_id ? {
+        id: row.user_id,
+        email: row.user_email,
+        name: row.user_name,
+        username: row.user_username,
+      } : null,
+      chat: row.chat_id ? {
+        id: row.chat_id,
+        title: row.chat_title,
+      } : null,
+      alice_link: row.linked_skill_user_id ? {
+        skill_user_id: row.linked_skill_user_id,
+      } : null,
+    })),
+    meta: {
+      total,
+      page,
+      per_page: perPage,
+      total_pages: Math.max(1, Math.ceil(total / perPage)),
+    },
+  };
 }
 
 export async function searchDebugChats(query: AdminDebugChatsQuery) {

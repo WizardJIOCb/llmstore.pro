@@ -2,6 +2,8 @@ import type { Request, Response, NextFunction } from 'express';
 import { env } from '../../config/env.js';
 import { logger } from '../../lib/logger.js';
 import * as authService from '../auth/auth.service.js';
+import * as aliceChatService from './alice.chat.service.js';
+import * as aliceLoggingService from './alice.logging.service.js';
 import * as oauthService from './alice.oauth.service.js';
 import type { AliceAuthorizeRequest } from './alice.types.js';
 import { AliceOAuthError } from './alice.types.js';
@@ -46,21 +48,7 @@ function aliceTextResponse(text: string, tts?: string) {
   };
 }
 
-function aliceStartAccountLinkingResponse(text?: string, tts?: string) {
-  if (text) {
-    return {
-      response: {
-        text,
-        tts: tts ?? text,
-        end_session: false,
-        directives: {
-          start_account_linking: {},
-        },
-      },
-      version: '1.0',
-    };
-  }
-
+function aliceStartAccountLinkingResponse() {
   return {
     start_account_linking: {},
     version: '1.0',
@@ -90,13 +78,11 @@ function buildUnauthorizedAliceText(command: string): string {
 }
 
 function aliceUnauthorizedResponse(canLink: boolean, command: string) {
-  const text = buildUnauthorizedAliceText(command);
-
   if (canLink) {
-    return aliceStartAccountLinkingResponse(text);
+    return aliceStartAccountLinkingResponse();
   }
 
-  return aliceTextResponse(text);
+  return aliceTextResponse(buildUnauthorizedAliceText(command));
 }
 
 const ALICE_PENDING_COMMAND_TTL_MS = 15 * 60 * 1000;
@@ -106,6 +92,12 @@ function extractAliceSkillUserId(payload: any): string | null {
   const sessionUserId = typeof payload?.session?.user_id === 'string' ? payload.session.user_id : null;
   const nestedUserId = typeof payload?.session?.user?.user_id === 'string' ? payload.session.user.user_id : null;
   return sessionUserId || nestedUserId || null;
+}
+
+function extractAliceApplicationId(payload: any): string | null {
+  return typeof payload?.session?.application?.application_id === 'string'
+    ? payload.session.application.application_id
+    : null;
 }
 
 function savePendingAliceCommand(skillUserId: string | null, command: string): void {
@@ -178,6 +170,14 @@ function normalizeAliceCommand(command: string): string {
     .trim();
 }
 
+function normalizeAliceRawText(command: string): string {
+  return command
+    .toLowerCase()
+    .replaceAll('ё', 'е')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function isAliceHelpCommand(command: string): boolean {
   return command === 'помощь'
     || command === 'помоги'
@@ -205,20 +205,65 @@ function isAliceAuthorizationCommand(command: string): boolean {
     || command === 'привязать аккаунт';
 }
 
+function isAliceAboutServiceCommand(command: string): boolean {
+  return command.includes('llm store')
+    && (
+      command.includes('о чем')
+      || command.includes('что такое')
+      || command.includes('что это')
+      || command.includes('что умеет')
+      || command.includes('что можно')
+      || command.includes('расскажи')
+      || command.includes('возможност')
+    );
+}
+
+function isAliceCapabilitiesCommand(command: string): boolean {
+  return command === 'что ты умеешь'
+    || command === 'что умеешь'
+    || command === 'что ты можешь'
+    || command === 'что можешь';
+}
+
 function aliceGreetingText(isAuthorized: boolean): string {
   if (!isAuthorized) {
-    return 'Это навык LLM Store. Он помогает работать с аккаунтом llmstore.pro голосом. Чтобы начать, авторизуйтесь, а затем сможете продиктовать запрос для чата или сказать: помощь.';
+    return 'Это навык LLM Store. Я могу автоматически создать для вас чат и отправлять туда ваши голосовые запросы.';
   }
 
-  return 'Это навык LLM Store. Я могу передать ваш голосовой запрос в llmstore.pro. Скажите помощь, чтобы узнать примеры, или сразу продиктуйте ваш запрос.';
+  return 'Это навык LLM Store. Просто продиктуйте задачу, и я отправлю её в ваш чат.';
 }
 
 function aliceHelpText(isAuthorized: boolean): string {
   if (!isAuthorized) {
-    return 'Навык LLM Store работает с вашим аккаунтом llmstore.pro. Скажите авторизоваться, чтобы привязать аккаунт, а затем можно продиктовать запрос для чата. Например: объясни ошибку в коде или помоги составить письмо клиенту.';
+    return 'Навык LLM Store автоматически создаёт для вас внутренний чат и отправляет туда голосовые запросы. Просто скажите, что нужно сделать.';
   }
 
-  return 'Навык LLM Store принимает ваш голосовой запрос и отправляет его в llmstore.pro. Можно сказать, например: объясни ошибку в коде, помоги составить письмо клиенту или подскажи план задачи.';
+  return 'Скажите задачу обычной фразой. Например: объясни ошибку в коде, составь письмо клиенту или придумай план запуска.';
+}
+
+function formatBonusAmountUsd(amountUsd: number | null): string {
+  if (amountUsd === null) return '';
+  return Number(amountUsd).toFixed(2);
+}
+
+function buildAliceReadyText(context: { isNewUser: boolean; bonusGranted: boolean; bonusAmountUsd: number | null }): string {
+  if (context.isNewUser && context.bonusGranted) {
+    return `Готово. Я создала для вас чат в LLM Store и начислила стартовый бонус ${formatBonusAmountUsd(context.bonusAmountUsd)} USD. Теперь просто скажите, что нужно сделать.`;
+  }
+
+  if (context.isNewUser) {
+    return 'Готово. Я создала для вас чат в LLM Store. Теперь просто скажите, что нужно сделать.';
+  }
+
+  return 'Чат уже готов. Просто скажите, что нужно сделать.';
+}
+
+function buildAliceAboutServiceText(): string {
+  return 'LLM Store — это конструктор AI-агентов, моделей, инструментов и готовых AI-сценариев. В сервисе есть обычные чаты через OpenRouter, агентные чаты, публикация результатов, а также можно генерировать лендинги и привязывать их к поддоменам вроде rodion.llmstore.pro.';
+}
+
+function buildAliceWelcomeText(): string {
+  return 'Это навык LLM Store. Он помогает с текстами, идеями, кодом и вопросами о сервисе. Скажите, например: «объясни ошибку в коде», «напиши письмо клиенту» или «о чём LLM Store?».';
 }
 
 function hasAccountLinkingCompleteEvent(payload: any): boolean {
@@ -574,122 +619,219 @@ export async function oauthRevoke(req: Request, res: Response, next: NextFunctio
   }
 }
 
-export async function webhook(req: Request, res: Response, next: NextFunction) {
+async function legacyWebhook(req: Request, res: Response, next: NextFunction) {
   try {
     const payload = req.body ?? {};
-    const token = extractAccessToken(req, payload);
-    const canLink = supportsAccountLinking(payload);
-    const linkingCompleted = hasAccountLinkingCompleteEvent(payload);
     const rawCommand = extractAliceCommand(payload);
     const skillUserId = extractAliceSkillUserId(payload);
+    const applicationId = extractAliceApplicationId(payload);
     const normalizedCommand = normalizeAliceCommand(rawCommand);
+    const normalizedRawCommand = normalizeAliceRawText(rawCommand);
 
-    if (linkingCompleted) {
-      if (!token) {
-        if (canLink) {
-          res.status(200).json(
-            aliceTextResponse('Не удалось завершить авторизацию. Скажите авторизоваться и попробуйте войти ещё раз.'),
-          );
-          return;
-        }
-
-        res.status(200).json(
-          aliceTextResponse('Не удалось завершить авторизацию. Пожалуйста, заново привяжите аккаунт LLM Store.'),
-        );
-        return;
-      }
-
-      const linkedUserId = await oauthService.resolveUserByAccessToken(token);
-      if (!linkedUserId) {
-        if (canLink) {
-          res.status(200).json(
-            aliceTextResponse('Срок действия авторизации истёк. Скажите авторизоваться и войдите ещё раз.'),
-          );
-          return;
-        }
-
-        res.status(200).json(
-          aliceTextResponse('Срок действия авторизации истёк. Пожалуйста, заново привяжите аккаунт LLM Store.'),
-        );
-        return;
-      }
-
-      const pendingCommand = takePendingAliceCommand(skillUserId);
-      if (pendingCommand) {
-        res.status(200).json(buildAuthorizedAliceCommandResponse(pendingCommand));
-        return;
-      }
-
+    if (!skillUserId) {
       res.status(200).json(
-        aliceTextResponse('Вы успешно авторизовались в LLM Store. Теперь можно продолжать работу с навыком.'),
+        aliceTextResponse('Не удалось определить пользователя Алисы. Попробуйте запустить навык ещё раз.'),
       );
       return;
     }
 
-    if (!token) {
-      savePendingAliceCommand(skillUserId, rawCommand);
-      res.status(200).json(aliceUnauthorizedResponse(canLink, rawCommand));
+    if (rawCommand.toLowerCase() === 'ping') {
+      res.status(200).json(aliceTextResponse('pong', 'pong'));
       return;
+    }
 
-      if (canLink) {
-        res.status(200).json(aliceStartAccountLinkingResponse());
-        return;
-      }
+    if (hasAccountLinkingCompleteEvent(payload)) {
+      const context = await aliceChatService.ensureAliceSessionContext(skillUserId, applicationId);
+      res.status(200).json(aliceTextResponse(buildAliceReadyText(context)));
+      return;
+    }
+
+    if (
+      isAliceCapabilitiesCommand(normalizedCommand)
+      || isAliceCapabilitiesCommand(normalizedRawCommand)
+      || isAliceHelpCommand(normalizedCommand)
+      || isAliceHelpCommand(normalizedRawCommand)
+    ) {
+      await aliceChatService.ensureAliceSessionContext(skillUserId, applicationId);
+      res.status(200).json(aliceTextResponse(buildAliceWelcomeText()));
+      return;
+    }
+
+    if (
+      isAliceGreetingCommand(normalizedCommand)
+      || isAliceGreetingCommand(normalizedRawCommand)
+      || isAliceAuthorizationCommand(normalizedCommand)
+      || isAliceAuthorizationCommand(normalizedRawCommand)
+    ) {
+      await aliceChatService.ensureAliceSessionContext(skillUserId, applicationId);
+      res.status(200).json(aliceTextResponse(buildAliceWelcomeText()));
+      return;
+    }
+
+    if (isAliceAboutServiceCommand(normalizedCommand)) {
+      await aliceChatService.ensureAliceSessionContext(skillUserId, applicationId);
+      res.status(200).json(aliceTextResponse(buildAliceAboutServiceText()));
+      return;
+    }
+
+    if (!rawCommand.trim()) {
       res.status(200).json(
-        aliceTextResponse(
-          'Чтобы использовать навык, нужно привязать аккаунт llmstore. Откройте настройки навыка и выполните привязку.',
-        ),
+        aliceTextResponse(buildAliceWelcomeText()),
       );
       return;
     }
 
-    const userId = await oauthService.resolveUserByAccessToken(token);
-    if (!userId) {
-      savePendingAliceCommand(skillUserId, rawCommand);
-      res.status(200).json(aliceUnauthorizedResponse(canLink, rawCommand));
-      return;
-
-      if (canLink) {
-        res.status(200).json(
-          aliceTextResponse('Сессия истекла. Скажите авторизоваться и войдите в LLM Store ещё раз.'),
-        );
-        return;
-      }
-      res.status(200).json(
-        aliceTextResponse('Сессия истекла. Пожалуйста, заново привяжите аккаунт llmstore.'),
-      );
-      return;
-    }
-
-    if (isAliceHelpCommand(normalizedCommand)) {
-      res.status(200).json(aliceTextResponse(aliceHelpText(true)));
-      return;
-    }
-
-    if (isAliceGreetingCommand(normalizedCommand)) {
-      res.status(200).json(aliceTextResponse(aliceGreetingText(true)));
-      return;
-    }
-
-    const command = typeof payload?.request?.command === 'string'
-      ? payload.request.command.trim()
-      : '';
-
-    if (!command) {
-      res.status(200).json(
-        aliceTextResponse(
-          'Аккаунт llmstore подключен. Скажите, что сделать в чате.',
-        ),
-      );
-      return;
-    }
-
-    res.status(200).json(
-      aliceTextResponse(
-        `Команда получена: ${command}. Интеграция с выбранным чатом сейчас завершается.`,
-      ),
-    );
+    const reply = await aliceChatService.sendAliceChatMessage(skillUserId, applicationId, rawCommand);
+    res.status(200).json(aliceTextResponse(reply.text, reply.tts));
   } catch (err) {
     next(err);
+  }
+}
+
+export async function webhook(req: Request, res: Response, _next: NextFunction) {
+  const startedAt = Date.now();
+  const payload = req.body ?? {};
+  const rawCommand = extractAliceCommand(payload);
+  const skillUserId = extractAliceSkillUserId(payload);
+  const applicationId = extractAliceApplicationId(payload);
+  const sessionId = typeof payload?.session?.session_id === 'string' ? payload.session.session_id : null;
+  const messageId = typeof payload?.session?.message_id === 'number' ? payload.session.message_id : null;
+  let context: aliceChatService.AliceSessionContext | null = null;
+
+  const respond = async (
+    body: Record<string, unknown>,
+    options?: {
+      context?: aliceChatService.AliceSessionContext | null;
+      status?: 'success' | 'error';
+      statusCode?: number;
+      errorCode?: string | null;
+      errorMessage?: string | null;
+    },
+  ) => {
+    const resolvedContext = options?.context ?? context;
+    const responseText = typeof body.response === 'object'
+      && body.response
+      && typeof (body.response as { text?: unknown }).text === 'string'
+      ? (body.response as { text: string }).text
+      : null;
+    const durationMs = Date.now() - startedAt;
+
+    try {
+      await aliceLoggingService.createAliceWebhookLog({
+        payload,
+        status: options?.status ?? 'success',
+        statusCode: options?.statusCode ?? 200,
+        responseBody: body,
+        responseText,
+        errorCode: options?.errorCode ?? null,
+        errorMessage: options?.errorMessage ?? null,
+        context: resolvedContext,
+        ipAddress: req.ip ?? null,
+        userAgent: req.get('user-agent') ?? null,
+        durationMs,
+      });
+    } catch (logError) {
+      logger.error({ err: logError, skillUserId, sessionId, messageId }, 'alice webhook log persist failed');
+    }
+
+    logger.info({
+      skillUserId,
+      applicationId,
+      sessionId,
+      messageId,
+      userId: resolvedContext?.userId ?? null,
+      chatId: resolvedContext?.chatId ?? null,
+      command: rawCommand || null,
+      responseText,
+      status: options?.status ?? 'success',
+      durationMs,
+    }, 'alice webhook handled');
+
+    res.status(options?.statusCode ?? 200).json(body);
+  };
+
+  try {
+    const normalizedCommand = normalizeAliceCommand(rawCommand);
+    const normalizedRawCommand = normalizeAliceRawText(rawCommand);
+
+    if (!skillUserId) {
+      await respond(
+        aliceTextResponse('Не удалось определить пользователя Алисы. Попробуйте запустить навык ещё раз.'),
+      );
+      return;
+    }
+
+    if (rawCommand.toLowerCase() === 'ping') {
+      await respond(aliceTextResponse('pong', 'pong'));
+      return;
+    }
+
+    if (hasAccountLinkingCompleteEvent(payload)) {
+      context = await aliceChatService.ensureAliceSessionContext(skillUserId, applicationId);
+      await respond(aliceTextResponse(buildAliceReadyText(context)), { context });
+      return;
+    }
+
+    if (
+      isAliceCapabilitiesCommand(normalizedCommand)
+      || isAliceCapabilitiesCommand(normalizedRawCommand)
+      || isAliceHelpCommand(normalizedCommand)
+      || isAliceHelpCommand(normalizedRawCommand)
+    ) {
+      context = await aliceChatService.ensureAliceSessionContext(skillUserId, applicationId);
+      await respond(aliceTextResponse(buildAliceWelcomeText()), { context });
+      return;
+    }
+
+    if (
+      isAliceGreetingCommand(normalizedCommand)
+      || isAliceGreetingCommand(normalizedRawCommand)
+      || isAliceAuthorizationCommand(normalizedCommand)
+      || isAliceAuthorizationCommand(normalizedRawCommand)
+    ) {
+      context = await aliceChatService.ensureAliceSessionContext(skillUserId, applicationId);
+      await respond(aliceTextResponse(buildAliceWelcomeText()), { context });
+      return;
+    }
+
+    if (isAliceAboutServiceCommand(normalizedCommand)) {
+      context = await aliceChatService.ensureAliceSessionContext(skillUserId, applicationId);
+      await respond(aliceTextResponse(buildAliceAboutServiceText()), { context });
+      return;
+    }
+
+    if (!rawCommand.trim()) {
+      context = skillUserId
+        ? await aliceChatService.ensureAliceSessionContext(skillUserId, applicationId)
+        : null;
+      await respond(aliceTextResponse(buildAliceWelcomeText()), { context });
+      return;
+    }
+
+    const reply = await aliceChatService.sendAliceChatMessage(skillUserId, applicationId, rawCommand);
+    context = reply.context;
+    await respond(aliceTextResponse(reply.text, reply.tts), { context });
+  } catch (err) {
+    const errorCode = typeof (err as { code?: unknown })?.code === 'string'
+      ? (err as { code: string }).code
+      : 'ALICE_WEBHOOK_ERROR';
+    const errorMessage = err instanceof Error ? err.message : 'Unknown Alice webhook error';
+
+    logger.error({
+      err,
+      skillUserId,
+      applicationId,
+      sessionId,
+      messageId,
+      command: rawCommand || null,
+    }, 'alice webhook failed');
+
+    await respond(aliceTextResponse('Извините, произошла ошибка. Попробуйте ещё раз.'), {
+      context,
+      status: 'error',
+      statusCode: 200,
+      errorCode,
+      errorMessage,
+    });
   }
 }
