@@ -271,6 +271,112 @@ function getAliceAccountSummaryIntentSafe(command: string): 'chats' | 'balance' 
   return null;
 }
 
+function parseAliceChatNavigationIntent(
+  normalizedCommand: string,
+  normalizedRawCommand: string,
+): aliceChatService.AliceChatNavigationIntent | null {
+  const command = normalizedCommand || normalizedRawCommand;
+  if (!command) return null;
+
+  if (
+    command.includes('\u043a\u0430\u043a\u043e\u0439 \u0441\u0435\u0439\u0447\u0430\u0441 \u0447\u0430\u0442')
+    || command.includes('\u043a\u0430\u043a\u043e\u0439 \u0442\u0435\u043a\u0443\u0449\u0438\u0439 \u0447\u0430\u0442')
+    || command.includes('\u043a\u0430\u043a\u043e\u0439 \u0432\u044b\u0431\u0440\u0430\u043d \u0447\u0430\u0442')
+  ) {
+    return { kind: 'current_chat' };
+  }
+
+  if (
+    command.includes('\u043e\u0442\u043a\u0440\u043e\u0439 \u043f\u043e\u0441\u043b\u0435\u0434\u043d\u0438\u0439 \u0447\u0430\u0442')
+    || command.includes('\u0432\u044b\u0431\u0435\u0440\u0438 \u043f\u043e\u0441\u043b\u0435\u0434\u043d\u0438\u0439 \u0447\u0430\u0442')
+    || command.includes('\u043f\u0435\u0440\u0435\u043a\u043b\u044e\u0447\u0438 \u043d\u0430 \u043f\u043e\u0441\u043b\u0435\u0434\u043d\u0438\u0439 \u0447\u0430\u0442')
+  ) {
+    return { kind: 'select_chat', selector: { type: 'latest' } };
+  }
+
+  if (
+    command.includes('\u043e\u0442\u043a\u0440\u043e\u0439 \u043f\u0435\u0440\u0432\u044b\u0439 \u0447\u0430\u0442')
+    || command.includes('\u0432\u044b\u0431\u0435\u0440\u0438 \u043f\u0435\u0440\u0432\u044b\u0439 \u0447\u0430\u0442')
+    || command.includes('\u043f\u0435\u0440\u0435\u043a\u043b\u044e\u0447\u0438 \u043d\u0430 \u043f\u0435\u0440\u0432\u044b\u0439 \u0447\u0430\u0442')
+  ) {
+    return { kind: 'select_chat', selector: { type: 'oldest' } };
+  }
+
+  const chatNumberMatch = command.match(/\u0447\u0430\u0442(?:\s+\u043d\u043e\u043c\u0435\u0440)?\s+(\d+)/u);
+  if (
+    chatNumberMatch?.[1]
+    && (
+      command.includes('\u043e\u0442\u043a\u0440\u043e\u0439')
+      || command.includes('\u0432\u044b\u0431\u0435\u0440\u0438')
+      || command.includes('\u043f\u0435\u0440\u0435\u043a\u043b\u044e\u0447\u0438')
+    )
+  ) {
+    return {
+      kind: 'select_chat',
+      selector: { type: 'index', index: Number(chatNumberMatch[1]) },
+    };
+  }
+
+  const chatTitleMatch = command.match(/(?:\u043e\u0442\u043a\u0440\u043e\u0439|\u0432\u044b\u0431\u0435\u0440\u0438|\u043f\u0435\u0440\u0435\u043a\u043b\u044e\u0447\u0438)(?:\s+\u043d\u0430)?\s+\u0447\u0430\u0442\s+(.+)$/u);
+  if (chatTitleMatch?.[1] && !/\d+/.test(chatTitleMatch[1].trim())) {
+    return {
+      kind: 'select_chat',
+      selector: { type: 'title', query: chatTitleMatch[1].trim() },
+    };
+  }
+
+  if (command.includes('\u043f\u0440\u043e\u0447\u0438\u0442\u0430\u0439 \u043f\u0435\u0440\u0432\u043e\u0435 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435')) {
+    return { kind: 'read_chat', selector: { type: 'first_message' } };
+  }
+
+  if (command.includes('\u043f\u0440\u043e\u0447\u0438\u0442\u0430\u0439 \u043f\u043e\u0441\u043b\u0435\u0434\u043d\u0435\u0435 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435')) {
+    return { kind: 'read_chat', selector: { type: 'last_message' } };
+  }
+
+  if (
+    command.includes('\u043c\u043e\u0439 \u043f\u043e\u0441\u043b\u0435\u0434\u043d\u0438\u0439 \u0432\u043e\u043f\u0440\u043e\u0441')
+    || command.includes('\u043f\u043e\u0441\u043b\u0435\u0434\u043d\u0438\u0439 \u043c\u043e\u0439 \u0432\u043e\u043f\u0440\u043e\u0441')
+  ) {
+    return { kind: 'read_chat', selector: { type: 'last_user_message' } };
+  }
+
+  if (
+    command.includes('\u043f\u043e\u0441\u043b\u0435\u0434\u043d\u0438\u0439 \u043e\u0442\u0432\u0435\u0442')
+    || command.includes('\u043f\u043e\u0432\u0442\u043e\u0440\u0438 \u043f\u043e\u0441\u043b\u0435\u0434\u043d\u0438\u0439 \u043e\u0442\u0432\u0435\u0442')
+  ) {
+    return { kind: 'read_chat', selector: { type: 'last_assistant_message' } };
+  }
+
+  if (
+    command.includes('\u0447\u0442\u043e \u0442\u044b \u043e\u0442\u0432\u0435\u0442\u0438\u043b \u043d\u0430 \u043c\u043e\u0439 \u043f\u043e\u0441\u043b\u0435\u0434\u043d\u0438\u0439 \u0432\u043e\u043f\u0440\u043e\u0441')
+    || command.includes('\u043e\u0442\u0432\u0435\u0442 \u043d\u0430 \u043c\u043e\u0439 \u043f\u043e\u0441\u043b\u0435\u0434\u043d\u0438\u0439 \u0432\u043e\u043f\u0440\u043e\u0441')
+  ) {
+    return { kind: 'read_chat', selector: { type: 'reply_to_last_user' } };
+  }
+
+  const messageNumberMatch = command.match(/\u0441\u043e\u043e\u0431\u0449\u0435\u043d(?:\u0438\u0435|\u0438\u044f)\s+\u043d\u043e\u043c\u0435\u0440\s+(\d+)/u);
+  if (messageNumberMatch?.[1]) {
+    return {
+      kind: 'read_chat',
+      selector: { type: 'message_index', index: Number(messageNumberMatch[1]) },
+    };
+  }
+
+  if (command.includes('\u043f\u0440\u043e\u0447\u0438\u0442\u0430\u0439 \u043f\u043e\u0441\u043b\u0435\u0434\u043d\u0438\u0435 3 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u044f')) {
+    return { kind: 'read_chat', selector: { type: 'last_messages', count: 3 } };
+  }
+
+  if (
+    command.includes('\u043e \u0447\u0435\u043c \u044d\u0442\u043e\u0442 \u0447\u0430\u0442')
+    || command.includes('\u043e \u0447\u0451\u043c \u044d\u0442\u043e\u0442 \u0447\u0430\u0442')
+    || command.includes('\u043f\u0435\u0440\u0435\u0441\u043a\u0430\u0436\u0438 \u044d\u0442\u043e\u0442 \u0447\u0430\u0442')
+  ) {
+    return { kind: 'read_chat', selector: { type: 'chat_summary' } };
+  }
+
+  return null;
+}
+
 function delay<T>(timeoutMs: number, value: T): Promise<T> {
   return new Promise((resolve) => {
     setTimeout(() => resolve(value), timeoutMs);
@@ -809,6 +915,7 @@ export async function webhook(req: Request, res: Response, _next: NextFunction) 
     const normalizedRawCommand = normalizeAliceRawText(rawCommand);
     const accountSummaryIntent = getAliceAccountSummaryIntentSafe(normalizedCommand)
       ?? getAliceAccountSummaryIntentSafe(normalizedRawCommand);
+    const chatNavigationIntent = parseAliceChatNavigationIntent(normalizedCommand, normalizedRawCommand);
 
     if (!skillUserId) {
       await respond(
@@ -864,6 +971,17 @@ export async function webhook(req: Request, res: Response, _next: NextFunction) 
       );
       context = summaryResult.context;
       await respond(aliceTextResponse(summaryResult.text), { context });
+      return;
+    }
+
+    if (chatNavigationIntent) {
+      const navigationResult = await aliceChatService.handleAliceChatNavigationIntent(
+        skillUserId,
+        applicationId,
+        chatNavigationIntent,
+      );
+      context = navigationResult.context;
+      await respond(aliceTextResponse(navigationResult.text), { context });
       return;
     }
 

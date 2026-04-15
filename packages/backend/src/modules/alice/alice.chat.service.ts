@@ -72,6 +72,27 @@ type AliceLastTaskStatus = 'processing' | 'completed' | 'failed';
 
 type AliceAccountSummaryIntent = 'chats' | 'balance' | 'both';
 
+export type AliceChatSelector =
+  | { type: 'latest' }
+  | { type: 'oldest' }
+  | { type: 'index'; index: number }
+  | { type: 'title'; query: string };
+
+export type AliceChatReadSelector =
+  | { type: 'first_message' }
+  | { type: 'last_message' }
+  | { type: 'message_index'; index: number }
+  | { type: 'last_user_message' }
+  | { type: 'last_assistant_message' }
+  | { type: 'reply_to_last_user' }
+  | { type: 'last_messages'; count: number }
+  | { type: 'chat_summary' };
+
+export type AliceChatNavigationIntent =
+  | { kind: 'current_chat' }
+  | { kind: 'select_chat'; selector: AliceChatSelector }
+  | { kind: 'read_chat'; selector: AliceChatReadSelector };
+
 function normalizeAliceIdentifier(value: string | null | undefined): string {
   return typeof value === 'string' ? value.trim() : '';
 }
@@ -163,6 +184,90 @@ function formatAliceBalanceUsd(amount: number): string {
   }
 
   return `${dollarsText} ${cents} ${pluralizeRu(cents, 'цент', 'цента', 'центов')}`;
+}
+
+function normalizeAliceSearchText(value: string | null | undefined): string {
+  return (value ?? '')
+    .toLowerCase()
+    .replaceAll('ё', 'е')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function formatAliceMessageRole(role: 'user' | 'assistant'): string {
+  return role === 'user' ? 'Вы' : 'Ассистент';
+}
+
+function sanitizeAliceChatContent(value: string, limit = 820): string {
+  return sanitizeAliceTextOutput(value, limit);
+}
+
+async function getAliceSelectedChatId(userId: string): Promise<string | null> {
+  const [settings] = await db
+    .select({ selected_chat_id: aliceUserSettings.selected_chat_id })
+    .from(aliceUserSettings)
+    .where(eq(aliceUserSettings.user_id, userId))
+    .limit(1);
+
+  return settings?.selected_chat_id ?? null;
+}
+
+async function setAliceSelectedChatId(userId: string, chatId: string | null): Promise<void> {
+  const [settings] = await db
+    .select({ user_id: aliceUserSettings.user_id })
+    .from(aliceUserSettings)
+    .where(eq(aliceUserSettings.user_id, userId))
+    .limit(1);
+
+  if (settings) {
+    await db
+      .update(aliceUserSettings)
+      .set({
+        selected_chat_id: chatId,
+        updated_at: new Date(),
+      })
+      .where(eq(aliceUserSettings.user_id, userId));
+    return;
+  }
+
+  await db.insert(aliceUserSettings).values({
+    user_id: userId,
+    selected_chat_id: chatId,
+  });
+}
+
+async function getAliceAvailableChats(userId: string) {
+  return runtimeService.listChats(userId);
+}
+
+async function resolveAliceSelectedChat(
+  userId: string,
+  fallbackChatId: string,
+): Promise<Awaited<ReturnType<typeof runtimeService.listChats>>[number] | null> {
+  const chats = await getAliceAvailableChats(userId);
+  if (chats.length === 0) return null;
+
+  const selectedChatId = await getAliceSelectedChatId(userId);
+  if (selectedChatId) {
+    const selected = chats.find((chat) => chat.id === selectedChatId);
+    if (selected) return selected;
+  }
+
+  return chats.find((chat) => chat.id === fallbackChatId) ?? chats[0] ?? null;
+}
+
+function selectAliceChatFromList(
+  chats: Awaited<ReturnType<typeof runtimeService.listChats>>,
+  selector: AliceChatSelector,
+) {
+  if (selector.type === 'latest') return chats[0] ?? null;
+  if (selector.type === 'oldest') return chats[chats.length - 1] ?? null;
+  if (selector.type === 'index') return chats[selector.index - 1] ?? null;
+
+  const normalizedQuery = normalizeAliceSearchText(selector.query);
+  if (!normalizedQuery) return null;
+
+  return chats.find((chat) => normalizeAliceSearchText(chat.title).includes(normalizedQuery)) ?? null;
 }
 
 async function updateAliceLastTaskState(
@@ -1017,6 +1122,138 @@ export async function getAliceAccountSummaryText(
 
   return {
     text,
+    context,
+  };
+}
+
+export async function handleAliceChatNavigationIntent(
+  skillUserIdInput: string | null | undefined,
+  applicationIdInput: string | null | undefined,
+  intent: AliceChatNavigationIntent,
+): Promise<{ text: string; context: AliceSessionContext }> {
+  const context = await ensureAliceSessionContext(skillUserIdInput, applicationIdInput);
+  const chats = await getAliceAvailableChats(context.userId);
+
+  if (chats.length === 0) {
+    return {
+      text: 'У вас пока нет доступных чатов.',
+      context,
+    };
+  }
+
+  if (intent.kind === 'current_chat') {
+    const currentChat = await resolveAliceSelectedChat(context.userId, context.chatId);
+    if (!currentChat) {
+      return {
+        text: 'Сейчас не удалось определить выбранный чат.',
+        context,
+      };
+    }
+
+    return {
+      text: `Сейчас выбран чат «${sanitizeAliceChatContent(currentChat.title, 140)}». В нём ${currentChat.message_count} сообщений.`,
+      context,
+    };
+  }
+
+  if (intent.kind === 'select_chat') {
+    const selectedChat = selectAliceChatFromList(chats, intent.selector);
+    if (!selectedChat) {
+      return {
+        text: intent.selector.type === 'title'
+          ? `Не удалось найти чат по названию «${sanitizeAliceChatContent(intent.selector.query, 120)}».`
+          : 'Не удалось выбрать чат по этому запросу.',
+        context,
+      };
+    }
+
+    await setAliceSelectedChatId(context.userId, selectedChat.id);
+
+    return {
+      text: `Выбран чат «${sanitizeAliceChatContent(selectedChat.title, 140)}». В нём ${selectedChat.message_count} сообщений. Можете сказать: прочитай последнее сообщение.`,
+      context,
+    };
+  }
+
+  const selectedChat = await resolveAliceSelectedChat(context.userId, context.chatId);
+  if (!selectedChat) {
+    return {
+      text: 'Сначала выберите чат.',
+      context,
+    };
+  }
+
+  const details = await runtimeService.getChatById(selectedChat.id, context.userId);
+  const messages = details.messages;
+
+  if (messages.length === 0) {
+    return {
+      text: `В чате «${sanitizeAliceChatContent(selectedChat.title, 140)}» пока нет сообщений.`,
+      context,
+    };
+  }
+
+  if (intent.selector.type === 'chat_summary') {
+    const lastUser = [...messages].reverse().find((message) => message.role === 'user') ?? null;
+    const lastAssistant = [...messages].reverse().find((message) => message.role === 'assistant') ?? null;
+    const parts = [
+      `Сейчас выбран чат «${sanitizeAliceChatContent(selectedChat.title, 140)}».`,
+      `В нём ${messages.length} сообщений.`,
+    ];
+
+    if (lastUser) {
+      parts.push(`Последний ваш вопрос: ${sanitizeAliceChatContent(lastUser.content, 220)}.`);
+    }
+    if (lastAssistant) {
+      parts.push(`Последний ответ: ${sanitizeAliceChatContent(lastAssistant.content, 220)}.`);
+    }
+
+    return {
+      text: parts.join(' '),
+      context,
+    };
+  }
+
+  if (intent.selector.type === 'last_messages') {
+    const selectedMessages = messages.slice(-intent.selector.count);
+    const rendered = selectedMessages.map((message, index) => `${index + 1}. ${formatAliceMessageRole(message.role)}: ${sanitizeAliceChatContent(message.content, 220)}`);
+    return {
+      text: `Последние сообщения в чате «${sanitizeAliceChatContent(selectedChat.title, 140)}»: ${rendered.join(' ')}`,
+      context,
+    };
+  }
+
+  let selectedMessage = null as (typeof messages)[number] | null;
+
+  if (intent.selector.type === 'first_message') {
+    selectedMessage = messages[0] ?? null;
+  } else if (intent.selector.type === 'last_message') {
+    selectedMessage = messages[messages.length - 1] ?? null;
+  } else if (intent.selector.type === 'message_index') {
+    selectedMessage = messages[intent.selector.index - 1] ?? null;
+  } else if (intent.selector.type === 'last_user_message') {
+    selectedMessage = [...messages].reverse().find((message) => message.role === 'user') ?? null;
+  } else if (intent.selector.type === 'last_assistant_message') {
+    selectedMessage = [...messages].reverse().find((message) => message.role === 'assistant') ?? null;
+  } else if (intent.selector.type === 'reply_to_last_user') {
+    const lastUserIndex = [...messages].map((message, index) => ({ message, index }))
+      .reverse()
+      .find((entry) => entry.message.role === 'user')?.index ?? -1;
+    if (lastUserIndex >= 0) {
+      selectedMessage = messages.slice(lastUserIndex + 1).find((message) => message.role === 'assistant') ?? null;
+    }
+  }
+
+  if (!selectedMessage) {
+    return {
+      text: `В чате «${sanitizeAliceChatContent(selectedChat.title, 140)}» не удалось найти подходящее сообщение.`,
+      context,
+    };
+  }
+
+  const messageIndex = messages.findIndex((message) => message.id === selectedMessage?.id);
+  return {
+    text: `Чат «${sanitizeAliceChatContent(selectedChat.title, 140)}». Сообщение ${messageIndex + 1}. ${formatAliceMessageRole(selectedMessage.role)}: ${sanitizeAliceChatContent(selectedMessage.content, 760)}`,
     context,
   };
 }

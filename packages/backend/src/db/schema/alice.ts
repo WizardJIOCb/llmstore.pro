@@ -20,6 +20,7 @@ export const aliceUserSettings = pgTable('alice_user_settings', {
   is_enabled: boolean('is_enabled').notNull().default(true),
   default_target_type: aliceDefaultTargetTypeEnum('default_target_type').notNull().default('general_chat'),
   default_chat_id: uuid('default_chat_id').references(() => chatConversations.id, { onDelete: 'set null' }),
+  selected_chat_id: uuid('selected_chat_id').references(() => chatConversations.id, { onDelete: 'set null' }),
   default_agent_id: uuid('default_agent_id').references(() => agents.id, { onDelete: 'set null' }),
   default_model_external_id: varchar('default_model_external_id', { length: 255 }),
   save_messages: boolean('save_messages').notNull().default(true),
