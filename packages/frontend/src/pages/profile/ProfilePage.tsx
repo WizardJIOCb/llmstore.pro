@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import type { ProfileLeaderboardEntry, ProfileLeaderboardSort } from '@llmstore/shared/types';
+import type { AliceProfileLinkDto, ProfileLeaderboardEntry, ProfileLeaderboardSort } from '@llmstore/shared/types';
 import { useChangePassword, useCreateAliceLinkCode, useCreateTelegramLinkCode, useProfile, useProfileLeaderboard, useUnlinkAccount, useUpdateProfile } from '../../hooks/useProfile';
 import { useRunList } from '../../hooks/useAgents';
 import { useCreateChat } from '../../hooks/useChats';
@@ -921,7 +921,7 @@ export function ProfilePage() {
                       Получите одноразовый код и скажите: <span className="font-medium">«Алиса, запусти навык LLM Store и привяжи аккаунт 123456»</span>.
                     </p>
                     <p className="mt-2 text-sm text-muted-foreground">
-                      После этого новые запросы и Alice-чат будут связаны с вашим аккаунтом LLM Store.
+                      После этого новые запросы и Alice-чат будут связаны с вашим аккаунтом LLM Store. Можно привязать несколько аккаунтов Алисы или разных устройств к одному профилю.
                     </p>
                   </div>
                 </div>
@@ -962,17 +962,34 @@ export function ProfilePage() {
                 </div>
               ) : null}
 
-              {profile.alice?.status.linked_skill_user_id ? (
+              {profile.alice?.links?.length ? (
                 <div className="mt-3 rounded-lg border p-4 text-sm">
-                  <p className="font-medium">Текущая привязка</p>
-                  <p className="mt-2 break-all text-muted-foreground">
-                    Skill user id: {profile.alice.status.linked_skill_user_id}
+                  <p className="font-medium">
+                    Привязки Алисы: {profile.alice.links.length}
                   </p>
-                  {profile.alice.status.linked_at ? (
-                    <p className="mt-1 text-muted-foreground">
-                      Привязан: {new Date(profile.alice.status.linked_at).toLocaleString('ru-RU')}
-                    </p>
-                  ) : null}
+                  <div className="mt-3 space-y-3">
+                    {profile.alice.links.map((link: AliceProfileLinkDto, index: number) => (
+                      <div key={`${link.linked_skill_user_id}-${link.linked_at}`} className="rounded-md border bg-muted/20 p-3">
+                        <p className="font-medium">Устройство {index + 1}</p>
+                        <p className="mt-2 break-all text-muted-foreground">
+                          Skill user id: {link.linked_skill_user_id}
+                        </p>
+                        <p className="mt-1 text-muted-foreground">
+                          Привязан: {new Date(link.linked_at).toLocaleString('ru-RU')}
+                        </p>
+                        {link.last_seen_at ? (
+                          <p className="mt-1 text-muted-foreground">
+                            Активность: {new Date(link.last_seen_at).toLocaleString('ru-RU')}
+                          </p>
+                        ) : null}
+                        {link.application_id ? (
+                          <p className="mt-1 break-all text-muted-foreground">
+                            Application id: {link.application_id}
+                          </p>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               ) : null}
             </div>

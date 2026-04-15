@@ -513,7 +513,7 @@ export async function getProfile(userId: string): Promise<UserProfile> {
     throw new NotFoundError('Пользователь не найден');
   }
 
-  const [accounts, usage, balanceHistory, pendingVerificationTokens, aliceLink, aliceSettings, aliceLinkCode, telegramLink, telegramLinkCode] = await Promise.all([
+  const [accounts, usage, balanceHistory, pendingVerificationTokens, aliceLinks, aliceSettings, aliceLinkCode, telegramLink, telegramLinkCode] = await Promise.all([
     db.select({
       provider: authAccounts.provider,
       provider_account_id: authAccounts.provider_account_id,
@@ -533,12 +533,11 @@ export async function getProfile(userId: string): Promise<UserProfile> {
         linked_at: aliceSkillLinks.linked_at,
         last_seen_at: aliceSkillLinks.last_seen_at,
         linked_skill_user_id: aliceSkillLinks.yandex_skill_user_id,
+        application_id: aliceSkillLinks.yandex_application_id,
       })
       .from(aliceSkillLinks)
       .where(eq(aliceSkillLinks.user_id, userId))
-      .orderBy(desc(aliceSkillLinks.linked_at))
-      .limit(1)
-      .then((rows) => rows[0] ?? null),
+      .orderBy(desc(aliceSkillLinks.linked_at)),
     db
       .select({
         is_enabled: aliceUserSettings.is_enabled,
@@ -590,7 +589,8 @@ export async function getProfile(userId: string): Promise<UserProfile> {
   const balanceRub = (balanceUsd * usdToRubRate).toFixed(2);
 
   const limits: UserLimits = ROLE_LIMITS[user.role as UserRole] ?? ROLE_LIMITS.user;
-  const aliceProfile = aliceLink || aliceSettings || aliceLinkCode ? {
+  const primaryAliceLink = aliceLinks[0] ?? null;
+  const aliceProfile = primaryAliceLink || aliceSettings || aliceLinkCode ? {
     settings: {
       is_enabled: aliceSettings?.is_enabled ?? true,
       default_target_type: aliceSettings?.default_target_type ?? 'general_chat',
@@ -602,11 +602,17 @@ export async function getProfile(userId: string): Promise<UserProfile> {
       max_tts_chars: aliceSettings?.max_tts_chars ?? 900,
     },
     status: {
-      is_linked: Boolean(aliceLink),
-      linked_at: aliceLink?.linked_at ? aliceLink.linked_at.toISOString() : null,
-      last_seen_at: aliceLink?.last_seen_at ? aliceLink.last_seen_at.toISOString() : null,
-      linked_skill_user_id: aliceLink?.linked_skill_user_id ?? null,
+      is_linked: aliceLinks.length > 0,
+      linked_at: primaryAliceLink?.linked_at ? primaryAliceLink.linked_at.toISOString() : null,
+      last_seen_at: primaryAliceLink?.last_seen_at ? primaryAliceLink.last_seen_at.toISOString() : null,
+      linked_skill_user_id: primaryAliceLink?.linked_skill_user_id ?? null,
     },
+    links: aliceLinks.map((link) => ({
+      linked_skill_user_id: link.linked_skill_user_id,
+      linked_at: link.linked_at.toISOString(),
+      last_seen_at: link.last_seen_at ? link.last_seen_at.toISOString() : null,
+      application_id: link.application_id ?? null,
+    })),
     link_code: aliceLinkCode,
   } : null;
   const telegramDisplayName = telegramLink

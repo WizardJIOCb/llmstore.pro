@@ -54,6 +54,13 @@ export interface AliceProfileStatusDto {
   linked_skill_user_id: string | null;
 }
 
+export interface AliceProfileLinkDto {
+  linked_skill_user_id: string;
+  linked_at: string;
+  last_seen_at: string | null;
+  application_id: string | null;
+}
+
 export interface AliceLinkCodeDto {
   code: string;
   expires_at: string;
@@ -62,6 +69,7 @@ export interface AliceLinkCodeDto {
 export interface AliceProfileDto {
   settings: AliceProfileSettingsDto;
   status: AliceProfileStatusDto;
+  links: AliceProfileLinkDto[];
   link_code?: AliceLinkCodeDto | null;
 }
 
