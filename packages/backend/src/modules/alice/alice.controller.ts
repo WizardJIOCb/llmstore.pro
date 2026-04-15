@@ -430,7 +430,11 @@ function buildAliceAboutServiceText(): string {
 }
 
 function buildAliceCommandsText(): string {
-  return 'Я навык LLM Store. Вы можете ставить задачи обычной фразой, например: «объясни ошибку в коде», «напиши письмо клиенту» или «сгенерируй лендинг про аптеку». Ещё можно спросить: «уточни статус задачи», «продолжи ответ», «сколько у меня чатов», «какой у меня баланс», «открой последний чат», «прочитай последнее сообщение» и «что ты ответил на мой последний вопрос».';
+  return 'Я навык LLM Store. Могу помочь с текстами, кодом, идеями и задачами в ваших чатах. Попробуйте сказать: «объясни ошибку в коде», «напиши письмо клиенту» или «сгенерируй лендинг про аптеку». Также доступны команды: «уточни статус задачи», «продолжи ответ», «сколько у меня чатов», «какой у меня баланс», «открой последний чат», «прочитай последнее сообщение» и «что ты ответил на мой последний вопрос».';
+}
+
+function buildAliceCommandsTts(): string {
+  return 'Я навык LLM Store. Можно сказать: объясни ошибку в коде, напиши письмо клиенту, сгенерируй лендинг про аптеку, уточни статус задачи, продолжи ответ, сколько у меня чатов, какой у меня баланс, открой последний чат или прочитай последнее сообщение.';
 }
 
 function buildAliceWelcomeText(): string {
@@ -824,7 +828,7 @@ async function legacyWebhook(req: Request, res: Response, next: NextFunction) {
       || isAliceHelpCommand(normalizedRawCommand)
     ) {
       await aliceChatService.ensureAliceSessionContext(skillUserId, applicationId);
-      res.status(200).json(aliceTextResponse(buildAliceCommandsText()));
+      res.status(200).json(aliceTextResponse(buildAliceCommandsText(), buildAliceCommandsTts()));
       return;
     }
 
@@ -953,7 +957,7 @@ export async function webhook(req: Request, res: Response, _next: NextFunction) 
       || isAliceHelpCommand(normalizedRawCommand)
     ) {
       context = await aliceChatService.ensureAliceSessionContext(skillUserId, applicationId);
-      await respond(aliceTextResponse(buildAliceCommandsText()), { context });
+      await respond(aliceTextResponse(buildAliceCommandsText(), buildAliceCommandsTts()), { context });
       return;
     }
 
