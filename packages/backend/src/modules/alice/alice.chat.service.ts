@@ -143,8 +143,26 @@ function sanitizeAliceTtsOutput(value: string, maxLength: number): string {
   return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
 }
 
+function pluralizeRu(value: number, one: string, few: string, many: string): string {
+  const abs = Math.abs(value) % 100;
+  const last = abs % 10;
+  if (abs > 10 && abs < 20) return many;
+  if (last > 1 && last < 5) return few;
+  if (last === 1) return one;
+  return many;
+}
+
 function formatAliceBalanceUsd(amount: number): string {
-  return amount.toFixed(4).replace(/\.?0+$/, '') || '0';
+  const roundedCents = Math.max(0, Math.round(amount * 100));
+  const dollars = Math.floor(roundedCents / 100);
+  const cents = roundedCents % 100;
+  const dollarsText = `${dollars} ${pluralizeRu(dollars, 'доллар', 'доллара', 'долларов')}`;
+
+  if (cents === 0) {
+    return dollarsText;
+  }
+
+  return `${dollarsText} ${cents} ${pluralizeRu(cents, 'цент', 'цента', 'центов')}`;
 }
 
 async function updateAliceLastTaskState(
@@ -988,7 +1006,7 @@ export async function getAliceAccountSummaryText(
   const chatsCount = Number(chatCountRow?.count ?? 0);
   const balanceUsd = Number(user?.balance_usd ?? 0);
   const chatsText = chatsCount === 1 ? 'У вас 1 чат.' : `У вас ${chatsCount} чатов.`;
-  const balanceText = `Ваш баланс: ${formatAliceBalanceUsd(balanceUsd)} USD.`;
+  const balanceText = `Ваш баланс: ${formatAliceBalanceUsd(balanceUsd)}.`;
 
   let text = balanceText;
   if (intent === 'chats') {
