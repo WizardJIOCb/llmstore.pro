@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, count, desc, eq } from 'drizzle-orm';
 import { db } from '../../config/database.js';
 import {
   aliceLinkCodes,
@@ -70,6 +70,8 @@ export interface AliceChatReply {
 
 type AliceLastTaskStatus = 'processing' | 'completed' | 'failed';
 
+type AliceAccountSummaryIntent = 'chats' | 'balance' | 'both';
+
 function normalizeAliceIdentifier(value: string | null | undefined): string {
   return typeof value === 'string' ? value.trim() : '';
 }
@@ -139,6 +141,10 @@ function sanitizeAliceTtsOutput(value: string, maxLength: number): string {
   if (normalized.length <= maxLength) return normalized;
 
   return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
+function formatAliceBalanceUsd(amount: number): string {
+  return amount.toFixed(4).replace(/\.?0+$/, '') || '0';
 }
 
 async function updateAliceLastTaskState(
@@ -959,4 +965,40 @@ export async function acknowledgeAliceReplyDelivery(reply: AliceChatReply): Prom
     startedAt: null,
     completedAt: null,
   });
+}
+
+export async function getAliceAccountSummaryText(
+  skillUserIdInput: string | null | undefined,
+  applicationIdInput: string | null | undefined,
+  intent: AliceAccountSummaryIntent,
+): Promise<{ text: string; context: AliceSessionContext }> {
+  const context = await ensureAliceSessionContext(skillUserIdInput, applicationIdInput);
+  const [[user], [chatCountRow]] = await Promise.all([
+    db
+      .select({ balance_usd: users.balance_usd })
+      .from(users)
+      .where(eq(users.id, context.userId))
+      .limit(1),
+    db
+      .select({ count: count() })
+      .from(chatConversations)
+      .where(eq(chatConversations.user_id, context.userId)),
+  ]);
+
+  const chatsCount = Number(chatCountRow?.count ?? 0);
+  const balanceUsd = Number(user?.balance_usd ?? 0);
+  const chatsText = chatsCount === 1 ? 'У вас 1 чат.' : `У вас ${chatsCount} чатов.`;
+  const balanceText = `Ваш баланс: ${formatAliceBalanceUsd(balanceUsd)} USD.`;
+
+  let text = balanceText;
+  if (intent === 'chats') {
+    text = chatsText;
+  } else if (intent === 'both') {
+    text = `${chatsText} ${balanceText}`;
+  }
+
+  return {
+    text,
+    context,
+  };
 }

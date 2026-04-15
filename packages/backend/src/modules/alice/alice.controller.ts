@@ -253,6 +253,24 @@ function extractAliceLinkCode(command: string): string | null {
   return normalizedCode;
 }
 
+function getAliceAccountSummaryIntentSafe(command: string): 'chats' | 'balance' | 'both' | null {
+  const asksChats = command.includes('\u0447\u0430\u0442')
+    && (
+      command.includes('\u0441\u043a\u043e\u043b\u044c\u043a\u043e')
+      || command.includes('\u0447\u0438\u0441\u043b\u043e')
+      || command.includes('\u043a\u043e\u043b\u0438\u0447\u0435\u0441\u0442\u0432')
+      || command.includes('\u0443 \u043c\u0435\u043d\u044f')
+    );
+  const asksBalance = command.includes('\u0431\u0430\u043b\u0430\u043d\u0441')
+    || command.includes('\u0441\u043a\u043e\u043b\u044c\u043a\u043e \u0443 \u043c\u0435\u043d\u044f \u0434\u0435\u043d\u0435\u0433')
+    || command.includes('\u0441\u043a\u043e\u043b\u044c\u043a\u043e \u0443 \u043c\u0435\u043d\u044f \u043d\u0430 \u0431\u0430\u043b\u0430\u043d\u0441\u0435');
+
+  if (asksChats && asksBalance) return 'both';
+  if (asksChats) return 'chats';
+  if (asksBalance) return 'balance';
+  return null;
+}
+
 function delay<T>(timeoutMs: number, value: T): Promise<T> {
   return new Promise((resolve) => {
     setTimeout(() => resolve(value), timeoutMs);
@@ -789,6 +807,8 @@ export async function webhook(req: Request, res: Response, _next: NextFunction) 
   try {
     const normalizedCommand = normalizeAliceCommand(rawCommand);
     const normalizedRawCommand = normalizeAliceRawText(rawCommand);
+    const accountSummaryIntent = getAliceAccountSummaryIntentSafe(normalizedCommand)
+      ?? getAliceAccountSummaryIntentSafe(normalizedRawCommand);
 
     if (!skillUserId) {
       await respond(
@@ -833,6 +853,17 @@ export async function webhook(req: Request, res: Response, _next: NextFunction) 
     if (isAliceAboutServiceCommand(normalizedCommand)) {
       context = await aliceChatService.ensureAliceSessionContext(skillUserId, applicationId);
       await respond(aliceTextResponse(buildAliceAboutServiceText()), { context });
+      return;
+    }
+
+    if (accountSummaryIntent) {
+      const summaryResult = await aliceChatService.getAliceAccountSummaryText(
+        skillUserId,
+        applicationId,
+        accountSummaryIntent,
+      );
+      context = summaryResult.context;
+      await respond(aliceTextResponse(summaryResult.text), { context });
       return;
     }
 
