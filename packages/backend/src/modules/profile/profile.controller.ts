@@ -67,3 +67,12 @@ export async function createAliceLinkCode(req: Request, res: Response, next: Nex
     next(err);
   }
 }
+
+export async function createTelegramLinkCode(req: Request, res: Response, next: NextFunction) {
+  try {
+    const linkCode = await profileService.createTelegramLinkCode(req.session.userId!);
+    res.json({ data: linkCode });
+  } catch (err) {
+    next(err);
+  }
+}

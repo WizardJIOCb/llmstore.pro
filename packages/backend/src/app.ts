@@ -18,6 +18,7 @@ import { profileRoutes } from './modules/profile/index.js';
 import { newsRoutes } from './modules/news/index.js';
 import { articleRoutes } from './modules/articles/index.js';
 import { aliceRoutes } from './modules/alice/index.js';
+import { telegramRoutes } from './modules/telegram/index.js';
 import { appSettingsRoutes } from './modules/app-settings/index.js';
 import { paymentsRoutes } from './modules/payments/index.js';
 import { UPLOADS_DIR } from './config/upload.js';
@@ -94,6 +95,7 @@ export function createApp() {
   app.use('/api/agents', agentBuilderRoutes);
   app.use('/api', agentRuntimeRoutes);
   app.use('/api/integrations/alice', aliceRoutes);
+  app.use('/api/integrations/telegram', telegramRoutes);
 
   // Error handler (must be last)
   app.use(errorHandler);

@@ -60,3 +60,13 @@ export function useCreateAliceLinkCode() {
     },
   });
 }
+
+export function useCreateTelegramLinkCode() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => profileApi.createTelegramLinkCode(),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['profile'] });
+    },
+  });
+}

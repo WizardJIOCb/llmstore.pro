@@ -15,9 +15,11 @@ import {
 } from '../../db/schema/index.js';
 import { AppError } from '../../middleware/error-handler.js';
 import { getSignupBonusSettings } from '../../lib/app-settings.js';
+import { logger } from '../../lib/logger.js';
 import { markUserActive } from '../auth/login-activity.service.js';
 import { grantSignupBonusIfEligible } from '../auth/signup-bonus.service.js';
 import * as runtimeService from '../agent-runtime/runtime.service.js';
+import * as telegramService from '../telegram/telegram.service.js';
 
 const DEFAULT_ALICE_CHAT_TITLE = 'Alice';
 const DEFAULT_ALICE_USER_NAME = 'Alice user';
@@ -643,6 +645,17 @@ export async function sendAliceChatMessageTracked(
       completedAt: result.processing ? null : new Date(),
     });
 
+    if (!result.processing) {
+      await telegramService.notifyTelegramTaskCompleted({
+        userId: context.userId,
+        command: content.trim(),
+        responseText: text,
+        assistantMessageId: result.assistant_message?.id ?? null,
+      }).catch((notificationError) => {
+        logger.warn({ err: notificationError, userId: context.userId }, 'telegram completion notification failed');
+      });
+    }
+
     return {
       text,
       tts,
@@ -658,6 +671,14 @@ export async function sendAliceChatMessageTracked(
       errorText: message,
       startedAt,
       completedAt: new Date(),
+    });
+
+    await telegramService.notifyTelegramTaskFailed({
+      userId: context.userId,
+      command: content.trim(),
+      errorText: message,
+    }).catch((notificationError) => {
+      logger.warn({ err: notificationError, userId: context.userId }, 'telegram failure notification failed');
     });
 
     throw error;

@@ -55,6 +55,8 @@ const envSchema = z.object({
   GITHUB_CLIENT_SECRET: z.string().default(''),
   YANDEX_CLIENT_ID: z.string().default(''),
   YANDEX_CLIENT_SECRET: z.string().default(''),
+  TELEGRAM_BOT_TOKEN: z.string().default(''),
+  TELEGRAM_BOT_USERNAME: z.string().default('llmstorechat_bot'),
   ALICE_SKILL_CLIENT_ID: z.string().default(''),
   ALICE_SKILL_CLIENT_SECRET: z.string().default(''),
   ALICE_ALLOWED_REDIRECT_URI: commaSeparatedUrlList.default('https://social.yandex.net/broker/redirect'),

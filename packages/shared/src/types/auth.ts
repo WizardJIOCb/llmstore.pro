@@ -65,6 +65,34 @@ export interface AliceProfileDto {
   link_code?: AliceLinkCodeDto | null;
 }
 
+export interface TelegramProfileSettingsDto {
+  notify_on_task_completed: boolean;
+  notify_on_task_failed: boolean;
+  notify_on_landing_ready: boolean;
+}
+
+export interface TelegramProfileStatusDto {
+  is_linked: boolean;
+  linked_at: string | null;
+  last_seen_at: string | null;
+  telegram_user_id: string | null;
+  telegram_chat_id: string | null;
+  telegram_username: string | null;
+  telegram_display_name: string | null;
+}
+
+export interface TelegramLinkCodeDto {
+  code: string;
+  expires_at: string;
+}
+
+export interface TelegramProfileDto {
+  settings: TelegramProfileSettingsDto;
+  status: TelegramProfileStatusDto;
+  bot_username: string | null;
+  link_code?: TelegramLinkCodeDto | null;
+}
+
 export interface AgentUsageSummary {
   agent_id: string;
   agent_name: string;
@@ -130,6 +158,7 @@ export interface UserProfile extends UserPublic {
   usd_to_rub_rate: number;
   linked_accounts: LinkedAccount[];
   alice: AliceProfileDto | null;
+  telegram: TelegramProfileDto | null;
   usage: UserUsageSummary;
   balance_history: BalanceHistoryItem[];
   limits: UserLimits;

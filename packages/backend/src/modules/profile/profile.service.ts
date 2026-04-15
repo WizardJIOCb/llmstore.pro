@@ -1,5 +1,6 @@
 ﻿import { eq, sql } from 'drizzle-orm';
 import { db } from '../../config/database.js';
+import { env } from '../../config/env.js';
 import { desc } from 'drizzle-orm';
 import argon2 from 'argon2';
 import {
@@ -8,25 +9,27 @@ import {
   aliceSkillLinks,
   aliceLinkCodes,
   aliceUserSettings,
+  telegramLinkCodes,
+  telegramLinks,
   balanceTransactions,
   emailVerificationTokens,
 } from '../../db/schema/index.js';
 import { AppError, ConflictError, NotFoundError } from '../../middleware/error-handler.js';
 import { ROLE_LIMITS } from '@llmstore/shared';
+import type { UserRole, UserLimits } from '@llmstore/shared';
 import type {
   UserProfile,
   PublicUserProfile,
   LinkedAccount,
   UserUsageSummary,
   AgentUsageSummary,
-  UserLimits,
   BalanceHistoryItem,
   ProfileLeaderboard,
   ProfileLeaderboardEntry,
   ProfileLeaderboardSort,
   AliceLinkCodeDto,
-} from '@llmstore/shared';
-import type { UserRole } from '@llmstore/shared';
+  TelegramLinkCodeDto,
+} from '@llmstore/shared/types';
 import { getUsdToRubRate } from '../../lib/app-settings.js';
 
 function toFixedAmount(value: number, scale = 4): string {
@@ -55,6 +58,10 @@ function generateAliceLinkCode(): string {
   return String(Math.floor(100000 + Math.random() * 900000));
 }
 
+function generateTelegramLinkCode(): string {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
 async function getActiveAliceLinkCode(userId: string): Promise<AliceLinkCodeDto | null> {
   const now = new Date();
   const rows = await db
@@ -66,6 +73,28 @@ async function getActiveAliceLinkCode(userId: string): Promise<AliceLinkCodeDto 
     .from(aliceLinkCodes)
     .where(eq(aliceLinkCodes.user_id, userId))
     .orderBy(desc(aliceLinkCodes.created_at))
+    .limit(5);
+
+  const active = rows.find((row) => !row.consumed_at && row.expires_at > now);
+  if (!active) return null;
+
+  return {
+    code: active.code,
+    expires_at: active.expires_at.toISOString(),
+  };
+}
+
+async function getActiveTelegramLinkCode(userId: string): Promise<TelegramLinkCodeDto | null> {
+  const now = new Date();
+  const rows = await db
+    .select({
+      code: telegramLinkCodes.code,
+      expires_at: telegramLinkCodes.expires_at,
+      consumed_at: telegramLinkCodes.consumed_at,
+    })
+    .from(telegramLinkCodes)
+    .where(eq(telegramLinkCodes.user_id, userId))
+    .orderBy(desc(telegramLinkCodes.created_at))
     .limit(5);
 
   const active = rows.find((row) => !row.consumed_at && row.expires_at > now);
@@ -484,7 +513,7 @@ export async function getProfile(userId: string): Promise<UserProfile> {
     throw new NotFoundError('Пользователь не найден');
   }
 
-  const [accounts, usage, balanceHistory, pendingVerificationTokens, aliceLink, aliceSettings, aliceLinkCode] = await Promise.all([
+  const [accounts, usage, balanceHistory, pendingVerificationTokens, aliceLink, aliceSettings, aliceLinkCode, telegramLink, telegramLinkCode] = await Promise.all([
     db.select({
       provider: authAccounts.provider,
       provider_account_id: authAccounts.provider_account_id,
@@ -526,6 +555,24 @@ export async function getProfile(userId: string): Promise<UserProfile> {
       .limit(1)
       .then((rows) => rows[0] ?? null),
     getActiveAliceLinkCode(userId),
+    db
+      .select({
+        linked_at: telegramLinks.linked_at,
+        last_seen_at: telegramLinks.last_seen_at,
+        telegram_user_id: telegramLinks.telegram_user_id,
+        telegram_chat_id: telegramLinks.telegram_chat_id,
+        telegram_username: telegramLinks.telegram_username,
+        telegram_first_name: telegramLinks.telegram_first_name,
+        telegram_last_name: telegramLinks.telegram_last_name,
+        notify_on_task_completed: telegramLinks.notify_on_task_completed,
+        notify_on_task_failed: telegramLinks.notify_on_task_failed,
+        notify_on_landing_ready: telegramLinks.notify_on_landing_ready,
+      })
+      .from(telegramLinks)
+      .where(eq(telegramLinks.user_id, userId))
+      .limit(1)
+      .then((rows) => rows[0] ?? null),
+    getActiveTelegramLinkCode(userId),
   ]);
 
   const linked_accounts: LinkedAccount[] = accounts.map((a: {
@@ -562,6 +609,30 @@ export async function getProfile(userId: string): Promise<UserProfile> {
     },
     link_code: aliceLinkCode,
   } : null;
+  const telegramDisplayName = telegramLink
+    ? [telegramLink.telegram_first_name, telegramLink.telegram_last_name].filter(Boolean).join(' ').trim() || null
+    : null;
+  const telegramBotUsername = env.TELEGRAM_BOT_USERNAME?.trim()
+    ? env.TELEGRAM_BOT_USERNAME.trim().replace(/^@+/, '')
+    : null;
+  const telegramProfile = telegramLink || telegramLinkCode ? {
+    settings: {
+      notify_on_task_completed: telegramLink?.notify_on_task_completed ?? true,
+      notify_on_task_failed: telegramLink?.notify_on_task_failed ?? true,
+      notify_on_landing_ready: telegramLink?.notify_on_landing_ready ?? true,
+    },
+    status: {
+      is_linked: Boolean(telegramLink),
+      linked_at: telegramLink?.linked_at ? telegramLink.linked_at.toISOString() : null,
+      last_seen_at: telegramLink?.last_seen_at ? telegramLink.last_seen_at.toISOString() : null,
+      telegram_user_id: telegramLink?.telegram_user_id ?? null,
+      telegram_chat_id: telegramLink?.telegram_chat_id ?? null,
+      telegram_username: telegramLink?.telegram_username ?? null,
+      telegram_display_name: telegramDisplayName,
+    },
+    bot_username: telegramBotUsername,
+    link_code: telegramLinkCode,
+  } : null;
 
   return {
     id: user.id,
@@ -580,6 +651,7 @@ export async function getProfile(userId: string): Promise<UserProfile> {
     usd_to_rub_rate: usdToRubRate,
     linked_accounts,
     alice: aliceProfile,
+    telegram: telegramProfile,
     usage,
     balance_history: balanceHistory,
     limits,
@@ -667,6 +739,34 @@ export async function createAliceLinkCode(userId: string): Promise<AliceLinkCode
   }
 
   throw new AppError(500, 'ALICE_LINK_CODE_CREATE_FAILED', 'Не удалось создать код привязки Алисы');
+}
+
+export async function createTelegramLinkCode(userId: string): Promise<TelegramLinkCodeDto> {
+  const active = await getActiveTelegramLinkCode(userId);
+  if (active) return active;
+
+  const now = new Date();
+  const expiresAt = addMinutes(now, 15);
+
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const code = generateTelegramLinkCode();
+    try {
+      await db.insert(telegramLinkCodes).values({
+        user_id: userId,
+        code,
+        expires_at: expiresAt,
+      });
+
+      return {
+        code,
+        expires_at: expiresAt.toISOString(),
+      };
+    } catch {
+      continue;
+    }
+  }
+
+  throw new AppError(500, 'TELEGRAM_LINK_CODE_CREATE_FAILED', 'Не удалось создать код привязки Telegram');
 }
 
 export async function changePassword(

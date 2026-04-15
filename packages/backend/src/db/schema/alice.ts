@@ -135,3 +135,39 @@ export const aliceLinkCodes = pgTable('alice_link_codes', {
   index('alice_link_codes_user_id_idx').on(table.user_id),
   index('alice_link_codes_expires_at_idx').on(table.expires_at),
 ]);
+
+export const telegramLinks = pgTable('telegram_links', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  user_id: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  telegram_user_id: varchar('telegram_user_id', { length: 64 }).notNull(),
+  telegram_chat_id: varchar('telegram_chat_id', { length: 64 }).notNull(),
+  telegram_username: varchar('telegram_username', { length: 255 }),
+  telegram_first_name: varchar('telegram_first_name', { length: 255 }),
+  telegram_last_name: varchar('telegram_last_name', { length: 255 }),
+  notify_on_task_completed: boolean('notify_on_task_completed').notNull().default(true),
+  notify_on_task_failed: boolean('notify_on_task_failed').notNull().default(true),
+  notify_on_landing_ready: boolean('notify_on_landing_ready').notNull().default(true),
+  linked_at: timestamp('linked_at', { withTimezone: true }).notNull().defaultNow(),
+  last_seen_at: timestamp('last_seen_at', { withTimezone: true }),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+}, (table) => [
+  uniqueIndex('telegram_links_user_idx').on(table.user_id),
+  uniqueIndex('telegram_links_telegram_user_idx').on(table.telegram_user_id),
+  index('telegram_links_chat_idx').on(table.telegram_chat_id),
+  index('telegram_links_last_seen_idx').on(table.last_seen_at),
+]);
+
+export const telegramLinkCodes = pgTable('telegram_link_codes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  user_id: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  code: varchar('code', { length: 16 }).notNull(),
+  expires_at: timestamp('expires_at', { withTimezone: true }).notNull(),
+  consumed_at: timestamp('consumed_at', { withTimezone: true }),
+  consumed_telegram_user_id: varchar('consumed_telegram_user_id', { length: 64 }),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex('telegram_link_codes_code_idx').on(table.code),
+  index('telegram_link_codes_user_id_idx').on(table.user_id),
+  index('telegram_link_codes_expires_at_idx').on(table.expires_at),
+]);

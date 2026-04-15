@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import type { ProfileLeaderboardEntry, ProfileLeaderboardSort } from '@llmstore/shared';
-import { useChangePassword, useCreateAliceLinkCode, useProfile, useProfileLeaderboard, useUnlinkAccount, useUpdateProfile } from '../../hooks/useProfile';
+import type { ProfileLeaderboardEntry, ProfileLeaderboardSort } from '@llmstore/shared/types';
+import { useChangePassword, useCreateAliceLinkCode, useCreateTelegramLinkCode, useProfile, useProfileLeaderboard, useUnlinkAccount, useUpdateProfile } from '../../hooks/useProfile';
 import { useRunList } from '../../hooks/useAgents';
 import { useCreateChat } from '../../hooks/useChats';
 import { useTopUpStatus } from '../../hooks/usePayments';
@@ -183,6 +183,7 @@ export function ProfilePage() {
   const updateMutation = useUpdateProfile();
   const changePasswordMutation = useChangePassword();
   const createAliceLinkCodeMutation = useCreateAliceLinkCode();
+  const createTelegramLinkCodeMutation = useCreateTelegramLinkCode();
   const unlinkMutation = useUnlinkAccount();
   const createChat = useCreateChat();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -970,6 +971,102 @@ export function ProfilePage() {
                   {profile.alice.status.linked_at ? (
                     <p className="mt-1 text-muted-foreground">
                       Привязан: {new Date(profile.alice.status.linked_at).toLocaleString('ru-RU')}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="rounded-xl border bg-muted/20 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="space-y-3">
+                  <div className="flex flex-wrap gap-2">
+                    <Badge variant={profile.telegram?.status.is_linked ? 'success' : 'outline'}>
+                      {profile.telegram?.status.is_linked ? 'Telegram привязан' : 'Telegram пока не привязан'}
+                    </Badge>
+                    {profile.telegram?.status.last_seen_at ? (
+                      <Badge variant="outline">
+                        Активность: {new Date(profile.telegram.status.last_seen_at).toLocaleString('ru-RU')}
+                      </Badge>
+                    ) : null}
+                  </div>
+
+                  <div>
+                    <p className="font-medium">Telegram</p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Получите код и отправьте его в{' '}
+                      <span className="font-medium">
+                        {profile.telegram?.bot_username ? `@${profile.telegram.bot_username}` : '@llmstorechat_bot'}
+                      </span>{' '}
+                      командой <span className="font-medium">/link 123456</span>.
+                    </p>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      После привязки мы сможем присылать сюда результаты задач из Алисы, включая ссылки на готовые лендинги.
+                    </p>
+                  </div>
+                </div>
+
+                {profile.telegram?.link_code ? (
+                  <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 sm:min-w-[320px]">
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Код привязки</p>
+                    <p className="mt-1 text-3xl font-bold tracking-[0.2em]">{profile.telegram.link_code.code}</p>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Действует до {new Date(profile.telegram.link_code.expires_at).toLocaleString('ru-RU')}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      После истечения срока можно будет получить новый код.
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void navigator.clipboard.writeText(profile.telegram!.link_code!.code)}
+                      >
+                        Скопировать код
+                      </Button>
+                      {profile.telegram?.bot_username ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => window.open(`https://t.me/${profile.telegram!.bot_username}`, '_blank', 'noopener,noreferrer')}
+                        >
+                          Открыть бота
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : (
+                  <Button
+                    onClick={() => createTelegramLinkCodeMutation.mutate()}
+                    disabled={createTelegramLinkCodeMutation.isPending}
+                  >
+                    {createTelegramLinkCodeMutation.isPending ? 'Создаю код...' : 'Получить код привязки'}
+                  </Button>
+                )}
+              </div>
+
+              {createTelegramLinkCodeMutation.error ? (
+                <div className="mt-3 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+                  {getApiErrorMessage(createTelegramLinkCodeMutation.error) ?? 'Не удалось создать код привязки Telegram.'}
+                </div>
+              ) : null}
+
+              {profile.telegram?.status.is_linked ? (
+                <div className="mt-3 rounded-lg border p-4 text-sm">
+                  <p className="font-medium">Текущая привязка</p>
+                  {profile.telegram.status.telegram_username ? (
+                    <p className="mt-2 text-muted-foreground">
+                      Telegram: @{profile.telegram.status.telegram_username}
+                    </p>
+                  ) : null}
+                  {profile.telegram.status.telegram_display_name ? (
+                    <p className="mt-1 text-muted-foreground">
+                      Имя: {profile.telegram.status.telegram_display_name}
+                    </p>
+                  ) : null}
+                  {profile.telegram.status.linked_at ? (
+                    <p className="mt-1 text-muted-foreground">
+                      Привязан: {new Date(profile.telegram.status.linked_at).toLocaleString('ru-RU')}
                     </p>
                   ) : null}
                 </div>

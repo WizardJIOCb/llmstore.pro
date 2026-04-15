@@ -1,5 +1,5 @@
 import { apiClient } from '../api-client';
-import type { AliceLinkCodeDto, ProfileLeaderboard, ProfileLeaderboardSort, PublicUserProfile, UserProfile } from '@llmstore/shared';
+import type { AliceLinkCodeDto, ProfileLeaderboard, ProfileLeaderboardSort, PublicUserProfile, TelegramLinkCodeDto, UserProfile } from '@llmstore/shared/types';
 
 export const profileApi = {
   getProfile: () =>
@@ -21,6 +21,9 @@ export const profileApi = {
 
   createAliceLinkCode: () =>
     apiClient.post<{ data: AliceLinkCodeDto }>('/profile/alice/link-code').then((r) => r.data.data),
+
+  createTelegramLinkCode: () =>
+    apiClient.post<{ data: TelegramLinkCodeDto }>('/profile/telegram/link-code').then((r) => r.data.data),
 
   unlinkAccount: (provider: string) =>
     apiClient.delete(`/profile/linked-accounts/${provider}`).then(r => r.data),
