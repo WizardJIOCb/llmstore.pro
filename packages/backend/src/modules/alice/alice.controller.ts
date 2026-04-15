@@ -222,7 +222,14 @@ function isAliceCapabilitiesCommand(command: string): boolean {
   return command === 'что ты умеешь'
     || command === 'что умеешь'
     || command === 'что ты можешь'
-    || command === 'что можешь';
+    || command === 'что можешь'
+    || command === 'какие команды у тебя есть'
+    || command === 'какие у тебя есть команды'
+    || command === 'какие команды есть'
+    || command === 'какие есть команды'
+    || command === 'кто ты'
+    || command === 'ты кто'
+    || command === 'что ты такое';
 }
 
 function isAliceTaskStatusCommand(command: string): boolean {
@@ -420,6 +427,10 @@ function buildAliceReadyText(context: { isNewUser: boolean; bonusGranted: boolea
 
 function buildAliceAboutServiceText(): string {
   return 'LLM Store — это конструктор AI-агентов, моделей, инструментов и готовых AI-сценариев. В сервисе есть обычные чаты через OpenRouter, агентные чаты, публикация результатов, а также можно генерировать лендинги и привязывать их к поддоменам вроде rodion.llmstore.pro.';
+}
+
+function buildAliceCommandsText(): string {
+  return 'Я навык LLM Store. Вы можете ставить задачи обычной фразой, например: «объясни ошибку в коде», «напиши письмо клиенту» или «сгенерируй лендинг про аптеку». Ещё можно спросить: «уточни статус задачи», «продолжи ответ», «сколько у меня чатов», «какой у меня баланс», «открой последний чат», «прочитай последнее сообщение» и «что ты ответил на мой последний вопрос».';
 }
 
 function buildAliceWelcomeText(): string {
@@ -813,7 +824,7 @@ async function legacyWebhook(req: Request, res: Response, next: NextFunction) {
       || isAliceHelpCommand(normalizedRawCommand)
     ) {
       await aliceChatService.ensureAliceSessionContext(skillUserId, applicationId);
-      res.status(200).json(aliceTextResponse(buildAliceWelcomeText()));
+      res.status(200).json(aliceTextResponse(buildAliceCommandsText()));
       return;
     }
 
@@ -942,7 +953,7 @@ export async function webhook(req: Request, res: Response, _next: NextFunction) 
       || isAliceHelpCommand(normalizedRawCommand)
     ) {
       context = await aliceChatService.ensureAliceSessionContext(skillUserId, applicationId);
-      await respond(aliceTextResponse(buildAliceWelcomeText()), { context });
+      await respond(aliceTextResponse(buildAliceCommandsText()), { context });
       return;
     }
 
