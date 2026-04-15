@@ -166,7 +166,7 @@ async function updateAliceLastTaskState(
 }
 
 function buildAliceTaskProcessingText(): string {
-  return 'Задача уже в обработке. Вы можете уточнить статус задачи или сразу сказать: Алиса, запусти навык LLM Store и продолжи ответ.';
+  return 'Задача уже в обработке. Вы можете уточнить статус задачи или просто сказать: продолжи ответ.';
 }
 
 function normalizeAliceOutput(value: string): string {

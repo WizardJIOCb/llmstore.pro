@@ -877,7 +877,7 @@ export async function webhook(req: Request, res: Response, _next: NextFunction) 
 
     if (raceResult.kind === 'timeout') {
       context = await aliceChatService.ensureAliceSessionContext(skillUserId, applicationId);
-      await respond(aliceTextResponse('Задача уже в обработке. Вы можете узнать статус задачи, сказав: Алиса, запусти навык LLM Store и уточни статус задачи.'), { context });
+      await respond(aliceTextResponse('Задача уже в обработке. Вы можете уточнить статус задачи или просто сказать: продолжи ответ.'), { context });
       return;
     }
 
