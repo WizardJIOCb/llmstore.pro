@@ -56,6 +56,8 @@ export interface AliceChatReply {
   context: AliceSessionContext;
 }
 
+type AliceLastTaskStatus = 'processing' | 'completed' | 'failed';
+
 function normalizeAliceIdentifier(value: string | null | undefined): string {
   return typeof value === 'string' ? value.trim() : '';
 }
@@ -82,6 +84,52 @@ function sanitizeAliceOutput(value: string, maxLength: number): string {
   if (normalized.length <= maxLength) return normalized;
 
   return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
+async function updateAliceLastTaskState(
+  userId: string,
+  input: {
+    command?: string | null;
+    status?: AliceLastTaskStatus | null;
+    responseText?: string | null;
+    errorText?: string | null;
+    startedAt?: Date | null;
+    completedAt?: Date | null;
+  },
+): Promise<void> {
+  await db
+    .update(aliceUserSettings)
+    .set({
+      last_task_command: input.command ?? null,
+      last_task_status: input.status ?? null,
+      last_task_response_text: input.responseText ?? null,
+      last_task_error: input.errorText ?? null,
+      last_task_started_at: input.startedAt ?? null,
+      last_task_completed_at: input.completedAt ?? null,
+      updated_at: new Date(),
+    })
+    .where(eq(aliceUserSettings.user_id, userId));
+}
+
+function buildAliceTaskProcessingText(): string {
+  return 'Задача уже в обработке. Вы можете узнать статус, сказав: Алиса, запусти навык LLM Store и уточни статус задачи.';
+}
+
+function buildAliceTaskStatusText(input: {
+  status: AliceLastTaskStatus;
+  errorText?: string | null;
+}): string {
+  if (input.status === 'completed') {
+    return 'Последняя задача уже завершена. Результат сохранён в вашем чате LLM Store.';
+  }
+
+  if (input.status === 'failed') {
+    return input.errorText?.trim()
+      ? `Последняя задача завершилась с ошибкой: ${sanitizeAliceOutput(input.errorText, 350)}`
+      : 'Последняя задача завершилась с ошибкой. Попробуйте переформулировать запрос или запустить её ещё раз.';
+  }
+
+  return buildAliceTaskProcessingText();
 }
 
 async function ensureAliceLink(userId: string, skillUserId: string, applicationId: string | null, now: Date) {
@@ -269,6 +317,74 @@ export async function ensureAliceSessionContext(
   };
 }
 
+export async function getAliceLastTaskStatusText(
+  skillUserIdInput: string | null | undefined,
+  applicationIdInput?: string | null,
+): Promise<{ text: string; context: AliceSessionContext }> {
+  const context = await ensureAliceSessionContext(skillUserIdInput, applicationIdInput);
+  const details = await runtimeService.getChatById(context.chatId, context.userId);
+  const [settings] = await db
+    .select({
+      lastTaskCommand: aliceUserSettings.last_task_command,
+      lastTaskStatus: aliceUserSettings.last_task_status,
+      lastTaskError: aliceUserSettings.last_task_error,
+    })
+    .from(aliceUserSettings)
+    .where(eq(aliceUserSettings.user_id, context.userId))
+    .limit(1);
+
+  const userMessages = details.messages.filter((message) => message.role === 'user');
+  if (!settings?.lastTaskStatus && userMessages.length === 0) {
+    return {
+      text: 'У вас пока нет активных задач в навыке LLM Store. Просто скажите, что нужно сделать.',
+      context,
+    };
+  }
+
+  const pendingRun = details.chat.pending_run;
+  if (pendingRun) {
+    if (pendingRun.is_terminal) {
+      const completedStatus: AliceLastTaskStatus = pendingRun.status === 'failed' ? 'failed' : 'completed';
+      await updateAliceLastTaskState(context.userId, {
+        command: settings?.lastTaskCommand ?? null,
+        status: completedStatus,
+        responseText: null,
+        errorText: completedStatus === 'failed' ? (pendingRun.error ?? pendingRun.detail) : null,
+        startedAt: null,
+        completedAt: new Date(),
+      });
+
+      return {
+        text: buildAliceTaskStatusText({
+          status: completedStatus,
+          errorText: pendingRun.error ?? pendingRun.detail,
+        }),
+        context,
+      };
+    }
+
+    return {
+      text: `${pendingRun.label}. ${buildAliceTaskProcessingText()}`,
+      context,
+    };
+  }
+
+  if (settings?.lastTaskStatus) {
+    return {
+      text: buildAliceTaskStatusText({
+        status: settings.lastTaskStatus as AliceLastTaskStatus,
+        errorText: settings.lastTaskError ?? null,
+      }),
+      context,
+    };
+  }
+
+  return {
+    text: 'Последняя задача сейчас ещё обрабатывается. Попробуйте уточнить статус чуть позже.',
+    context,
+  };
+}
+
 export async function sendAliceChatMessage(
   skillUserIdInput: string | null | undefined,
   applicationIdInput: string | null | undefined,
@@ -292,4 +408,67 @@ export async function sendAliceChatMessage(
     tts: sanitizeAliceOutput(rawText, ALICE_TTS_LIMIT),
     context,
   };
+}
+
+export async function sendAliceChatMessageTracked(
+  skillUserIdInput: string | null | undefined,
+  applicationIdInput: string | null | undefined,
+  content: string,
+): Promise<AliceChatReply> {
+  const context = await ensureAliceSessionContext(skillUserIdInput, applicationIdInput);
+  const startedAt = new Date();
+
+  await updateAliceLastTaskState(context.userId, {
+    command: content.trim(),
+    status: 'processing',
+    responseText: null,
+    errorText: null,
+    startedAt,
+    completedAt: null,
+  });
+
+  try {
+    const result = await runtimeService.sendChatMessage(
+      context.chatId,
+      context.userId,
+      content,
+      undefined,
+      'user',
+    );
+
+    const rawText = result.processing
+      ? (result.pending_run?.detail || result.pending_run?.label || 'Сообщение принято. Продолжаю обработку в чате.')
+      : (result.assistant_message?.content || 'Готово.');
+
+    const text = sanitizeAliceOutput(rawText, ALICE_TEXT_LIMIT);
+    const tts = sanitizeAliceOutput(rawText, ALICE_TTS_LIMIT);
+
+    await updateAliceLastTaskState(context.userId, {
+      command: content.trim(),
+      status: result.processing ? 'processing' : 'completed',
+      responseText: result.processing ? null : text,
+      errorText: null,
+      startedAt,
+      completedAt: result.processing ? null : new Date(),
+    });
+
+    return {
+      text,
+      tts,
+      context,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown Alice task error';
+
+    await updateAliceLastTaskState(context.userId, {
+      command: content.trim(),
+      status: 'failed',
+      responseText: null,
+      errorText: message,
+      startedAt,
+      completedAt: new Date(),
+    });
+
+    throw error;
+  }
 }

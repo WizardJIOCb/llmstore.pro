@@ -225,6 +225,22 @@ function isAliceCapabilitiesCommand(command: string): boolean {
     || command === 'что можешь';
 }
 
+function isAliceTaskStatusCommand(command: string): boolean {
+  return command.includes('статус задачи')
+    || command.includes('уточни статус')
+    || command.includes('уточнить статус')
+    || command.includes('статус последней задачи')
+    || command === 'статус';
+}
+
+function delay<T>(timeoutMs: number, value: T): Promise<T> {
+  return new Promise((resolve) => {
+    setTimeout(() => resolve(value), timeoutMs);
+  });
+}
+
+const ALICE_SYNC_RESPONSE_TIMEOUT_MS = 4000;
+
 function aliceGreetingText(isAuthorized: boolean): string {
   if (!isAuthorized) {
     return 'Это навык LLM Store. Я могу автоматически создать для вас чат и отправлять туда ваши голосовые запросы.';
@@ -800,6 +816,13 @@ export async function webhook(req: Request, res: Response, _next: NextFunction) 
       return;
     }
 
+    if (isAliceTaskStatusCommand(normalizedCommand) || isAliceTaskStatusCommand(normalizedRawCommand)) {
+      const statusResult = await aliceChatService.getAliceLastTaskStatusText(skillUserId, applicationId);
+      context = statusResult.context;
+      await respond(aliceTextResponse(statusResult.text), { context });
+      return;
+    }
+
     if (!rawCommand.trim()) {
       context = skillUserId
         ? await aliceChatService.ensureAliceSessionContext(skillUserId, applicationId)
@@ -808,9 +831,27 @@ export async function webhook(req: Request, res: Response, _next: NextFunction) 
       return;
     }
 
-    const reply = await aliceChatService.sendAliceChatMessage(skillUserId, applicationId, rawCommand);
-    context = reply.context;
-    await respond(aliceTextResponse(reply.text, reply.tts), { context });
+    const guardedReply = aliceChatService.sendAliceChatMessageTracked(skillUserId, applicationId, rawCommand)
+      .then((reply) => ({ kind: 'reply' as const, reply }))
+      .catch((error) => ({ kind: 'error' as const, error }));
+
+    const raceResult = await Promise.race([
+      guardedReply,
+      delay(ALICE_SYNC_RESPONSE_TIMEOUT_MS, { kind: 'timeout' as const }),
+    ]);
+
+    if (raceResult.kind === 'timeout') {
+      context = await aliceChatService.ensureAliceSessionContext(skillUserId, applicationId);
+      await respond(aliceTextResponse('Задача уже в обработке. Вы можете узнать статус задачи, сказав: Алиса, запусти навык LLM Store и уточни статус задачи.'), { context });
+      return;
+    }
+
+    if (raceResult.kind === 'error') {
+      throw raceResult.error;
+    }
+
+    context = raceResult.reply.context;
+    await respond(aliceTextResponse(raceResult.reply.text, raceResult.reply.tts), { context });
   } catch (err) {
     const errorCode = typeof (err as { code?: unknown })?.code === 'string'
       ? (err as { code: string }).code
