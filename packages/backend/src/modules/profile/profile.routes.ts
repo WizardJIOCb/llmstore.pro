@@ -11,6 +11,7 @@ router.use(requireAuth);
 
 router.get('/', controller.getProfile);
 router.get('/leaderboard', controller.getProfileLeaderboard);
+router.post('/alice/link-code', controller.createAliceLinkCode);
 router.put('/', controller.updateProfile);
 router.put('/password', validateChangePassword, controller.changePassword);
 router.delete('/linked-accounts/:provider', controller.unlinkAccount);

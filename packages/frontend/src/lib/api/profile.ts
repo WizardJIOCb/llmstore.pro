@@ -1,5 +1,5 @@
 import { apiClient } from '../api-client';
-import type { ProfileLeaderboard, ProfileLeaderboardSort, PublicUserProfile, UserProfile } from '@llmstore/shared';
+import type { AliceLinkCodeDto, ProfileLeaderboard, ProfileLeaderboardSort, PublicUserProfile, UserProfile } from '@llmstore/shared';
 
 export const profileApi = {
   getProfile: () =>
@@ -18,6 +18,9 @@ export const profileApi = {
 
   changePassword: (data: { current_password?: string; new_password: string }) =>
     apiClient.put<{ data: { success: true; has_password: true } }>('/profile/password', data).then(r => r.data.data),
+
+  createAliceLinkCode: () =>
+    apiClient.post<{ data: AliceLinkCodeDto }>('/profile/alice/link-code').then((r) => r.data.data),
 
   unlinkAccount: (provider: string) =>
     apiClient.delete(`/profile/linked-accounts/${provider}`).then(r => r.data),

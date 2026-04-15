@@ -233,6 +233,12 @@ function isAliceTaskStatusCommand(command: string): boolean {
     || command === 'статус';
 }
 
+function extractAliceLinkCode(command: string): string | null {
+  if (!command.includes('привяж') && !command.includes('свяж')) return null;
+  const match = command.match(/\b(\d{4,8})\b/);
+  return match?.[1] ?? null;
+}
+
 function delay<T>(timeoutMs: number, value: T): Promise<T> {
   return new Promise((resolve) => {
     setTimeout(() => resolve(value), timeoutMs);
@@ -816,6 +822,14 @@ export async function webhook(req: Request, res: Response, _next: NextFunction) 
       return;
     }
 
+    const aliceLinkCode = extractAliceLinkCode(normalizedCommand) ?? extractAliceLinkCode(normalizedRawCommand);
+    if (aliceLinkCode) {
+      const linkResult = await aliceChatService.linkAliceAccountByCode(skillUserId, applicationId, aliceLinkCode);
+      context = linkResult.context;
+      await respond(aliceTextResponse(linkResult.text), { context });
+      return;
+    }
+
     if (isAliceTaskStatusCommand(normalizedCommand) || isAliceTaskStatusCommand(normalizedRawCommand)) {
       const statusResult = await aliceChatService.getAliceLastTaskStatusText(skillUserId, applicationId);
       context = statusResult.context;
@@ -857,6 +871,11 @@ export async function webhook(req: Request, res: Response, _next: NextFunction) 
       ? (err as { code: string }).code
       : 'ALICE_WEBHOOK_ERROR';
     const errorMessage = err instanceof Error ? err.message : 'Unknown Alice webhook error';
+    const userFacingMessage = errorCode.startsWith('ALICE_LINK_')
+      || errorCode.startsWith('ALICE_ALREADY_')
+      || errorCode === 'ALICE_SKILL_USER_ID_REQUIRED'
+      ? errorMessage
+      : 'Извините, произошла ошибка. Попробуйте ещё раз.';
 
     logger.error({
       err,
@@ -867,7 +886,7 @@ export async function webhook(req: Request, res: Response, _next: NextFunction) 
       command: rawCommand || null,
     }, 'alice webhook failed');
 
-    await respond(aliceTextResponse('Извините, произошла ошибка. Попробуйте ещё раз.'), {
+    await respond(aliceTextResponse(userFacingMessage), {
       context,
       status: 'error',
       statusCode: 200,

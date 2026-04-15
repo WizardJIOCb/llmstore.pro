@@ -50,3 +50,13 @@ export function useUnlinkAccount() {
     },
   });
 }
+
+export function useCreateAliceLinkCode() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => profileApi.createAliceLinkCode(),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['profile'] });
+    },
+  });
+}

@@ -58,3 +58,12 @@ export async function unlinkAccount(req: Request<{ provider: string }>, res: Res
     next(err);
   }
 }
+
+export async function createAliceLinkCode(req: Request, res: Response, next: NextFunction) {
+  try {
+    const linkCode = await profileService.createAliceLinkCode(req.session.userId!);
+    res.json({ data: linkCode });
+  } catch (err) {
+    next(err);
+  }
+}

@@ -6,6 +6,7 @@ import {
   users,
   authAccounts,
   aliceSkillLinks,
+  aliceLinkCodes,
   aliceUserSettings,
   balanceTransactions,
   emailVerificationTokens,
@@ -23,6 +24,7 @@ import type {
   ProfileLeaderboard,
   ProfileLeaderboardEntry,
   ProfileLeaderboardSort,
+  AliceLinkCodeDto,
 } from '@llmstore/shared';
 import type { UserRole } from '@llmstore/shared';
 import { getUsdToRubRate } from '../../lib/app-settings.js';
@@ -43,6 +45,36 @@ function toIso(value: unknown): string {
     if (!Number.isNaN(date.getTime())) return date.toISOString();
   }
   return new Date().toISOString();
+}
+
+function addMinutes(date: Date, minutes: number): Date {
+  return new Date(date.getTime() + minutes * 60 * 1000);
+}
+
+function generateAliceLinkCode(): string {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+async function getActiveAliceLinkCode(userId: string): Promise<AliceLinkCodeDto | null> {
+  const now = new Date();
+  const rows = await db
+    .select({
+      code: aliceLinkCodes.code,
+      expires_at: aliceLinkCodes.expires_at,
+      consumed_at: aliceLinkCodes.consumed_at,
+    })
+    .from(aliceLinkCodes)
+    .where(eq(aliceLinkCodes.user_id, userId))
+    .orderBy(desc(aliceLinkCodes.created_at))
+    .limit(5);
+
+  const active = rows.find((row) => !row.consumed_at && row.expires_at > now);
+  if (!active) return null;
+
+  return {
+    code: active.code,
+    expires_at: active.expires_at.toISOString(),
+  };
 }
 
 function txTypeTitle(type: string, description: string | null): string {
@@ -452,7 +484,7 @@ export async function getProfile(userId: string): Promise<UserProfile> {
     throw new NotFoundError('Пользователь не найден');
   }
 
-  const [accounts, usage, balanceHistory, pendingVerificationTokens, aliceLink, aliceSettings] = await Promise.all([
+  const [accounts, usage, balanceHistory, pendingVerificationTokens, aliceLink, aliceSettings, aliceLinkCode] = await Promise.all([
     db.select({
       provider: authAccounts.provider,
       provider_account_id: authAccounts.provider_account_id,
@@ -493,9 +525,14 @@ export async function getProfile(userId: string): Promise<UserProfile> {
       .where(eq(aliceUserSettings.user_id, userId))
       .limit(1)
       .then((rows) => rows[0] ?? null),
+    getActiveAliceLinkCode(userId),
   ]);
 
-  const linked_accounts: LinkedAccount[] = accounts.map((a) => ({
+  const linked_accounts: LinkedAccount[] = accounts.map((a: {
+    provider: string;
+    provider_account_id: string;
+    created_at: Date;
+  }) => ({
     provider: a.provider,
     provider_account_id: a.provider_account_id,
     created_at: a.created_at.toISOString(),
@@ -506,7 +543,7 @@ export async function getProfile(userId: string): Promise<UserProfile> {
   const balanceRub = (balanceUsd * usdToRubRate).toFixed(2);
 
   const limits: UserLimits = ROLE_LIMITS[user.role as UserRole] ?? ROLE_LIMITS.user;
-  const aliceProfile = aliceLink || aliceSettings ? {
+  const aliceProfile = aliceLink || aliceSettings || aliceLinkCode ? {
     settings: {
       is_enabled: aliceSettings?.is_enabled ?? true,
       default_target_type: aliceSettings?.default_target_type ?? 'general_chat',
@@ -523,6 +560,7 @@ export async function getProfile(userId: string): Promise<UserProfile> {
       last_seen_at: aliceLink?.last_seen_at ? aliceLink.last_seen_at.toISOString() : null,
       linked_skill_user_id: aliceLink?.linked_skill_user_id ?? null,
     },
+    link_code: aliceLinkCode,
   } : null;
 
   return {
@@ -601,6 +639,34 @@ export async function updateProfile(
   }
 
   return getProfile(userId);
+}
+
+export async function createAliceLinkCode(userId: string): Promise<AliceLinkCodeDto> {
+  const active = await getActiveAliceLinkCode(userId);
+  if (active) return active;
+
+  const now = new Date();
+  const expiresAt = addMinutes(now, 15);
+
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const code = generateAliceLinkCode();
+    try {
+      await db.insert(aliceLinkCodes).values({
+        user_id: userId,
+        code,
+        expires_at: expiresAt,
+      });
+
+      return {
+        code,
+        expires_at: expiresAt.toISOString(),
+      };
+    } catch {
+      continue;
+    }
+  }
+
+  throw new AppError(500, 'ALICE_LINK_CODE_CREATE_FAILED', 'Не удалось создать код привязки Алисы');
 }
 
 export async function changePassword(

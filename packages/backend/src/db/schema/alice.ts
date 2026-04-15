@@ -121,3 +121,17 @@ export const aliceWebhookLogs = pgTable('alice_webhook_logs', {
   index('alice_webhook_logs_session_id_idx').on(table.session_id),
   index('alice_webhook_logs_status_idx').on(table.status),
 ]);
+
+export const aliceLinkCodes = pgTable('alice_link_codes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  user_id: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  code: varchar('code', { length: 16 }).notNull(),
+  expires_at: timestamp('expires_at', { withTimezone: true }).notNull(),
+  consumed_at: timestamp('consumed_at', { withTimezone: true }),
+  consumed_skill_user_id: varchar('consumed_skill_user_id', { length: 255 }),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex('alice_link_codes_code_idx').on(table.code),
+  index('alice_link_codes_user_id_idx').on(table.user_id),
+  index('alice_link_codes_expires_at_idx').on(table.expires_at),
+]);

@@ -2,9 +2,15 @@ import crypto from 'crypto';
 import { and, desc, eq } from 'drizzle-orm';
 import { db } from '../../config/database.js';
 import {
+  aliceLinkCodes,
   aliceSkillLinks,
   aliceUserSettings,
+  aliceWebhookLogs,
+  balanceTransactions,
   chatConversations,
+  chatProjectDeploymentServices,
+  chatProjectDeployments,
+  agentRuns,
   users,
 } from '../../db/schema/index.js';
 import { AppError } from '../../middleware/error-handler.js';
@@ -17,6 +23,7 @@ const DEFAULT_ALICE_CHAT_TITLE = 'Alice';
 const DEFAULT_ALICE_USER_NAME = 'Alice user';
 const ALICE_DEVICE_FINGERPRINT_PREFIX = 'alice-skill:';
 const ALICE_SYSTEM_USER_AGENT = 'yandex-dialogs-alice';
+const ALICE_SYNTHETIC_EMAIL_DOMAIN = '@alice.llmstore.local';
 const ALICE_TEXT_LIMIT = 1024;
 const ALICE_TTS_LIMIT = 1024;
 const ALICE_SERVICE_SYSTEM_PROMPT = `Ты голосовой помощник сервиса LLM Store и отвечаешь по-русски.
@@ -64,7 +71,11 @@ function normalizeAliceIdentifier(value: string | null | undefined): string {
 
 function buildSyntheticAliceEmail(skillUserId: string): string {
   const digest = crypto.createHash('sha256').update(skillUserId).digest('hex').slice(0, 24);
-  return `alice-${digest}@alice.llmstore.local`;
+  return `alice-${digest}${ALICE_SYNTHETIC_EMAIL_DOMAIN}`;
+}
+
+function isSyntheticAliceEmail(email: string | null | undefined): boolean {
+  return typeof email === 'string' && email.endsWith(ALICE_SYNTHETIC_EMAIL_DOMAIN);
 }
 
 function squeezeWhitespace(value: string): string {
@@ -130,6 +141,122 @@ function buildAliceTaskStatusText(input: {
   }
 
   return buildAliceTaskProcessingText();
+}
+
+async function mergeSyntheticAliceUserIntoTarget(sourceUserId: string, targetUserId: string): Promise<void> {
+  if (sourceUserId === targetUserId) return;
+
+  await db.transaction(async (tx) => {
+    const [sourceUser] = await tx
+      .select({
+        id: users.id,
+        email: users.email,
+        balance_usd: users.balance_usd,
+      })
+      .from(users)
+      .where(eq(users.id, sourceUserId))
+      .limit(1);
+
+    const [targetUser] = await tx
+      .select({
+        id: users.id,
+        balance_usd: users.balance_usd,
+      })
+      .from(users)
+      .where(eq(users.id, targetUserId))
+      .limit(1);
+
+    if (!sourceUser || !targetUser) {
+      throw new AppError(404, 'ALICE_LINK_USER_NOT_FOUND', 'Не удалось найти пользователя для привязки Алисы');
+    }
+
+    if (!isSyntheticAliceEmail(sourceUser.email)) {
+      throw new AppError(409, 'ALICE_ALREADY_LINKED_TO_OTHER_USER', 'Этот аккаунт Алисы уже привязан к другому пользователю');
+    }
+
+    const [sourceSettings] = await tx
+      .select()
+      .from(aliceUserSettings)
+      .where(eq(aliceUserSettings.user_id, sourceUserId))
+      .limit(1);
+
+    const [targetSettings] = await tx
+      .select()
+      .from(aliceUserSettings)
+      .where(eq(aliceUserSettings.user_id, targetUserId))
+      .limit(1);
+
+    await tx.update(chatConversations)
+      .set({ user_id: targetUserId })
+      .where(eq(chatConversations.user_id, sourceUserId));
+
+    await tx.update(chatProjectDeployments)
+      .set({ user_id: targetUserId })
+      .where(eq(chatProjectDeployments.user_id, sourceUserId));
+
+    await tx.update(chatProjectDeploymentServices)
+      .set({ user_id: targetUserId })
+      .where(eq(chatProjectDeploymentServices.user_id, sourceUserId));
+
+    await tx.update(agentRuns)
+      .set({ user_id: targetUserId })
+      .where(eq(agentRuns.user_id, sourceUserId));
+
+    await tx.update(balanceTransactions)
+      .set({ user_id: targetUserId })
+      .where(eq(balanceTransactions.user_id, sourceUserId));
+
+    await tx.update(aliceWebhookLogs)
+      .set({ user_id: targetUserId })
+      .where(eq(aliceWebhookLogs.user_id, sourceUserId));
+
+    await tx.update(aliceSkillLinks)
+      .set({ user_id: targetUserId })
+      .where(eq(aliceSkillLinks.user_id, sourceUserId));
+
+    if (sourceSettings) {
+      if (targetSettings) {
+        await tx.update(aliceUserSettings)
+          .set({
+            is_enabled: sourceSettings.is_enabled,
+            default_target_type: sourceSettings.default_target_type,
+            default_chat_id: sourceSettings.default_chat_id,
+            default_agent_id: sourceSettings.default_agent_id,
+            default_model_external_id: sourceSettings.default_model_external_id,
+            save_messages: sourceSettings.save_messages,
+            tts_mode: sourceSettings.tts_mode,
+            max_tts_chars: sourceSettings.max_tts_chars,
+            last_task_command: sourceSettings.last_task_command,
+            last_task_status: sourceSettings.last_task_status,
+            last_task_response_text: sourceSettings.last_task_response_text,
+            last_task_error: sourceSettings.last_task_error,
+            last_task_started_at: sourceSettings.last_task_started_at,
+            last_task_completed_at: sourceSettings.last_task_completed_at,
+            updated_at: new Date(),
+          })
+          .where(eq(aliceUserSettings.user_id, targetUserId));
+
+        await tx.delete(aliceUserSettings).where(eq(aliceUserSettings.user_id, sourceUserId));
+      } else {
+        await tx.update(aliceUserSettings)
+          .set({ user_id: targetUserId })
+          .where(eq(aliceUserSettings.user_id, sourceUserId));
+      }
+    }
+
+    const sourceBalance = Number(sourceUser.balance_usd ?? 0);
+    const targetBalance = Number(targetUser.balance_usd ?? 0);
+
+    if (sourceBalance !== 0) {
+      await tx.update(users)
+        .set({ balance_usd: String(targetBalance + sourceBalance) })
+        .where(eq(users.id, targetUserId));
+
+      await tx.update(users)
+        .set({ balance_usd: '0' })
+        .where(eq(users.id, sourceUserId));
+    }
+  });
 }
 
 async function ensureAliceLink(userId: string, skillUserId: string, applicationId: string | null, now: Date) {
@@ -314,6 +441,70 @@ export async function ensureAliceSessionContext(
     isNewUser,
     bonusGranted,
     bonusAmountUsd,
+  };
+}
+
+export async function linkAliceAccountByCode(
+  skillUserIdInput: string | null | undefined,
+  applicationIdInput: string | null | undefined,
+  rawCodeInput: string,
+): Promise<{ text: string; context: AliceSessionContext }> {
+  const skillUserId = normalizeAliceIdentifier(skillUserIdInput);
+  const applicationId = normalizeAliceIdentifier(applicationIdInput) || null;
+  const code = rawCodeInput.replace(/\D+/g, '').trim();
+
+  if (!skillUserId) {
+    throw new AppError(400, 'ALICE_SKILL_USER_ID_REQUIRED', 'Не удалось определить пользователя Алисы');
+  }
+
+  if (!code || code.length < 4) {
+    throw new AppError(400, 'ALICE_LINK_CODE_REQUIRED', 'Назовите код привязки из профиля llmstore.pro');
+  }
+
+  const sourceContext = await ensureAliceSessionContext(skillUserId, applicationId);
+  const now = new Date();
+
+  const targetUserId = await db.transaction(async (tx) => {
+    const [linkCode] = await tx
+      .select({
+        id: aliceLinkCodes.id,
+        user_id: aliceLinkCodes.user_id,
+        expires_at: aliceLinkCodes.expires_at,
+        consumed_at: aliceLinkCodes.consumed_at,
+      })
+      .from(aliceLinkCodes)
+      .where(eq(aliceLinkCodes.code, code))
+      .limit(1);
+
+    if (!linkCode || linkCode.consumed_at || linkCode.expires_at <= now) {
+      throw new AppError(400, 'ALICE_LINK_CODE_INVALID', 'Код привязки недействителен или уже истёк');
+    }
+
+    const consumed = await tx.update(aliceLinkCodes)
+      .set({
+        consumed_at: now,
+        consumed_skill_user_id: skillUserId,
+      })
+      .where(eq(aliceLinkCodes.id, linkCode.id))
+      .returning({ id: aliceLinkCodes.id });
+
+    if (!consumed.length) {
+      throw new AppError(409, 'ALICE_LINK_CODE_ALREADY_USED', 'Код привязки уже был использован');
+    }
+
+    return linkCode.user_id;
+  });
+
+  if (targetUserId !== sourceContext.userId) {
+    await mergeSyntheticAliceUserIntoTarget(sourceContext.userId, targetUserId);
+  }
+
+  await ensureAliceLink(targetUserId, skillUserId, applicationId, now);
+  const context = await ensureAliceSessionContext(skillUserId, applicationId);
+
+  return {
+    text: 'Аккаунт успешно привязан. Теперь запросы из Алисы будут приходить в ваш профиль LLM Store.',
+    context,
   };
 }
 
