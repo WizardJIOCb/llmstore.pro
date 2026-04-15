@@ -166,7 +166,7 @@ async function updateAliceLastTaskState(
 }
 
 function buildAliceTaskProcessingText(): string {
-  return 'Задача уже в обработке. Вы можете узнать статус, сказав: Алиса, запусти навык LLM Store и уточни статус задачи.';
+  return 'Задача уже в обработке. Вы можете уточнить статус задачи или сразу сказать: Алиса, запусти навык LLM Store и продолжи ответ.';
 }
 
 function normalizeAliceOutput(value: string): string {
@@ -713,17 +713,77 @@ export async function getAliceLastTaskContinuationText(
   applicationIdInput?: string | null,
 ): Promise<{ text: string; context: AliceSessionContext }> {
   const context = await ensureAliceSessionContext(skillUserIdInput, applicationIdInput);
+  const details = await runtimeService.getChatById(context.chatId, context.userId);
   const [settings] = await db
     .select({
+      lastTaskCommand: aliceUserSettings.last_task_command,
       lastTaskStatus: aliceUserSettings.last_task_status,
       lastTaskResponseText: aliceUserSettings.last_task_response_text,
       lastTaskResponseOffset: aliceUserSettings.last_task_response_offset,
+      lastTaskError: aliceUserSettings.last_task_error,
     })
     .from(aliceUserSettings)
     .where(eq(aliceUserSettings.user_id, context.userId))
     .limit(1);
 
+  const pendingRun = details.chat.pending_run;
+  if (pendingRun) {
+    if (pendingRun.is_terminal) {
+      const completedStatus: AliceLastTaskStatus = pendingRun.status === 'failed' ? 'failed' : 'completed';
+      const latestAssistantResponse = completedStatus === 'completed'
+        ? details.messages
+          .slice()
+          .reverse()
+          .find((message) => message.role === 'assistant')
+          ?.content ?? null
+        : null;
+      const responseChunk = latestAssistantResponse
+        ? getAliceResponseChunk(latestAssistantResponse, 0)
+        : null;
+
+      await updateAliceLastTaskState(context.userId, {
+        command: settings?.lastTaskCommand ?? null,
+        status: completedStatus,
+        responseText: latestAssistantResponse,
+        responseOffset: responseChunk?.nextOffset ?? 0,
+        errorText: completedStatus === 'failed' ? (pendingRun.error ?? pendingRun.detail) : null,
+        startedAt: null,
+        completedAt: new Date(),
+      });
+
+      if (completedStatus === 'failed') {
+        return {
+          text: buildAliceTaskStatusText({
+            status: 'failed',
+            errorText: pendingRun.error ?? pendingRun.detail,
+          }),
+          context,
+        };
+      }
+
+      return {
+        text: `Продолжение ответа: ${responseChunk?.chunk ?? latestAssistantResponse ?? 'Ответ уже готов.'}${responseChunk?.hasMore ? ' Чтобы получить ещё часть, скажите: Алиса, запусти навык LLM Store и продолжи ответ.' : ''}`,
+        context,
+      };
+    }
+
+    return {
+      text: `${pendingRun.label}. ${buildAliceTaskProcessingText()}`,
+      context,
+    };
+  }
+
   if (!settings?.lastTaskStatus || settings.lastTaskStatus !== 'completed' || !settings.lastTaskResponseText) {
+    if (settings?.lastTaskStatus === 'failed') {
+      return {
+        text: buildAliceTaskStatusText({
+          status: 'failed',
+          errorText: settings.lastTaskError ?? null,
+        }),
+        context,
+      };
+    }
+
     return {
       text: 'Сейчас нет сохранённого ответа для продолжения. Сначала запустите задачу или уточните статус последней задачи.',
       context,
@@ -743,9 +803,11 @@ export async function getAliceLastTaskContinuationText(
   }
 
   await updateAliceLastTaskState(context.userId, {
+    command: settings.lastTaskCommand ?? null,
     status: 'completed',
     responseText: settings.lastTaskResponseText,
     responseOffset: responseChunk.nextOffset,
+    errorText: settings.lastTaskError ?? null,
   });
 
   return {
