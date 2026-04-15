@@ -105,6 +105,7 @@ async function updateAliceLastTaskState(
     command?: string | null;
     status?: AliceLastTaskStatus | null;
     responseText?: string | null;
+    responseOffset?: number | null;
     errorText?: string | null;
     startedAt?: Date | null;
     completedAt?: Date | null;
@@ -116,6 +117,7 @@ async function updateAliceLastTaskState(
       last_task_command: input.command ?? null,
       last_task_status: input.status ?? null,
       last_task_response_text: input.responseText ?? null,
+      last_task_response_offset: input.responseOffset ?? 0,
       last_task_error: input.errorText ?? null,
       last_task_started_at: input.startedAt ?? null,
       last_task_completed_at: input.completedAt ?? null,
@@ -128,14 +130,64 @@ function buildAliceTaskProcessingText(): string {
   return 'Задача уже в обработке. Вы можете узнать статус, сказав: Алиса, запусти навык LLM Store и уточни статус задачи.';
 }
 
+function normalizeAliceOutput(value: string): string {
+  return squeezeWhitespace(
+    value
+      .replace(/```[\s\S]*?```/g, ' ')
+      .replace(/`([^`]+)`/g, '$1')
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1')
+      .replace(/[*_~#>-]+/g, ' '),
+  ) || 'Готово.';
+}
+
+function getAliceResponseChunk(value: string, offset = 0, maxLength = ALICE_TEXT_LIMIT): {
+  chunk: string;
+  nextOffset: number;
+  hasMore: boolean;
+} {
+  const normalized = normalizeAliceOutput(value);
+  const safeOffset = Math.max(0, Math.min(offset, normalized.length));
+  if (safeOffset >= normalized.length) {
+    return { chunk: '', nextOffset: normalized.length, hasMore: false };
+  }
+
+  const remaining = normalized.slice(safeOffset);
+  if (remaining.length <= maxLength) {
+    return { chunk: remaining, nextOffset: normalized.length, hasMore: false };
+  }
+
+  const hardSlice = remaining.slice(0, maxLength);
+  const breakCandidates = [
+    hardSlice.lastIndexOf('. '),
+    hardSlice.lastIndexOf('! '),
+    hardSlice.lastIndexOf('? '),
+    hardSlice.lastIndexOf('; '),
+    hardSlice.lastIndexOf(': '),
+    hardSlice.lastIndexOf(', '),
+    hardSlice.lastIndexOf(' '),
+  ];
+  const breakIndex = breakCandidates.find((index) => index >= Math.floor(maxLength * 0.6)) ?? -1;
+  const splitAt = breakIndex >= 0 ? breakIndex + 1 : maxLength;
+  const chunk = remaining.slice(0, splitAt).trim();
+  const nextOffset = safeOffset + splitAt;
+
+  return {
+    chunk,
+    nextOffset,
+    hasMore: nextOffset < normalized.length,
+  };
+}
+
 function buildAliceTaskStatusText(input: {
   status: AliceLastTaskStatus;
   responseText?: string | null;
+  hasMore?: boolean;
   errorText?: string | null;
 }): string {
   if (input.status === 'completed') {
     if (input.responseText?.trim()) {
-      return `Последняя задача уже завершена. Вот ответ: ${sanitizeAliceOutput(input.responseText, 900)}`;
+      const suffix = input.hasMore ? ' Чтобы получить продолжение, скажите: Алиса, запусти навык LLM Store и продолжи ответ.' : '';
+      return `Последняя задача уже завершена. Вот ответ: ${sanitizeAliceOutput(input.responseText, 900)}${suffix}`;
     }
 
     return 'Последняя задача уже завершена. Результат сохранён в вашем чате LLM Store.';
@@ -236,6 +288,7 @@ async function mergeSyntheticAliceUserIntoTarget(sourceUserId: string, targetUse
             last_task_command: sourceSettings.last_task_command,
             last_task_status: sourceSettings.last_task_status,
             last_task_response_text: sourceSettings.last_task_response_text,
+            last_task_response_offset: sourceSettings.last_task_response_offset,
             last_task_error: sourceSettings.last_task_error,
             last_task_started_at: sourceSettings.last_task_started_at,
             last_task_completed_at: sourceSettings.last_task_completed_at,
@@ -526,6 +579,7 @@ export async function getAliceLastTaskStatusText(
       lastTaskCommand: aliceUserSettings.last_task_command,
       lastTaskStatus: aliceUserSettings.last_task_status,
       lastTaskResponseText: aliceUserSettings.last_task_response_text,
+      lastTaskResponseOffset: aliceUserSettings.last_task_response_offset,
       lastTaskError: aliceUserSettings.last_task_error,
     })
     .from(aliceUserSettings)
@@ -551,10 +605,14 @@ export async function getAliceLastTaskStatusText(
           .find((message) => message.role === 'assistant')
           ?.content ?? null
         : null;
+      const responseChunk = latestAssistantResponse
+        ? getAliceResponseChunk(latestAssistantResponse, 0)
+        : null;
       await updateAliceLastTaskState(context.userId, {
         command: settings?.lastTaskCommand ?? null,
         status: completedStatus,
         responseText: latestAssistantResponse,
+        responseOffset: responseChunk?.nextOffset ?? 0,
         errorText: completedStatus === 'failed' ? (pendingRun.error ?? pendingRun.detail) : null,
         startedAt: null,
         completedAt: new Date(),
@@ -563,7 +621,8 @@ export async function getAliceLastTaskStatusText(
       return {
         text: buildAliceTaskStatusText({
           status: completedStatus,
-          responseText: latestAssistantResponse,
+          responseText: responseChunk?.chunk ?? latestAssistantResponse,
+          hasMore: responseChunk?.hasMore ?? false,
           errorText: pendingRun.error ?? pendingRun.detail,
         }),
         context,
@@ -577,10 +636,27 @@ export async function getAliceLastTaskStatusText(
   }
 
   if (settings?.lastTaskStatus) {
+    const responseChunk = settings.lastTaskStatus === 'completed' && settings.lastTaskResponseText
+      ? getAliceResponseChunk(settings.lastTaskResponseText, settings.lastTaskResponseOffset ?? 0)
+      : null;
+
+    if (responseChunk && settings.lastTaskResponseText) {
+      await updateAliceLastTaskState(context.userId, {
+        command: settings.lastTaskCommand ?? null,
+        status: settings.lastTaskStatus as AliceLastTaskStatus,
+        responseText: settings.lastTaskResponseText,
+        responseOffset: responseChunk.nextOffset,
+        errorText: settings.lastTaskError ?? null,
+        startedAt: null,
+        completedAt: null,
+      });
+    }
+
     return {
       text: buildAliceTaskStatusText({
         status: settings.lastTaskStatus as AliceLastTaskStatus,
-        responseText: settings.lastTaskResponseText ?? null,
+        responseText: responseChunk?.chunk ?? settings.lastTaskResponseText ?? null,
+        hasMore: responseChunk?.hasMore ?? false,
         errorText: settings.lastTaskError ?? null,
       }),
       context,
@@ -589,6 +665,52 @@ export async function getAliceLastTaskStatusText(
 
   return {
     text: 'Последняя задача сейчас ещё обрабатывается. Попробуйте уточнить статус чуть позже.',
+    context,
+  };
+}
+
+export async function getAliceLastTaskContinuationText(
+  skillUserIdInput: string | null | undefined,
+  applicationIdInput?: string | null,
+): Promise<{ text: string; context: AliceSessionContext }> {
+  const context = await ensureAliceSessionContext(skillUserIdInput, applicationIdInput);
+  const [settings] = await db
+    .select({
+      lastTaskStatus: aliceUserSettings.last_task_status,
+      lastTaskResponseText: aliceUserSettings.last_task_response_text,
+      lastTaskResponseOffset: aliceUserSettings.last_task_response_offset,
+    })
+    .from(aliceUserSettings)
+    .where(eq(aliceUserSettings.user_id, context.userId))
+    .limit(1);
+
+  if (!settings?.lastTaskStatus || settings.lastTaskStatus !== 'completed' || !settings.lastTaskResponseText) {
+    return {
+      text: 'Сейчас нет сохранённого ответа для продолжения. Сначала запустите задачу или уточните статус последней задачи.',
+      context,
+    };
+  }
+
+  const responseChunk = getAliceResponseChunk(
+    settings.lastTaskResponseText,
+    settings.lastTaskResponseOffset ?? 0,
+  );
+
+  if (!responseChunk.chunk) {
+    return {
+      text: 'Это уже был конец последнего ответа. Можете запустить новую задачу.',
+      context,
+    };
+  }
+
+  await updateAliceLastTaskState(context.userId, {
+    status: 'completed',
+    responseText: settings.lastTaskResponseText,
+    responseOffset: responseChunk.nextOffset,
+  });
+
+  return {
+    text: `Продолжение ответа: ${responseChunk.chunk}${responseChunk.hasMore ? ' Чтобы получить ещё часть, скажите: Алиса, запусти навык LLM Store и продолжи ответ.' : ''}`,
     context,
   };
 }
@@ -648,13 +770,15 @@ export async function sendAliceChatMessageTracked(
       ? (result.pending_run?.detail || result.pending_run?.label || 'Сообщение принято. Продолжаю обработку в чате.')
       : (result.assistant_message?.content || 'Готово.');
 
-    const text = sanitizeAliceOutput(rawText, ALICE_TEXT_LIMIT);
-    const tts = sanitizeAliceOutput(rawText, ALICE_TTS_LIMIT);
+    const responseChunk = !result.processing ? getAliceResponseChunk(rawText, 0) : null;
+    const text = sanitizeAliceOutput(responseChunk?.chunk || rawText, ALICE_TEXT_LIMIT);
+    const tts = sanitizeAliceOutput(responseChunk?.chunk || rawText, ALICE_TTS_LIMIT);
 
     await updateAliceLastTaskState(context.userId, {
       command: content.trim(),
       status: result.processing ? 'processing' : 'completed',
-      responseText: result.processing ? null : text,
+      responseText: result.processing ? null : rawText,
+      responseOffset: result.processing ? 0 : (responseChunk?.nextOffset ?? 0),
       errorText: null,
       startedAt,
       completedAt: result.processing ? null : new Date(),

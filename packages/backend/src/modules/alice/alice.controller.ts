@@ -233,6 +233,13 @@ function isAliceTaskStatusCommand(command: string): boolean {
     || command === 'статус';
 }
 
+function isAliceTaskContinuationCommand(command: string): boolean {
+  return command.includes('продолжи ответ')
+    || command.includes('продолжить ответ')
+    || command.includes('следующая часть ответа')
+    || command.includes('продолжение ответа');
+}
+
 function extractAliceLinkCode(command: string): string | null {
   if (!command.includes('привяж') && !command.includes('свяж')) return null;
   const directMatch = command.match(/\b(\d{4,8})\b/);
@@ -841,6 +848,13 @@ export async function webhook(req: Request, res: Response, _next: NextFunction) 
       const statusResult = await aliceChatService.getAliceLastTaskStatusText(skillUserId, applicationId);
       context = statusResult.context;
       await respond(aliceTextResponse(statusResult.text), { context });
+      return;
+    }
+
+    if (isAliceTaskContinuationCommand(normalizedCommand) || isAliceTaskContinuationCommand(normalizedRawCommand)) {
+      const continuationResult = await aliceChatService.getAliceLastTaskContinuationText(skillUserId, applicationId);
+      context = continuationResult.context;
+      await respond(aliceTextResponse(continuationResult.text), { context });
       return;
     }
 

@@ -28,6 +28,7 @@ export const aliceUserSettings = pgTable('alice_user_settings', {
   last_task_command: text('last_task_command'),
   last_task_status: varchar('last_task_status', { length: 32 }),
   last_task_response_text: text('last_task_response_text'),
+  last_task_response_offset: integer('last_task_response_offset').notNull().default(0),
   last_task_error: text('last_task_error'),
   last_task_started_at: timestamp('last_task_started_at', { withTimezone: true }),
   last_task_completed_at: timestamp('last_task_completed_at', { withTimezone: true }),
