@@ -737,14 +737,24 @@ export async function getAliceLastTaskContinuationText(
           .find((message) => message.role === 'assistant')
           ?.content ?? null
         : null;
-      const responseChunk = latestAssistantResponse
-        ? getAliceResponseChunk(latestAssistantResponse, 0)
+      const shouldContinueStoredResponse = completedStatus === 'completed'
+        && settings?.lastTaskStatus === 'completed'
+        && !!settings.lastTaskResponseText
+        && settings.lastTaskResponseText === latestAssistantResponse;
+      const responseSource = shouldContinueStoredResponse
+        ? settings?.lastTaskResponseText ?? latestAssistantResponse
+        : latestAssistantResponse;
+      const responseChunk = responseSource
+        ? getAliceResponseChunk(
+          responseSource,
+          shouldContinueStoredResponse ? (settings?.lastTaskResponseOffset ?? 0) : 0,
+        )
         : null;
 
       await updateAliceLastTaskState(context.userId, {
         command: settings?.lastTaskCommand ?? null,
         status: completedStatus,
-        responseText: latestAssistantResponse,
+        responseText: responseSource,
         responseOffset: responseChunk?.nextOffset ?? 0,
         errorText: completedStatus === 'failed' ? (pendingRun.error ?? pendingRun.detail) : null,
         startedAt: null,
@@ -762,7 +772,7 @@ export async function getAliceLastTaskContinuationText(
       }
 
       return {
-        text: `Продолжение ответа: ${responseChunk?.chunk ?? latestAssistantResponse ?? 'Ответ уже готов.'}${responseChunk?.hasMore ? ' Чтобы получить ещё часть, скажите: Алиса, запусти навык LLM Store и продолжи ответ.' : ''}`,
+        text: `Продолжение ответа: ${responseChunk?.chunk ?? responseSource ?? 'Ответ уже готов.'}${responseChunk?.hasMore ? ' Чтобы получить ещё часть, скажите: Алиса, запусти навык LLM Store и продолжи ответ.' : ''}`,
         context,
       };
     }
