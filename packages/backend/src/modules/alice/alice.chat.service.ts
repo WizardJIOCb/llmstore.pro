@@ -130,9 +130,14 @@ function buildAliceTaskProcessingText(): string {
 
 function buildAliceTaskStatusText(input: {
   status: AliceLastTaskStatus;
+  responseText?: string | null;
   errorText?: string | null;
 }): string {
   if (input.status === 'completed') {
+    if (input.responseText?.trim()) {
+      return `Последняя задача уже завершена. Вот ответ: ${sanitizeAliceOutput(input.responseText, 900)}`;
+    }
+
     return 'Последняя задача уже завершена. Результат сохранён в вашем чате LLM Store.';
   }
 
@@ -520,6 +525,7 @@ export async function getAliceLastTaskStatusText(
     .select({
       lastTaskCommand: aliceUserSettings.last_task_command,
       lastTaskStatus: aliceUserSettings.last_task_status,
+      lastTaskResponseText: aliceUserSettings.last_task_response_text,
       lastTaskError: aliceUserSettings.last_task_error,
     })
     .from(aliceUserSettings)
@@ -538,10 +544,17 @@ export async function getAliceLastTaskStatusText(
   if (pendingRun) {
     if (pendingRun.is_terminal) {
       const completedStatus: AliceLastTaskStatus = pendingRun.status === 'failed' ? 'failed' : 'completed';
+      const latestAssistantResponse = completedStatus === 'completed'
+        ? details.messages
+          .slice()
+          .reverse()
+          .find((message) => message.role === 'assistant')
+          ?.content ?? null
+        : null;
       await updateAliceLastTaskState(context.userId, {
         command: settings?.lastTaskCommand ?? null,
         status: completedStatus,
-        responseText: null,
+        responseText: latestAssistantResponse,
         errorText: completedStatus === 'failed' ? (pendingRun.error ?? pendingRun.detail) : null,
         startedAt: null,
         completedAt: new Date(),
@@ -550,6 +563,7 @@ export async function getAliceLastTaskStatusText(
       return {
         text: buildAliceTaskStatusText({
           status: completedStatus,
+          responseText: latestAssistantResponse,
           errorText: pendingRun.error ?? pendingRun.detail,
         }),
         context,
@@ -566,6 +580,7 @@ export async function getAliceLastTaskStatusText(
     return {
       text: buildAliceTaskStatusText({
         status: settings.lastTaskStatus as AliceLastTaskStatus,
+        responseText: settings.lastTaskResponseText ?? null,
         errorText: settings.lastTaskError ?? null,
       }),
       context,
