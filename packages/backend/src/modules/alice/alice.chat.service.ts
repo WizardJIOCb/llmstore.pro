@@ -225,7 +225,7 @@ function buildAliceTaskStatusText(input: {
 }): string {
   if (input.status === 'completed') {
     if (input.responseText?.trim()) {
-      const suffix = input.hasMore ? ' Чтобы получить продолжение, скажите: Алиса, запусти навык LLM Store и продолжи ответ.' : '';
+      const suffix = input.hasMore ? ' Чтобы получить продолжение, скажите: продолжи ответ.' : '';
       return `Последняя задача уже завершена. Вот ответ: ${sanitizeAliceTextOutput(input.responseText, 900)}${suffix}`;
     }
 
@@ -772,7 +772,7 @@ export async function getAliceLastTaskContinuationText(
       }
 
       return {
-        text: `Продолжение ответа: ${responseChunk?.chunk ?? responseSource ?? 'Ответ уже готов.'}${responseChunk?.hasMore ? ' Чтобы получить ещё часть, скажите: Алиса, запусти навык LLM Store и продолжи ответ.' : ''}`,
+        text: `Продолжение ответа: ${responseChunk?.chunk ?? responseSource ?? 'Ответ уже готов.'}${responseChunk?.hasMore ? ' Чтобы получить ещё часть, скажите: продолжи ответ.' : ''}`,
         context,
       };
     }
@@ -821,7 +821,7 @@ export async function getAliceLastTaskContinuationText(
   });
 
   return {
-    text: `Продолжение ответа: ${responseChunk.chunk}${responseChunk.hasMore ? ' Чтобы получить ещё часть, скажите: Алиса, запусти навык LLM Store и продолжи ответ.' : ''}`,
+    text: `Продолжение ответа: ${responseChunk.chunk}${responseChunk.hasMore ? ' Чтобы получить ещё часть, скажите: продолжи ответ.' : ''}`,
     context,
   };
 }
