@@ -4,8 +4,10 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { ChatLiveProgressPanel } from '../../components/agents/ChatLiveProgressPanel';
 import { ChatMessage } from '../../components/agents/ChatMessage';
 import { ChatThinkingBubble } from '../../components/agents/ChatThinkingBubble';
+import { RunMetadata } from '../../components/agents/RunMetadata';
 import { Spinner } from '../../components/ui/Spinner';
 import { Button } from '../../components/ui/Button';
+import { UserLink } from '../../components/users/UserLink';
 import { apiClient } from '../../lib/api-client';
 import { chatsApi, type ChatAttachment, type ChatPendingRunState, type CodingReport } from '../../lib/api/chats';
 import { appendLiveProgressEvent, createLiveProgressEvent } from '../../lib/chat-live-progress';
@@ -35,6 +37,7 @@ interface V2SharedChat {
     content: string;
     usage?: Record<string, unknown> | null;
     project_run_count?: number | null;
+    latency_ms?: number | null;
     created_at: string;
   }>;
 }
@@ -46,6 +49,7 @@ interface SharedMessageItem {
   usage?: Record<string, unknown> | null;
   project_run_count?: number | null;
   attachments?: ChatAttachment[];
+  latency_ms?: number | null;
   created_at?: string;
 }
 
@@ -55,6 +59,7 @@ interface SharedPageData {
   isOwner?: boolean;
   title: string;
   subtitle: string;
+  assistantName?: string | null;
   pendingRun?: V2SharedChat['pending_run'];
   messages: SharedMessageItem[];
 }
@@ -190,6 +195,44 @@ function extractAttachments(value?: Record<string, unknown> | null): ChatAttachm
     .map((item) => item as ChatAttachment);
 }
 
+function extractUsage(value: Record<string, unknown> | null | undefined) {
+  if (!value) return null;
+  const prompt_tokens = typeof value.prompt_tokens === 'number' ? value.prompt_tokens : null;
+  const completion_tokens = typeof value.completion_tokens === 'number' ? value.completion_tokens : null;
+  const total_tokens = typeof value.total_tokens === 'number' ? value.total_tokens : null;
+  if (prompt_tokens == null || completion_tokens == null || total_tokens == null) return null;
+
+  return {
+    prompt_tokens,
+    completion_tokens,
+    total_tokens,
+    estimated_cost: typeof value.estimated_cost === 'string' ? value.estimated_cost : undefined,
+    model: typeof value.model === 'string' ? value.model : undefined,
+    usd_to_rub_rate: typeof value.usd_to_rub_rate === 'number' ? value.usd_to_rub_rate : undefined,
+  };
+}
+
+function extractToolTraces(value: Record<string, unknown> | null | undefined) {
+  if (!value || !Array.isArray((value as { tool_traces?: unknown[] }).tool_traces)) return [];
+  return ((value as { tool_traces: unknown[] }).tool_traces ?? [])
+    .filter((item) => item && typeof item === 'object')
+    .map((item) => item as {
+      tool_call_id: string;
+      tool_name: string;
+      input: Record<string, unknown>;
+      output: Record<string, unknown> | null;
+      status: string;
+      duration_ms: number | null;
+      error?: string;
+    });
+}
+
+function getUsageModel(value: Record<string, unknown> | null | undefined): string | null {
+  return typeof value?.model === 'string' && value.model.trim()
+    ? value.model.trim()
+    : null;
+}
+
 function shouldRefetchSharedChat(sharedData?: SharedPageData) {
   if (!sharedData || sharedData.messages.length === 0) return false;
 
@@ -262,6 +305,7 @@ export function SharedChatPage() {
           ownerUserId: v2.data.data.chat.owner_user_id,
           isOwner: v2.data.data.chat.is_owner,
           title: v2.data.data.chat.title,
+          assistantName: v2.data.data.chat.agent_name,
           subtitle: v2.data.data.chat.is_owner
             ? 'Общий чат. Управление preview и deployment доступно владельцу.'
             : 'Общий чат только для чтения. Управление preview, deployment и секретами доступно только владельцу.',
@@ -273,6 +317,7 @@ export function SharedChatPage() {
             usage: message.usage ?? null,
             project_run_count: message.project_run_count ?? 0,
             attachments: extractAttachments(message.usage ?? null),
+            latency_ms: message.latency_ms ?? null,
             created_at: message.created_at,
           })),
         } satisfies SharedPageData;
@@ -284,6 +329,7 @@ export function SharedChatPage() {
         const legacy = await apiClient.get<{ data: LegacySharedChat }>(`/shared/chat/${token}`);
         return {
           title: legacy.data.data.agent_name,
+          assistantName: legacy.data.data.agent_name,
           subtitle: 'Общий чат только для чтения.',
           pendingRun: null,
           messages: legacy.data.data.messages.map((message): SharedMessageItem => ({
@@ -477,6 +523,21 @@ export function SharedChatPage() {
     return assistantMessages[assistantMessages.length - 1]?.id;
   }, [messages]);
   const canManageSharedChat = Boolean(profile) && Boolean(data?.chatId) && data?.isOwner === true;
+  const userMessageAuthorLabel = data?.isOwner && profile?.username?.trim()
+    ? (
+      <UserLink
+        username={profile.username.trim()}
+        name={profile.name?.trim() || null}
+        className="hover:text-primary hover:underline"
+      />
+    )
+    : (data?.isOwner ? (profile?.name?.trim() || 'Вы') : 'Пользователь');
+  const getAssistantAuthorLabel = (message: SharedMessageItem) => {
+    const usageModel = getUsageModel(message.usage);
+    if (usageModel) return usageModel;
+    if (data?.assistantName?.trim()) return data.assistantName.trim();
+    return 'AI';
+  };
   const lastMessage = messages[messages.length - 1];
   const latestEvent = streamEvents[streamEvents.length - 1]
     ?? (data?.pendingRun
@@ -766,7 +827,10 @@ export function SharedChatPage() {
           <ChatMessage
             role={msg.role}
             content={msg.content}
+            createdAt={msg.created_at}
+            authorLabel={msg.role === 'user' ? userMessageAuthorLabel : getAssistantAuthorLabel(msg)}
             attachments={msg.attachments ?? extractAttachments(msg.usage)}
+            toolTraces={msg.role === 'assistant' ? extractToolTraces(msg.usage) : undefined}
             codingReport={msg.role === 'assistant' ? extractCodingReport(msg.usage, msg.content) : undefined}
             projectRunCount={msg.project_run_count}
             previewPageUrl={msg.role === 'assistant' && token && msg.id ? `/api/shared/chats/${token}/messages/${msg.id}/preview` : undefined}
@@ -831,6 +895,15 @@ export function SharedChatPage() {
               }
               : undefined}
           />
+          {msg.role === 'assistant' && (
+            <div className="mt-1 ml-1">
+              <RunMetadata
+                usage={extractUsage(msg.usage)}
+                latencyMs={msg.latency_ms ?? undefined}
+                agentName={data?.assistantName ?? undefined}
+              />
+            </div>
+          )}
           {isPendingSharedReply && msg.role === 'assistant' && msg.id && msg.id === lastAssistantMessageId && (
             <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
               <p className="font-medium">{'\u041f\u0440\u043e\u043c\u0435\u0436\u0443\u0442\u043e\u0447\u043d\u044b\u0439 \u0440\u0435\u0437\u0443\u043b\u044c\u0442\u0430\u0442'}</p>

@@ -8375,6 +8375,7 @@ export async function getSharedChatById(token: string, viewerUserId?: string | n
       usage: m.usage,
       attachments: m.attachments,
       project_run_count: m.project_run_count,
+      latency_ms: m.latency_ms,
       created_at: m.created_at,
       })),
     };
