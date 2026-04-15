@@ -1169,6 +1169,24 @@ export async function handleAliceChatNavigationIntent(
 
     await setAliceSelectedChatId(context.userId, selectedChat.id);
 
+    if (intent.selector.type === 'title') {
+      const details = await runtimeService.getChatById(selectedChat.id, context.userId);
+      const lastMessage = details.messages[details.messages.length - 1] ?? null;
+
+      if (!lastMessage) {
+        return {
+          text: `Открыт чат «${sanitizeAliceChatContent(selectedChat.title, 140)}». В нём ${selectedChat.message_count} сообщений, но последнее сообщение пока недоступно.`,
+          context,
+        };
+      }
+
+      const messageIndex = details.messages.findIndex((message) => message.id === lastMessage.id);
+      return {
+        text: `Открыт чат «${sanitizeAliceChatContent(selectedChat.title, 140)}». В нём ${selectedChat.message_count} сообщений. Последнее сообщение ${messageIndex + 1}. ${formatAliceMessageRole(lastMessage.role)}: ${sanitizeAliceChatContent(lastMessage.content, 680)}`,
+        context,
+      };
+    }
+
     return {
       text: `Выбран чат «${sanitizeAliceChatContent(selectedChat.title, 140)}». В нём ${selectedChat.message_count} сообщений. Можете сказать: прочитай последнее сообщение.`,
       context,
