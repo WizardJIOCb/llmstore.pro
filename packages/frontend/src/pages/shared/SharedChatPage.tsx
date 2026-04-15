@@ -25,6 +25,8 @@ interface V2SharedChat {
   chat: {
     id: string;
     owner_user_id: string;
+    owner_name: string | null;
+    owner_username: string | null;
     is_owner: boolean;
     title: string;
     mode: 'general' | 'agent';
@@ -56,6 +58,8 @@ interface SharedMessageItem {
 interface SharedPageData {
   chatId?: string;
   ownerUserId?: string;
+  ownerName?: string | null;
+  ownerUsername?: string | null;
   isOwner?: boolean;
   title: string;
   subtitle: string;
@@ -303,6 +307,8 @@ export function SharedChatPage() {
         return {
           chatId: v2.data.data.chat.id,
           ownerUserId: v2.data.data.chat.owner_user_id,
+          ownerName: v2.data.data.chat.owner_name,
+          ownerUsername: v2.data.data.chat.owner_username,
           isOwner: v2.data.data.chat.is_owner,
           title: v2.data.data.chat.title,
           assistantName: v2.data.data.chat.agent_name,
@@ -531,7 +537,17 @@ export function SharedChatPage() {
         className="hover:text-primary hover:underline"
       />
     )
-    : (data?.isOwner ? (profile?.name?.trim() || 'Вы') : 'Пользователь');
+    : (data?.isOwner
+      ? (profile?.name?.trim() || 'Вы')
+      : (data?.ownerUsername?.trim()
+        ? (
+          <UserLink
+            username={data.ownerUsername.trim()}
+            name={data.ownerName?.trim() || null}
+            className="hover:text-primary hover:underline"
+          />
+        )
+        : (data?.ownerName?.trim() || 'Пользователь')));
   const getAssistantAuthorLabel = (message: SharedMessageItem) => {
     const usageModel = getUsageModel(message.usage);
     if (usageModel) return usageModel;

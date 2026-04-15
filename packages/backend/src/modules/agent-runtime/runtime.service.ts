@@ -8352,16 +8352,35 @@ export async function getSharedChatById(token: string, viewerUserId?: string | n
   const messages = await getConversationMessages(chat.id);
   const pending_run = await getConversationRuntimeState(chat, messages);
   let agentName: string | null = null;
+  let ownerName: string | null = null;
+  let ownerUsername: string | null = null;
 
   if (chat.agent_id) {
     const [agent] = await db.select({ name: agents.name }).from(agents).where(eq(agents.id, chat.agent_id)).limit(1);
     agentName = agent?.name ?? null;
   }
 
+  const [owner] = await db
+    .select({
+      username: users.username,
+      name: users.name,
+      email: users.email,
+    })
+    .from(users)
+    .where(eq(users.id, chat.user_id))
+    .limit(1);
+
+  if (owner) {
+    ownerName = formatAuthorName(owner);
+    ownerUsername = owner.username ?? null;
+  }
+
   return {
     chat: {
       id: chat.id,
       owner_user_id: chat.user_id,
+      owner_name: ownerName,
+      owner_username: ownerUsername,
       is_owner: chat.user_id === viewerUserId,
       title: chat.title,
       mode: chat.mode,
