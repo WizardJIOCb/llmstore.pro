@@ -368,7 +368,9 @@ function parseAliceChatNavigationIntent(
     return { kind: 'read_chat', selector: { type: 'reply_to_last_user' } };
   }
 
-  const messageNumberMatch = command.match(/\u0441\u043e\u043e\u0431\u0449\u0435\u043d(?:\u0438\u0435|\u0438\u044f)\s+\u043d\u043e\u043c\u0435\u0440\s+(\d+)/u);
+  const messageNumberMatch = command.match(
+    /(?:\u043f\u0440\u043e\u0447\u0438\u0442\u0430\u0439\s+)?\u0441\u043e\u043e\u0431\u0449\u0435\u043d(?:\u0438\u0435|\u0438\u044f)(?:\s+\u043d\u043e\u043c\u0435\u0440)?\s+(\d+)/u,
+  );
   if (messageNumberMatch?.[1]) {
     return {
       kind: 'read_chat',
