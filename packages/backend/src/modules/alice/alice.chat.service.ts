@@ -63,6 +63,9 @@ export interface AliceChatReply {
   text: string;
   tts: string;
   context: AliceSessionContext;
+  deliveredCommand?: string | null;
+  deliveredResponseText?: string | null;
+  deliveredResponseOffset?: number | null;
 }
 
 type AliceLastTaskStatus = 'processing' | 'completed' | 'failed';
@@ -893,7 +896,7 @@ export async function sendAliceChatMessageTracked(
       command: content.trim(),
       status: result.processing ? 'processing' : 'completed',
       responseText: result.processing ? null : rawText,
-      responseOffset: result.processing ? 0 : (responseChunk?.nextOffset ?? 0),
+      responseOffset: 0,
       errorText: null,
       startedAt,
       completedAt: result.processing ? null : new Date(),
@@ -914,6 +917,9 @@ export async function sendAliceChatMessageTracked(
       text,
       tts,
       context,
+      deliveredCommand: result.processing ? null : content.trim(),
+      deliveredResponseText: result.processing ? null : rawText,
+      deliveredResponseOffset: result.processing ? null : (responseChunk?.nextOffset ?? 0),
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown Alice task error';
@@ -937,4 +943,20 @@ export async function sendAliceChatMessageTracked(
 
     throw error;
   }
+}
+
+export async function acknowledgeAliceReplyDelivery(reply: AliceChatReply): Promise<void> {
+  if (!reply.deliveredResponseText || reply.deliveredResponseOffset == null) {
+    return;
+  }
+
+  await updateAliceLastTaskState(reply.context.userId, {
+    command: reply.deliveredCommand ?? null,
+    status: 'completed',
+    responseText: reply.deliveredResponseText,
+    responseOffset: reply.deliveredResponseOffset,
+    errorText: null,
+    startedAt: null,
+    completedAt: null,
+  });
 }

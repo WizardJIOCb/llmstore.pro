@@ -886,6 +886,7 @@ export async function webhook(req: Request, res: Response, _next: NextFunction) 
     }
 
     context = raceResult.reply.context;
+    await aliceChatService.acknowledgeAliceReplyDelivery(raceResult.reply);
     await respond(aliceTextResponse(raceResult.reply.text, raceResult.reply.tts), { context });
   } catch (err) {
     const errorCode = typeof (err as { code?: unknown })?.code === 'string'
