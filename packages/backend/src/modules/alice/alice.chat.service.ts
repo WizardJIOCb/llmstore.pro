@@ -772,7 +772,9 @@ export async function getAliceLastTaskContinuationText(
       }
 
       return {
-        text: `Продолжение ответа: ${responseChunk?.chunk ?? responseSource ?? 'Ответ уже готов.'}${responseChunk?.hasMore ? ' Чтобы получить ещё часть, скажите: продолжи ответ.' : ''}`,
+        text: responseChunk?.hasMore
+          ? `Продолжение ответа: ${responseChunk.chunk} Чтобы получить ещё часть, скажите: продолжи ответ.`
+          : `Это последняя часть ответа: ${responseChunk?.chunk ?? responseSource ?? 'Ответ уже готов.'} Конец ответа. Можете задать новый вопрос.`,
         context,
       };
     }
@@ -821,7 +823,9 @@ export async function getAliceLastTaskContinuationText(
   });
 
   return {
-    text: `Продолжение ответа: ${responseChunk.chunk}${responseChunk.hasMore ? ' Чтобы получить ещё часть, скажите: продолжи ответ.' : ''}`,
+    text: responseChunk.hasMore
+      ? `Продолжение ответа: ${responseChunk.chunk} Чтобы получить ещё часть, скажите: продолжи ответ.`
+      : `Это последняя часть ответа: ${responseChunk.chunk} Конец ответа. Можете задать новый вопрос.`,
     context,
   };
 }
