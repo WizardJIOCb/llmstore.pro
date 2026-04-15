@@ -235,8 +235,15 @@ function isAliceTaskStatusCommand(command: string): boolean {
 
 function extractAliceLinkCode(command: string): string | null {
   if (!command.includes('привяж') && !command.includes('свяж')) return null;
-  const match = command.match(/\b(\d{4,8})\b/);
-  return match?.[1] ?? null;
+  const directMatch = command.match(/\b(\d{4,8})\b/);
+  if (directMatch?.[1]) return directMatch[1];
+
+  const groupedMatch = command.match(/((?:\d[\s-]*){4,8})/);
+  if (!groupedMatch?.[1]) return null;
+
+  const normalizedCode = groupedMatch[1].replace(/\D+/g, '');
+  if (normalizedCode.length < 4 || normalizedCode.length > 8) return null;
+  return normalizedCode;
 }
 
 function delay<T>(timeoutMs: number, value: T): Promise<T> {
