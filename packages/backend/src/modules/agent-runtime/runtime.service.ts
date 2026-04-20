@@ -5238,6 +5238,12 @@ interface ConversationDetails {
     agent_starter_prompts: string[];
     tool_ids: string[];
     tools: ChatToolSummary[];
+    chat_tool_ids: string[];
+    chat_tools: ChatToolSummary[];
+    agent_tool_ids: string[];
+    agent_tools: ChatToolSummary[];
+    effective_tool_ids: string[];
+    effective_tools: ChatToolSummary[];
     pending_run: SharedPendingRunState | null;
   };
   messages: ConversationMessage[];
@@ -5547,6 +5553,48 @@ async function getActiveToolSummariesByIds(toolIds: string[]): Promise<ChatToolS
   }
 
   return orderedTools;
+}
+
+async function getActiveAgentToolSummaries(agentId: string | null): Promise<ChatToolSummary[]> {
+  if (!agentId) return [];
+
+  const [agent] = await db
+    .select({ current_version_id: agents.current_version_id })
+    .from(agents)
+    .where(eq(agents.id, agentId))
+    .limit(1);
+
+  if (!agent?.current_version_id) return [];
+
+  return db
+    .select({
+      id: toolDefinitions.id,
+      name: toolDefinitions.name,
+      slug: toolDefinitions.slug,
+      tool_type: toolDefinitions.tool_type,
+      description: toolDefinitions.description,
+      is_builtin: toolDefinitions.is_builtin,
+      is_active: toolDefinitions.is_active,
+    })
+    .from(agentVersionTools)
+    .innerJoin(toolDefinitions, eq(agentVersionTools.tool_definition_id, toolDefinitions.id))
+    .where(and(
+      eq(agentVersionTools.agent_version_id, agent.current_version_id),
+      eq(toolDefinitions.is_active, true),
+    ))
+    .orderBy(agentVersionTools.order_index);
+}
+
+function mergeToolSummaries(...groups: ChatToolSummary[][]): ChatToolSummary[] {
+  const byId = new Map<string, ChatToolSummary>();
+  for (const group of groups) {
+    for (const tool of group) {
+      if (!byId.has(tool.id)) {
+        byId.set(tool.id, tool);
+      }
+    }
+  }
+  return [...byId.values()];
 }
 
 async function validateChatToolSelection(toolIds: string[]): Promise<ChatToolSummary[]> {
@@ -7074,11 +7122,13 @@ export async function getChatById(chatId: string, userId: string): Promise<Conve
   const chat = await getConversationForUser(chatId, userId);
   const shareToken = await ensureChatShareToken(chat.id, chat.share_token);
   const chatToolSettings = extractChatToolSettings(chat.settings_json);
-  const [messages, agentMeta] = await Promise.all([
+  const [messages, agentMeta, chatTools, agentTools] = await Promise.all([
     getConversationMessages(chatId),
     getAgentChatMeta(chat.agent_id ?? null),
+    getActiveToolSummariesByIds(chatToolSettings.tool_ids),
+    getActiveAgentToolSummaries(chat.agent_id ?? null),
   ]);
-  const tools = await getActiveToolSummariesByIds(chatToolSettings.tool_ids);
+  const effectiveTools = mergeToolSummaries(agentTools, chatTools);
   const pending_run = await getConversationRuntimeState(chat, messages);
 
   return {
@@ -7101,8 +7151,14 @@ export async function getChatById(chatId: string, userId: string): Promise<Conve
       message_count: messages.length,
       agent_chat_description: agentMeta.agent_chat_description,
       agent_starter_prompts: agentMeta.agent_starter_prompts,
-      tool_ids: tools.map((tool) => tool.id),
-      tools,
+      tool_ids: chatTools.map((tool) => tool.id),
+      tools: chatTools,
+      chat_tool_ids: chatTools.map((tool) => tool.id),
+      chat_tools: chatTools,
+      agent_tool_ids: agentTools.map((tool) => tool.id),
+      agent_tools: agentTools,
+      effective_tool_ids: effectiveTools.map((tool) => tool.id),
+      effective_tools: effectiveTools,
       pending_run,
       pinned_at: chat.pinned_at ? toIso(chat.pinned_at) : null,
       last_message_at: toIso(chat.last_message_at),

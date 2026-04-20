@@ -249,6 +249,12 @@ export interface ChatDetails {
     agent_starter_prompts: string[];
     tool_ids: string[];
     tools: ChatToolDefinition[];
+    chat_tool_ids: string[];
+    chat_tools: ChatToolDefinition[];
+    agent_tool_ids: string[];
+    agent_tools: ChatToolDefinition[];
+    effective_tool_ids: string[];
+    effective_tools: ChatToolDefinition[];
     pending_run: ChatPendingRunState | null;
   };
   messages: ChatMessage[];

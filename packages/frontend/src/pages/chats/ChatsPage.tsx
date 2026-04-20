@@ -2124,7 +2124,7 @@ function AuthenticatedChatsPage() {
     );
     setPropertiesAgentId(activeChat.agent_id ?? '');
     setPropertiesModel(activeChat.model_external_id ?? 'openai/gpt-4o-mini');
-    setPropertiesToolIds(activeChat.tool_ids ?? []);
+    setPropertiesToolIds(activeChat.chat_tool_ids ?? activeChat.tool_ids ?? []);
     setPropertiesAccess(activeChat.access ?? 'public');
     setPropertiesAllowedText((activeChat.access_identifiers ?? []).join('\n'));
     setPropertiesNote(activeChat.note ?? '');
@@ -2256,11 +2256,28 @@ function AuthenticatedChatsPage() {
     () => propertiesAvailableTools.filter((tool) => propertiesToolIds.includes(tool.id)),
     [propertiesAvailableTools, propertiesToolIds],
   );
+  const propertiesAgentToolIds = useMemo(
+    () => new Set(activeChat?.agent_tool_ids ?? []),
+    [activeChat?.agent_tool_ids],
+  );
+  const propertiesEffectiveToolIds = useMemo(
+    () => new Set(activeChat?.effective_tool_ids ?? activeChat?.tool_ids ?? []),
+    [activeChat?.effective_tool_ids, activeChat?.tool_ids],
+  );
+  const propertiesAgentTools = useMemo(
+    () => activeChat?.agent_tools ?? [],
+    [activeChat?.agent_tools],
+  );
+  const propertiesEffectiveTools = useMemo(
+    () => activeChat?.effective_tools ?? activeChat?.tools ?? propertiesSelectedTools,
+    [activeChat?.effective_tools, activeChat?.tools, propertiesSelectedTools],
+  );
   const quickConnectTools = useMemo(
     () => propertiesAvailableTools.filter((tool) => (
-      tool.slug === 'http-request' || tool.slug === 'web-search-cascade'
+      (tool.slug === 'http-request' || tool.slug === 'web-search-cascade')
+      && !propertiesEffectiveToolIds.has(tool.id)
     )),
-    [propertiesAvailableTools],
+    [propertiesAvailableTools, propertiesEffectiveToolIds],
   );
   const isPropertiesAgentMode = propertiesModeView !== 'general';
 
@@ -4445,7 +4462,7 @@ function AuthenticatedChatsPage() {
                 </div>
                 <div className="rounded-xl border bg-muted/10 p-3 space-y-1">
                   <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Инструменты</p>
-                  <p className="text-sm font-medium">{activeChat.tools.length}</p>
+                  <p className="text-sm font-medium">{(activeChat.effective_tools ?? activeChat.tools).length}</p>
                 </div>
               </div>
 
@@ -4661,20 +4678,29 @@ function AuthenticatedChatsPage() {
 
                     <div className="space-y-2">
                       <p className="text-xs uppercase tracking-wide text-muted-foreground">Подключено сейчас</p>
-                      {propertiesSelectedTools.length > 0 ? (
+                      {propertiesEffectiveTools.length > 0 ? (
                         <div className="flex flex-wrap gap-2">
-                          {propertiesSelectedTools.map((tool) => (
+                          {propertiesEffectiveTools.map((tool) => {
+                            const isAgentTool = propertiesAgentToolIds.has(tool.id);
+                            const isChatTool = propertiesToolIds.includes(tool.id);
+                            return (
                             <Badge key={tool.id} variant="outline" className="gap-1 rounded-full px-3 py-1">
                               <span>{tool.name}</span>
-                              <button
-                                type="button"
-                                className="text-muted-foreground transition hover:text-foreground"
-                                onClick={() => togglePropertiesTool(tool.id)}
-                              >
-                                ×
-                              </button>
+                              {isAgentTool && (
+                                <span className="text-[10px] uppercase tracking-wide text-sky-700">встроен в агента</span>
+                              )}
+                              {!isAgentTool && isChatTool && (
+                                <button
+                                  type="button"
+                                  className="text-muted-foreground transition hover:text-foreground"
+                                  onClick={() => togglePropertiesTool(tool.id)}
+                                >
+                                  ×
+                                </button>
+                              )}
                             </Badge>
-                          ))}
+                            );
+                          })}
                         </div>
                       ) : (
                         <p className="text-sm text-muted-foreground">
@@ -4706,22 +4732,30 @@ function AuthenticatedChatsPage() {
                     )}
 
                     <div className="space-y-2">
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="text-xs uppercase tracking-wide text-muted-foreground">Все доступные инструменты</p>
-                        <p className="text-xs text-muted-foreground">{propertiesToolIds.length} выбрано</p>
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-xs uppercase tracking-wide text-muted-foreground">Все доступные инструменты</p>
+                        <p className="text-xs text-muted-foreground">{propertiesEffectiveTools.length} активно</p>
                       </div>
                       {propertiesAvailableTools.length > 0 ? (
                         <div className="max-h-64 space-y-2 overflow-y-auto rounded-xl border bg-background p-2">
                           {propertiesAvailableTools.map((tool) => {
                             const isSelected = propertiesToolIds.includes(tool.id);
+                            const isAgentTool = propertiesAgentToolIds.has(tool.id);
+                            const isEffective = propertiesEffectiveToolIds.has(tool.id);
                             return (
                               <button
                                 key={tool.id}
                                 type="button"
-                                onClick={() => togglePropertiesTool(tool.id)}
+                                onClick={() => {
+                                  if (isAgentTool) return;
+                                  togglePropertiesTool(tool.id);
+                                }}
+                                disabled={isAgentTool}
                                 className={cn(
                                   'w-full rounded-lg border px-3 py-3 text-left transition-colors',
-                                  isSelected
+                                  isAgentTool
+                                    ? 'cursor-default border-sky-200 bg-sky-50/70'
+                                    : isSelected
                                     ? 'border-primary bg-primary/8 shadow-sm'
                                     : 'border-border bg-background hover:border-primary/30 hover:bg-accent/40',
                                 )}
@@ -4734,8 +4768,8 @@ function AuthenticatedChatsPage() {
                                       {tool.description || 'Без дополнительного описания'}
                                     </p>
                                   </div>
-                                  <Badge variant={isSelected ? 'success' : 'secondary'}>
-                                    {isSelected ? 'Подключен' : 'Выключен'}
+                                  <Badge variant={isAgentTool ? 'outline' : isEffective ? 'success' : 'secondary'}>
+                                    {isAgentTool ? 'Встроен' : isEffective ? 'Подключен' : 'Выключен'}
                                   </Badge>
                                 </div>
                               </button>
