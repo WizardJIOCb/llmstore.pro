@@ -149,6 +149,7 @@ export interface UsageSummary {
   completion_tokens: number;
   total_tokens: number;
   estimated_cost: string;
+  charged_cost?: string;
   model: string;
   usd_to_rub_rate?: number;
 }

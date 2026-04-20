@@ -4,8 +4,9 @@ import type { MutableRefObject } from 'react';
 
 interface LiveBalancePayload {
   run_id?: string;
-  estimated_cost?: string;
+  charged_cost?: string;
   usd_to_rub_rate?: number;
+  balance_after_usd?: string;
 }
 
 export function shouldApplyLiveBalanceEvent(eventName: string): boolean {
@@ -14,6 +15,7 @@ export function shouldApplyLiveBalanceEvent(eventName: string): boolean {
     || eventName === 'chat.run.status'
     || eventName === 'chat.run.tool.started'
     || eventName === 'chat.run.tool.finished'
+    || eventName === 'chat.message.completed'
   );
 }
 
@@ -32,14 +34,14 @@ export function applyLiveBalanceDelta(
   payload: LiveBalancePayload,
 ) {
   const runId = typeof payload.run_id === 'string' ? payload.run_id.trim() : '';
-  const nextEstimatedCost = toFiniteNumber(payload.estimated_cost);
-  if (!runId || nextEstimatedCost <= 0) return;
+  const nextChargedCost = toFiniteNumber(payload.charged_cost);
+  if (!runId || nextChargedCost <= 0) return;
 
   const previousCost = seenCostsByRun.current[runId] ?? 0;
-  if (nextEstimatedCost <= previousCost) return;
+  if (nextChargedCost <= previousCost) return;
 
-  const deltaUsd = nextEstimatedCost - previousCost;
-  seenCostsByRun.current[runId] = nextEstimatedCost;
+  const deltaUsd = nextChargedCost - previousCost;
+  seenCostsByRun.current[runId] = nextChargedCost;
 
   queryClient.setQueryData<UserProfile | undefined>(['profile'], (current) => {
     if (!current) return current;
@@ -50,7 +52,9 @@ export function applyLiveBalanceDelta(
 
     return {
       ...current,
-      balance_usd: toFixedBalance(currentUsd - deltaUsd),
+      balance_usd: typeof payload.balance_after_usd === 'string'
+        ? toFixedBalance(toFiniteNumber(payload.balance_after_usd))
+        : toFixedBalance(currentUsd - deltaUsd),
       balance_rub: toFixedBalance(currentRub - (deltaUsd * rate)),
     };
   });

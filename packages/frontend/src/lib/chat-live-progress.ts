@@ -10,7 +10,9 @@ export interface LiveProgressPayload {
   completion_tokens?: number;
   total_tokens?: number;
   estimated_cost?: string;
+  charged_cost?: string;
   usd_to_rub_rate?: number;
+  balance_after_usd?: string;
 }
 
 export interface LiveProgressEvent extends LiveProgressPayload {
@@ -113,6 +115,7 @@ export function createLiveProgressEvent(
     completion_tokens: payload.completion_tokens,
     total_tokens: payload.total_tokens,
     estimated_cost: payload.estimated_cost,
+    charged_cost: payload.charged_cost,
     usd_to_rub_rate: payload.usd_to_rub_rate,
   };
 }

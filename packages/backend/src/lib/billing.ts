@@ -10,7 +10,8 @@ export async function chargeUserBalanceForUsage(input: {
   description: string;
 }) {
   const normalizedAmount = Number(input.amount_usd);
-  if (!Number.isFinite(normalizedAmount) || normalizedAmount <= 0) {
+  const roundedAmount = Number(normalizedAmount.toFixed(4));
+  if (!Number.isFinite(roundedAmount) || roundedAmount <= 0) {
     return null;
   }
 
@@ -26,8 +27,8 @@ export async function chargeUserBalanceForUsage(input: {
     }
 
     const currentBalance = Number(user.balance_usd);
-    const newBalance = currentBalance - normalizedAmount;
-    const txAmount = -normalizedAmount;
+    const newBalance = currentBalance - roundedAmount;
+    const txAmount = -roundedAmount;
 
     await tx
       .update(users)
@@ -47,6 +48,7 @@ export async function chargeUserBalanceForUsage(input: {
       .returning();
 
     return {
+      charged_amount_usd: roundedAmount.toFixed(4),
       balance_usd: newBalance.toFixed(4),
       transaction_id: balanceTx.id,
     };

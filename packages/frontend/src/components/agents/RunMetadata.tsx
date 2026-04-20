@@ -4,6 +4,7 @@ interface RunMetadataProps {
     completion_tokens: number;
     total_tokens: number;
     estimated_cost?: string;
+    charged_cost?: string;
     model?: string;
     usd_to_rub_rate?: number;
   } | null | undefined;
@@ -45,9 +46,18 @@ export function RunMetadata({ usage, latencyMs, agentName, toolNames }: RunMetad
           <span className="hidden sm:inline">
             (prompt: {usage.prompt_tokens}, completion: {usage.completion_tokens})
           </span>
-          {usage.estimated_cost && (
+          {usage.charged_cost ? (
             <span>
-              Стоимость: {formatCost(usage.estimated_cost)} ({formatRubFromUsd(usage.estimated_cost, usage.usd_to_rub_rate)})
+              Списано: {formatCost(usage.charged_cost)} ({formatRubFromUsd(usage.charged_cost, usage.usd_to_rub_rate)})
+            </span>
+          ) : usage.estimated_cost ? (
+            <span>
+              Оценка: {formatCost(usage.estimated_cost)} ({formatRubFromUsd(usage.estimated_cost, usage.usd_to_rub_rate)})
+            </span>
+          ) : null}
+          {usage.charged_cost && usage.estimated_cost && usage.charged_cost !== usage.estimated_cost && (
+            <span className="hidden md:inline">
+              Оценка: {formatCost(usage.estimated_cost)}
             </span>
           )}
           {usage.model && <span className="hidden md:inline">Модель: {usage.model.split('/').pop()}</span>}

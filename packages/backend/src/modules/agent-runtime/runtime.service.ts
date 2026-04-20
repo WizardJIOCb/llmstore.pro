@@ -3366,6 +3366,9 @@ ${agent.description.trim()}`);
     sources: Set<string>;
   }>();
   let usageEventRateCache: number | null = null;
+  let chargedCostUsd = 0;
+  let balanceAfterChargeUsd: string | null = null;
+  const chargeTransactionIds: string[] = [];
   const recordUsage = (
     usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number },
     usageModel: string,
@@ -3388,6 +3391,11 @@ ${agent.description.trim()}`);
       : estimateCost(modelId, totalUsage.prompt_tokens, totalUsage.completion_tokens)
   );
   const getUsageBreakdownPayload = () => serializeUsageBreakdown(usageBreakdown);
+  const getActualBillingPayload = () => ({
+    charged_cost: chargedCostUsd > 0 ? chargedCostUsd.toFixed(4) : undefined,
+    balance_after_usd: balanceAfterChargeUsd ?? undefined,
+    charge_transaction_ids: chargeTransactionIds.length > 0 ? [...chargeTransactionIds] : undefined,
+  });
   const normalizeToolUsageEntries = (value: unknown) => {
     const rawItems = Array.isArray(value) ? value : (value ? [value] : []);
     return rawItems
@@ -3414,6 +3422,7 @@ ${agent.description.trim()}`);
       completion_tokens: totalUsage.completion_tokens,
       total_tokens: totalUsage.total_tokens,
       estimated_cost: getEstimatedCostTotal(),
+      ...getActualBillingPayload(),
       usd_to_rub_rate: usdToRubRate,
       by_model: getUsageBreakdownPayload(),
     };
@@ -3426,6 +3435,33 @@ ${agent.description.trim()}`);
       ...payload,
       ...(await getUsageEventPayload()),
     });
+  };
+  const chargeAccumulatedUsage = async (force = false) => {
+    if (!chargeUsage) return;
+
+    const targetCost = Number(getEstimatedCostTotal());
+    if (!Number.isFinite(targetCost) || targetCost <= chargedCostUsd) return;
+
+    const deltaUsd = targetCost - chargedCostUsd;
+    if (!force && deltaUsd < 0.0001) return;
+
+    const chargeResult = await chargeUserBalanceForUsage({
+      user_id: userId,
+      amount_usd: deltaUsd,
+      type: 'agent_run_usage',
+      description: `Списание за запуск агента ${agent.name}`,
+    });
+
+    if (!chargeResult) return;
+
+    const chargedDelta = Number(chargeResult.charged_amount_usd ?? 0);
+    if (Number.isFinite(chargedDelta) && chargedDelta > 0) {
+      chargedCostUsd += chargedDelta;
+    }
+    balanceAfterChargeUsd = chargeResult.balance_usd ?? balanceAfterChargeUsd;
+    if (typeof chargeResult.transaction_id === 'string' && chargeResult.transaction_id) {
+      chargeTransactionIds.push(chargeResult.transaction_id);
+    }
   };
 
   await emitRunEvent('chat.run.started', {
@@ -3501,6 +3537,7 @@ ${agent.description.trim()}`);
       ? {
         ...totalUsage,
         estimated_cost: getEstimatedCostTotal(),
+        ...getActualBillingPayload(),
         model: modelId,
         usd_to_rub_rate: await getUsdToRubRate(),
         by_model: getUsageBreakdownPayload(),
@@ -3580,6 +3617,7 @@ ${agent.description.trim()}`);
 
     if (continuationResponse.usage) {
       recordUsage(continuationResponse.usage, continuationResponse.model || modelId, 'final_continuation');
+      await chargeAccumulatedUsage();
     }
 
     const continuationChoice = requireFirstChoice(
@@ -3664,6 +3702,7 @@ ${agent.description.trim()}`);
 
     if (response.usage) {
       recordUsage(response.usage, response.model || modelId, 'preview_repair');
+      await chargeAccumulatedUsage();
     }
 
     const choice = requireFirstChoice(
@@ -3735,6 +3774,7 @@ ${agent.description.trim()}`);
       // Accumulate usage
       if (response.usage) {
         recordUsage(response.usage, response.model || modelId, 'orchestrator');
+        await chargeAccumulatedUsage();
       }
 
       const choice = requireFirstChoice(response, 'LLM returned no choices');
@@ -3802,6 +3842,7 @@ ${agent.description.trim()}`);
                 total_tokens: usageEntry.total_tokens || (usageEntry.prompt_tokens + usageEntry.completion_tokens),
               }, usageEntry.model_external_id, `tool:${toolSlug}`);
             }
+            await chargeAccumulatedUsage();
 
             // Update tool call record
             await db.update(agentRunToolCalls).set({
@@ -4040,6 +4081,10 @@ ${agent.description.trim()}`);
     await db.insert(agentRunMessages).values(allMessages);
   }
 
+  if (chargeUsage && totalUsage.total_tokens > 0) {
+    await chargeAccumulatedUsage(true);
+  }
+
   // 10. Persist usage
   const estCost = getEstimatedCostTotal();
   const usdToRubRate = await getUsdToRubRate();
@@ -4060,6 +4105,7 @@ ${agent.description.trim()}`);
           orchestrator_model: modelId,
           run_total_tokens: totalUsage.total_tokens,
           run_total_estimated_cost: estCost,
+          run_total_charged_cost: chargedCostUsd.toFixed(4),
         } as Record<string, unknown>,
       }))
       : [{
@@ -4071,7 +4117,10 @@ ${agent.description.trim()}`);
         completion_tokens: totalUsage.completion_tokens,
         total_tokens: totalUsage.total_tokens,
         estimated_cost: estCost,
-        raw_usage_json: totalUsage as unknown as Record<string, unknown>,
+        raw_usage_json: {
+          ...(totalUsage as unknown as Record<string, unknown>),
+          run_total_charged_cost: chargedCostUsd.toFixed(4),
+        },
       }];
     await db.insert(usageLedger).values(ledgerRows);
   }
@@ -4092,6 +4141,7 @@ ${agent.description.trim()}`);
       ? {
         ...totalUsage,
         estimated_cost: estCost,
+        ...getActualBillingPayload(),
         model: modelId,
         usd_to_rub_rate: usdToRubRate,
         by_model: usageBreakdownPayload,
@@ -4107,23 +4157,23 @@ ${agent.description.trim()}`);
           : null
       );
 
-    if (runStatus === 'completed' && finalOutput.trim().length > 0) {
-      if (partialAssistantMessageId) {
-        await db.update(chatConversationMessages).set({
-          content_text: finalOutput,
-          usage_json: usagePayload as Record<string, unknown> | null,
-          latency_ms: latencyMs,
-        }).where(eq(chatConversationMessages.id, partialAssistantMessageId));
-      } else {
-        await db.insert(chatConversationMessages).values({
-          conversation_id: syncedConversationId,
-          role: 'assistant',
-          content_text: finalOutput,
-          run_id: run.id,
-          usage_json: usagePayload as Record<string, unknown> | null,
-          latency_ms: latencyMs,
-        });
-      }
+    if (partialAssistantMessageId) {
+      await db.update(chatConversationMessages).set({
+        ...(runStatus === 'completed' && finalOutput.trim().length > 0
+          ? { content_text: finalOutput }
+          : {}),
+        usage_json: usagePayload as Record<string, unknown> | null,
+        latency_ms: latencyMs,
+      }).where(eq(chatConversationMessages.id, partialAssistantMessageId));
+    } else if (runStatus === 'completed' && finalOutput.trim().length > 0) {
+      await db.insert(chatConversationMessages).values({
+        conversation_id: syncedConversationId,
+        role: 'assistant',
+        content_text: finalOutput,
+        run_id: run.id,
+        usage_json: usagePayload as Record<string, unknown> | null,
+        latency_ms: latencyMs,
+      });
     }
 
     await db.update(chatConversations).set({
@@ -4132,15 +4182,6 @@ ${agent.description.trim()}`);
       last_message_at: new Date(),
       updated_at: new Date(),
     }).where(eq(chatConversations.id, syncedConversationId));
-  }
-
-  if (chargeUsage && runStatus === 'completed' && totalUsage.total_tokens > 0) {
-    await chargeUserBalanceForUsage({
-      user_id: userId,
-      amount_usd: Number(estCost),
-      type: 'agent_run_usage',
-      description: `Списание за запуск агента ${agent.name}`,
-    });
   }
 
   if (runStatus === 'completed') {
@@ -4172,6 +4213,7 @@ ${agent.description.trim()}`);
       ? {
         ...totalUsage,
         estimated_cost: estCost,
+        ...getActualBillingPayload(),
         model: modelId,
         usd_to_rub_rate: usdToRubRate,
         by_model: usageBreakdownPayload,
@@ -7757,6 +7799,31 @@ export async function sendChatMessage(
   assistantText = normalizedAssistant.content || assistantText;
   usagePayload = attachUsdToRubRate(normalizedAssistant.usage, usdToRubRate);
 
+  const chargedCost = Number(
+    typeof usagePayload?.estimated_cost === 'string'
+      ? usagePayload.estimated_cost
+      : (typeof usagePayload?.estimated_cost === 'number' ? usagePayload.estimated_cost : 0),
+  );
+  const chargeResult = chargedCost > 0
+    ? await chargeUserBalanceForUsage({
+      user_id: userId,
+      amount_usd: chargedCost,
+      type: chat.mode === 'agent' ? 'agent_run_usage' : 'chat_usage',
+      description: chat.mode === 'agent'
+        ? `Списание за агентный чат ${chat.title === 'Новый чат' ? compactTitle(trimmedContent || 'Вложение') : chat.title}`
+        : `Списание за чат ${chat.title === 'Новый чат' ? compactTitle(trimmedContent || 'Вложение') : chat.title}`,
+    })
+    : null;
+
+  if (usagePayload && chargeResult?.charged_amount_usd) {
+    usagePayload = {
+      ...usagePayload,
+      charged_cost: chargeResult.charged_amount_usd,
+      balance_after_usd: chargeResult.balance_usd,
+      charge_transaction_ids: chargeResult.transaction_id ? [chargeResult.transaction_id] : undefined,
+    };
+  }
+
   const [assistantRow] = await db.insert(chatConversationMessages).values({
     conversation_id: chatId,
     role: 'assistant',
@@ -7776,23 +7843,9 @@ export async function sendChatMessage(
     run_id: runId,
     mode: chat.mode,
     label: 'Ответ сохранён в чате',
+    charged_cost: chargeResult?.charged_amount_usd,
+    balance_after_usd: chargeResult?.balance_usd,
   });
-
-  const chargedCost = Number(
-    typeof usagePayload?.estimated_cost === 'string'
-      ? usagePayload.estimated_cost
-      : (typeof usagePayload?.estimated_cost === 'number' ? usagePayload.estimated_cost : 0),
-  );
-  if (chargedCost > 0) {
-    await chargeUserBalanceForUsage({
-      user_id: userId,
-      amount_usd: chargedCost,
-      type: chat.mode === 'agent' ? 'agent_run_usage' : 'chat_usage',
-      description: chat.mode === 'agent'
-        ? `Списание за агентный чат ${nextTitle}`
-        : `Списание за чат ${nextTitle}`,
-    });
-  }
 
   return {
     processing: false,

@@ -14,6 +14,7 @@ export interface ChatLiveProgressEvent {
   completion_tokens?: number;
   total_tokens?: number;
   estimated_cost?: string;
+  charged_cost?: string;
   usd_to_rub_rate?: number;
 }
 
@@ -90,11 +91,19 @@ function buildUsageLabel(event: ChatLiveProgressEvent): string | null {
     parts.push(`Всего: ${formatInt(event.total_tokens)}`);
   }
 
-  const costUsd = typeof event.estimated_cost === 'string' ? Number(event.estimated_cost) : Number.NaN;
-  if (Number.isFinite(costUsd)) {
-    parts.push(formatUsd(costUsd));
+  const chargedUsd = typeof event.charged_cost === 'string' ? Number(event.charged_cost) : Number.NaN;
+  if (Number.isFinite(chargedUsd) && chargedUsd > 0) {
+    parts.push(`Списано: ${formatUsd(chargedUsd)}`);
     if (typeof event.usd_to_rub_rate === 'number') {
-      parts.push(formatRub(costUsd * event.usd_to_rub_rate));
+      parts.push(formatRub(chargedUsd * event.usd_to_rub_rate));
+    }
+  } else {
+    const estimatedUsd = typeof event.estimated_cost === 'string' ? Number(event.estimated_cost) : Number.NaN;
+    if (Number.isFinite(estimatedUsd)) {
+      parts.push(`Оценка: ${formatUsd(estimatedUsd)}`);
+      if (typeof event.usd_to_rub_rate === 'number') {
+        parts.push(formatRub(estimatedUsd * event.usd_to_rub_rate));
+      }
     }
   }
 
