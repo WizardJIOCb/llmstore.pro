@@ -5,6 +5,7 @@ import { seedBuiltinTools } from './builtin-tools.js';
 import { seedAdminUser } from './admin-user.js';
 import { seedCatalogItems } from './catalog-items.js';
 import { seedDtfNewsAgent } from './dtf-news-agent.js';
+import { seedLandingBuilderWebSearchAgent } from './landing-builder-web-search-agent.js';
 import { seedOpenRouterCodingAgent } from './openrouter-coding-agent.js';
 import { seedWebSearchAgent } from './web-search-agent.js';
 
@@ -18,6 +19,7 @@ async function main() {
   await seedAdminUser();
   await seedCatalogItems();
   await seedDtfNewsAgent();
+  await seedLandingBuilderWebSearchAgent();
   await seedOpenRouterCodingAgent();
   await seedWebSearchAgent();
 

@@ -28,6 +28,12 @@ const templates: Template[] = [
     icon: '🛠',
   },
   {
+    id: 'landing-web-search',
+    name: 'Landing Builder + Web Search',
+    description: 'Агент для лендингов: сначала читает ссылки из промпта через HTTP Request, затем добирает факты через Web Search Cascade и возвращает HTML preview без шаблонной отсебятины.',
+    icon: '🛰',
+  },
+  {
     id: 'kimi-orchestrator',
     name: 'Kimi K2.5 Orchestrator',
     description: 'Отдельный orchestration-first шаблон под лендинги, large fullstack и большую аналитику: сначала план и декомпозиция, потом код.',

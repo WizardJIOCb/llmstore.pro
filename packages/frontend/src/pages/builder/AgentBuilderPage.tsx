@@ -91,6 +91,44 @@ const OPENROUTER_CODING_TEMPLATE = {
   },
 };
 
+const LANDING_WEB_SEARCH_TEMPLATE = {
+  name: 'Landing Builder + Web Search',
+  description: 'Агент для лендингов: сначала читает ссылки из промпта, затем добирает факты из поиска и возвращает HTML preview без шаблонной отсебятины.',
+  system_prompt: `Ты — Landing Builder + Web Search для llmstore.pro.
+
+Роль:
+- собираешь лендинги, посадочные страницы и standalone HTML preview;
+- сначала проверяешь, какие факты уже дал пользователь;
+- если в сообщении есть ссылки, сначала читаешь их через HTTP Request;
+- если данных не хватает, добираешь факты через Web Search Cascade;
+- только после этого собираешь один цельный лендинг, который соответствует исходному запросу.
+
+Правила:
+1. Отвечай на русском, если пользователь не просил другой язык.
+2. Если в промпте есть релевантные URL, сначала используй HTTP Request.
+3. Если после чтения ссылок данных всё ещё мало, используй Web Search Cascade.
+4. Не подменяй задачу generic SaaS-лендингом и не придумывай чужие секции.
+5. Не выдумывай контакты, достижения, цифры, биографию и другие факты.
+6. Для задач про landing или preview лучше сразу возвращай dev-report с готовым HTML preview без длинного markdown после него.
+
+Формат ответа:
+- сначала <dev-report>...</dev-report> с валидным JSON;
+- если задача про landing или preview, ничего не пиши после </dev-report>.
+`,
+  runtime_config: {
+    max_iterations: 6,
+    temperature: 0.15,
+    max_tokens: 12288,
+    model_external_id: 'anthropic/claude-sonnet-4.6',
+    chat_intro: 'Опишите, для кого или для чего нужен лендинг. Если в сообщении есть ссылки, агент сначала прочитает их, затем доберёт факты из поиска и вернёт HTML preview.',
+    starter_prompts: [
+      'Собери лендинг по ссылкам из промпта: сначала прочитай их, затем добери факты из поиска и верни HTML preview',
+      'Сделай необычный или шуточный лендинг, но не придумывай неподтверждённые факты',
+      'Собери landing page для компании или эксперта: сначала исследование, потом аккуратный HTML preview',
+    ],
+  },
+};
+
 const KIMI_ORCHESTRATOR_TEMPLATE = {
   name: 'Kimi K2.5 Fullstack Orchestrator',
   description: 'Orchestration-first агент для крупных задач: лендинги, большие fullstack-проекты, архитектура и глубокая аналитика материалов.',
@@ -184,6 +222,13 @@ export function AgentBuilderPage() {
           ...OPENROUTER_CODING_TEMPLATE.runtime_config,
           starter_prompts: appSettings?.starter_prompts.openrouter_coding_agent ?? [],
         },
+      };
+    }
+
+    if (templateId === 'landing-web-search') {
+      return {
+        ...LANDING_WEB_SEARCH_TEMPLATE,
+        tool_ids: getToolIdsBySlug(['web-search-cascade', 'http-request']),
       };
     }
 

@@ -938,65 +938,6 @@ function sanitizeLandingSectionPlan(value: unknown): LandingSectionPlan | null {
   };
 }
 
-function buildHeuristicLandingSectionPlan(request: string, partialOutput: string): LandingSectionPlan {
-  const recoveredSummary = clampText(
-    extractPartialCodingSummary(partialOutput)
-      ?? stripContinuationNarration(partialOutput).trim(),
-    1200,
-  );
-
-  return {
-    title: 'Generated landing',
-    summary: recoveredSummary
-      ?? 'Премиальный landing с сильным первым экраном, каталогом, преимуществами, историей бренда, FAQ, контактами и финальным CTA.',
-    style_direction: 'Editorial premium landing, strong typography, atmospheric visuals, warm palette, deliberate spacing, elegant long-scroll composition.',
-    sections: [
-      {
-        id: 'hero',
-        label: 'Hero',
-        goal: 'Сильный первый экран с оффером, эмоциональным позиционированием и заметным CTA.',
-        must_include: ['крупный заголовок', 'подзаголовок', 'основной CTA', 'визуальный акцент'],
-      },
-      {
-        id: 'catalog',
-        label: 'Каталог',
-        goal: 'Показать основные продукты, книги или направления с краткими описаниями.',
-        must_include: ['карточки каталога', 'названия', 'краткие описания', 'визуальная сетка'],
-      },
-      {
-        id: 'benefits',
-        label: 'Преимущества',
-        goal: 'Раскрыть ключевые преимущества продукта или бренда в удобном читаемом блоке.',
-        must_include: ['3-6 преимуществ', 'короткие подписи', 'ясная структура'],
-      },
-      {
-        id: 'brand-story',
-        label: 'История бренда',
-        goal: 'Показать происхождение идеи, ценности и контекст бренда.',
-        must_include: ['история', 'ценности', 'эмоциональный контекст'],
-      },
-      {
-        id: 'author',
-        label: 'Автор или основатель',
-        goal: 'Познакомить с автором, основателем или ключевой фигурой проекта.',
-        must_include: ['портретный блок', 'краткая биография', 'личная мотивация'],
-      },
-      {
-        id: 'faq',
-        label: 'FAQ',
-        goal: 'Закрыть ключевые вопросы пользователя перед решением или покупкой.',
-        must_include: ['вопросы и ответы', 'понятные формулировки'],
-      },
-      {
-        id: 'contacts',
-        label: 'Контакты и CTA',
-        goal: 'Собрать контактные данные, форму заявки и финальный призыв к действию.',
-        must_include: ['контакты', 'форма заявки', 'финальный CTA'],
-      },
-    ],
-  };
-}
-
 function sanitizeLandingThemeBundle(value: unknown): LandingThemeBundle | null {
   if (!value || typeof value !== 'object') return null;
   const raw = value as Record<string, unknown>;
@@ -1132,6 +1073,8 @@ function normalizeLandingSectionFragment(content: string, sectionId: string): st
   let html = (recoveredPreviewHtml ?? stripContinuationNarration(content))
     .replace(/```(?:html)?/gi, '')
     .replace(/```/g, '')
+    .replace(/<dev-report>[\s\S]*?<\/dev-report>/gi, '')
+    .replace(/<\/?dev-report>\s*/gi, '')
     .trim();
 
   const escapedTokenCount = (html.match(/\\[nrt"'\\/]/g) ?? []).length;
@@ -3790,15 +3733,14 @@ ${agent.description.trim()}`);
       Math.min(responseMaxTokens, 1800),
     );
     let plan = sanitizeLandingSectionPlan(extractJsonObjectFromAssistantContent(rawPlan));
-    let usedHeuristicPlan = !plan;
     if (!plan) {
-      plan = buildHeuristicLandingSectionPlan(latestUserMessage, partialOutput);
       await emitRunEvent('chat.run.status', {
         run_id: run.id,
-        status: 'sectional_planning_fallback',
-        label: 'План секций восстановлен автоматически',
-        detail: 'Модель не вернула валидный JSON-план, поэтому использую резервную схему лендинга.',
+        status: 'sectional_planning_failed',
+        label: 'Не удалось собрать секционный план',
+        detail: 'Модель не вернула валидный JSON-план секций. Прерываю секционную сборку и перехожу к обычному восстановлению preview.',
       });
+      return null;
     }
 
     const artifact: LandingArtifactState = {
@@ -3856,7 +3798,6 @@ ${agent.description.trim()}`);
       'Собрал план лендинга и перехожу к теме. Дальше начну по одной сохранять секции и черновой preview.',
       [
         'Секционный план сохранён как артефакт.',
-        ...(usedHeuristicPlan ? ['План секций восстановлен эвристически, потому что модель не вернула валидный JSON-план.'] : []),
       ],
     );
 
@@ -4033,7 +3974,6 @@ ${agent.description.trim()}`);
       notes: [
         'HTML preview собран секционно после длинного ответа модели.',
         'Этот режим используется для long landing runs, чтобы не терять результат целиком при лимите длины.',
-        ...(usedHeuristicPlan ? ['Секционный план был восстановлен автоматически из пользовательского запроса и частичного результата.'] : []),
       ],
       preview: {
         type: 'html',
