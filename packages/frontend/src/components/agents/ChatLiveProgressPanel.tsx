@@ -60,10 +60,36 @@ function formatRub(value: number): string {
   }).format(value);
 }
 
-function buildUsageLabel(event: ChatLiveProgressEvent): string | null {
-  if (typeof event.total_tokens !== 'number') return null;
+function formatElapsed(elapsedMs: number): string {
+  const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
 
-  const parts = [`Токены: ${formatInt(event.total_tokens)}`];
+  if (minutes === 0) {
+    return `${totalSeconds} с`;
+  }
+
+  return `${minutes} мин ${seconds.toString().padStart(2, '0')} с`;
+}
+
+function buildUsageLabel(event: ChatLiveProgressEvent): string | null {
+  if (
+    typeof event.completion_tokens !== 'number' &&
+    typeof event.total_tokens !== 'number'
+  ) {
+    return null;
+  }
+
+  const parts: string[] = [];
+
+  if (typeof event.completion_tokens === 'number') {
+    parts.push(`Сгенерировано: ${formatInt(event.completion_tokens)}`);
+  }
+
+  if (typeof event.total_tokens === 'number') {
+    parts.push(`Всего: ${formatInt(event.total_tokens)}`);
+  }
+
   const costUsd = typeof event.estimated_cost === 'string' ? Number(event.estimated_cost) : Number.NaN;
   if (Number.isFinite(costUsd)) {
     parts.push(formatUsd(costUsd));
@@ -85,6 +111,7 @@ export function ChatLiveProgressPanel({
   trailing,
 }: ChatLiveProgressPanelProps) {
   const [animatedEventIds, setAnimatedEventIds] = useState<string[]>([]);
+  const [nowMs, setNowMs] = useState<number>(() => Date.now());
   const seenEventIdsRef = useRef<Set<string>>(new Set());
   const animationTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
@@ -124,6 +151,17 @@ export function ChatLiveProgressPanel({
     animationTimersRef.current.clear();
   }, []);
 
+  useEffect(() => {
+    if (events.length === 0) return;
+
+    setNowMs(Date.now());
+    const intervalId = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, [events.length]);
+
   if (events.length === 0) return null;
 
   return (
@@ -141,6 +179,21 @@ export function ChatLiveProgressPanel({
         {events.map((event, index) => {
           const usageLabel = buildUsageLabel(event);
           const isFresh = animatedEventIds.includes(event.id);
+          const startedAtMs = event.ts ? Date.parse(event.ts) : Number.NaN;
+          const nextEvent = events[index + 1];
+          const nextEventMs = nextEvent?.ts ? Date.parse(nextEvent.ts) : Number.NaN;
+          const elapsedLabel = Number.isFinite(startedAtMs)
+            ? formatElapsed(
+                Math.max(
+                  0,
+                  (Number.isFinite(nextEventMs) ? nextEventMs : nowMs) - startedAtMs,
+                ),
+              )
+            : null;
+          const progressLabel = [usageLabel, elapsedLabel ? `Прошло: ${elapsedLabel}` : null]
+            .filter(Boolean)
+            .join(' • ');
+
           return (
             <div
               key={event.id}
@@ -167,9 +220,9 @@ export function ChatLiveProgressPanel({
                       {[event.tool_name, event.status, event.error].filter(Boolean).join(' • ')}
                     </p>
                   )}
-                  {usageLabel && (
+                  {progressLabel && (
                     <p className="mt-1 text-xs font-medium text-sky-900/80">
-                      {usageLabel}
+                      {progressLabel}
                     </p>
                   )}
                 </div>
