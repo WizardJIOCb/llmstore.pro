@@ -3335,7 +3335,13 @@ ${agent.description.trim()}`);
     toolParams.length,
     previewOnlyLandingRequest,
   );
-  const responseMaxTokens = resolveAgentResponseMaxTokens(runtimeConfig.max_tokens, modelId, toolParams.length);
+  const landingBuildRequest = looksLikeLandingBuildRequest(latestUserMessage) && !strictPreviewEdit;
+  const responseMaxTokens = resolveAgentResponseMaxTokens(
+    runtimeConfig.max_tokens,
+    modelId,
+    toolParams.length,
+    landingBuildRequest,
+  );
 
   logger.info({
     runId: run.id,
@@ -3343,6 +3349,7 @@ ${agent.description.trim()}`);
     toolCount: toolParams.length,
     toolNames: effectiveTools.map(t => t.slug),
     previewOnlyLandingRequest,
+    landingBuildRequest,
     hasLandingReferenceContext: Boolean(landingReferenceContext),
     toolsDisabledForPreviewOnlyLanding,
   }, 'Starting agent run');
@@ -4515,6 +4522,7 @@ const CODING_AGENT_OPENROUTER_TIMEOUT_MS = 8 * 60_000;
 const GENERAL_CHAT_OPENROUTER_TIMEOUT_MS = 3 * 60_000;
 const MAX_FINAL_OUTPUT_CONTINUATIONS = 24;
 const MAX_AGENT_RESPONSE_TOKENS = 2200;
+const MAX_LANDING_RESPONSE_TOKENS = 12_000;
 
 function resolveAgentOpenRouterTimeoutMs(modelId: string, toolCount: number): number {
   if (isCodingModel(modelId)) {
@@ -4551,10 +4559,15 @@ function resolveAgentResponseMaxTokens(
   configuredMaxTokens: number | undefined,
   modelId: string,
   toolCount: number,
+  landingBuildRequest = false,
 ): number {
   const base = configuredMaxTokens && Number.isFinite(configuredMaxTokens)
     ? Math.max(256, Math.round(configuredMaxTokens))
     : 4096;
+
+  if (landingBuildRequest) {
+    return Math.min(base, MAX_LANDING_RESPONSE_TOKENS);
+  }
 
   if (isCodingModel(modelId) || toolCount > 0) {
     return Math.min(base, MAX_AGENT_RESPONSE_TOKENS);
