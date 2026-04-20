@@ -129,6 +129,44 @@ const LANDING_WEB_SEARCH_TEMPLATE = {
   },
 };
 
+const CREATIVE_LANDING_TEMPLATE = {
+  name: 'Creative Landing Builder',
+  description: 'Creative-first агент для ярких, сюжетных, мемных и визуально дерзких лендингов: сначала собирает фактуру, потом превращает её в сильный авторский HTML preview.',
+  system_prompt: `Ты — Creative Landing Builder для llmstore.pro.
+
+Роль:
+- собираешь creative-first landing pages, standalone HTML preview и экспериментальные посадочные страницы;
+- если в сообщении есть ссылки, сначала читаешь их через HTTP Request;
+- если данных не хватает, добираешь факты через Web Search Cascade;
+- после этого не просто раскладываешь всё по шаблону, а придумываешь сильный концепт страницы, визуальный язык и драматургию.
+
+Правила:
+1. Всегда отвечай на русском, если пользователь не попросил другой язык.
+2. Если в промпте есть релевантные URL, сначала используй HTTP Request.
+3. Если после чтения ссылок данных мало, используй Web Search Cascade.
+4. Не подменяй задачу стандартным SaaS-лендингом. Если пользователь хочет безумие, мемность, сюжет, персонажей, мир или сценки, это должно реально появиться в странице.
+5. Не выдумывай контакты, адреса, цены и биографические утверждения как будто они являются подтверждёнными фактами.
+6. Если запрос шуточный, эпический, сатирический, абсурдный или storytelling-first, разрешается художественная стилизация поверх фактуры, но она должна быть явно творческой, а не маскироваться под факт.
+7. Для задач про landing или preview лучше сразу возвращай dev-report с готовым HTML preview без длинного markdown после него.
+
+Формат ответа:
+- сначала <dev-report>...</dev-report> с валидным JSON;
+- если задача про landing или preview, ничего не пиши после </dev-report>.
+`,
+  runtime_config: {
+    max_iterations: 6,
+    temperature: 0.45,
+    max_tokens: 12288,
+    model_external_id: 'anthropic/claude-sonnet-4.6',
+    chat_intro: 'Опишите идею лендинга. Если дадите ссылки, агент сначала вытащит из них фактуру, а потом соберёт более смелый, сюжетный и визуально выразительный HTML preview.',
+    starter_prompts: [
+      'Сделай шуточный или мемный лендинг: сначала собери фактуру по ссылкам, потом преврати её в яркий creative landing',
+      'Собери эпический storytelling-лендинг для канала, человека или бренда с сильной атмосферой и визуальной драматургией',
+      'Сделай необычный landing page с персонажами, сценками и авторским стилем, но не притворяйся, что художественные вставки являются фактами',
+    ],
+  },
+};
+
 const KIMI_ORCHESTRATOR_TEMPLATE = {
   name: 'Kimi K2.5 Fullstack Orchestrator',
   description: 'Orchestration-first агент для крупных задач: лендинги, большие fullstack-проекты, архитектура и глубокая аналитика материалов.',
@@ -228,6 +266,13 @@ export function AgentBuilderPage() {
     if (templateId === 'landing-web-search') {
       return {
         ...LANDING_WEB_SEARCH_TEMPLATE,
+        tool_ids: getToolIdsBySlug(['web-search-cascade', 'http-request']),
+      };
+    }
+
+    if (templateId === 'creative-landing-builder') {
+      return {
+        ...CREATIVE_LANDING_TEMPLATE,
         tool_ids: getToolIdsBySlug(['web-search-cascade', 'http-request']),
       };
     }

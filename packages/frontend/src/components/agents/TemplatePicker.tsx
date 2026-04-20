@@ -34,6 +34,12 @@ const templates: Template[] = [
     icon: '🛰',
   },
   {
+    id: 'creative-landing-builder',
+    name: 'Creative Landing Builder',
+    description: 'Creative-first агент для ярких, мемных, сюжетных и более дерзких лендингов: сначала собирает фактуру по ссылкам и поиску, затем превращает её в сильный визуальный концепт.',
+    icon: '🎭',
+  },
+  {
     id: 'kimi-orchestrator',
     name: 'Kimi K2.5 Orchestrator',
     description: 'Отдельный orchestration-first шаблон под лендинги, large fullstack и большую аналитику: сначала план и декомпозиция, потом код.',
