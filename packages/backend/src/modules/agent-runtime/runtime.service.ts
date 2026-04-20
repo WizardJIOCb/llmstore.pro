@@ -41,6 +41,14 @@ import {
 } from '../../lib/app-settings.js';
 import { chargeUserBalanceForUsage } from '../../lib/billing.js';
 import { env } from '../../config/env.js';
+import {
+  estimateCost,
+  getModelDisplayLabel,
+  getModelPricingInfo,
+  isCodingModel,
+  normalizeModelLookupKey,
+  normalizeOpenRouterModelId,
+} from '../../lib/model-pricing.js';
 
 const DEFAULT_MODEL = 'google/gemini-2.0-flash-001';
 const DEFAULT_MAX_ITERATIONS = 4;
@@ -209,134 +217,18 @@ export interface ProjectRunResult {
   verification: ProjectRunVerification;
 }
 
-// Pricing per 1M tokens (USD) - OpenRouter rates, verified on April 2, 2026.
-const MODEL_PRICING: Record<string, { input: number; output: number }> = {
-  'google/gemini-2.0-flash-001': { input: 0.10, output: 0.40 },
-  'google/gemini-2.0-flash-lite-001': { input: 0.075, output: 0.30 },
-  'google/gemini-2.5-flash': { input: 0.30, output: 2.50 },
-  'google/gemini-2.5-flash-preview': { input: 0.15, output: 0.60 },
-  'google/gemini-2.5-pro': { input: 1.25, output: 10.00 },
-  'moonshotai/kimi-k2.5': { input: 0.3827, output: 1.72 },
-  'kimi-k2.5': { input: 0.3827, output: 1.72 },
-  'openai/gpt-4o': { input: 2.50, output: 10.00 },
-  'gpt-4o': { input: 2.50, output: 10.00 },
-  'openai/gpt-4o-mini': { input: 0.15, output: 0.60 },
-  'gpt-4o-mini': { input: 0.15, output: 0.60 },
-  'openai/gpt-5.4': { input: 2.50, output: 15.00 },
-  'gpt-5.4': { input: 2.50, output: 15.00 },
-  'openai/gpt-5.4-mini': { input: 0.75, output: 4.50 },
-  'gpt-5.4-mini': { input: 0.75, output: 4.50 },
-  'openai/gpt-5.3-codex': { input: 1.75, output: 14.00 },
-  'gpt-5.3-codex': { input: 1.75, output: 14.00 },
-  'openai/gpt-5.1-codex-max': { input: 1.25, output: 10.00 },
-  'gpt-5.1-codex-max': { input: 1.25, output: 10.00 },
-  'anthropic/claude-haiku-4.5': { input: 1.00, output: 5.00 },
-  'claude-haiku-4.5': { input: 1.00, output: 5.00 },
-  'anthropic/claude-sonnet-4.6': { input: 3.00, output: 15.00 },
-  'claude-sonnet-4.6': { input: 3.00, output: 15.00 },
-  'anthropic/claude-opus-4.6': { input: 5.00, output: 25.00 },
-  'claude-opus-4.6': { input: 5.00, output: 25.00 },
-  'qwen/qwen3-coder-plus': { input: 0.65, output: 3.25 },
-  'qwen3-coder-plus': { input: 0.65, output: 3.25 },
-  'qwen/qwen3-coder-flash': { input: 0.195, output: 0.975 },
-  'qwen3-coder-flash': { input: 0.195, output: 0.975 },
-  'qwen/qwen3-coder-next': { input: 0.12, output: 0.75 },
-  'qwen3-coder-next': { input: 0.12, output: 0.75 },
-  'mistralai/codestral-2508': { input: 0.30, output: 0.90 },
-  'codestral-2508': { input: 0.30, output: 0.90 },
-};
-
-const MODEL_LABELS: Record<string, string> = {
-  'anthropic/claude-haiku-4.5': 'Claude Haiku 4.5',
-  'claude-haiku-4.5': 'Claude Haiku 4.5',
-  'anthropic/claude-sonnet-4.6': 'Claude Sonnet 4.6',
-  'claude-sonnet-4.6': 'Claude Sonnet 4.6',
-  'anthropic/claude-opus-4.6': 'Claude Opus 4.6',
-  'claude-opus-4.6': 'Claude Opus 4.6',
-  'moonshotai/kimi-k2.5': 'Kimi K2.5',
-  'kimi-k2.5': 'Kimi K2.5',
-  'openai/gpt-5.4': 'GPT-5.4',
-  'gpt-5.4': 'GPT-5.4',
-  'openai/gpt-5.4-mini': 'GPT-5.4 Mini',
-  'gpt-5.4-mini': 'GPT-5.4 Mini',
-  'openai/gpt-5.3-codex': 'GPT-5.3 Codex',
-  'gpt-5.3-codex': 'GPT-5.3 Codex',
-  'openai/gpt-5.1-codex-max': 'GPT-5.1 Codex Max',
-  'gpt-5.1-codex-max': 'GPT-5.1 Codex Max',
-  'qwen/qwen3-coder-plus': 'Qwen3 Coder Plus',
-  'qwen3-coder-plus': 'Qwen3 Coder Plus',
-  'qwen/qwen3-coder-flash': 'Qwen3 Coder Flash',
-  'qwen3-coder-flash': 'Qwen3 Coder Flash',
-  'qwen/qwen3-coder-next': 'Qwen3 Coder Next',
-  'qwen3-coder-next': 'Qwen3 Coder Next',
-  'mistralai/codestral-2508': 'Codestral 2508',
-  'codestral-2508': 'Codestral 2508',
-};
-
-const CODING_MODEL_IDS = new Set([
-  'anthropic/claude-haiku-4.5',
-  'claude-haiku-4.5',
-  'anthropic/claude-sonnet-4.6',
-  'claude-sonnet-4.6',
-  'anthropic/claude-opus-4.6',
-  'claude-opus-4.6',
-  'moonshotai/kimi-k2.5',
-  'kimi-k2.5',
-  'openai/gpt-5.4',
-  'gpt-5.4',
-  'openai/gpt-5.4-mini',
-  'gpt-5.4-mini',
-  'openai/gpt-5.3-codex',
-  'gpt-5.3-codex',
-  'openai/gpt-5.1-codex-max',
-  'gpt-5.1-codex-max',
-  'qwen/qwen3-coder-plus',
-  'qwen3-coder-plus',
-  'qwen/qwen3-coder-flash',
-  'qwen3-coder-flash',
-  'qwen/qwen3-coder-next',
-  'qwen3-coder-next',
-  'mistralai/codestral-2508',
-  'codestral-2508',
-]);
-
-function normalizeModelLookupKey(modelId?: string | null): string {
-  return modelId?.trim().toLowerCase() ?? '';
-}
-
-function getModelPricingInfo(modelId?: string | null): { input: number; output: number } | null {
-  const normalized = normalizeModelLookupKey(modelId);
-  return normalized ? (MODEL_PRICING[normalized] ?? null) : null;
-}
-
-function getModelDisplayLabel(modelId?: string | null): string | null {
-  const normalized = normalizeModelLookupKey(modelId);
-  if (!normalized) return null;
-  return MODEL_LABELS[normalized] ?? modelId?.trim() ?? null;
-}
-
 function getRuntimeConfigModelExternalId(runtimeConfig?: Record<string, unknown> | null): string | null {
   const value = runtimeConfig?.model_external_id;
-  return typeof value === 'string' ? (value.trim() || null) : null;
+  return typeof value === 'string' ? (normalizeOpenRouterModelId(value) ?? null) : null;
 }
 
 function resolveAgentModelExternalId(
   runtimeConfig?: Record<string, unknown> | null,
   versionModelExternalId?: string | null,
 ): string | null {
-  return getRuntimeConfigModelExternalId(runtimeConfig) ?? (versionModelExternalId?.trim() || null) ?? DEFAULT_MODEL;
-}
-
-function isCodingModel(modelId?: string | null): boolean {
-  const normalized = normalizeModelLookupKey(modelId);
-  return normalized ? CODING_MODEL_IDS.has(normalized) : false;
-}
-
-function estimateCost(model: string, promptTokens: number, completionTokens: number): string {
-  const normalizedModel = model.trim().toLowerCase();
-  const pricing = MODEL_PRICING[normalizedModel] ?? { input: 0.10, output: 0.40 };
-  const cost = (promptTokens * pricing.input + completionTokens * pricing.output) / 1_000_000;
-  return cost.toFixed(6);
+  return getRuntimeConfigModelExternalId(runtimeConfig)
+    ?? (normalizeOpenRouterModelId(versionModelExternalId) ?? null)
+    ?? DEFAULT_MODEL;
 }
 
 function accumulateUsageBreakdown(
@@ -1629,22 +1521,6 @@ function buildLandingResponseDisciplineInstruction(userRequest: string): string 
     'Не возвращай markdown-списки файлов вне project.files.',
     `Запрос пользователя: ${userRequest}`,
   ].join('\n');
-}
-
-function normalizeOpenRouterModelId(modelId: string): string {
-  const value = modelId.trim();
-  if (!value) return DEFAULT_MODEL;
-
-  const aliases: Record<string, string> = {
-    'gemini-2.0-flash-001': 'google/gemini-2.0-flash-001',
-    'gemini-2.0-flash-lite-001': 'google/gemini-2.0-flash-lite-001',
-    'gemini-2.5-flash-preview': 'google/gemini-2.5-flash',
-    'google/gemini-2.5-flash-preview': 'google/gemini-2.5-flash',
-    'gemini-2.5-flash': 'google/gemini-2.5-flash',
-    'gpt-4o-mini': 'openai/gpt-4o-mini',
-    'gpt-4o': 'openai/gpt-4o',
-  };
-  return aliases[value] ?? value;
 }
 
 function isTextFilename(filename: string): boolean {

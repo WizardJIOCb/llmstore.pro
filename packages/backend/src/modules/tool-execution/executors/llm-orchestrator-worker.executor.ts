@@ -1,4 +1,5 @@
 import { AppError } from '../../../middleware/error-handler.js';
+import { estimateCost, normalizeOpenRouterModelId } from '../../../lib/model-pricing.js';
 import { openRouterClient } from '../../openrouter/index.js';
 import type { ToolExecutionResult } from '../types.js';
 
@@ -54,14 +55,17 @@ function parseWorkerRole(value: unknown): WorkerRole {
 }
 
 function normalizeModelId(value: unknown): string | null {
-  return typeof value === 'string' && value.trim() ? value.trim() : null;
+  return typeof value === 'string' && value.trim() ? (normalizeOpenRouterModelId(value) ?? null) : null;
 }
 
 function normalizeAllowedModels(config?: Record<string, unknown>): string[] {
   const configModels = Array.isArray(config?.allowed_models)
     ? config.allowed_models.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
     : [];
-  return configModels.length > 0 ? configModels.map((item) => item.trim()) : [...DEFAULT_ALLOWED_MODELS];
+  const models = configModels.length > 0 ? configModels.map((item) => item.trim()) : [...DEFAULT_ALLOWED_MODELS];
+  return models
+    .map((item) => normalizeOpenRouterModelId(item) ?? item.trim())
+    .filter((item, index, arr) => arr.indexOf(item) === index);
 }
 
 function resolveDefaultModelForRole(role: WorkerRole, config?: Record<string, unknown>): string {
@@ -71,23 +75,7 @@ function resolveDefaultModelForRole(role: WorkerRole, config?: Record<string, un
     const normalized = normalizeModelId(candidate);
     if (normalized) return normalized;
   }
-  return DEFAULT_MODELS_BY_ROLE[role];
-}
-
-function estimateCost(model: string, promptTokens: number, completionTokens: number): string {
-  const normalized = model.trim().toLowerCase();
-  const pricing: Record<string, { input: number; output: number }> = {
-    'anthropic/claude-sonnet-4.6': { input: 3.0, output: 15.0 },
-    'openai/gpt-5.4': { input: 2.5, output: 15.0 },
-    'openai/gpt-5.4-mini': { input: 0.75, output: 4.5 },
-    'openai/gpt-5.3-codex': { input: 1.75, output: 14.0 },
-    'qwen/qwen3-coder-plus': { input: 0.65, output: 3.25 },
-    'google/gemini-2.5-pro': { input: 1.25, output: 10.0 },
-    'moonshotai/kimi-k2.5': { input: 0.3827, output: 1.72 },
-  };
-  const selected = pricing[normalized] ?? { input: 0.1, output: 0.4 };
-  const usd = ((promptTokens * selected.input) + (completionTokens * selected.output)) / 1_000_000;
-  return usd.toFixed(6);
+  return normalizeOpenRouterModelId(DEFAULT_MODELS_BY_ROLE[role]) ?? DEFAULT_MODELS_BY_ROLE[role];
 }
 
 function extractAssistantText(content: unknown): string {
@@ -170,7 +158,7 @@ export async function executeLlmOrchestratorWorker(
   }
 
   const workerModel = typeof response.model === 'string' && response.model.trim()
-    ? response.model.trim()
+    ? (normalizeOpenRouterModelId(response.model) ?? response.model.trim())
     : selectedModel;
   const resultText = extractAssistantText(choice.message.content);
 
