@@ -147,6 +147,22 @@ export function useDeleteChat() {
   });
 }
 
+export function useCloneChat() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (chatId: string) => chatsApi.clone(chatId),
+    onSuccess: (chat) => {
+      qc.setQueryData<ChatListItem[] | undefined>(['chats'], (prev) => {
+        const existing = prev ?? [];
+        const withoutCreated = existing.filter((item) => item.id !== chat.id);
+        return [chat, ...withoutCreated];
+      });
+      qc.invalidateQueries({ queryKey: ['chats'] });
+      qc.invalidateQueries({ queryKey: ['chats', chat.id] });
+    },
+  });
+}
+
 export function useTransferChat() {
   const qc = useQueryClient();
   return useMutation({

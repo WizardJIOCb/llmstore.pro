@@ -92,3 +92,4 @@ export const validateUpdateLanding = validate(updateLandingSchema, 'body');
 export const validateUpsertProjectDeployment = validate(upsertProjectDeploymentSchema, 'body');
 export const validateProjectDeploymentAgentRun = validate(projectDeploymentAgentRunSchema, 'body');
 export const validateSetGalleryReaction = validate(setGalleryReactionSchema, 'body');
+export const validateCloneChat = validate(z.object({}), 'body');

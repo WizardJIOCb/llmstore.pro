@@ -5848,6 +5848,201 @@ function toConversationMessage(
   };
 }
 
+async function cloneConversationAttachments(
+  messages: ChatTransferMessage[],
+): Promise<{
+  messages: ChatTransferMessage[];
+}> {
+  const attachmentMetaMap = new Map<string, ChatAttachmentMeta>();
+
+  for (const message of messages) {
+    const usageAttachments = extractUsageAttachments(message.usage);
+    for (const attachment of usageAttachments) {
+      const sourceFilename = typeof attachment.filename === 'string' ? attachment.filename.trim() : '';
+      if (!sourceFilename || attachmentMetaMap.has(sourceFilename)) continue;
+
+      try {
+        const buffer = await readFile(safeAttachmentPath(sourceFilename));
+        const ext = path.extname(attachment.original_name || sourceFilename) || path.extname(sourceFilename) || '.bin';
+        const filename = `${uuidv4()}${ext.toLowerCase()}`;
+        await writeFile(safeAttachmentPath(filename), buffer);
+
+        attachmentMetaMap.set(sourceFilename, {
+          filename,
+          original_name: attachment.original_name || sourceFilename,
+          mime_type: attachment.mime_type || getAttachmentMimeType(filename),
+          size: typeof attachment.size === 'number' && attachment.size > 0 ? attachment.size : buffer.length,
+          kind: attachment.kind === 'image' || attachment.kind === 'text' || attachment.kind === 'file'
+            ? attachment.kind
+            : (isImageMime(attachment.mime_type) ? 'image' : (isTextMime(attachment.mime_type) ? 'text' : 'file')),
+          url: `/uploads/chat/${filename}`,
+          text_preview: attachment.text_preview,
+        });
+      } catch {
+      }
+    }
+  }
+
+  return {
+    messages: messages.map((message) => {
+      if (!message.usage) return message;
+      const usageCopy: Record<string, unknown> = { ...message.usage };
+      const usageAttachments = extractUsageAttachments(message.usage);
+      if (usageAttachments.length > 0) {
+        usageCopy.attachments = usageAttachments
+          .map((attachment) => attachmentMetaMap.get(attachment.filename) ?? null)
+          .filter((attachment): attachment is ChatAttachmentMeta => Boolean(attachment));
+      }
+      return {
+        ...message,
+        usage: usageCopy,
+      };
+    }),
+  };
+}
+
+async function cloneChatFromMessages(
+  userId: string,
+  userRole: string | undefined,
+  sourceChat: ChatConversationRow,
+  messages: ChatTransferMessage[],
+): Promise<ConversationListItem> {
+  const sourceToolSettings = extractChatToolSettings(sourceChat.settings_json);
+  const sourceAgentMeta = sourceChat.agent_id
+    ? await getAgentChatMeta(sourceChat.agent_id)
+    : { agent_name: null, agent_model_external_id: null, agent_model_label: null, agent_chat_description: null, agent_starter_prompts: [] };
+
+  let nextMode: ChatMode = sourceChat.mode;
+  let agentId: string | null = null;
+  let modelExternalId: string | null = null;
+
+  if (sourceChat.mode === 'agent') {
+    agentId = await findImportTargetAgent(
+      userId,
+      userRole,
+      sourceAgentMeta.agent_name,
+      sourceAgentMeta.agent_model_external_id,
+    );
+    if (!agentId) {
+      nextMode = 'general';
+      modelExternalId = deriveImportedGeneralModel(messages, sourceAgentMeta.agent_model_external_id ?? sourceChat.model_external_id);
+    }
+  } else {
+    modelExternalId = deriveImportedGeneralModel(messages, sourceChat.model_external_id);
+  }
+
+  const cloned = await cloneConversationAttachments(messages);
+  const createdAtFallback = new Date();
+  const orderedMessages = cloned.messages
+    .map((message, index) => ({
+      ...message,
+      createdAtDate: sanitizeImportedDate(
+        message.created_at,
+        new Date(createdAtFallback.getTime() + index * 1000),
+      ),
+    }))
+    .sort((a, b) => a.createdAtDate.getTime() - b.createdAtDate.getTime());
+  const lastMessageAt = orderedMessages[orderedMessages.length - 1]?.createdAtDate ?? createdAtFallback;
+  const shareToken = uuidv4().replace(/-/g, '').slice(0, 16);
+  const clonedTitleBase = sourceChat.title.trim() || 'Новый чат';
+  const clonedTitle = clonedTitleBase.toLowerCase().startsWith('копия ')
+    ? clonedTitleBase
+    : `Копия ${clonedTitleBase}`;
+
+  const [chat] = await db.insert(chatConversations).values({
+    user_id: userId,
+    agent_id: nextMode === 'agent' ? agentId : null,
+    mode: nextMode,
+    title: clonedTitle.slice(0, 500),
+    model_external_id: nextMode === 'general' ? (modelExternalId ?? DEFAULT_GENERAL_MODEL) : null,
+    system_prompt: sourceChat.system_prompt ?? null,
+    access: 'private',
+    access_identifiers: [],
+    share_token: shareToken,
+    settings_json: buildChatSettingsJson(null, {
+      tool_ids: nextMode === 'general' ? sourceToolSettings.tool_ids : [],
+      tool_agent_id: null,
+      note: extractChatNote(sourceChat.settings_json),
+    }),
+    last_message_at: lastMessageAt,
+    created_at: createdAtFallback,
+    updated_at: new Date(),
+  }).returning();
+
+  if (orderedMessages.length > 0) {
+    await db.insert(chatConversationMessages).values(
+      orderedMessages.map((message) => ({
+        conversation_id: chat.id,
+        role: message.role,
+        content_text: message.content,
+        run_id: null,
+        usage_json: message.usage ?? null,
+        project_run_count: message.project_run_count ?? 0,
+        latency_ms: message.latency_ms ?? null,
+        created_at: message.createdAtDate,
+      })),
+    );
+  }
+
+  if (nextMode === 'general' && sourceToolSettings.tool_ids.length > 0) {
+    const toolAgentId = await ensureChatToolRuntimeAgent(
+      { id: chat.id, title: chat.title },
+      userId,
+      sourceToolSettings.tool_ids,
+      chat.model_external_id ?? DEFAULT_GENERAL_MODEL,
+      chat.system_prompt,
+    );
+
+    await db.update(chatConversations)
+      .set({
+        settings_json: buildChatSettingsJson(chat.settings_json, {
+          tool_ids: sourceToolSettings.tool_ids,
+          tool_agent_id: toolAgentId,
+          note: extractChatNote(sourceChat.settings_json),
+        }),
+        updated_at: new Date(),
+      })
+      .where(eq(chatConversations.id, chat.id));
+  }
+
+  const [finalChat] = await db
+    .select()
+    .from(chatConversations)
+    .where(eq(chatConversations.id, chat.id))
+    .limit(1);
+
+  const agentMeta = finalChat?.mode === 'agent'
+    ? await getAgentChatMeta(finalChat.agent_id ?? null)
+    : null;
+  const effectiveModelLabel = finalChat?.mode === 'agent'
+    ? (agentMeta?.agent_model_label ?? null)
+    : getModelDisplayLabel(finalChat?.model_external_id ?? null);
+
+  return {
+    id: chat.id,
+    title: finalChat?.title ?? chat.title,
+    note: extractChatNote(finalChat?.settings_json ?? chat.settings_json),
+    mode: (finalChat?.mode ?? chat.mode) as ChatMode,
+    agent_id: finalChat?.agent_id ?? null,
+    agent_name: agentMeta?.agent_name ?? null,
+    agent_model_external_id: agentMeta?.agent_model_external_id ?? null,
+    agent_model_label: agentMeta?.agent_model_label ?? null,
+    effective_model_label: effectiveModelLabel,
+    model_external_id: finalChat?.model_external_id ?? null,
+    access: 'private',
+    access_identifiers: [],
+    share_token: finalChat?.share_token ?? chat.share_token ?? null,
+    message_count: orderedMessages.length,
+    last_message_preview: orderedMessages[orderedMessages.length - 1]?.content.slice(0, 160) ?? null,
+    pending_run: null,
+    pinned_at: null,
+    last_message_at: toIso(finalChat?.last_message_at ?? lastMessageAt),
+    created_at: toIso(finalChat?.created_at ?? createdAtFallback),
+    updated_at: toIso(finalChat?.updated_at ?? new Date()),
+    has_active_deployment: false,
+  };
+}
+
 function formatAuthorName(user: { name: string | null; username: string | null; email: string }): string {
   const displayName = user.name?.trim();
   if (displayName) return displayName;
@@ -7350,6 +7545,27 @@ export async function updateChat(chatId: string, userId: string, input: {
     updated_at: toIso(chat.updated_at),
     has_active_deployment: false,
   };
+}
+
+export async function cloneChat(chatId: string, userId: string, userRole?: string): Promise<ConversationListItem> {
+  const sourceChat = await getConversationById(chatId);
+  await ensureChatViewerAccess(sourceChat, userId);
+
+  const sourceMessages = await getConversationMessages(sourceChat.id);
+  if (sourceMessages.length === 0) {
+    throw new AppError(400, 'CHAT_CLONE_EMPTY', 'Нельзя клонировать пустой чат');
+  }
+
+  const transferableMessages: ChatTransferMessage[] = sourceMessages.map((message) => ({
+    role: message.role,
+    content: message.content,
+    usage: message.usage,
+    project_run_count: message.project_run_count,
+    latency_ms: message.latency_ms,
+    created_at: message.created_at,
+  }));
+
+  return cloneChatFromMessages(userId, userRole, sourceChat, transferableMessages);
 }
 
 export async function deleteChatMessage(chatId: string, messageId: string, userId: string): Promise<{ ok: true }> {

@@ -143,6 +143,7 @@ export function App() {
         } />
 
         {/* Chats */}
+        <Route path="/chat" element={<ChatsPage />} />
         <Route path="/chats" element={<ChatsPage />} />
 
         {/* Profile */}

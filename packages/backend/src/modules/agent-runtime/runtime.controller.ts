@@ -279,6 +279,15 @@ export async function createChat(req: Request, res: Response, next: NextFunction
   }
 }
 
+export async function cloneChat(req: Request<{ chatId: string }>, res: Response, next: NextFunction) {
+  try {
+    const chat = await runtimeService.cloneChat(req.params.chatId, req.session.userId!, req.session.userRole);
+    res.status(201).json({ data: chat });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function importChatBundle(req: Request, res: Response, next: NextFunction) {
   try {
     const file = req.file;

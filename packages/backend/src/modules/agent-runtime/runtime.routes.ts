@@ -13,6 +13,7 @@ import {
   validateSetGalleryReaction,
   validateUpsertProjectDeployment,
   validateProjectDeploymentAgentRun,
+  validateCloneChat,
 } from './runtime.validators.js';
 
 const router = Router();
@@ -58,6 +59,7 @@ router.get('/chats/:chatId', requireAuth, controller.getChatById);
 router.get('/chats/:chatId/events', requireAuth, controller.streamChatEvents);
 router.get('/chats/:chatId/stats', requireAuth, controller.getChatStats);
 router.patch('/chats/:chatId', requireAuth, validateUpdateChat, controller.updateChat);
+router.post('/chats/:chatId/clone', requireAuth, validateCloneChat, controller.cloneChat);
 router.delete('/chats/:chatId', requireAuth, controller.deleteChat);
 router.delete('/chats/:chatId/messages/:messageId', requireAuth, controller.deleteChatMessage);
 router.post('/chats/:chatId/messages/:messageId/truncate', requireAuth, controller.truncateChatFromMessage);

@@ -1,8 +1,8 @@
 ﻿import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useDeleteGalleryReaction, useGalleryPreviews, useGalleryTextChats, useSetGalleryReaction } from '../../hooks/useChats';
+import { useCloneChat, useDeleteGalleryReaction, useGalleryPreviews, useGalleryTextChats, useSetGalleryReaction } from '../../hooks/useChats';
 import { chatsApi } from '../../lib/api/chats';
 import type { ChatReactionType, GalleryPreviewItem, GalleryTextChatItem, GalleryTextChatSort, ProjectRunResult } from '../../lib/api/chats';
 import { Spinner } from '../../components/ui/Spinner';
@@ -38,6 +38,13 @@ const TEXT_CHAT_SORT_OPTIONS: Array<{ value: GalleryTextChatSort; label: string 
 ];
 
 type GalleryKindFilter = (typeof GALLERY_KIND_FILTERS)[number]['value'];
+
+function getApiErrorMessage(error: unknown): string | undefined {
+  if (!error || typeof error !== 'object') return undefined;
+  const response = (error as { response?: { data?: { error?: { message?: unknown } } } }).response;
+  const message = response?.data?.error?.message;
+  return typeof message === 'string' && message.trim().length > 0 ? message : undefined;
+}
 
 function formatDate(iso: string): string {
   return new Intl.DateTimeFormat('ru-RU', {
@@ -291,8 +298,13 @@ export function GalleryPage() {
     message: string;
     message_id?: string;
   };
+  type GalleryCloneToastState = {
+    tone: 'success' | 'error';
+    message: string;
+  };
   const TEXT_CHAT_PAGE_SIZE = 6;
 
+  const navigate = useNavigate();
   const textChatsTopRef = useRef<HTMLDivElement | null>(null);
   const resultsTopRef = useRef<HTMLDivElement | null>(null);
   const previousTextChatPageRef = useRef(1);
@@ -305,6 +317,8 @@ export function GalleryPage() {
   const [textChatSort, setTextChatSort] = useState<GalleryTextChatSort>('newest');
   const [kindFilter, setKindFilter] = useState<GalleryKindFilter>('preview');
   const [runningMessageId, setRunningMessageId] = useState<string | null>(null);
+  const [cloningChatId, setCloningChatId] = useState<string | null>(null);
+  const [cloneToast, setCloneToast] = useState<GalleryCloneToastState | null>(null);
   const [projectRunCounts, setProjectRunCounts] = useState<Record<string, number>>({});
   const [runResult, setRunResult] = useState<(ProjectRunResult & {
     title: string;
@@ -327,6 +341,7 @@ export function GalleryPage() {
   const { data: textChatsData, isLoading: textChatsLoading } = useGalleryTextChats(120, textChatSort);
   const setReactionMutation = useSetGalleryReaction();
   const deleteReactionMutation = useDeleteGalleryReaction();
+  const cloneChatMutation = useCloneChat();
 
   const items = data ?? [];
   const textChats = textChatsData ?? [];
@@ -439,6 +454,12 @@ export function GalleryPage() {
     previousTextChatPageRef.current = textChatPage;
   }, [textChatPage]);
 
+  useEffect(() => {
+    if (!cloneToast) return undefined;
+    const timeoutId = window.setTimeout(() => setCloneToast(null), 2800);
+    return () => window.clearTimeout(timeoutId);
+  }, [cloneToast]);
+
   const getDisplayedProjectRunCount = (item: GalleryPreviewItem): number =>
     projectRunCounts[item.message_id] ?? item.project_run_count ?? 0;
 
@@ -470,6 +491,24 @@ export function GalleryPage() {
       });
     } finally {
       setRunningMessageId(null);
+    }
+  };
+
+  const cloneChatToCurrentUser = async (chatId: string) => {
+    if (!currentUser || cloningChatId) return;
+
+    setCloningChatId(chatId);
+    try {
+      const clonedChat = await cloneChatMutation.mutateAsync(chatId);
+      setCloneToast({ tone: 'success', message: 'Чат склонирован. Открываю вашу копию.' });
+      navigate(`/chat?chat=${encodeURIComponent(clonedChat.id)}`);
+    } catch (error) {
+      setCloneToast({
+        tone: 'error',
+        message: getApiErrorMessage(error) ?? 'Не удалось клонировать чат',
+      });
+    } finally {
+      setCloningChatId(null);
     }
   };
 
@@ -689,6 +728,16 @@ export function GalleryPage() {
                       <Link to={buildGalleryChatTarget(item)}>
                         <Button size="sm">Открыть чат</Button>
                       </Link>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={!currentUser || Boolean(cloningChatId)}
+                        onClick={() => { void cloneChatToCurrentUser(item.chat_id); }}
+                        title={currentUser ? 'Скопировать чат к себе' : 'Нужна авторизация для клонирования'}
+                      >
+                        {cloningChatId === item.chat_id ? 'Клонирую...' : 'Клонировать'}
+                      </Button>
                       {(item.kind === 'project' || item.kind === 'hybrid') && (
                         <Button
                           type="button"
@@ -837,6 +886,16 @@ export function GalleryPage() {
                       <Link to={buildGalleryTextChatTarget(item)}>
                         <Button size="sm">Открыть чат</Button>
                       </Link>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={!currentUser || Boolean(cloningChatId)}
+                        onClick={() => { void cloneChatToCurrentUser(item.chat_id); }}
+                        title={currentUser ? 'Скопировать чат к себе' : 'Нужна авторизация для клонирования'}
+                      >
+                        {cloningChatId === item.chat_id ? 'Клонирую...' : 'Клонировать'}
+                      </Button>
                     </div>
                   </div>
                 </article>
@@ -892,6 +951,21 @@ export function GalleryPage() {
           </div>
         )}
       </div>
+
+      {cloneToast ? (
+        <div className="pointer-events-none fixed bottom-5 right-5 z-[131] max-w-sm">
+          <div
+            className={[
+              'rounded-2xl border px-4 py-3 text-sm shadow-lg backdrop-blur',
+              cloneToast.tone === 'success'
+                ? 'border-emerald-200 bg-emerald-50/95 text-emerald-900'
+                : 'border-rose-200 bg-rose-50/95 text-rose-900',
+            ].join(' ')}
+          >
+            {cloneToast.message}
+          </div>
+        </div>
+      ) : null}
 
       {runResult && (
         <div
