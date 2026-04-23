@@ -4,6 +4,10 @@ export interface LiveProgressPayload {
   detail?: string;
   status?: string;
   tool_name?: string;
+  tool_call_id?: string;
+  input?: unknown;
+  output?: unknown;
+  duration_ms?: number;
   ts?: string;
   error?: string;
   prompt_tokens?: number;
@@ -109,6 +113,10 @@ export function createLiveProgressEvent(
     detail: getLiveProgressDetail(eventName, payload),
     status: getDisplayStatus(payload.status, eventName),
     tool_name: payload.tool_name?.trim() || undefined,
+    tool_call_id: payload.tool_call_id?.trim() || undefined,
+    input: payload.input,
+    output: payload.output,
+    duration_ms: payload.duration_ms,
     ts: payload.ts,
     error: payload.error,
     prompt_tokens: payload.prompt_tokens,

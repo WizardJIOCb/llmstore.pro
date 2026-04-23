@@ -8,6 +8,10 @@ export interface ChatLiveProgressEvent {
   detail?: string;
   status?: string;
   tool_name?: string;
+  tool_call_id?: string;
+  input?: unknown;
+  output?: unknown;
+  duration_ms?: number;
   ts?: string;
   error?: string;
   prompt_tokens?: number;
@@ -73,6 +77,27 @@ function formatElapsed(elapsedMs: number): string {
   return `${minutes} мин ${seconds.toString().padStart(2, '0')} с`;
 }
 
+function hasInspectableToolPayload(event: ChatLiveProgressEvent): boolean {
+  return Boolean(
+    event.tool_name
+    || event.tool_call_id
+    || event.input !== undefined
+    || event.output !== undefined
+    || typeof event.duration_ms === 'number',
+  );
+}
+
+function formatJsonPreview(value: unknown): string {
+  if (value === undefined) return 'Не передано';
+  if (typeof value === 'string') return value;
+
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
 function buildUsageLabel(event: ChatLiveProgressEvent): string | null {
   if (
     typeof event.completion_tokens !== 'number' &&
@@ -120,6 +145,7 @@ export function ChatLiveProgressPanel({
   trailing,
 }: ChatLiveProgressPanelProps) {
   const [animatedEventIds, setAnimatedEventIds] = useState<string[]>([]);
+  const [expandedEventIds, setExpandedEventIds] = useState<string[]>([]);
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
   const seenEventIdsRef = useRef<Set<string>>(new Set());
   const animationTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
@@ -202,6 +228,15 @@ export function ChatLiveProgressPanel({
           const progressLabel = [usageLabel, elapsedLabel ? `Прошло: ${elapsedLabel}` : null]
             .filter(Boolean)
             .join(' • ');
+          const isInspectable = hasInspectableToolPayload(event);
+          const isExpanded = expandedEventIds.includes(event.id);
+          const toggleExpanded = () => {
+            setExpandedEventIds((prev) => (
+              prev.includes(event.id)
+                ? prev.filter((id) => id !== event.id)
+                : [...prev, event.id]
+            ));
+          };
 
           return (
             <div
@@ -217,7 +252,18 @@ export function ChatLiveProgressPanel({
                     <span className="inline-flex min-w-7 shrink-0 justify-center rounded-full border border-sky-200 bg-sky-100 px-2 py-0.5 text-[11px] font-semibold text-sky-900">
                       {index + 1}
                     </span>
-                    <p className="pt-0.5 text-sm text-slate-900">{event.label}</p>
+                    <div className="min-w-0">
+                      <p className="pt-0.5 text-sm text-slate-900">{event.label}</p>
+                      {isInspectable && (
+                        <button
+                          type="button"
+                          onClick={toggleExpanded}
+                          className="mt-1 text-xs font-medium text-sky-700 underline-offset-2 hover:text-sky-950 hover:underline"
+                        >
+                          {isExpanded ? 'Скрыть параметры инструмента' : 'Показать параметры инструмента'}
+                        </button>
+                      )}
+                    </div>
                   </div>
                   {event.detail && (
                     <p className="mt-1 text-xs leading-5 text-slate-600">
@@ -233,6 +279,42 @@ export function ChatLiveProgressPanel({
                     <p className="mt-1 text-xs font-medium text-sky-900/80">
                       {progressLabel}
                     </p>
+                  )}
+                  {isInspectable && isExpanded && (
+                    <div className="mt-3 space-y-3 rounded-lg border border-sky-100 bg-slate-950 p-3 text-xs text-slate-100">
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <div>
+                          <p className="mb-1 font-semibold text-sky-200">Инструмент</p>
+                          <p className="break-words text-slate-200">{event.tool_name ?? 'Не указан'}</p>
+                        </div>
+                        <div>
+                          <p className="mb-1 font-semibold text-sky-200">Статус и время</p>
+                          <p className="break-words text-slate-200">
+                            {[event.status, typeof event.duration_ms === 'number' ? `${formatInt(event.duration_ms)} мс` : null]
+                              .filter(Boolean)
+                              .join(' • ') || 'Не указано'}
+                          </p>
+                        </div>
+                      </div>
+                      {event.tool_call_id && (
+                        <div>
+                          <p className="mb-1 font-semibold text-sky-200">Tool call id</p>
+                          <p className="break-all font-mono text-[11px] text-slate-300">{event.tool_call_id}</p>
+                        </div>
+                      )}
+                      <div>
+                        <p className="mb-1 font-semibold text-sky-200">Входные параметры</p>
+                        <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md bg-black/40 p-3 font-mono text-[11px] leading-5 text-slate-100">
+                          {formatJsonPreview(event.input)}
+                        </pre>
+                      </div>
+                      <div>
+                        <p className="mb-1 font-semibold text-sky-200">Выходные данные</p>
+                        <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-md bg-black/40 p-3 font-mono text-[11px] leading-5 text-slate-100">
+                          {formatJsonPreview(event.output)}
+                        </pre>
+                      </div>
+                    </div>
                   )}
                 </div>
                 {event.ts && (

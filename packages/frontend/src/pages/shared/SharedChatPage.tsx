@@ -387,6 +387,10 @@ export function SharedChatPage() {
       detail?: string;
       status?: string;
       tool_name?: string;
+      tool_call_id?: string;
+      input?: unknown;
+      output?: unknown;
+      duration_ms?: number;
       ts?: string;
       error?: string;
       prompt_tokens?: number;
@@ -416,6 +420,10 @@ export function SharedChatPage() {
             detail?: string;
             status?: string;
             tool_name?: string;
+            tool_call_id?: string;
+            input?: unknown;
+            output?: unknown;
+            duration_ms?: number;
             ts?: string;
             error?: string;
             prompt_tokens?: number;
