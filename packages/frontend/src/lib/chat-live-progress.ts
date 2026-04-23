@@ -116,7 +116,7 @@ export function createLiveProgressEvent(
     tool_call_id: payload.tool_call_id?.trim() || undefined,
     input: payload.input,
     output: payload.output,
-    duration_ms: payload.duration_ms,
+    duration_ms: typeof payload.duration_ms === 'number' ? payload.duration_ms : undefined,
     ts: payload.ts,
     error: payload.error,
     prompt_tokens: payload.prompt_tokens,

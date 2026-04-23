@@ -240,6 +240,22 @@ export interface ChatPendingRunState {
   error?: string | null;
   is_terminal?: boolean;
   is_partial?: boolean;
+  events?: ChatPendingRunEvent[];
+}
+
+export interface ChatPendingRunEvent {
+  event: string;
+  run_id: string;
+  label: string;
+  detail?: string;
+  status?: string;
+  tool_name?: string | null;
+  tool_call_id?: string;
+  input?: unknown;
+  output?: unknown;
+  duration_ms?: number | null;
+  error?: string | null;
+  ts: string;
 }
 
 export interface ChatDetails {

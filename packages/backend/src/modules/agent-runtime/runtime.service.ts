@@ -644,6 +644,7 @@ interface SharedPendingRunState {
   error?: string | null;
   is_terminal?: boolean;
   is_partial?: boolean;
+  events?: PendingRunProgressEvent[];
 }
 
 interface ToolTrace {
@@ -654,6 +655,21 @@ interface ToolTrace {
   status: string;
   duration_ms: number | null;
   error?: string;
+}
+
+interface PendingRunProgressEvent {
+  event: string;
+  run_id: string;
+  label: string;
+  detail?: string;
+  status?: string;
+  tool_name?: string | null;
+  tool_call_id?: string;
+  input?: Record<string, unknown>;
+  output?: Record<string, unknown> | null;
+  duration_ms?: number | null;
+  error?: string | null;
+  ts: string;
 }
 
 interface UsageBreakdownEntry {
@@ -5356,6 +5372,121 @@ function isConversationMessagePartial(message?: ConversationMessage | null): boo
   return Boolean(normalized.codingReport?.notes?.some((note) => /незаверш|обрезан|partial|incomplete/i.test(note)));
 }
 
+async function buildPendingRunProgressEvents(
+  run: {
+    id: string;
+    status: string;
+    started_at: Date;
+    completed_at: Date | null;
+    error_message: string | null;
+  },
+  options?: {
+    latestAssistantCreatedAt?: string | null;
+    latestAssistantPartial?: boolean;
+  },
+): Promise<PendingRunProgressEvent[]> {
+  const events: PendingRunProgressEvent[] = [
+    {
+      event: 'chat.run.started',
+      run_id: run.id,
+      label: 'Запускаю выполнение',
+      detail: 'Run создан и отправлен в агентный runtime.',
+      status: 'running',
+      ts: toIso(run.started_at),
+    },
+  ];
+
+  const toolCalls = await db
+    .select({
+      tool_call_id: agentRunToolCalls.tool_call_id,
+      tool_name: agentRunToolCalls.tool_name,
+      tool_input: agentRunToolCalls.tool_input,
+      tool_output: agentRunToolCalls.tool_output,
+      status: agentRunToolCalls.status,
+      duration_ms: agentRunToolCalls.duration_ms,
+      error_message: agentRunToolCalls.error_message,
+      created_at: agentRunToolCalls.created_at,
+    })
+    .from(agentRunToolCalls)
+    .where(eq(agentRunToolCalls.run_id, run.id))
+    .orderBy(asc(agentRunToolCalls.created_at));
+
+  for (const [index, call] of toolCalls.entries()) {
+    const step = index + 1;
+    events.push({
+      event: 'chat.run.tool.started',
+      run_id: run.id,
+      tool_call_id: call.tool_call_id,
+      tool_name: call.tool_name,
+      input: call.tool_input as Record<string, unknown>,
+      label: `Запущен инструмент ${call.tool_name}`,
+      detail: `Шаг ${step}`,
+      ts: toIso(call.created_at),
+    });
+
+    if (call.status !== 'running' && call.status !== 'pending') {
+      events.push({
+        event: 'chat.run.tool.finished',
+        run_id: run.id,
+        tool_call_id: call.tool_call_id,
+        tool_name: call.tool_name,
+        input: call.tool_input as Record<string, unknown>,
+        output: (call.tool_output as Record<string, unknown> | null) ?? (call.error_message ? { error: call.error_message } : null),
+        status: call.status,
+        duration_ms: call.duration_ms,
+        error: call.error_message,
+        label: call.status === 'success'
+          ? `Инструмент ${call.tool_name} завершён успешно`
+          : `Инструмент ${call.tool_name} завершился с ошибкой`,
+        detail: typeof call.duration_ms === 'number'
+          ? `Шаг ${step} завершён за ${call.duration_ms} мс`
+          : `Шаг ${step} завершён`,
+        ts: toIso(call.created_at),
+      });
+    }
+  }
+
+  if (toolCalls.length > 0 && run.status !== 'tool_executing') {
+    const lastTool = toolCalls[toolCalls.length - 1];
+    events.push({
+      event: 'chat.run.status',
+      run_id: run.id,
+      status: run.status === 'continuing' ? 'continuing' : 'running',
+      label: 'Обрабатываю результаты инструментов',
+      detail: 'Собираю данные от инструментов в единый финальный ответ.',
+      tool_name: lastTool.tool_name,
+      ts: toIso(lastTool.created_at),
+    });
+  }
+
+  if (options?.latestAssistantCreatedAt) {
+    events.push({
+      event: 'chat.message.completed',
+      run_id: run.id,
+      status: options.latestAssistantPartial ? 'partial' : 'completed',
+      label: options.latestAssistantPartial ? 'Частичный результат сохранён' : 'Ответ сохранён',
+      detail: options.latestAssistantPartial
+        ? 'Часть результата уже есть в чате, run мог продолжать работу дальше.'
+        : 'Сообщение ассистента сохранено в чате.',
+      ts: options.latestAssistantCreatedAt,
+    });
+  }
+
+  if (run.completed_at) {
+    events.push({
+      event: run.status === 'failed' ? 'chat.run.failed' : 'chat.run.completed',
+      run_id: run.id,
+      status: run.status,
+      label: run.status === 'failed' ? 'Выполнение завершилось с ошибкой' : 'Выполнение завершено',
+      detail: run.error_message ?? undefined,
+      error: run.error_message,
+      ts: toIso(run.completed_at),
+    });
+  }
+
+  return events.sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts));
+}
+
 async function getConversationRuntimeState(chat: ChatConversationRow, messages: ConversationMessage[]): Promise<SharedPendingRunState | null> {
   const lastUserMessage = [...messages].reverse().find((message) => message.role === 'user') ?? null;
   if (!lastUserMessage) return null;
@@ -5457,6 +5588,10 @@ async function getConversationRuntimeState(chat: ChatConversationRow, messages: 
     : (assistantMessagesAfterLastUser.find((message) => message.run_id === latestRun.id) ?? latestAssistantMessage);
   const hasAssistantForRun = Boolean(latestAssistantForRun);
   const isPartialResult = isConversationMessagePartial(latestAssistantForRun);
+  const progressEvents = await buildPendingRunProgressEvents(latestRun, {
+    latestAssistantCreatedAt: latestAssistantForRun?.created_at ?? null,
+    latestAssistantPartial: isPartialResult,
+  });
   const latestAssistantObservedAtMs = latestAssistantForRun?.created_at ? Date.parse(latestAssistantForRun.created_at) : Number.NaN;
   const latestToolObservedAtMs = latestToolCall?.created_at ? new Date(latestToolCall.created_at).getTime() : Number.NaN;
   const startedAtMs = new Date(latestRun.started_at).getTime();
@@ -5484,6 +5619,7 @@ async function getConversationRuntimeState(chat: ChatConversationRow, messages: 
       error: latestRun.error_message ?? 'STALE_PENDING_RUN',
       is_terminal: true,
       is_partial: hasAssistantForRun,
+      events: progressEvents,
     };
   }
 
@@ -5504,6 +5640,7 @@ async function getConversationRuntimeState(chat: ChatConversationRow, messages: 
       error: latestRun.error_message ?? null,
       is_terminal: true,
       is_partial: hasAssistantForRun,
+      events: progressEvents,
     };
   }
 
@@ -5521,6 +5658,7 @@ async function getConversationRuntimeState(chat: ChatConversationRow, messages: 
         error: null,
         is_terminal: false,
         is_partial: false,
+        events: progressEvents,
       };
     }
 
@@ -5542,6 +5680,7 @@ async function getConversationRuntimeState(chat: ChatConversationRow, messages: 
       error: null,
       is_terminal: true,
       is_partial: isPartialResult,
+      events: progressEvents,
     };
   }
 
@@ -5559,6 +5698,7 @@ async function getConversationRuntimeState(chat: ChatConversationRow, messages: 
       error: latestToolCall?.error_message ?? null,
       is_terminal: false,
       is_partial: hasAssistantForRun,
+      events: progressEvents,
     };
   }
 
@@ -5576,6 +5716,7 @@ async function getConversationRuntimeState(chat: ChatConversationRow, messages: 
       error: null,
       is_terminal: false,
       is_partial: hasAssistantForRun,
+      events: progressEvents,
     };
   }
 
@@ -5590,6 +5731,7 @@ async function getConversationRuntimeState(chat: ChatConversationRow, messages: 
     error: null,
     is_terminal: false,
     is_partial: hasAssistantForRun,
+    events: progressEvents,
   };
 }
 

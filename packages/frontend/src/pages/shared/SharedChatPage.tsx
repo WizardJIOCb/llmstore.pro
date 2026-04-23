@@ -76,6 +76,10 @@ interface LiveSharedEvent {
   detail?: string;
   status?: string;
   tool_name?: string;
+  tool_call_id?: string;
+  input?: unknown;
+  output?: unknown;
+  duration_ms?: number;
   ts?: string;
   error?: string;
   prompt_tokens?: number;
@@ -564,7 +568,23 @@ export function SharedChatPage() {
     return 'AI';
   };
   const lastMessage = messages[messages.length - 1];
+  const restoredPendingEvents = (data?.pendingRun?.events ?? []).map((event, index) => (
+    createLiveProgressEvent(event.event, {
+      run_id: event.run_id,
+      label: event.label,
+      detail: event.detail,
+      status: event.status,
+      tool_name: event.tool_name ?? undefined,
+      tool_call_id: event.tool_call_id,
+      input: event.input,
+      output: event.output,
+        duration_ms: typeof event.duration_ms === 'number' ? event.duration_ms : undefined,
+      ts: event.ts,
+      error: event.error ?? undefined,
+    }, index)
+  ));
   const latestEvent = streamEvents[streamEvents.length - 1]
+    ?? restoredPendingEvents[restoredPendingEvents.length - 1]
     ?? (data?.pendingRun
       ? createLiveProgressEvent('pending.snapshot', {
         label: data.pendingRun.label,
@@ -589,6 +609,8 @@ export function SharedChatPage() {
     || 'Собираю ответ, выполняю инструменты и автоматически обновлю страницу, когда сообщение появится.';
   const displayedStreamEvents = streamEvents.length > 0
     ? streamEvents
+    : restoredPendingEvents.length > 0
+      ? restoredPendingEvents
     : (data?.pendingRun
       ? [{
         ...createLiveProgressEvent('pending.snapshot', {

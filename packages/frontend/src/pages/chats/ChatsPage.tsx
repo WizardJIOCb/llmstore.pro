@@ -440,8 +440,13 @@ interface LiveChatEvent {
   event: string;
   label: string;
   detail?: string;
+  run_id?: string;
   status?: string;
   tool_name?: string;
+  tool_call_id?: string;
+  input?: unknown;
+  output?: unknown;
+  duration_ms?: number;
   ts?: string;
   error?: string;
   prompt_tokens?: number;
@@ -3093,7 +3098,22 @@ function AuthenticatedChatsPage() {
 
     const pendingRun = activeChat.pending_run;
     if (!pendingRun) return;
-    const pendingProgressEvent = createLiveProgressEvent('pending.snapshot', {
+    const restoredProgressEvents = (pendingRun.events ?? []).map((event, index) => (
+      createLiveProgressEvent(event.event, {
+        run_id: event.run_id,
+        label: event.label,
+        detail: event.detail,
+        status: event.status,
+        tool_name: event.tool_name ?? undefined,
+        tool_call_id: event.tool_call_id,
+        input: event.input,
+        output: event.output,
+        duration_ms: typeof event.duration_ms === 'number' ? event.duration_ms : undefined,
+        ts: event.ts,
+        error: event.error ?? undefined,
+      }, index)
+    ));
+    const pendingProgressEvent = restoredProgressEvents[restoredProgressEvents.length - 1] ?? createLiveProgressEvent('pending.snapshot', {
       label: pendingRun.label,
       detail: pendingRun.detail,
       status: pendingRun.status,
@@ -3101,6 +3121,17 @@ function AuthenticatedChatsPage() {
       ts: pendingRun.started_at,
       error: pendingRun.error ?? undefined,
     }, 0);
+    const restoredRunKey = `${activeChat.id}:${pendingRun.run_id}`;
+
+    if (restoredProgressEvents.length > 0) {
+      setStreamEvents((prev) => {
+        const sameRunAlreadyRestored = prev.some((event) => (
+          event.run_id === pendingRun.run_id && event.event !== 'pending.snapshot'
+        ));
+        if (sameRunAlreadyRestored) return prev;
+        return restoredProgressEvents;
+      });
+    }
 
     if (isPendingRunLive(pendingRun)) {
       clearTransportTimeoutNotice();
@@ -3118,7 +3149,7 @@ function AuthenticatedChatsPage() {
 
         return {
           chatId: activeChat.id,
-          visualKey: `assistant-slot-runtime-${pendingRun.run_id}`,
+          visualKey: `assistant-slot-runtime-${restoredRunKey}`,
           startedAt: pendingRun.started_at,
           label: pendingProgressEvent.label,
           detail: pendingProgressEvent.detail ?? pendingRun.detail ?? 'Собираю ответ и показываю прогресс по мере поступления шагов.',
