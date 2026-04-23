@@ -3485,7 +3485,32 @@ export function ChatMessage({
                 <p className="text-xs text-slate-500">Standalone preview</p>
               </div>
               <div className="flex items-center gap-2">
-                <Button type="button" variant="outline" size="sm" onClick={() => setHtmlPreview(null)}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    if (absolutePreviewPageUrl) {
+                      window.open(
+                        withPreviewId(
+                          absolutePreviewPageUrl,
+                          `open-window-${Math.random().toString(36).slice(2, 10)}`,
+                        ),
+                        '_blank',
+                        'noopener,noreferrer',
+                      );
+                      return;
+                    }
+
+                    const blob = new Blob([htmlPreview.html || ''], { type: 'text/html' });
+                    const url = URL.createObjectURL(blob);
+                    window.open(url, '_blank', 'noopener,noreferrer');
+                    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+                  }}
+                >
+                  В новом окне
+                </Button>
+                <Button type="button" size="sm" onClick={() => setHtmlPreview(null)}>
                   Закрыть
                 </Button>
               </div>
