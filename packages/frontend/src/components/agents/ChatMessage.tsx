@@ -1592,16 +1592,19 @@ function HtmlPreviewBrowser({
   previewPageUrl,
   revisionKey,
   className,
+  toolbarActions,
 }: {
   html: string;
   title: string;
   previewPageUrl?: string | null;
   revisionKey?: string;
   className?: string;
+  toolbarActions?: ReactNode;
 }) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [previewId] = useState(() => `preview-${Math.random().toString(36).slice(2, 10)}`);
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
+  const [isBrowserMenuOpen, setIsBrowserMenuOpen] = useState(false);
   const resolvedPreviewPageUrl = resolveBrowserUrl(previewPageUrl);
   const embeddedPreviewUrl = resolvedPreviewPageUrl
     ? `${resolvedPreviewPageUrl}${resolvedPreviewPageUrl.includes('?') ? '&' : '?'}previewId=${encodeURIComponent(previewId)}${revisionKey ? `&rev=${encodeURIComponent(revisionKey)}` : ''}`
@@ -1687,28 +1690,71 @@ function HtmlPreviewBrowser({
   return (
     <div className={cn('flex flex-col gap-2', className)}>
       <div className="rounded-md border border-border/70 bg-background/80 p-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <Button type="button" variant="outline" size="sm" className="whitespace-nowrap" onClick={() => sendCommand('back')} disabled={!canGoBack}>
-            Back
-          </Button>
-          <Button type="button" variant="outline" size="sm" className="whitespace-nowrap" onClick={() => sendCommand('forward')} disabled={!canGoForward}>
-            Forward
-          </Button>
-          <Button type="button" variant="outline" size="sm" className="whitespace-nowrap" onClick={() => sendCommand('reload')} disabled={!(embeddedPreviewUrl || objectUrl)}>
-            Reload
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="whitespace-nowrap"
-            onClick={async () => {
-              await navigator.clipboard.writeText(shareableHref || 'about:blank');
-            }}
-            disabled={!shareableHref}
-          >
-            Copy Link
-          </Button>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+            {toolbarActions}
+          </div>
+          <div className="relative shrink-0">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 w-8 px-0"
+              aria-label="Действия preview"
+              aria-expanded={isBrowserMenuOpen}
+              onClick={() => setIsBrowserMenuOpen((value) => !value)}
+            >
+              ...
+            </Button>
+            {isBrowserMenuOpen && (
+              <div className="absolute right-0 top-9 z-20 min-w-[170px] rounded-md border bg-white p-1 shadow-lg">
+                <button
+                  type="button"
+                  className="flex w-full items-center rounded px-2 py-1.5 text-left text-sm hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={() => {
+                    sendCommand('back');
+                    setIsBrowserMenuOpen(false);
+                  }}
+                  disabled={!canGoBack}
+                >
+                  Back
+                </button>
+                <button
+                  type="button"
+                  className="flex w-full items-center rounded px-2 py-1.5 text-left text-sm hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={() => {
+                    sendCommand('forward');
+                    setIsBrowserMenuOpen(false);
+                  }}
+                  disabled={!canGoForward}
+                >
+                  Forward
+                </button>
+                <button
+                  type="button"
+                  className="flex w-full items-center rounded px-2 py-1.5 text-left text-sm hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={() => {
+                    sendCommand('reload');
+                    setIsBrowserMenuOpen(false);
+                  }}
+                  disabled={!(embeddedPreviewUrl || objectUrl)}
+                >
+                  Reload
+                </button>
+                <button
+                  type="button"
+                  className="flex w-full items-center rounded px-2 py-1.5 text-left text-sm hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={async () => {
+                    await navigator.clipboard.writeText(shareableHref || 'about:blank');
+                    setIsBrowserMenuOpen(false);
+                  }}
+                  disabled={!shareableHref}
+                >
+                  Copy link
+                </button>
+              </div>
+            )}
+          </div>
         </div>
         <div className="mt-2 min-w-0 w-full rounded-md border border-border/70 bg-muted/50 px-3 py-1.5">
           <p className="truncate font-mono text-xs text-foreground" title={shareableHref || 'about:blank'}>
@@ -3263,79 +3309,6 @@ export function ChatMessage({
                       <p className="truncate text-sm font-semibold text-slate-900">
                         {resolvedHtmlPreview.title || 'Preview'}
                       </p>
-                      <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="whitespace-nowrap"
-                        onClick={() => { void exportPreviewCardProject(); }}
-                        disabled={previewExporting}
-                      >
-                        {previewExporting ? 'Экспортирую...' : 'Экспортировать'}
-                      </Button>
-                      {projectBundle && canRunProject && onRunProject && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="whitespace-nowrap"
-                          onClick={() => { void runProjectBundleOnServer(); }}
-                          disabled={projectRunning}
-                        >
-                          {projectRunning ? 'Запускаю...' : 'Запустить'}
-                        </Button>
-                      )}
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="whitespace-nowrap"
-                        onClick={() => {
-                          if (absolutePreviewPageUrl) {
-                            window.open(
-                              withPreviewId(
-                                absolutePreviewPageUrl,
-                                `open-window-${Math.random().toString(36).slice(2, 10)}`,
-                              ),
-                              '_blank',
-                              'noopener,noreferrer',
-                            );
-                            return;
-                          }
-
-                          const blob = new Blob([resolvedHtmlPreview.html || ''], { type: 'text/html' });
-                          const url = URL.createObjectURL(blob);
-                          window.open(url, '_blank', 'noopener,noreferrer');
-                          setTimeout(() => URL.revokeObjectURL(url), 60_000);
-                        }}
-                      >
-                        В новом окне
-                      </Button>
-                      {canEditPreview && onSavePreview && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="order-4 whitespace-nowrap"
-                          onClick={() => openPreviewEditor(resolvedHtmlPreview.title, resolvedHtmlPreview.html)}
-                        >
-                          Редактор
-                        </Button>
-                      )}
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="order-3 whitespace-nowrap"
-                        onClick={() => setHtmlPreview({
-                          title: resolvedHtmlPreview.title,
-                          html: resolvedHtmlPreview.html,
-                        })}
-                      >
-                        На весь экран
-                      </Button>
-                      </div>
                     </div>
                     <p className="shrink-0 pt-0.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                       Preview
@@ -3348,6 +3321,81 @@ export function ChatMessage({
                       previewPageUrl={absolutePreviewPageUrl}
                       revisionKey={resolvedPreviewRevision}
                       className="h-80 w-full max-w-full overflow-hidden"
+                      toolbarActions={(
+                        <>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="whitespace-nowrap"
+                            onClick={() => { void exportPreviewCardProject(); }}
+                            disabled={previewExporting}
+                          >
+                            {previewExporting ? 'Экспортирую...' : 'Экспортировать'}
+                          </Button>
+                          {projectBundle && canRunProject && onRunProject && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="whitespace-nowrap"
+                              onClick={() => { void runProjectBundleOnServer(); }}
+                              disabled={projectRunning}
+                            >
+                              {projectRunning ? 'Запускаю...' : 'Запустить'}
+                            </Button>
+                          )}
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="whitespace-nowrap"
+                            onClick={() => {
+                              if (absolutePreviewPageUrl) {
+                                window.open(
+                                  withPreviewId(
+                                    absolutePreviewPageUrl,
+                                    `open-window-${Math.random().toString(36).slice(2, 10)}`,
+                                  ),
+                                  '_blank',
+                                  'noopener,noreferrer',
+                                );
+                                return;
+                              }
+
+                              const blob = new Blob([resolvedHtmlPreview.html || ''], { type: 'text/html' });
+                              const url = URL.createObjectURL(blob);
+                              window.open(url, '_blank', 'noopener,noreferrer');
+                              setTimeout(() => URL.revokeObjectURL(url), 60_000);
+                            }}
+                          >
+                            В новом окне
+                          </Button>
+                          {canEditPreview && onSavePreview && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="whitespace-nowrap"
+                              onClick={() => openPreviewEditor(resolvedHtmlPreview.title, resolvedHtmlPreview.html)}
+                            >
+                              Редактор
+                            </Button>
+                          )}
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="whitespace-nowrap"
+                            onClick={() => setHtmlPreview({
+                              title: resolvedHtmlPreview.title,
+                              html: resolvedHtmlPreview.html,
+                            })}
+                          >
+                            На весь экран
+                          </Button>
+                        </>
+                      )}
                     />
                   </div>
                   <div className="mt-3">
