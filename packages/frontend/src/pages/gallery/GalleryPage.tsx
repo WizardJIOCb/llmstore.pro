@@ -319,7 +319,7 @@ export function GalleryPage() {
   const [kindFilter, setKindFilter] = useState<GalleryKindFilter>('preview');
   const [runningMessageId, setRunningMessageId] = useState<string | null>(null);
   const [cloningChatId, setCloningChatId] = useState<string | null>(null);
-  const [fullscreenPreview, setFullscreenPreview] = useState<{ title: string; url: string } | null>(null);
+  const [fullscreenPreview, setFullscreenPreview] = useState<{ title: string; url: string; chatId: string } | null>(null);
   const [cloneToast, setCloneToast] = useState<GalleryCloneToastState | null>(null);
   const [projectRunCounts, setProjectRunCounts] = useState<Record<string, number>>({});
   const [runResult, setRunResult] = useState<(ProjectRunResult & {
@@ -503,7 +503,7 @@ export function GalleryPage() {
     try {
       const clonedChat = await cloneChatMutation.mutateAsync(chatId);
       setCloneToast({ tone: 'success', message: 'Чат склонирован. Открываю вашу копию.' });
-      navigate(`/chat?chat=${encodeURIComponent(clonedChat.id)}`);
+      navigate(`/chats?chat=${encodeURIComponent(clonedChat.id)}`);
     } catch (error) {
       setCloneToast({
         tone: 'error',
@@ -731,7 +731,7 @@ export function GalleryPage() {
                         <Button
                           type="button"
                           size="sm"
-                          onClick={() => setFullscreenPreview({ title: displayTitle, url: previewUrl })}
+                          onClick={() => setFullscreenPreview({ title: displayTitle, url: previewUrl, chatId: item.chat_id })}
                         >
                           Открыть preview
                         </Button>
@@ -1094,6 +1094,33 @@ export function GalleryPage() {
                   onClick={() => window.open(fullscreenPreview.url, '_blank', 'noopener,noreferrer')}
                 >
                   В новом окне
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={!currentUser || Boolean(cloningChatId)}
+                  onClick={async () => {
+                    if (!fullscreenPreview || !currentUser || cloningChatId) return;
+                    const sourceChatId = fullscreenPreview.chatId;
+                    setCloningChatId(sourceChatId);
+                    try {
+                      const clonedChat = await cloneChatMutation.mutateAsync(sourceChatId);
+                      setFullscreenPreview(null);
+                      setCloneToast({ tone: 'success', message: 'Чат склонирован. Открываю вашу копию.' });
+                      navigate(`/chats?chat=${encodeURIComponent(clonedChat.id)}`);
+                    } catch (error) {
+                      setCloneToast({
+                        tone: 'error',
+                        message: getApiErrorMessage(error) ?? 'Не удалось клонировать чат',
+                      });
+                    } finally {
+                      setCloningChatId(null);
+                    }
+                  }}
+                  title={currentUser ? 'Скопировать чат к себе' : 'Нужна авторизация для клонирования'}
+                >
+                  {cloningChatId === fullscreenPreview.chatId ? 'Клонирую...' : 'Склонировать'}
                 </Button>
                 <Button type="button" size="sm" onClick={() => setFullscreenPreview(null)}>
                   Закрыть
