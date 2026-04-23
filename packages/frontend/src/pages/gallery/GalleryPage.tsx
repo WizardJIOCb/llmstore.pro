@@ -1095,7 +1095,7 @@ export function GalleryPage() {
                 >
                   В новом окне
                 </Button>
-                <Button type="button" variant="outline" size="sm" onClick={() => setFullscreenPreview(null)}>
+                <Button type="button" size="sm" onClick={() => setFullscreenPreview(null)}>
                   Закрыть
                 </Button>
               </div>
