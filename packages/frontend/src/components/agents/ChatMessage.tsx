@@ -3848,7 +3848,7 @@ export function ChatMessage({
                   <div className="border-b px-4 py-3">
                     <div className="mb-2 flex items-center justify-between gap-3">
                     <label className="block text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                      Заголовок preview
+                      Код
                     </label>
                       <Button
                         type="button"
