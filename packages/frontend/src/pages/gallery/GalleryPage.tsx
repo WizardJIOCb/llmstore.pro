@@ -1,6 +1,7 @@
 ﻿import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useCloneChat, useDeleteGalleryReaction, useGalleryPreviews, useGalleryTextChats, useSetGalleryReaction } from '../../hooks/useChats';
 import { chatsApi } from '../../lib/api/chats';
@@ -318,6 +319,7 @@ export function GalleryPage() {
   const [kindFilter, setKindFilter] = useState<GalleryKindFilter>('preview');
   const [runningMessageId, setRunningMessageId] = useState<string | null>(null);
   const [cloningChatId, setCloningChatId] = useState<string | null>(null);
+  const [fullscreenPreview, setFullscreenPreview] = useState<{ title: string; url: string } | null>(null);
   const [cloneToast, setCloneToast] = useState<GalleryCloneToastState | null>(null);
   const [projectRunCounts, setProjectRunCounts] = useState<Record<string, number>>({});
   const [runResult, setRunResult] = useState<(ProjectRunResult & {
@@ -725,8 +727,17 @@ export function GalleryPage() {
                     </div>
 
                     <div className="flex items-center gap-2">
+                      {previewUrl ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() => setFullscreenPreview({ title: displayTitle, url: previewUrl })}
+                        >
+                          Открыть preview
+                        </Button>
+                      ) : null}
                       <Link to={buildGalleryChatTarget(item)}>
-                        <Button size="sm">Открыть чат</Button>
+                        <Button variant="outline" size="sm">Открыть чат</Button>
                       </Link>
                       <Button
                         type="button"
@@ -750,11 +761,6 @@ export function GalleryPage() {
                           {runningMessageId === item.message_id ? 'Запускаю...' : 'Запустить'}
                         </Button>
                       )}
-                      {previewUrl ? (
-                        <a href={previewUrl} target="_blank" rel="noopener noreferrer">
-                          <Button variant="outline" size="sm">Открыть preview</Button>
-                        </a>
-                      ) : null}
                     </div>
 
                     {runError?.message_id === item.message_id ? (
@@ -1064,6 +1070,38 @@ export function GalleryPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {fullscreenPreview && typeof document !== 'undefined' && createPortal(
+        <div
+          className="fixed inset-0 z-[135] flex h-dvh w-screen items-stretch justify-stretch bg-black/85"
+          onClick={() => setFullscreenPreview(null)}
+        >
+          <div
+            className="flex h-dvh w-screen max-w-none flex-col overflow-hidden rounded-none bg-white shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-slate-900">{fullscreenPreview.title}</p>
+                <p className="text-xs text-slate-500">Gallery preview</p>
+              </div>
+              <Button type="button" variant="outline" size="sm" onClick={() => setFullscreenPreview(null)}>
+                Закрыть
+              </Button>
+            </div>
+            <div className="min-h-0 flex-1 bg-white">
+              <iframe
+                title={fullscreenPreview.title}
+                src={fullscreenPreview.url}
+                className="h-full w-full bg-white"
+                sandbox="allow-scripts"
+                referrerPolicy="no-referrer"
+              />
+            </div>
+          </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
