@@ -46,6 +46,8 @@ export function AgentForm({
   const OPENROUTER_MODELS = [
     { value: 'anthropic/claude-sonnet-4.6', label: 'Claude Sonnet 4.6' },
     { value: 'anthropic/claude-opus-4.6', label: 'Claude Opus 4.6' },
+    { value: 'moonshotai/kimi-k2.6', label: 'Kimi K2.6' },
+    { value: 'moonshotai/kimi-k2.5', label: 'Kimi K2.5' },
     { value: 'openai/gpt-5.4-mini', label: 'OpenAI GPT-5.4 Mini' },
     { value: 'anthropic/claude-haiku-4.5', label: 'Claude Haiku 4.5' },
     { value: 'qwen/qwen3-coder-plus', label: 'Qwen3 Coder Plus' },

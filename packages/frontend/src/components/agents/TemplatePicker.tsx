@@ -40,6 +40,12 @@ const templates: Template[] = [
     icon: '🎭',
   },
   {
+    id: 'kimi-creative-landing-builder',
+    name: 'Kimi K2.6 Creative Landing Builder',
+    description: 'Kimi-версия creative landing агента для галерейных, интерактивных и визуально смелых HTML-лендингов с сильной идеей, сценами и микроанимациями.',
+    icon: 'K2.6',
+  },
+  {
     id: 'kimi-orchestrator',
     name: 'Kimi K2.5 Orchestrator',
     description: 'Отдельный orchestration-first шаблон под лендинги, large fullstack и большую аналитику: сначала план и декомпозиция, потом код.',

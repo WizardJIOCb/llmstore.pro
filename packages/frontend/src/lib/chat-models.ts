@@ -43,6 +43,13 @@ export const GENERAL_CHAT_MODELS: GeneralModelOption[] = [
     pricing_output_usd_per_million: 10.00,
   },
   {
+    value: 'moonshotai/kimi-k2.6',
+    label: 'Kimi K2.6',
+    description: 'Новая creative-coding модель Moonshot AI для длинного контекста, UI/UX генерации, агентных задач и сложных лендингов с полноценным HTML preview.',
+    pricing_input_usd_per_million: 0.75,
+    pricing_output_usd_per_million: 3.50,
+  },
+  {
     value: 'moonshotai/kimi-k2.5',
     label: 'Kimi K2.5',
     description: 'Сильный long-context и orchestration-first вариант для больших аналитических задач, planning-heavy запросов и fullstack-разработки.',
