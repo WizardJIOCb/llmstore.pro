@@ -3470,13 +3470,13 @@ export function ChatMessage({
         </div>
       )}
 
-      {htmlPreview && (
+      {htmlPreview && typeof document !== 'undefined' && createPortal(
         <div
-          className="fixed inset-0 z-[130] flex items-center justify-center bg-black/85 p-3"
+          className="fixed inset-0 z-[130] flex h-dvh w-screen items-stretch justify-stretch bg-black/85"
           onClick={() => setHtmlPreview(null)}
         >
           <div
-            className="flex h-[94vh] w-[96vw] max-w-7xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+            className="flex h-dvh w-screen max-w-none flex-col overflow-hidden rounded-none bg-white shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
@@ -3498,7 +3498,8 @@ export function ChatMessage({
               className="min-h-0 flex-1"
             />
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
 
       {projectRunResultFullscreen && (
