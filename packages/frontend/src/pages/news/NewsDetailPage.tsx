@@ -91,16 +91,13 @@ export function NewsDetailPage() {
   return (
     <div className="bg-[linear-gradient(180deg,#f8fafc_0%,#ffffff_25%,#f8fafc_100%)]">
       <div className="container mx-auto max-w-6xl px-4 py-10 md:py-14">
-        <div className="mb-6">
-          <Link to="/news" className="inline-flex items-center gap-2 text-sm text-slate-500 transition hover:text-slate-900">
-            ← Все новости
-          </Link>
-        </div>
 
         <article className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-[0_24px_80px_-48px_rgba(15,23,42,0.35)] md:p-10">
-          <div>
-            <p className="text-sm uppercase tracking-[0.22em] text-slate-400">Пульс продукта</p>
-            <h1 className="mt-4 text-2xl font-bold tracking-tight text-slate-950 md:text-3xl">
+          <div className="relative">
+            <Link to="/news" className="absolute right-0 top-0 inline-flex items-center gap-2 text-sm text-slate-500 transition hover:text-slate-900">
+              {'\u2190 \u0412\u0441\u0435 \u043d\u043e\u0432\u043e\u0441\u0442\u0438'}
+            </Link>
+            <h1 className="pr-40 text-2xl font-bold tracking-tight text-slate-950 md:pr-56 md:text-3xl">
               {article.title}
             </h1>
             {article.excerpt && (
