@@ -6125,6 +6125,9 @@ async function cloneChatFromMessages(
       tool_agent_id: null,
       note: extractChatNote(sourceChat.settings_json),
     }),
+    is_clone: true,
+    cloned_from_conversation_id: sourceChat.id,
+    cloned_at: createdAtFallback,
     last_message_at: lastMessageAt,
     created_at: createdAtFallback,
     updated_at: new Date(),
@@ -8613,6 +8616,7 @@ export async function listGalleryPreviews(limit = 24, viewerUserId?: string | nu
       .where(and(
         eq(chatConversationMessages.role, 'assistant'),
         eq(chatConversations.access, 'public'),
+        eq(chatConversations.is_clone, false),
       ))
       .orderBy(desc(chatConversationMessages.created_at))
       .limit(chunkSize)
@@ -8914,7 +8918,10 @@ export async function listGalleryTextChats(
     })
     .from(chatConversations)
     .innerJoin(users, eq(users.id, chatConversations.user_id))
-    .where(eq(chatConversations.access, 'public'));
+    .where(and(
+      eq(chatConversations.access, 'public'),
+      eq(chatConversations.is_clone, false),
+    ));
 
   const getGalleryItemKind = (report?: CodingReport | null): GalleryItemKind | null => {
     const preview = report?.preview;

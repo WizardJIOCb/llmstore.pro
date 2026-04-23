@@ -1,5 +1,5 @@
 import {
-  pgTable, uuid, varchar, text, timestamp, integer, index, uniqueIndex, date,
+  pgTable, uuid, varchar, text, timestamp, integer, boolean, index, uniqueIndex, date, type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 import { jsonb } from 'drizzle-orm/pg-core';
 import { users } from './auth';
@@ -101,6 +101,9 @@ export const chatConversations = pgTable('chat_conversations', {
   access_identifiers: jsonb('access_identifiers').$type<string[]>().notNull().default([]),
   share_token: varchar('share_token', { length: 64 }),
   settings_json: jsonb('settings_json').$type<Record<string, unknown>>(),
+  is_clone: boolean('is_clone').notNull().default(false),
+  cloned_from_conversation_id: uuid('cloned_from_conversation_id').references((): AnyPgColumn => chatConversations.id, { onDelete: 'set null' }),
+  cloned_at: timestamp('cloned_at', { withTimezone: true }),
   total_view_count: integer('total_view_count').notNull().default(0),
   unique_view_count: integer('unique_view_count').notNull().default(0),
   pinned_at: timestamp('pinned_at', { withTimezone: true }),
@@ -111,6 +114,8 @@ export const chatConversations = pgTable('chat_conversations', {
   index('chat_conversations_user_pinned_idx').on(table.user_id, table.pinned_at),
   index('chat_conversations_user_last_message_idx').on(table.user_id, table.last_message_at),
   index('chat_conversations_agent_idx').on(table.agent_id),
+  index('chat_conversations_is_clone_idx').on(table.is_clone),
+  index('chat_conversations_cloned_from_idx').on(table.cloned_from_conversation_id),
   uniqueIndex('chat_conversations_share_token_idx').on(table.share_token),
 ]);
 
