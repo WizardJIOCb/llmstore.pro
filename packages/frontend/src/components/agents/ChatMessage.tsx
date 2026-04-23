@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ComponentPropsWithoutRef, CSSProperties, KeyboardEvent, ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Pencil, Trash2 } from 'lucide-react';
@@ -3718,13 +3719,13 @@ export function ChatMessage({
         </div>
       )}
 
-      {previewEditor && (
+      {previewEditor && typeof document !== 'undefined' && createPortal(
         <div
-          className="fixed inset-0 z-[135] flex items-center justify-center bg-black/85 p-3"
+          className="fixed inset-0 z-[135] flex h-dvh w-screen items-stretch justify-stretch bg-black/85"
           onClick={() => !editorBusy && setPreviewEditor(null)}
         >
           <div
-            className="flex h-[94vh] w-[98vw] max-w-[1600px] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+            className="flex h-dvh w-screen max-w-none flex-col overflow-hidden rounded-none bg-white shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
@@ -3863,7 +3864,8 @@ export function ChatMessage({
               </span>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   );
