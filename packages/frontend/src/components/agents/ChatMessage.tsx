@@ -1593,6 +1593,8 @@ function HtmlPreviewBrowser({
   revisionKey,
   className,
   toolbarActions,
+  header,
+  browserMenuPlacement = 'toolbar',
 }: {
   html: string;
   title: string;
@@ -1600,6 +1602,12 @@ function HtmlPreviewBrowser({
   revisionKey?: string;
   className?: string;
   toolbarActions?: ReactNode;
+  header?: {
+    title: ReactNode;
+    subtitle?: ReactNode;
+    actions?: ReactNode;
+  };
+  browserMenuPlacement?: 'toolbar' | 'header';
 }) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [previewId] = useState(() => `preview-${Math.random().toString(36).slice(2, 10)}`);
@@ -1687,74 +1695,90 @@ function HtmlPreviewBrowser({
     ? currentHref
     : (resolvedPreviewPageUrl ?? currentHref);
 
+  const browserMenu = (
+    <div className="relative shrink-0">
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="h-8 w-8 px-0"
+        aria-label="Действия preview"
+        aria-expanded={isBrowserMenuOpen}
+        onClick={() => setIsBrowserMenuOpen((value) => !value)}
+      >
+        ...
+      </Button>
+      {isBrowserMenuOpen && (
+        <div className="absolute right-0 top-9 z-20 min-w-[170px] rounded-md border bg-white p-1 shadow-lg">
+          <button
+            type="button"
+            className="flex w-full items-center rounded px-2 py-1.5 text-left text-sm hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={() => {
+              sendCommand('back');
+              setIsBrowserMenuOpen(false);
+            }}
+            disabled={!canGoBack}
+          >
+            Back
+          </button>
+          <button
+            type="button"
+            className="flex w-full items-center rounded px-2 py-1.5 text-left text-sm hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={() => {
+              sendCommand('forward');
+              setIsBrowserMenuOpen(false);
+            }}
+            disabled={!canGoForward}
+          >
+            Forward
+          </button>
+          <button
+            type="button"
+            className="flex w-full items-center rounded px-2 py-1.5 text-left text-sm hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={() => {
+              sendCommand('reload');
+              setIsBrowserMenuOpen(false);
+            }}
+            disabled={!(embeddedPreviewUrl || objectUrl)}
+          >
+            Reload
+          </button>
+          <button
+            type="button"
+            className="flex w-full items-center rounded px-2 py-1.5 text-left text-sm hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={async () => {
+              await navigator.clipboard.writeText(shareableHref || 'about:blank');
+              setIsBrowserMenuOpen(false);
+            }}
+            disabled={!shareableHref}
+          >
+            Copy link
+          </button>
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div className={cn('flex flex-col gap-2', className)}>
+      {header && (
+        <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
+          <div className="min-w-0">
+            {header.title}
+            {header.subtitle}
+          </div>
+          <div className="flex items-center gap-2">
+            {browserMenuPlacement === 'header' && browserMenu}
+            {header.actions}
+          </div>
+        </div>
+      )}
       <div className="rounded-md border border-border/70 bg-background/80 p-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
             {toolbarActions}
           </div>
-          <div className="relative shrink-0">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-8 w-8 px-0"
-              aria-label="Действия preview"
-              aria-expanded={isBrowserMenuOpen}
-              onClick={() => setIsBrowserMenuOpen((value) => !value)}
-            >
-              ...
-            </Button>
-            {isBrowserMenuOpen && (
-              <div className="absolute right-0 top-9 z-20 min-w-[170px] rounded-md border bg-white p-1 shadow-lg">
-                <button
-                  type="button"
-                  className="flex w-full items-center rounded px-2 py-1.5 text-left text-sm hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-                  onClick={() => {
-                    sendCommand('back');
-                    setIsBrowserMenuOpen(false);
-                  }}
-                  disabled={!canGoBack}
-                >
-                  Back
-                </button>
-                <button
-                  type="button"
-                  className="flex w-full items-center rounded px-2 py-1.5 text-left text-sm hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-                  onClick={() => {
-                    sendCommand('forward');
-                    setIsBrowserMenuOpen(false);
-                  }}
-                  disabled={!canGoForward}
-                >
-                  Forward
-                </button>
-                <button
-                  type="button"
-                  className="flex w-full items-center rounded px-2 py-1.5 text-left text-sm hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-                  onClick={() => {
-                    sendCommand('reload');
-                    setIsBrowserMenuOpen(false);
-                  }}
-                  disabled={!(embeddedPreviewUrl || objectUrl)}
-                >
-                  Reload
-                </button>
-                <button
-                  type="button"
-                  className="flex w-full items-center rounded px-2 py-1.5 text-left text-sm hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-                  onClick={async () => {
-                    await navigator.clipboard.writeText(shareableHref || 'about:blank');
-                    setIsBrowserMenuOpen(false);
-                  }}
-                  disabled={!shareableHref}
-                >
-                  Copy link
-                </button>
-              </div>
-            )}
-          </div>
+          {browserMenuPlacement === 'toolbar' && browserMenu}
         </div>
         <div className="mt-2 min-w-0 w-full rounded-md border border-border/70 bg-muted/50 px-3 py-1.5">
           <p className="truncate font-mono text-xs text-foreground" title={shareableHref || 'about:blank'}>
@@ -3479,48 +3503,49 @@ export function ChatMessage({
             className="flex h-dvh w-screen max-w-none flex-col overflow-hidden rounded-none bg-white shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
-              <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-slate-900">{htmlPreview.title}</p>
-                <p className="text-xs text-slate-500">Standalone preview</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    if (absolutePreviewPageUrl) {
-                      window.open(
-                        withPreviewId(
-                          absolutePreviewPageUrl,
-                          `open-window-${Math.random().toString(36).slice(2, 10)}`,
-                        ),
-                        '_blank',
-                        'noopener,noreferrer',
-                      );
-                      return;
-                    }
-
-                    const blob = new Blob([htmlPreview.html || ''], { type: 'text/html' });
-                    const url = URL.createObjectURL(blob);
-                    window.open(url, '_blank', 'noopener,noreferrer');
-                    setTimeout(() => URL.revokeObjectURL(url), 60_000);
-                  }}
-                >
-                  В новом окне
-                </Button>
-                <Button type="button" size="sm" onClick={() => setHtmlPreview(null)}>
-                  Закрыть
-                </Button>
-              </div>
-            </div>
             <HtmlPreviewBrowser
               title={htmlPreview.title}
               html={htmlPreview.html}
               previewPageUrl={absolutePreviewPageUrl}
               revisionKey={getStringHash(htmlPreview.html)}
               className="min-h-0 flex-1"
+              browserMenuPlacement="header"
+              header={{
+                title: <p className="truncate text-sm font-semibold text-slate-900">{htmlPreview.title}</p>,
+                subtitle: <p className="text-xs text-slate-500">Standalone preview</p>,
+                actions: (
+                  <>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        if (absolutePreviewPageUrl) {
+                          window.open(
+                            withPreviewId(
+                              absolutePreviewPageUrl,
+                              `open-window-${Math.random().toString(36).slice(2, 10)}`,
+                            ),
+                            '_blank',
+                            'noopener,noreferrer',
+                          );
+                          return;
+                        }
+
+                        const blob = new Blob([htmlPreview.html || ''], { type: 'text/html' });
+                        const url = URL.createObjectURL(blob);
+                        window.open(url, '_blank', 'noopener,noreferrer');
+                        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+                      }}
+                    >
+                      В новом окне
+                    </Button>
+                    <Button type="button" size="sm" onClick={() => setHtmlPreview(null)}>
+                      Закрыть
+                    </Button>
+                  </>
+                ),
+              }}
             />
           </div>
         </div>,
