@@ -1850,6 +1850,7 @@ export function ChatMessage({
   const [editorExporting, setEditorExporting] = useState(false);
   const [editorError, setEditorError] = useState<string | null>(null);
   const [editorStatus, setEditorStatus] = useState<string | null>(null);
+  const [previewEditorFocusMode, setPreviewEditorFocusMode] = useState<'split' | 'code' | 'preview'>('split');
   const [messageActionError, setMessageActionError] = useState<string | null>(null);
   const [messageActionStatus, setMessageActionStatus] = useState<string | null>(null);
   const [landingSubdomainInput, setLandingSubdomainInput] = useState('');
@@ -1924,6 +1925,7 @@ export function ChatMessage({
     if (!isEditorOpen || !previewEditor) return;
     editorHistoryRef.current = [previewEditor.html];
     editorHistoryIndexRef.current = 0;
+    setPreviewEditorFocusMode('split');
     setEditorStatus(null);
     editorTextareaRef.current?.focus();
   }, [isEditorOpen]);
@@ -3827,13 +3829,36 @@ export function ChatMessage({
               {renderPublishedLandingControls(true)}
             </div>
 
-            <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-              <div className="min-h-0 border-b lg:border-b-0 lg:border-r">
+            <div
+              className={cn(
+                'grid min-h-0 flex-1',
+                previewEditorFocusMode === 'split' && 'lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]',
+                previewEditorFocusMode !== 'split' && 'grid-cols-1',
+              )}
+            >
+              <div
+                className={cn(
+                  'min-h-0 border-b lg:border-b-0 lg:border-r',
+                  previewEditorFocusMode === 'preview' && 'hidden',
+                  previewEditorFocusMode === 'code' && 'border-r-0',
+                )}
+              >
                 <div className="flex h-full min-h-0 flex-col">
                   <div className="border-b px-4 py-3">
+                    <div className="mb-2 flex items-center justify-between gap-3">
                     <label className="block text-xs font-medium uppercase tracking-wide text-muted-foreground">
                       Заголовок preview
                     </label>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 whitespace-nowrap"
+                        onClick={() => setPreviewEditorFocusMode((mode) => (mode === 'code' ? 'split' : 'code'))}
+                      >
+                        {previewEditorFocusMode === 'code' ? 'Показать preview' : 'На всю ширину'}
+                      </Button>
+                    </div>
                     <input
                       value={previewEditor.title}
                       onChange={(e) => {
@@ -3880,12 +3905,24 @@ export function ChatMessage({
                 </div>
               </div>
 
-              <div className="min-h-0 bg-slate-50">
+              <div className={cn(
+                'min-h-0 bg-slate-50',
+                previewEditorFocusMode === 'code' && 'hidden',
+              )}>
                 <div className="flex h-full min-h-0 flex-col">
-                  <div className="border-b bg-white px-4 py-3">
+                  <div className="flex items-center justify-between gap-3 border-b bg-white px-4 py-3">
                     <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                       Предпросмотр
                     </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 whitespace-nowrap"
+                      onClick={() => setPreviewEditorFocusMode((mode) => (mode === 'preview' ? 'split' : 'preview'))}
+                    >
+                      {previewEditorFocusMode === 'preview' ? 'Показать код' : 'На всю ширину'}
+                    </Button>
                   </div>
                   <div className="min-h-0 flex-1 p-4">
                     <HtmlPreviewBrowser
