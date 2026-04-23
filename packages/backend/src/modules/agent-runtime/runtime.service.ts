@@ -29,7 +29,7 @@ import { executeTool } from '../tool-execution/index.js';
 import { executeHttpRequest } from '../tool-execution/executors/http-request.executor.js';
 import { NotFoundError, AppError, ConflictError } from '../../middleware/error-handler.js';
 import { logger } from '../../lib/logger.js';
-import type { ChatCompletionChoice, ChatMessage, ToolDefinitionParam } from '../openrouter/types.js';
+import type { ChatCompletionChoice, ChatCompletionParams, ChatMessage, ToolDefinitionParam } from '../openrouter/types.js';
 import { UPLOADS_DIR } from '../../config/upload.js';
 import { openChatEventStream, openSharedChatEventStream, publishChatEvent, publishSharedChatEvent } from './chat-events.service.js';
 import {
@@ -763,6 +763,17 @@ function requireFirstChoice(
   }
 
   return choice;
+}
+
+function resolveOpenRouterReasoningConfig(modelId?: string | null): ChatCompletionParams['reasoning'] | undefined {
+  const normalized = normalizeModelLookupKey(modelId);
+  if (!normalized) return undefined;
+
+  if (normalized === 'moonshotai/kimi-k2.6' || normalized === 'kimi-k2.6') {
+    return { effort: 'none', exclude: true, enabled: false };
+  }
+
+  return undefined;
 }
 
 function extractJsonObjectFromAssistantContent(content: string): Record<string, unknown> | null {
@@ -3335,6 +3346,7 @@ ${agent.description.trim()}`);
     toolParams.length,
     previewOnlyLandingRequest,
   );
+  const reasoningConfig = resolveOpenRouterReasoningConfig(modelId);
   const landingBuildRequest = looksLikeLandingBuildRequest(latestUserMessage) && !strictPreviewEdit;
   const responseMaxTokens = resolveAgentResponseMaxTokens(
     runtimeConfig.max_tokens,
@@ -3610,6 +3622,7 @@ ${agent.description.trim()}`);
       ],
       temperature: effectiveTemperature,
       max_tokens: responseMaxTokens,
+      reasoning: reasoningConfig,
       provider: providerPreferences,
     }, {
       timeoutMs: llmTimeoutMs,
@@ -3695,6 +3708,7 @@ ${agent.description.trim()}`);
       ],
       temperature: Math.min(effectiveTemperature, 0.1),
       max_tokens: Math.min(responseMaxTokens, 9_000),
+      reasoning: reasoningConfig,
       provider: providerPreferences,
     }, {
       timeoutMs: llmTimeoutMs,
@@ -3766,6 +3780,7 @@ ${agent.description.trim()}`);
         tool_choice: toolParams.length > 0 ? 'auto' : undefined,
         temperature: effectiveTemperature,
         max_tokens: responseMaxTokens,
+        reasoning: reasoningConfig,
         provider: providerPreferences,
       }, {
         timeoutMs: llmTimeoutMs,
@@ -7981,6 +7996,7 @@ export async function sendChatMessage(
           ],
           temperature: 0.5,
           max_tokens: 2048,
+          reasoning: resolveOpenRouterReasoningConfig(model),
         }, {
           timeoutMs: GENERAL_CHAT_OPENROUTER_TIMEOUT_MS,
         });

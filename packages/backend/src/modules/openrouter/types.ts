@@ -37,6 +37,12 @@ export interface ChatCompletionParams {
   messages: ChatMessage[];
   tools?: ToolDefinitionParam[];
   tool_choice?: 'auto' | 'none' | { type: 'function'; function: { name: string } };
+  reasoning?: {
+    effort?: 'xhigh' | 'high' | 'medium' | 'low' | 'minimal' | 'none';
+    max_tokens?: number;
+    exclude?: boolean;
+    enabled?: boolean;
+  };
   temperature?: number;
   max_tokens?: number;
   top_p?: number;
