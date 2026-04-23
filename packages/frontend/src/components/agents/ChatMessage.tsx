@@ -1595,6 +1595,7 @@ function HtmlPreviewBrowser({
   toolbarActions,
   header,
   browserMenuPlacement = 'toolbar',
+  browserMenuInlineWithAddress = false,
 }: {
   html: string;
   title: string;
@@ -1608,6 +1609,7 @@ function HtmlPreviewBrowser({
     actions?: ReactNode;
   };
   browserMenuPlacement?: 'toolbar' | 'header';
+  browserMenuInlineWithAddress?: boolean;
 }) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [previewId] = useState(() => `preview-${Math.random().toString(36).slice(2, 10)}`);
@@ -1778,12 +1780,15 @@ function HtmlPreviewBrowser({
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
             {toolbarActions}
           </div>
-          {browserMenuPlacement === 'toolbar' && browserMenu}
+          {browserMenuPlacement === 'toolbar' && !browserMenuInlineWithAddress && browserMenu}
         </div>
-        <div className="mt-2 min-w-0 w-full rounded-md border border-border/70 bg-muted/50 px-3 py-1.5">
-          <p className="truncate font-mono text-xs text-foreground" title={shareableHref || 'about:blank'}>
-            {shareableHref || 'about:blank'}
-          </p>
+        <div className="mt-2 flex min-w-0 items-center gap-2">
+          <div className="min-w-0 flex-1 rounded-md border border-border/70 bg-muted/50 px-3 py-1.5">
+            <p className="truncate font-mono text-xs text-foreground" title={shareableHref || 'about:blank'}>
+              {shareableHref || 'about:blank'}
+            </p>
+          </div>
+          {browserMenuPlacement === 'toolbar' && browserMenuInlineWithAddress && browserMenu}
         </div>
       </div>
 
@@ -3981,6 +3986,7 @@ export function ChatMessage({
                       html={previewEditor.html}
                       revisionKey={getStringHash(previewEditor.html)}
                       className="h-full w-full"
+                      browserMenuInlineWithAddress
                     />
                   </div>
                 </div>
