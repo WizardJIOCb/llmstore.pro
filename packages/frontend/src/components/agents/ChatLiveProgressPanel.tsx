@@ -71,10 +71,10 @@ function formatElapsed(elapsedMs: number): string {
   const seconds = totalSeconds % 60;
 
   if (minutes === 0) {
-    return `${totalSeconds} с`;
+    return `${totalSeconds}\u00A0с`;
   }
 
-  return `${minutes} мин ${seconds.toString().padStart(2, '0')} с`;
+  return `${minutes}\u00A0мин\u00A0${seconds.toString().padStart(2, '0')}\u00A0с`;
 }
 
 function hasInspectableToolPayload(event: ChatLiveProgressEvent): boolean {
