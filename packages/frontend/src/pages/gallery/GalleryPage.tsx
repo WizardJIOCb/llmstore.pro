@@ -1086,9 +1086,19 @@ export function GalleryPage() {
                 <p className="truncate text-sm font-semibold text-slate-900">{fullscreenPreview.title}</p>
                 <p className="text-xs text-slate-500">Gallery preview</p>
               </div>
-              <Button type="button" variant="outline" size="sm" onClick={() => setFullscreenPreview(null)}>
-                Закрыть
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => window.open(fullscreenPreview.url, '_blank', 'noopener,noreferrer')}
+                >
+                  В новом окне
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => setFullscreenPreview(null)}>
+                  Закрыть
+                </Button>
+              </div>
             </div>
             <div className="min-h-0 flex-1 bg-white">
               <iframe
