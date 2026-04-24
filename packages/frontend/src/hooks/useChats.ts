@@ -150,7 +150,8 @@ export function useDeleteChat() {
 export function useCloneChat() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (chatId: string) => chatsApi.clone(chatId),
+    mutationFn: ({ chatId, includeMessages }: { chatId: string; includeMessages?: boolean }) =>
+      chatsApi.clone(chatId, includeMessages === undefined ? undefined : { include_messages: includeMessages }),
     onSuccess: (chat) => {
       qc.setQueryData<ChatListItem[] | undefined>(['chats'], (prev) => {
         const existing = prev ?? [];

@@ -501,7 +501,7 @@ export function GalleryPage() {
 
     setCloningChatId(chatId);
     try {
-      const clonedChat = await cloneChatMutation.mutateAsync(chatId);
+      const clonedChat = await cloneChatMutation.mutateAsync({ chatId });
       setCloneToast({ tone: 'success', message: 'Чат склонирован. Открываю вашу копию.' });
       navigate(`/chats?chat=${encodeURIComponent(clonedChat.id)}`);
     } catch (error) {
@@ -1105,7 +1105,7 @@ export function GalleryPage() {
                     const sourceChatId = fullscreenPreview.chatId;
                     setCloningChatId(sourceChatId);
                     try {
-                      const clonedChat = await cloneChatMutation.mutateAsync(sourceChatId);
+                      const clonedChat = await cloneChatMutation.mutateAsync({ chatId: sourceChatId });
                       setFullscreenPreview(null);
                       setCloneToast({ tone: 'success', message: 'Чат склонирован. Открываю вашу копию.' });
                       navigate(`/chats?chat=${encodeURIComponent(clonedChat.id)}`);

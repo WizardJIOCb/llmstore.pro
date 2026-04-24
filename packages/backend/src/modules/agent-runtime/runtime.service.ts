@@ -7711,9 +7711,116 @@ export async function updateChat(chatId: string, userId: string, input: {
   };
 }
 
-export async function cloneChat(chatId: string, userId: string, userRole?: string): Promise<ConversationListItem> {
+async function createReusableChatFromSource(
+  userId: string,
+  sourceChat: ChatConversationRow,
+): Promise<ConversationListItem> {
+  const sourceToolSettings = extractChatToolSettings(sourceChat.settings_json);
+  const sourceAgentMeta = sourceChat.agent_id
+    ? await getAgentChatMeta(sourceChat.agent_id)
+    : null;
+  const createdAt = new Date();
+  const shareToken = uuidv4().replace(/-/g, '').slice(0, 16);
+  const sourceTitle = sourceChat.title.trim() || 'Новый чат';
+  const title = sourceTitle.toLowerCase().startsWith('копия ')
+    ? sourceTitle.replace(/^копия\s+/i, '').trim() || 'Новый чат'
+    : sourceTitle;
+
+  const [chat] = await db.insert(chatConversations).values({
+    user_id: userId,
+    agent_id: sourceChat.mode === 'agent' ? sourceChat.agent_id : null,
+    mode: sourceChat.mode,
+    title: title.slice(0, 500),
+    model_external_id: sourceChat.mode === 'general' ? sourceChat.model_external_id : null,
+    system_prompt: sourceChat.system_prompt ?? null,
+    access: 'private',
+    access_identifiers: [],
+    share_token: shareToken,
+    settings_json: buildChatSettingsJson(null, {
+      tool_ids: sourceChat.mode === 'general' ? sourceToolSettings.tool_ids : [],
+      tool_agent_id: null,
+      note: extractChatNote(sourceChat.settings_json),
+    }),
+    is_clone: false,
+    cloned_from_conversation_id: sourceChat.id,
+    cloned_at: createdAt,
+    last_message_at: createdAt,
+    created_at: createdAt,
+    updated_at: createdAt,
+  }).returning();
+
+  if (sourceChat.mode === 'general' && sourceToolSettings.tool_ids.length > 0) {
+    const toolAgentId = await ensureChatToolRuntimeAgent(
+      { id: chat.id, title: chat.title },
+      userId,
+      sourceToolSettings.tool_ids,
+      chat.model_external_id ?? DEFAULT_GENERAL_MODEL,
+      chat.system_prompt,
+    );
+
+    await db.update(chatConversations)
+      .set({
+        settings_json: buildChatSettingsJson(chat.settings_json, {
+          tool_ids: sourceToolSettings.tool_ids,
+          tool_agent_id: toolAgentId,
+          note: extractChatNote(sourceChat.settings_json),
+        }),
+        updated_at: new Date(),
+      })
+      .where(eq(chatConversations.id, chat.id));
+  }
+
+  const [finalChat] = await db
+    .select()
+    .from(chatConversations)
+    .where(eq(chatConversations.id, chat.id))
+    .limit(1);
+
+  const effectiveChat = finalChat ?? chat;
+  const effectiveAgentMeta = effectiveChat.mode === 'agent'
+    ? (sourceAgentMeta ?? await getAgentChatMeta(effectiveChat.agent_id ?? null))
+    : null;
+  const effectiveModelLabel = effectiveChat.mode === 'agent'
+    ? (effectiveAgentMeta?.agent_model_label ?? null)
+    : getModelDisplayLabel(effectiveChat.model_external_id ?? null);
+
+  return {
+    id: effectiveChat.id,
+    title: effectiveChat.title,
+    note: extractChatNote(effectiveChat.settings_json),
+    mode: effectiveChat.mode as ChatMode,
+    agent_id: effectiveChat.agent_id ?? null,
+    agent_name: effectiveAgentMeta?.agent_name ?? null,
+    agent_model_external_id: effectiveAgentMeta?.agent_model_external_id ?? null,
+    agent_model_label: effectiveAgentMeta?.agent_model_label ?? null,
+    effective_model_label: effectiveModelLabel,
+    model_external_id: effectiveChat.model_external_id ?? null,
+    access: 'private',
+    access_identifiers: [],
+    share_token: effectiveChat.share_token ?? chat.share_token ?? null,
+    message_count: 0,
+    last_message_preview: null,
+    pending_run: null,
+    pinned_at: null,
+    last_message_at: toIso(effectiveChat.last_message_at ?? createdAt),
+    created_at: toIso(effectiveChat.created_at ?? createdAt),
+    updated_at: toIso(effectiveChat.updated_at ?? createdAt),
+    has_active_deployment: false,
+  };
+}
+
+export async function cloneChat(
+  chatId: string,
+  userId: string,
+  userRole?: string,
+  options?: { includeMessages?: boolean },
+): Promise<ConversationListItem> {
   const sourceChat = await getConversationById(chatId);
   await ensureChatViewerAccess(sourceChat, userId);
+
+  if (options?.includeMessages === false) {
+    return createReusableChatFromSource(userId, sourceChat);
+  }
 
   const sourceMessages = await getConversationMessages(sourceChat.id);
   if (sourceMessages.length === 0) {

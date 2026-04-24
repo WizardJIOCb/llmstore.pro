@@ -279,9 +279,18 @@ export async function createChat(req: Request, res: Response, next: NextFunction
   }
 }
 
-export async function cloneChat(req: Request<{ chatId: string }>, res: Response, next: NextFunction) {
+export async function cloneChat(
+  req: Request<{ chatId: string }, unknown, { include_messages?: boolean }>,
+  res: Response,
+  next: NextFunction,
+) {
   try {
-    const chat = await runtimeService.cloneChat(req.params.chatId, req.session.userId!, req.session.userRole);
+    const chat = await runtimeService.cloneChat(
+      req.params.chatId,
+      req.session.userId!,
+      req.session.userRole,
+      { includeMessages: req.body.include_messages !== false },
+    );
     res.status(201).json({ data: chat });
   } catch (err) {
     next(err);

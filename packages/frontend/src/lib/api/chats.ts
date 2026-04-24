@@ -561,8 +561,8 @@ export const chatsApi = {
     },
   ) => apiClient.patch<{ data: ChatListItem }>(`/chats/${chatId}`, payload).then((r) => r.data.data),
 
-  clone: (chatId: string) =>
-    apiClient.post<{ data: ChatListItem }>(`/chats/${chatId}/clone`, {}).then((r) => r.data.data),
+  clone: (chatId: string, payload?: { include_messages?: boolean }) =>
+    apiClient.post<{ data: ChatListItem }>(`/chats/${chatId}/clone`, payload ?? {}).then((r) => r.data.data),
 
   transfer: (chatId: string, identifier: string) =>
     apiClient

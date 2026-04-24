@@ -5,7 +5,9 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowRightLeft,
+  Bookmark,
   Bot,
+  Copy,
   Download,
   Globe,
   Link2,
@@ -33,6 +35,7 @@ import {
   useChatAgents,
   useChatStats,
   useChatsList,
+  useCloneChat,
   useCreateChat,
   useDeleteChat,
   useDeleteChatMessage,
@@ -248,7 +251,7 @@ function getChatOwnerLabel(chat: Pick<ChatListItem, 'owner_name' | 'owner_userna
 }
 
 function getChatActionIcon(
-  action: 'rename' | 'pin' | 'unpin' | 'properties' | 'export' | 'privacy' | 'transfer' | 'delete' | 'share' | 'copy_link' | 'agents',
+  action: 'rename' | 'pin' | 'unpin' | 'properties' | 'export' | 'privacy' | 'transfer' | 'reuse' | 'delete' | 'share' | 'copy_link' | 'agents',
   access?: ChatAccess,
 ) {
   switch (action) {
@@ -268,6 +271,8 @@ function getChatActionIcon(
         : <Globe className="h-4 w-4 shrink-0 text-slate-500" />;
     case 'transfer':
       return <ArrowRightLeft className="h-4 w-4 shrink-0 text-slate-500" />;
+    case 'reuse':
+      return <Copy className="h-4 w-4 shrink-0 text-slate-500" />;
     case 'delete':
       return <Trash2 className="h-4 w-4 shrink-0 text-red-500" />;
     case 'share':
@@ -873,6 +878,7 @@ function AuthenticatedChatsPage() {
   const { data: appSettings } = useAppSettings();
   const { data: profile } = useProfile(isAuthenticated);
   const createChatMutation = useCreateChat();
+  const cloneChatMutation = useCloneChat();
   const updateChatMutation = useUpdateChat();
   const deleteChatMutation = useDeleteChat();
   const transferChatMutation = useTransferChat();
@@ -2669,6 +2675,23 @@ function AuthenticatedChatsPage() {
     }
   };
 
+  const reuseChat = async (chat: ChatListItem) => {
+    setLocalError(null);
+    setOpenMenu(null);
+
+    try {
+      const created = await cloneChatMutation.mutateAsync({
+        chatId: chat.id,
+        includeMessages: false,
+      });
+      shouldScrollChatListToTopRef.current = true;
+      persistChatListScrollTop(0);
+      setActiveChatId(created.id);
+    } catch (error) {
+      showLocalError(getApiErrorMessage(error) ?? 'Не удалось переиспользовать чат');
+    }
+  };
+
   const copyChatLink = async (chatId: string) => {
     setLocalError(null);
     try {
@@ -3248,11 +3271,11 @@ function AuthenticatedChatsPage() {
           )}
           {chat.pinned_at && (
             <span
-              className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-amber-200/80 bg-amber-50 text-amber-500"
+              className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-amber-300"
               aria-label="Чат закреплён сверху"
               title="Чат закреплён сверху"
             >
-              <Pin className="h-2.75 w-2.75 -rotate-12" />
+              <Bookmark className="h-3.5 w-3.5 fill-current stroke-current" />
             </span>
           )}
           {chat.has_site_preview && (
@@ -3357,6 +3380,15 @@ function AuthenticatedChatsPage() {
             >
               {getChatActionIcon('transfer')}
               <span>Передать</span>
+            </button>
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+              onClick={() => void reuseChat(chat)}
+              disabled={cloneChatMutation.isPending}
+            >
+              {getChatActionIcon('reuse')}
+              <span>Переиспользовать</span>
             </button>
             <button type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent" onClick={() => requestDeleteChat(chat)}>
               {getChatActionIcon('delete')}
@@ -3623,6 +3655,21 @@ function AuthenticatedChatsPage() {
                           <span className="flex items-center gap-2">
                             {getChatActionIcon('transfer')}
                             <span>Передать</span>
+                          </span>
+                          <span className="text-xs text-slate-400">↗</span>
+                        </button>
+                        <button
+                          type="button"
+                          className={`${mobileChatActionButtonClass} mt-2`}
+                          onClick={() => {
+                            if (!activeChatMenuTarget) return;
+                            void reuseChat(activeChatMenuTarget);
+                          }}
+                          disabled={cloneChatMutation.isPending}
+                        >
+                          <span className="flex items-center gap-2">
+                            {getChatActionIcon('reuse')}
+                            <span>Переиспользовать</span>
                           </span>
                           <span className="text-xs text-slate-400">↗</span>
                         </button>
