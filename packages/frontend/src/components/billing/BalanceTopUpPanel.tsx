@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { AppSettings } from '../../lib/api/app';
 import { useCreateYooKassaTopUp, usePaymentsConfig } from '../../hooks/usePayments';
+import { formatRubAmount, resolveTopUpAmounts } from '../../lib/payment-pricing';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { TopUpHelp } from './TopUpHelp';
@@ -13,12 +14,13 @@ export function BalanceTopUpPanel({ settings }: BalanceTopUpPanelProps) {
   const { data: paymentsConfig } = usePaymentsConfig();
   const createTopUpMutation = useCreateYooKassaTopUp();
   const [amountRub, setAmountRub] = useState('');
+  const presetAmounts = resolveTopUpAmounts(paymentsConfig?.preset_amounts_rub);
 
   useEffect(() => {
     if (!paymentsConfig || amountRub) return;
-    const defaultAmount = paymentsConfig.preset_amounts_rub[0] ?? paymentsConfig.min_amount_rub;
+    const defaultAmount = presetAmounts[0] ?? paymentsConfig.min_amount_rub;
     setAmountRub(String(defaultAmount));
-  }, [paymentsConfig, amountRub]);
+  }, [paymentsConfig, amountRub, presetAmounts]);
 
   const handlePay = (rawAmount: number) => {
     createTopUpMutation.mutate(
@@ -45,12 +47,13 @@ export function BalanceTopUpPanel({ settings }: BalanceTopUpPanelProps) {
         <div>
           <p className="text-sm font-medium">Пополнить баланс через YooKassa</p>
           <p className="text-xs text-muted-foreground">
-            После оплаты баланс зачислится автоматически. Сумма: от {paymentsConfig.min_amount_rub} до {paymentsConfig.max_amount_rub} ₽.
+            После оплаты баланс зачислится автоматически. Готовые суммы: {presetAmounts.map(formatRubAmount).join(', ')}.
+            {' '}Другую сумму можно ввести в пределах {formatRubAmount(paymentsConfig.min_amount_rub)} - {formatRubAmount(paymentsConfig.max_amount_rub)}.
           </p>
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {paymentsConfig.preset_amounts_rub.map((presetAmount) => (
+          {presetAmounts.map((presetAmount) => (
             <Button
               key={presetAmount}
               size="sm"
@@ -58,7 +61,7 @@ export function BalanceTopUpPanel({ settings }: BalanceTopUpPanelProps) {
               disabled={createTopUpMutation.isPending}
               onClick={() => handlePay(presetAmount)}
             >
-              {presetAmount.toLocaleString('ru-RU')} ₽
+              {formatRubAmount(presetAmount)}
             </Button>
           ))}
         </div>
