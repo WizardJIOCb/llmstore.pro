@@ -183,22 +183,19 @@ export function PricingPage() {
       {(galleryLoading || landingExamples.length > 0) && (
         <section className="space-y-4">
           <div className="rounded-[28px] border border-slate-200 bg-[linear-gradient(135deg,#f8fafc,#ffffff_45%,#ecfdf5)] p-6 shadow-[0_24px_80px_-52px_rgba(15,23,42,0.35)]">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-              <div>
-                <p className="text-sm uppercase tracking-[0.22em] text-slate-500">Примеры лендингов</p>
-                <h2 className="mt-2 text-3xl font-bold tracking-tight text-slate-950">
-                  Что получается на платформе и сколько это стоило
-                </h2>
-                <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">
-                  Ниже реальные публичные preview из галереи LLMStore.pro. Стоимость на карточке показывает
-                  фактическую цену чата, в котором собирался этот лендинг: она зависит от модели, длины диалога
-                  и количества итераций.
-                </p>
-              </div>
-
+            <div>
+              <p className="text-sm uppercase tracking-[0.22em] text-slate-500">Примеры лендингов</p>
+              <h2 className="mt-2 text-3xl font-bold tracking-tight text-slate-950">
+                Что получается на платформе и сколько это стоило
+              </h2>
+              <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">
+                Ниже реальные публичные preview из галереи LLMStore.pro. Стоимость на карточке показывает
+                фактическую цену чата, в котором собирался этот лендинг: она зависит от модели, длины диалога
+                и количества итераций.
+              </p>
               <Link
                 to="/gallery"
-                className="inline-flex items-center justify-center rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-900 transition hover:bg-slate-50"
+                className="mt-4 inline-flex items-center justify-center rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-900 transition hover:bg-slate-50"
               >
                 Открыть всю галерею
               </Link>
