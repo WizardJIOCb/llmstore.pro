@@ -548,7 +548,7 @@ export interface AdminAliceLogsParams {
   page?: number;
   per_page?: number;
   search?: string;
-  status?: 'all' | 'success' | 'error';
+  status?: 'all' | 'success' | 'error' | 'ping_pong';
 }
 
 export interface AdminAliceLogItem {

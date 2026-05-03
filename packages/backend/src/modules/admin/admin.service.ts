@@ -913,7 +913,7 @@ interface AdminAliceLogsQuery {
   page?: number;
   per_page?: number;
   search?: string;
-  status?: 'all' | 'success' | 'error';
+  status?: 'all' | 'success' | 'error' | 'ping_pong';
 }
 
 interface AdminDebugChatLocator {
@@ -2092,9 +2092,21 @@ export async function listAliceLogs(query: AdminAliceLogsQuery) {
   const offset = (page - 1) * perPage;
 
   const conditions: SQL[] = [];
+  const pingPongCondition = and(
+    eq(aliceWebhookLogs.status, 'success'),
+    eq(aliceWebhookLogs.response_status_code, 200),
+    sql`lower(trim(coalesce(nullif(${aliceWebhookLogs.command}, ''), nullif(${aliceWebhookLogs.original_utterance}, ''), ''))) = 'ping'`,
+    sql`lower(trim(coalesce(${aliceWebhookLogs.response_text}, ''))) = 'pong'`,
+  )!;
 
   if (query.status && query.status !== 'all') {
-    conditions.push(eq(aliceWebhookLogs.status, query.status));
+    if (query.status === 'ping_pong') {
+      conditions.push(pingPongCondition);
+    } else if (query.status === 'success') {
+      conditions.push(eq(aliceWebhookLogs.status, 'success'), not(pingPongCondition));
+    } else {
+      conditions.push(eq(aliceWebhookLogs.status, query.status));
+    }
   }
 
   if (query.search?.trim()) {

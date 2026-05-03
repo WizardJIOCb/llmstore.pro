@@ -11,8 +11,12 @@ import { cn } from '../../lib/utils';
 const STATUS_OPTIONS = [
   { value: 'all', label: 'Все статусы' },
   { value: 'success', label: 'Успешные' },
+  { value: 'ping_pong', label: 'Ping/Pong' },
   { value: 'error', label: 'С ошибкой' },
 ] as const;
+
+type AliceLogStatus = 'success' | 'error';
+type AliceLogDisplayStatus = AliceLogStatus | 'ping_pong';
 
 function formatDateTime(value: string | null) {
   if (!value) return '—';
@@ -37,13 +41,31 @@ function formatJson(value: unknown) {
   }
 }
 
-function statusTone(status: 'success' | 'error') {
+function isPingPongLog(item: {
+  status: AliceLogStatus;
+  response_status_code: number;
+  command: string | null;
+  original_utterance: string | null;
+  response_text: string | null;
+}) {
+  const command = (item.command || item.original_utterance || '').trim().toLowerCase();
+  const response = (item.response_text || '').trim().toLowerCase();
+  return item.status === 'success' && item.response_status_code === 200 && command === 'ping' && response === 'pong';
+}
+
+function getDisplayStatus(item: Parameters<typeof isPingPongLog>[0]): AliceLogDisplayStatus {
+  return isPingPongLog(item) ? 'ping_pong' : item.status;
+}
+
+function statusTone(status: AliceLogDisplayStatus) {
+  if (status === 'ping_pong') return 'bg-sky-100 text-sky-700';
   return status === 'success'
     ? 'bg-emerald-100 text-emerald-700'
     : 'bg-rose-100 text-rose-700';
 }
 
-function statusLabel(status: 'success' | 'error') {
+function statusLabel(status: AliceLogDisplayStatus) {
+  if (status === 'ping_pong') return 'Ping/Pong';
   return status === 'success' ? 'Успешно' : 'Ошибка';
 }
 
@@ -123,14 +145,17 @@ export function AdminAlicePage() {
         ) : null}
 
         <div className="space-y-4">
-          {items.map((item) => (
+          {items.map((item) => {
+            const displayStatus = getDisplayStatus(item);
+
+            return (
             <Card key={item.id}>
               <CardContent className="space-y-4 pt-6">
                 <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
                   <div className="min-w-0 space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className={cn('inline-flex rounded-full px-2.5 py-1 text-xs font-medium', statusTone(item.status))}>
-                        {statusLabel(item.status)}
+                      <span className={cn('inline-flex rounded-full px-2.5 py-1 text-xs font-medium', statusTone(displayStatus))}>
+                        {statusLabel(displayStatus)}
                       </span>
                       <span className="text-xs text-slate-500">
                         HTTP {item.response_status_code}
@@ -214,7 +239,8 @@ export function AdminAlicePage() {
                 </details>
               </CardContent>
             </Card>
-          ))}
+            );
+          })}
         </div>
 
         <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">

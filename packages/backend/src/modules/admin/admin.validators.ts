@@ -55,7 +55,7 @@ const adminAliceLogsQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   per_page: z.coerce.number().int().min(1).max(100).default(20),
   search: z.string().trim().max(500).optional(),
-  status: z.enum(['all', 'success', 'error']).optional(),
+  status: z.enum(['all', 'success', 'error', 'ping_pong']).optional(),
 });
 
 export const validateAdminAliceLogsQuery = validate(adminAliceLogsQuerySchema, 'query');
