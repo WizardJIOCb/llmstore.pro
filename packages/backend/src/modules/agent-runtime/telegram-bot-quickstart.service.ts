@@ -433,9 +433,12 @@ HOST = os.environ.get("HOST", "127.0.0.1")
 PORT = int(os.environ.get("PORT", "8080"))
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_SECRET_TOKEN = os.environ.get("TELEGRAM_SECRET_TOKEN", "").strip()
+TELEGRAM_DELIVERY_MODE = os.environ.get("TELEGRAM_DELIVERY_MODE", "webhook").strip().lower()
+TELEGRAM_POLLING_TIMEOUT = int(os.environ.get("TELEGRAM_POLLING_TIMEOUT", "25"))
 LLMSTORE_AGENT_RUN_URL = os.environ.get("LLMSTORE_AGENT_RUN_URL", "").strip()
 LLMSTORE_DEPLOYMENT_SECRET = os.environ.get("LLMSTORE_DEPLOYMENT_SECRET", "").strip()
 BOT_PRESET = ${JSON.stringify(presetLabel)}
+POLLING_DELIVERY_MODES = {"polling", "poll", "getupdates"}
 
 DATA_DIR = Path(os.environ.get("DATA_DIR") or (Path.cwd().parent / "data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -577,6 +580,30 @@ def send_telegram_api(method, payload, timeout=30):
     except error.HTTPError as exc:
         details = exc.read().decode("utf-8", errors="replace")
         raise RuntimeError(f"Telegram HTTP {exc.code}: {details}") from exc
+
+
+def is_polling_delivery_mode():
+    return TELEGRAM_DELIVERY_MODE in POLLING_DELIVERY_MODES
+
+
+def delete_telegram_webhook_for_polling():
+    try:
+        send_telegram_api("deleteWebhook", {"drop_pending_updates": False}, timeout=15)
+        logging.info("Telegram webhook deleted; polling delivery is active")
+    except Exception:
+        logging.exception("Failed to delete Telegram webhook before polling")
+
+
+def get_telegram_updates(offset):
+    payload = {
+        "timeout": TELEGRAM_POLLING_TIMEOUT,
+        "allowed_updates": ["message"],
+    }
+    if offset is not None:
+        payload["offset"] = offset
+    data = send_telegram_api("getUpdates", payload, timeout=TELEGRAM_POLLING_TIMEOUT + 10)
+    updates = data.get("result") if isinstance(data, dict) else None
+    return updates if isinstance(updates, list) else []
 
 
 def send_chat_action(chat_id, action="typing"):
@@ -765,6 +792,25 @@ def process_update(update):
             logging.exception("Failed to send Telegram error message")
 
 
+def polling_loop():
+    offset = None
+    delete_telegram_webhook_for_polling()
+    logging.info("Telegram polling loop started")
+    while True:
+        try:
+            updates = get_telegram_updates(offset)
+            for update in updates:
+                update_id = update.get("update_id") if isinstance(update, dict) else None
+                if isinstance(update_id, int):
+                    offset = update_id + 1
+                if not try_mark_update(update_id):
+                    continue
+                process_update(update)
+        except Exception:
+            logging.exception("Telegram polling loop failed")
+            time.sleep(3)
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "LLMStoreTelegramQuickstart/1.0"
 
@@ -818,6 +864,9 @@ def main():
     require_env()
     init_db()
     logging.info("Starting Telegram quickstart bot on %s:%s", HOST, PORT)
+    logging.info("Telegram delivery mode: %s", "polling" if is_polling_delivery_mode() else "webhook")
+    if is_polling_delivery_mode():
+        threading.Thread(target=polling_loop, daemon=True).start()
     logging.info("Webhook endpoint: POST /webhook")
     ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()
 
@@ -861,9 +910,10 @@ export async function createTelegramBotQuickstart(userId: string, input: Telegra
         env: {
           TELEGRAM_BOT_TOKEN: token,
           TELEGRAM_SECRET_TOKEN: buildTelegramSecret(),
+          TELEGRAM_DELIVERY_MODE: 'polling',
         },
         linked_agent_id: agent.id,
-        set_telegram_webhook: true,
+        set_telegram_webhook: false,
       },
     );
   } catch (error) {
