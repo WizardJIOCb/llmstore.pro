@@ -116,6 +116,13 @@ function formatCompactRub(value: number) {
   }).format(value)} ₽`;
 }
 
+function formatCompactNumber(value: number) {
+  return new Intl.NumberFormat('ru-RU', {
+    notation: 'compact',
+    maximumFractionDigits: 1,
+  }).format(value);
+}
+
 function formatPercent(value: number | null) {
   if (value === null) return 'Нет данных';
   return `${value.toLocaleString('ru-RU', {
@@ -172,25 +179,23 @@ function MetricCard({ label, value, hint }: { label: string; value: string; hint
   );
 }
 
-function PaymentsLineChart({ data }: { data: AdminPaymentDailyPoint[] }) {
-  const series: PaymentSeriesDefinition[] = [
-    {
-      key: 'succeeded_amount_rub',
-      label: 'Оплачено, ₽',
-      color: '#0f766e',
-      value: (point) => point.succeeded_amount_rub,
-      formatValue: (value) => formatRub(value ?? 0),
-    },
-    {
-      key: 'total_amount_rub',
-      label: 'Все попытки, ₽',
-      color: '#2563eb',
-      value: (point) => point.total_amount_rub,
-      formatValue: (value) => formatRub(value ?? 0),
-    },
-  ];
-
-  const defaultVisibleKeys = ['succeeded_amount_rub', 'total_amount_rub'];
+function PaymentsLineChart({
+  title,
+  description,
+  data,
+  series,
+  defaultVisibleKeys,
+  axisFormatter,
+  integerAxis = false,
+}: {
+  title: string;
+  description: string;
+  data: AdminPaymentDailyPoint[];
+  series: PaymentSeriesDefinition[];
+  defaultVisibleKeys: string[];
+  axisFormatter: (value: number) => string;
+  integerAxis?: boolean;
+}) {
   const [visibleKeys, setVisibleKeys] = useState<string[]>(defaultVisibleKeys);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [isPointerInside, setIsPointerInside] = useState(false);
@@ -244,6 +249,13 @@ function PaymentsLineChart({ data }: { data: AdminPaymentDailyPoint[] }) {
     }
   }
 
+  if (integerAxis) {
+    minValue = 0;
+    const roundedMax = Math.max(1, Math.ceil(maxValue));
+    const step = Math.max(1, Math.ceil(roundedMax / 4));
+    maxValue = step * 4;
+  }
+
   const yRange = maxValue - minValue || 1;
   const yScale = (value: number) => padding.top + ((maxValue - value) / yRange) * chartHeight;
   const xScale = (index: number) => {
@@ -289,10 +301,8 @@ function PaymentsLineChart({ data }: { data: AdminPaymentDailyPoint[] }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>График оплат по дням</CardTitle>
-        <CardDescription>
-          Линейный график в стиле раздела «Графики»: можно включать успешные оплаты и все созданные попытки оплаты.
-        </CardDescription>
+        <CardTitle>{title}</CardTitle>
+        <CardDescription>{description}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -389,7 +399,7 @@ function PaymentsLineChart({ data }: { data: AdminPaymentDailyPoint[] }) {
                     fill="currentColor"
                     fillOpacity={0.6}
                   >
-                    {formatCompactRub(tick)}
+                    {axisFormatter(tick)}
                   </text>
                 </g>
               ))}
@@ -663,6 +673,47 @@ export function AdminPaymentsPage() {
     setPage(1);
   }
 
+  const paymentAmountSeries: PaymentSeriesDefinition[] = [
+    {
+      key: 'succeeded_amount_rub',
+      label: 'Оплачено, ₽',
+      color: '#0f766e',
+      value: (point) => point.succeeded_amount_rub,
+      formatValue: (value) => formatRub(value ?? 0),
+    },
+    {
+      key: 'total_amount_rub',
+      label: 'Все попытки, ₽',
+      color: '#2563eb',
+      value: (point) => point.total_amount_rub,
+      formatValue: (value) => formatRub(value ?? 0),
+    },
+  ];
+
+  const paymentCountSeries: PaymentSeriesDefinition[] = [
+    {
+      key: 'succeeded_count',
+      label: 'Оплаченные',
+      color: '#16a34a',
+      value: (point) => point.succeeded_count,
+      formatValue: (value) => (value ?? 0).toLocaleString('ru-RU'),
+    },
+    {
+      key: 'total_count',
+      label: 'Попытки',
+      color: '#2563eb',
+      value: (point) => point.total_count,
+      formatValue: (value) => (value ?? 0).toLocaleString('ru-RU'),
+    },
+    {
+      key: 'pending_count',
+      label: 'Ожидают оплаты',
+      color: '#f59e0b',
+      value: (point) => point.pending_count,
+      formatValue: (value) => (value ?? 0).toLocaleString('ru-RU'),
+    },
+  ];
+
   return (
     <AdminLayout>
       <div className="space-y-6">
@@ -778,7 +829,24 @@ export function AdminPaymentsPage() {
               />
             </div>
 
-            <PaymentsLineChart data={data.daily} />
+            <PaymentsLineChart
+              title="График оплат по дням"
+              description="Денежный график в стиле раздела «Графики»: можно включать успешные оплаты и все созданные попытки оплаты."
+              data={data.daily}
+              series={paymentAmountSeries}
+              defaultVisibleKeys={['succeeded_amount_rub', 'total_amount_rub']}
+              axisFormatter={formatCompactRub}
+            />
+
+            <PaymentsLineChart
+              title="График количества платежей"
+              description="Отдельный график по штукам: сколько платежей было оплачено, сколько попыток создано и сколько осталось в ожидании."
+              data={data.daily}
+              series={paymentCountSeries}
+              defaultVisibleKeys={['succeeded_count', 'total_count']}
+              axisFormatter={formatCompactNumber}
+              integerAxis
+            />
 
             <Card>
               <CardHeader>
