@@ -5,6 +5,7 @@ import {
   type AdminUsersParams,
   type AdminAgentsParams,
   type AdminDashboardChartsParams,
+  type AdminPaymentsParams,
   type AdminRuntimesParams,
   type AdminDebugChatsParams,
   type AdminAliceLogsParams,
@@ -26,6 +27,14 @@ export function useAdminDashboardCharts(params: AdminDashboardChartsParams) {
   return useQuery({
     queryKey: ['admin', 'dashboard', 'charts', params],
     queryFn: () => adminApi.getDashboardCharts(params),
+    placeholderData: (previousData) => previousData,
+  });
+}
+
+export function useAdminPayments(params: AdminPaymentsParams) {
+  return useQuery({
+    queryKey: ['admin', 'payments', params],
+    queryFn: () => adminApi.getPayments(params),
     placeholderData: (previousData) => previousData,
   });
 }

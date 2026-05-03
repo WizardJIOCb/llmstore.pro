@@ -5,7 +5,7 @@ import {
   catalogItems, catalogItemMeta,
   catalogItemCategories, catalogItemTags, catalogItemUseCases,
   categories, tags, useCases,
-  users, balanceTransactions,
+  users, balanceTransactions, balanceTopups,
   usageLedger,
   agents, agentRuns,
   toolDefinitions,
@@ -1138,6 +1138,24 @@ interface AdminDashboardChartsModelDbRow extends Record<string, unknown> {
   total_tokens_day: string | number;
 }
 
+interface AdminPaymentsQuery {
+  page?: number;
+  per_page?: number;
+  date_from?: string;
+  date_to?: string;
+  status?: string;
+  provider?: string;
+  search?: string;
+}
+
+type AdminPaymentsRange = {
+  startDate: Date;
+  endDate: Date;
+  startDateIso: string;
+  endDateIso: string;
+  days: number;
+};
+
 function parseUtcDateOnly(value: string): Date {
   return new Date(`${value}T00:00:00.000Z`);
 }
@@ -1246,6 +1264,241 @@ function normalizeDashboardChartsRange(query: AdminDashboardChartsQuery) {
     startDateIso: formatUtcDateOnly(startDate),
     endDateIso: formatUtcDateOnly(endDate),
     days: diffDays,
+  };
+}
+
+function normalizeAdminPaymentsRange(query: AdminPaymentsQuery): AdminPaymentsRange {
+  const today = startOfUtcDay(new Date());
+  const endDate = query.date_to ? parseUtcDateOnly(query.date_to) : today;
+  const startDate = query.date_from ? parseUtcDateOnly(query.date_from) : addUtcDays(endDate, -29);
+
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+    throw new AppError(400, 'BAD_REQUEST', 'Некорректный диапазон дат');
+  }
+
+  if (startDate.getTime() > endDate.getTime()) {
+    throw new AppError(400, 'BAD_REQUEST', 'Дата начала не может быть позже даты окончания');
+  }
+
+  const diffDays = Math.floor((endDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+  if (diffDays > 366) {
+    throw new AppError(400, 'BAD_REQUEST', 'Максимальный диапазон платежей - 366 дней');
+  }
+
+  return {
+    startDate,
+    endDate,
+    startDateIso: formatUtcDateOnly(startDate),
+    endDateIso: formatUtcDateOnly(endDate),
+    days: diffDays,
+  };
+}
+
+function buildAdminPaymentsFilters(query: AdminPaymentsQuery, range: AdminPaymentsRange) {
+  const paymentDayExpr = sql<Date>`timezone('UTC', coalesce(${balanceTopups.paid_at}, ${balanceTopups.created_at}))::date`;
+  const paymentEventAtExpr = sql<Date>`coalesce(${balanceTopups.paid_at}, ${balanceTopups.created_at})`;
+  const conditions: SQL[] = [
+    sql`${paymentDayExpr} BETWEEN ${range.startDateIso}::date AND ${range.endDateIso}::date`,
+  ];
+
+  if (query.status && query.status !== 'all') {
+    conditions.push(eq(balanceTopups.status, query.status));
+  }
+
+  if (query.provider && query.provider !== 'all') {
+    conditions.push(eq(balanceTopups.provider, query.provider));
+  }
+
+  if (query.search?.trim()) {
+    const term = `%${query.search.trim()}%`;
+    conditions.push(or(
+      sql`${balanceTopups.id}::text ILIKE ${term}`,
+      sql`${balanceTopups.user_id}::text ILIKE ${term}`,
+      ilike(balanceTopups.provider, term),
+      ilike(sql`coalesce(${balanceTopups.provider_payment_id}, '')`, term),
+      ilike(sql`coalesce(${balanceTopups.description}, '')`, term),
+      ilike(users.email, term),
+      ilike(sql`coalesce(${users.name}, '')`, term),
+      ilike(sql`coalesce(${users.username}, '')`, term),
+    )!);
+  }
+
+  return {
+    where: and(...conditions),
+    paymentDayExpr,
+    paymentEventAtExpr,
+  };
+}
+
+export async function getAdminPayments(query: AdminPaymentsQuery) {
+  const page = normalizePositiveInteger(query.page, 1);
+  const perPage = Math.min(Math.max(query.per_page ?? 25, 1), 100);
+  const offset = (page - 1) * perPage;
+  const range = normalizeAdminPaymentsRange(query);
+  const filters = buildAdminPaymentsFilters(query, range);
+
+  const [dailyRows, summaryRows, paymentRows, countResult] = await Promise.all([
+    db
+      .select({
+        day: filters.paymentDayExpr,
+        total_count: sql<number>`count(*)::int`,
+        succeeded_count: sql<number>`count(*) filter (where ${balanceTopups.status} = 'succeeded')::int`,
+        pending_count: sql<number>`count(*) filter (where ${balanceTopups.status} in ('pending', 'waiting_for_capture'))::int`,
+        failed_count: sql<number>`count(*) filter (where ${balanceTopups.status} in ('canceled', 'creation_failed'))::int`,
+        total_amount_rub: sql<string>`coalesce(sum(${balanceTopups.amount_rub}::numeric), 0)`,
+        total_amount_usd: sql<string>`coalesce(sum(${balanceTopups.amount_usd}::numeric), 0)`,
+        succeeded_amount_rub: sql<string>`coalesce(sum(case when ${balanceTopups.status} = 'succeeded' then ${balanceTopups.amount_rub}::numeric else 0 end), 0)`,
+        succeeded_amount_usd: sql<string>`coalesce(sum(case when ${balanceTopups.status} = 'succeeded' then ${balanceTopups.amount_usd}::numeric else 0 end), 0)`,
+      })
+      .from(balanceTopups)
+      .leftJoin(users, eq(balanceTopups.user_id, users.id))
+      .where(filters.where)
+      .groupBy(filters.paymentDayExpr)
+      .orderBy(asc(filters.paymentDayExpr)),
+    db
+      .select({
+        total_count: sql<number>`count(*)::int`,
+        succeeded_count: sql<number>`count(*) filter (where ${balanceTopups.status} = 'succeeded')::int`,
+        pending_count: sql<number>`count(*) filter (where ${balanceTopups.status} in ('pending', 'waiting_for_capture'))::int`,
+        failed_count: sql<number>`count(*) filter (where ${balanceTopups.status} in ('canceled', 'creation_failed'))::int`,
+        payers_count: sql<number>`count(distinct case when ${balanceTopups.status} = 'succeeded' then ${balanceTopups.user_id} end)::int`,
+        total_amount_rub: sql<string>`coalesce(sum(${balanceTopups.amount_rub}::numeric), 0)`,
+        total_amount_usd: sql<string>`coalesce(sum(${balanceTopups.amount_usd}::numeric), 0)`,
+        succeeded_amount_rub: sql<string>`coalesce(sum(case when ${balanceTopups.status} = 'succeeded' then ${balanceTopups.amount_rub}::numeric else 0 end), 0)`,
+        succeeded_amount_usd: sql<string>`coalesce(sum(case when ${balanceTopups.status} = 'succeeded' then ${balanceTopups.amount_usd}::numeric else 0 end), 0)`,
+      })
+      .from(balanceTopups)
+      .leftJoin(users, eq(balanceTopups.user_id, users.id))
+      .where(filters.where),
+    db
+      .select({
+        id: balanceTopups.id,
+        user_id: balanceTopups.user_id,
+        user_email: users.email,
+        user_name: users.name,
+        user_username: users.username,
+        provider: balanceTopups.provider,
+        provider_payment_id: balanceTopups.provider_payment_id,
+        idempotence_key: balanceTopups.idempotence_key,
+        status: balanceTopups.status,
+        amount_rub: balanceTopups.amount_rub,
+        amount_usd: balanceTopups.amount_usd,
+        usd_to_rub_rate: balanceTopups.usd_to_rub_rate,
+        description: balanceTopups.description,
+        confirmation_url: balanceTopups.confirmation_url,
+        balance_transaction_id: balanceTopups.balance_transaction_id,
+        paid_at: balanceTopups.paid_at,
+        credited_at: balanceTopups.credited_at,
+        canceled_at: balanceTopups.canceled_at,
+        created_at: balanceTopups.created_at,
+        updated_at: balanceTopups.updated_at,
+      })
+      .from(balanceTopups)
+      .leftJoin(users, eq(balanceTopups.user_id, users.id))
+      .where(filters.where)
+      .orderBy(desc(filters.paymentEventAtExpr), desc(balanceTopups.created_at), desc(balanceTopups.id))
+      .limit(perPage)
+      .offset(offset),
+    db
+      .select({ count: count() })
+      .from(balanceTopups)
+      .leftJoin(users, eq(balanceTopups.user_id, users.id))
+      .where(filters.where),
+  ]);
+
+  const dailyByDate = new Map(dailyRows.map((row) => {
+    const date = formatUtcDateOnly(row.day);
+    return [date, {
+      date,
+      total_count: toSafeNumber(row.total_count),
+      succeeded_count: toSafeNumber(row.succeeded_count),
+      pending_count: toSafeNumber(row.pending_count),
+      failed_count: toSafeNumber(row.failed_count),
+      total_amount_rub: roundMetric(toSafeNumber(row.total_amount_rub), 2),
+      total_amount_usd: roundMetric(toSafeNumber(row.total_amount_usd), 4),
+      succeeded_amount_rub: roundMetric(toSafeNumber(row.succeeded_amount_rub), 2),
+      succeeded_amount_usd: roundMetric(toSafeNumber(row.succeeded_amount_usd), 4),
+    }];
+  }));
+
+  const daily = Array.from({ length: range.days }, (_, index) => {
+    const date = formatUtcDateOnly(addUtcDays(range.startDate, index));
+    return dailyByDate.get(date) ?? {
+      date,
+      total_count: 0,
+      succeeded_count: 0,
+      pending_count: 0,
+      failed_count: 0,
+      total_amount_rub: 0,
+      total_amount_usd: 0,
+      succeeded_amount_rub: 0,
+      succeeded_amount_usd: 0,
+    };
+  });
+
+  const summaryRow = summaryRows[0];
+  const totalCount = toSafeNumber(summaryRow?.total_count);
+  const succeededCount = toSafeNumber(summaryRow?.succeeded_count);
+  const succeededAmountRub = toSafeNumber(summaryRow?.succeeded_amount_rub);
+  const succeededAmountUsd = toSafeNumber(summaryRow?.succeeded_amount_usd);
+  const total = countResult[0]?.count ?? 0;
+
+  return {
+    filters: {
+      date_from: range.startDateIso,
+      date_to: range.endDateIso,
+      status: query.status ?? 'all',
+      provider: query.provider ?? 'all',
+      search: query.search?.trim() ?? '',
+      page,
+      per_page: perPage,
+    },
+    summary: {
+      total_count: totalCount,
+      succeeded_count: succeededCount,
+      pending_count: toSafeNumber(summaryRow?.pending_count),
+      failed_count: toSafeNumber(summaryRow?.failed_count),
+      payers_count: toSafeNumber(summaryRow?.payers_count),
+      total_amount_rub: roundMetric(toSafeNumber(summaryRow?.total_amount_rub), 2),
+      total_amount_usd: roundMetric(toSafeNumber(summaryRow?.total_amount_usd), 4),
+      succeeded_amount_rub: roundMetric(succeededAmountRub, 2),
+      succeeded_amount_usd: roundMetric(succeededAmountUsd, 4),
+      avg_succeeded_payment_rub: succeededCount > 0 ? roundMetric(succeededAmountRub / succeededCount, 2) : 0,
+      avg_succeeded_payment_usd: succeededCount > 0 ? roundMetric(succeededAmountUsd / succeededCount, 4) : 0,
+      success_rate_percent: totalCount > 0 ? roundMetric((succeededCount / totalCount) * 100, 2) : null,
+    },
+    daily,
+    payments: paymentRows.map((row) => ({
+      id: row.id,
+      user_id: row.user_id,
+      user: row.user_email ? {
+        id: row.user_id,
+        email: row.user_email,
+        name: row.user_name,
+        username: row.user_username,
+      } : null,
+      provider: row.provider,
+      provider_payment_id: row.provider_payment_id,
+      idempotence_key: row.idempotence_key,
+      status: row.status,
+      amount_rub: roundMetric(toSafeNumber(row.amount_rub), 2),
+      amount_usd: roundMetric(toSafeNumber(row.amount_usd), 4),
+      usd_to_rub_rate: roundMetric(toSafeNumber(row.usd_to_rub_rate), 4),
+      description: row.description,
+      confirmation_url: row.confirmation_url,
+      balance_transaction_id: row.balance_transaction_id,
+      paid_at: row.paid_at?.toISOString() ?? null,
+      credited_at: row.credited_at?.toISOString() ?? null,
+      canceled_at: row.canceled_at?.toISOString() ?? null,
+      created_at: row.created_at.toISOString(),
+      updated_at: row.updated_at.toISOString(),
+    })),
+    meta: {
+      total,
+      page,
+      per_page: perPage,
+      total_pages: Math.max(1, Math.ceil(total / perPage)),
+    },
   };
 }
 

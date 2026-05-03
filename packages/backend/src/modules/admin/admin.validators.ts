@@ -25,6 +25,18 @@ const adminChartsQuerySchema = z.object({
 
 export const validateAdminChartsQuery = validate(adminChartsQuerySchema, 'query');
 
+const adminPaymentsQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  per_page: z.coerce.number().int().min(1).max(100).default(25),
+  date_from: isoDateOnlySchema.optional(),
+  date_to: isoDateOnlySchema.optional(),
+  status: z.enum(['all', 'pending', 'waiting_for_capture', 'succeeded', 'canceled', 'creation_failed']).optional(),
+  provider: z.string().trim().min(1).max(50).optional(),
+  search: z.string().trim().max(200).optional(),
+});
+
+export const validateAdminPaymentsQuery = validate(adminPaymentsQuerySchema, 'query');
+
 const adminRuntimesQuerySchema = z.object({
   search: z.string().max(200).optional(),
   status: z.enum(['all', 'deploying', 'running', 'stopped', 'failed']).optional(),

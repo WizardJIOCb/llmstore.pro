@@ -284,6 +284,88 @@ export interface AdminDashboardCharts {
   }>;
 }
 
+export interface AdminPaymentsParams {
+  page?: number;
+  per_page?: number;
+  date_from?: string;
+  date_to?: string;
+  status?: 'all' | 'pending' | 'waiting_for_capture' | 'succeeded' | 'canceled' | 'creation_failed';
+  provider?: string;
+  search?: string;
+}
+
+export interface AdminPaymentDailyPoint {
+  date: string;
+  total_count: number;
+  succeeded_count: number;
+  pending_count: number;
+  failed_count: number;
+  total_amount_rub: number;
+  total_amount_usd: number;
+  succeeded_amount_rub: number;
+  succeeded_amount_usd: number;
+}
+
+export interface AdminPaymentItem {
+  id: string;
+  user_id: string;
+  user: {
+    id: string;
+    email: string;
+    name: string | null;
+    username: string | null;
+  } | null;
+  provider: string;
+  provider_payment_id: string | null;
+  idempotence_key: string;
+  status: string;
+  amount_rub: number;
+  amount_usd: number;
+  usd_to_rub_rate: number;
+  description: string | null;
+  confirmation_url: string | null;
+  balance_transaction_id: string | null;
+  paid_at: string | null;
+  credited_at: string | null;
+  canceled_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdminPaymentsResponse {
+  filters: {
+    date_from: string;
+    date_to: string;
+    status: string;
+    provider: string;
+    search: string;
+    page: number;
+    per_page: number;
+  };
+  summary: {
+    total_count: number;
+    succeeded_count: number;
+    pending_count: number;
+    failed_count: number;
+    payers_count: number;
+    total_amount_rub: number;
+    total_amount_usd: number;
+    succeeded_amount_rub: number;
+    succeeded_amount_usd: number;
+    avg_succeeded_payment_rub: number;
+    avg_succeeded_payment_usd: number;
+    success_rate_percent: number | null;
+  };
+  daily: AdminPaymentDailyPoint[];
+  payments: AdminPaymentItem[];
+  meta: {
+    total: number;
+    page: number;
+    per_page: number;
+    total_pages: number;
+  };
+}
+
 export interface AdminRuntimeRecentRun {
   id: string;
   status: string;
@@ -525,6 +607,9 @@ export const adminApi = {
 
   getDashboardCharts: (params: AdminDashboardChartsParams) =>
     apiClient.get<{ data: AdminDashboardCharts }>('/admin/dashboard/charts', { params }).then((r) => r.data.data),
+
+  getPayments: (params: AdminPaymentsParams) =>
+    apiClient.get<{ data: AdminPaymentsResponse }>('/admin/payments', { params }).then((r) => r.data.data),
 
   listAliceLogs: (params: AdminAliceLogsParams) =>
     apiClient.get<AdminAliceLogsResponse>('/admin/alice/logs', { params }).then((r) => r.data),
