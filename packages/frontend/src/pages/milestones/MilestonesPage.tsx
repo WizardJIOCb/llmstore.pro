@@ -23,6 +23,7 @@ interface MilestoneItem {
   title: string;
   status: MilestoneStatus;
   description: string;
+  completedAt?: string;
   ctaLabel: string;
   ctaHref: string;
 }
@@ -68,6 +69,12 @@ const HEATMAP_LEVEL_CLASSES = [
   'border-emerald-500 bg-emerald-600',
 ];
 const monthFormatter = new Intl.DateTimeFormat('ru-RU', { month: 'short', timeZone: 'UTC' });
+const milestoneCompletionFormatter = new Intl.DateTimeFormat('ru-RU', {
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+  timeZone: 'UTC',
+});
 
 function buildGalleryPreviewUrl(item: GalleryPreviewItem): string | null {
   if (!item.preview_url) return null;
@@ -88,6 +95,10 @@ function formatViews(value: number): string {
 function parseIsoDate(dateIso: string): Date {
   const [year, month, day] = dateIso.split('-').map(Number);
   return new Date(Date.UTC(year, (month ?? 1) - 1, day ?? 1));
+}
+
+function formatMilestoneCompletionDate(dateIso: string): string {
+  return milestoneCompletionFormatter.format(parseIsoDate(dateIso));
 }
 
 function addUtcDays(date: Date, days: number): Date {
@@ -482,8 +493,9 @@ const milestones: MilestoneItem[] = [
   {
     id: 7,
     title: 'Payments & Billing Setup',
-    status: 'inProgress',
-    description: 'Подключаем ЮKassa для платёжки: сейчас идёт оформление нужных документов, прохождение шагов через Госуслуги и подготовка к официальной работе платёжной системы.',
+    status: 'done',
+    description: 'ЮKassa переведена в рабочий контур: подготовлены фиксированные цены, примеры лендингов, оферта, профиль пополнения баланса и серверная конфигурация платежей.',
+    completedAt: '2026-05-03',
     ctaLabel: 'Смотреть оплату',
     ctaHref: '/pricing',
   },
@@ -498,8 +510,9 @@ const milestones: MilestoneItem[] = [
   {
     id: 22,
     title: 'Alice Skill Integration',
-    status: 'inProgress',
-    description: 'Сейчас в работе подключение навыка Алисы: интеграция с Яндексом, сценарии диалога, связка с агентами и подготовка нормального пользовательского потока для voice-first и assistant-first использования.',
+    status: 'done',
+    description: 'Интеграция навыка Алисы перенесена в shipped-слой: сценарии диалога, связка с агентами и пользовательский поток для voice-first и assistant-first использования готовы к показу в roadmap.',
+    completedAt: '2026-05-03',
     ctaLabel: 'Читать гайды',
     ctaHref: '/guides',
   },
@@ -905,6 +918,11 @@ export function MilestonesPage() {
 
                         <h4 className="mt-4 text-xl font-semibold text-slate-950">{item.title}</h4>
                         <p className="mt-3 text-[15px] leading-7 text-slate-700 md:text-base">{item.description}</p>
+                        {item.completedAt ? (
+                          <p className="mt-3 text-xs font-semibold text-slate-500">
+                            Готово: {formatMilestoneCompletionDate(item.completedAt)}
+                          </p>
+                        ) : null}
 
                         <div className="mt-5 border-t border-slate-200/80 pt-4">
                           <Link

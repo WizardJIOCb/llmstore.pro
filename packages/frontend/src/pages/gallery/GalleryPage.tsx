@@ -1093,23 +1093,20 @@ export function GalleryPage() {
             className="flex h-dvh w-screen max-w-none flex-col overflow-hidden rounded-none bg-white shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
-              <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-slate-900">{fullscreenPreview.title}</p>
-                <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500">
-                  <span className="rounded-full border bg-slate-50 px-2.5 py-1">
-                    Модель: {formatModelName(fullscreenPreview.model) ?? 'Не указана'}
-                  </span>
-                  <span className="rounded-full border bg-slate-50 px-2.5 py-1">
-                    Сгенерировано: {formatDate(fullscreenPreview.createdAt)}
-                  </span>
+            <div className="flex flex-col gap-3 border-b bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0 flex-1 pr-0 sm:pr-3">
+                <p className="truncate text-sm font-semibold leading-5 text-slate-900">{fullscreenPreview.title}</p>
+                <div className="mt-1 space-y-0.5 text-[11px] leading-4 text-slate-500 sm:text-xs">
+                  <p>Модель: {formatModelName(fullscreenPreview.model) ?? 'Не указана'}</p>
+                  <p>Сгенерировано: {formatDate(fullscreenPreview.createdAt)}</p>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex shrink-0 flex-wrap items-center gap-2 sm:flex-nowrap sm:justify-end">
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
+                  className="whitespace-nowrap"
                   onClick={() => window.open(fullscreenPreview.url, '_blank', 'noopener,noreferrer')}
                 >
                   В новом окне
@@ -1118,6 +1115,7 @@ export function GalleryPage() {
                   type="button"
                   variant="outline"
                   size="sm"
+                  className="whitespace-nowrap"
                   disabled={!currentUser || Boolean(cloningChatId)}
                   onClick={async () => {
                     if (!fullscreenPreview || !currentUser || cloningChatId) return;
@@ -1141,7 +1139,7 @@ export function GalleryPage() {
                 >
                   {cloningChatId === fullscreenPreview.chatId ? 'Клонирую...' : 'Склонировать'}
                 </Button>
-                <Button type="button" size="sm" onClick={() => setFullscreenPreview(null)}>
+                <Button type="button" size="sm" className="whitespace-nowrap" onClick={() => setFullscreenPreview(null)}>
                   Закрыть
                 </Button>
               </div>
