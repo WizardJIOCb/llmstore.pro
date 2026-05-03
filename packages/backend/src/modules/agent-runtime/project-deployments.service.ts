@@ -813,6 +813,19 @@ async function installTelegramWebhookForDeployment(
   }
 }
 
+async function installTelegramWebhookForDeploymentIfConfigured(
+  deploymentId: string,
+  userId: string,
+  envVars: Record<string, string>,
+): Promise<boolean> {
+  if (!envVars.TELEGRAM_BOT_TOKEN?.trim()) {
+    return false;
+  }
+
+  await installTelegramWebhookForDeployment(deploymentId, userId, envVars);
+  return true;
+}
+
 async function startDeploymentInternal(deploymentId: string, userId: string): Promise<void> {
   const existingLock = deploymentStartLocks.get(deploymentId);
   if (existingLock) {
@@ -1272,6 +1285,7 @@ export async function startChatMessageProjectDeployment(
   }
 
   await startDeploymentInternal(deployment.id, userId);
+  await installTelegramWebhookForDeploymentIfConfigured(deployment.id, userId, deployment.env);
   return await toProjectDeploymentRecord(await getDeploymentWithAgentMeta(deployment.id, userId));
 }
 
@@ -1321,13 +1335,11 @@ export async function controlChatMessageProjectDeployment(
     }
 
     await startDeploymentInternal(deployment.id, userId);
-    if (input.set_telegram_webhook) {
-      await installTelegramWebhookForDeployment(
-        deployment.id,
-        userId,
-        Object.keys(input.env ?? {}).length > 0 ? normalizeDeploymentEnv(input.env) : deployment.env,
-      );
-    }
+    await installTelegramWebhookForDeploymentIfConfigured(
+      deployment.id,
+      userId,
+      Object.keys(input.env ?? {}).length > 0 ? normalizeDeploymentEnv(input.env) : deployment.env,
+    );
     return await toProjectDeploymentRecord(await getDeploymentWithAgentMeta(deployment.id, userId));
   }
 
@@ -1517,6 +1529,11 @@ export async function listProjectDeploymentsForAdmin(
 export async function startProjectDeploymentAsAdmin(deploymentId: string): Promise<AdminProjectDeploymentRecord> {
   const deployment = await getDeploymentWithAdminMeta(deploymentId);
   await startDeploymentInternal(deployment.id, deployment.user_id);
+  await installTelegramWebhookForDeploymentIfConfigured(
+    deployment.id,
+    deployment.user_id,
+    normalizeDeploymentEnv(deployment.env_json),
+  );
   return toAdminProjectDeploymentRecord(await getDeploymentWithAdminMeta(deployment.id));
 }
 

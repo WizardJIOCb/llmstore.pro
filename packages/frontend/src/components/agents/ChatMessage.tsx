@@ -3654,7 +3654,7 @@ export function ChatMessage({
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold text-slate-900">Настройки запуска Project Bundle</p>
                 <p className="text-xs text-slate-500">
-                  Здесь обновляются env, связанный агент, модель и Telegram webhook. После сохранения runtime перезапустится.
+                  Здесь обновляются env, связанный агент и модель. При каждом запуске Telegram webhook автоматически ставится на наш callback.
                 </p>
               </div>
               <Button
@@ -3787,7 +3787,7 @@ export function ChatMessage({
                 <span className="space-y-1">
                   <span className="block font-medium text-foreground">Установить или обновить webhook в Telegram</span>
                   <span className="block text-xs text-muted-foreground">
-                    После сохранения backend вызовет `setWebhook` в Telegram на URL этого deployment.
+                    После сохранения backend вызовет `setWebhook` в Telegram на URL этого deployment. Обычный запуск делает то же самое автоматически.
                     Нужен `TELEGRAM_BOT_TOKEN`, а если указан `TELEGRAM_SECRET_TOKEN`, он тоже будет передан.
                   </span>
                 </span>
