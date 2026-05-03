@@ -589,6 +589,36 @@ def split_item_name_note(value):
     return text, ""
 
 
+def strip_leading_item_words(value):
+    text = " ".join((value or "").strip().split())
+    lower = text.lower()
+    prefixes = (
+        "товар ",
+        "товара ",
+        "товаров ",
+        "позицию ",
+        "позиции ",
+        "позиций ",
+        "штуку ",
+        "штуки ",
+        "штук ",
+        "шт ",
+        "единицу ",
+        "единицы ",
+        "единиц ",
+    )
+    changed = True
+    while changed:
+        changed = False
+        lower = text.lower()
+        for prefix in prefixes:
+            if lower.startswith(prefix):
+                text = text[len(prefix):].strip()
+                changed = True
+                break
+    return text
+
+
 def parse_add_item_delta(text):
     stripped = (text or "").strip()
     lower = stripped.lower()
@@ -680,6 +710,91 @@ def add_item_delta(chat_id, parsed):
                 "item": {"id": cursor.lastrowid, "name": name, "qty": qty, "note": note},
                 "created": True,
                 "delta": qty,
+            }
+
+
+def parse_subtract_item_delta(text):
+    stripped = (text or "").strip()
+    lower = stripped.lower()
+    prefixes = [
+        "/dec_item",
+        "/subtract_item",
+        "/writeoff_item",
+        "удали",
+        "удалить",
+        "убери",
+        "убрать",
+        "спиши",
+        "списать",
+        "вычти",
+        "вычесть",
+        "минус",
+        "remove",
+        "subtract",
+    ]
+    rest = ""
+    for prefix in prefixes:
+        if lower.startswith(prefix):
+            rest = stripped[len(prefix):].strip(" :—-")
+            break
+    if not rest:
+        return None
+
+    match = re.match(r"^([+-]?\\d+(?:[,.]\\d+)?)\\s+(.+)$", rest)
+    if not match:
+        return None
+    quantity = parse_quantity_number(match.group(1))
+    name_text = strip_leading_item_words(match.group(2))
+    name, note = split_item_name_note(name_text)
+    if quantity is None or quantity <= 0 or not name:
+        return None
+    return {"name": name, "delta": quantity, "note": note}
+
+
+def subtract_item_delta(chat_id, parsed):
+    name = (parsed.get("name") or "").strip()
+    note = (parsed.get("note") or "").strip()
+    delta = parsed.get("delta")
+    if not name or delta is None:
+        return {"item": None, "ambiguous": [], "error": "empty"}
+
+    normalized_name = normalize_item_match_text(name)
+    normalized_note = normalize_item_match_text(note)
+    with DB_LOCK:
+        with connect_db() as conn:
+            rows = conn.execute(
+                "SELECT id, name, qty, note FROM items WHERE chat_id = ? ORDER BY id DESC",
+                (str(chat_id),),
+            ).fetchall()
+            candidates = [
+                dict(row) for row in rows
+                if normalize_item_match_text(row["name"]) == normalized_name
+                and (not note or normalize_item_match_text(row["note"] or "") == normalized_note)
+            ]
+
+            if len(candidates) != 1:
+                return {"item": None, "ambiguous": candidates[:10], "error": "ambiguous" if candidates else "not_found"}
+
+            existing = candidates[0]
+            current_qty = parse_quantity_number(existing["qty"])
+            if current_qty is None:
+                return {"item": None, "ambiguous": [existing], "error": "non_numeric"}
+
+            next_raw_qty = current_qty - delta
+            next_qty_number = 0 if next_raw_qty < 0 else next_raw_qty
+            next_qty = format_quantity_number(next_qty_number)
+            conn.execute(
+                "UPDATE items SET qty = ?, updated_at = ? WHERE id = ? AND chat_id = ?",
+                (next_qty, int(time.time()), existing["id"], str(chat_id)),
+            )
+            return {
+                "item": {"id": existing["id"], "name": existing["name"], "qty": next_qty, "note": existing.get("note") or ""},
+                "delta": format_quantity_number(delta),
+                "previous_qty": format_quantity_number(current_qty),
+                "clamped": next_raw_qty < 0,
+                "unchanged_zero": current_qty == 0,
+                "ambiguous": [],
+                "error": None,
             }
 
 
@@ -925,6 +1040,7 @@ def handle_command(chat_id, text):
             "/clear_memory - очистить память\\n"
             "/item название | количество | заметка - добавить товар\\n"
             "/add_item количество название на склад - прибавить к остатку\\n"
+            "/dec_item количество название - списать количество без удаления позиции\\n"
             "/delete_item название: количество (заметка) - удалить товар\\n"
             "/items - показать товары",
         )
@@ -976,6 +1092,34 @@ def handle_command(chat_id, text):
             chat_id,
             f"{action}: {item_display(result['item'])}\\n\\n" + format_items(list_items(chat_id)),
         )
+        return True
+
+    subtract_delta = parse_subtract_item_delta(stripped)
+    if subtract_delta or cmd in {"/dec_item", "/subtract_item", "/writeoff_item"}:
+        if not subtract_delta:
+            send_telegram_message(chat_id, "Формат: /dec_item количество название. Например: Удали 1 товар RTX 4070")
+            return True
+        result = subtract_item_delta(chat_id, subtract_delta)
+        if result["item"]:
+            if result["unchanged_zero"]:
+                action = "Остаток уже 0, товар оставил в списке"
+            elif result["clamped"]:
+                action = f"Списал до 0, товар оставил в списке"
+            else:
+                action = f"Списал {result['delta']} с остатка"
+            send_telegram_message(
+                chat_id,
+                f"{action}: {item_display(result['item'])}\\n\\n" + format_items(list_items(chat_id)),
+            )
+            return True
+        if result["ambiguous"]:
+            send_telegram_message(
+                chat_id,
+                "Нашёл несколько похожих товаров или нечисловой остаток. Укажите точнее, например склад из /items:\\n"
+                + "\\n".join(f"- {item_display(item)}" for item in result["ambiguous"]),
+            )
+            return True
+        send_telegram_message(chat_id, "Не нашёл такой товар. Проверьте название через /items и повторите списание.")
         return True
 
     delete_query = parse_delete_item_query(stripped)
