@@ -37,6 +37,55 @@ const adminPaymentsQuerySchema = z.object({
 
 export const validateAdminPaymentsQuery = validate(adminPaymentsQuerySchema, 'query');
 
+const adminProfitabilityQuerySchema = z.object({
+  date_from: isoDateOnlySchema.optional(),
+  date_to: isoDateOnlySchema.optional(),
+});
+
+export const validateAdminProfitabilityQuery = validate(adminProfitabilityQuerySchema, 'query');
+
+const profitabilityModelRuleSchema = z.object({
+  id: z.string().trim().min(1).max(80),
+  label: z.string().trim().min(1).max(120),
+  model_pattern: z.string().trim().min(1).max(500),
+  markup_multiplier: z.coerce.number().min(0).max(20),
+  enabled: z.boolean().default(true),
+});
+
+const profitabilityUserOverrideSchema = z.object({
+  id: z.string().trim().min(1).max(80),
+  label: z.string().trim().min(1).max(120),
+  user_id: z.string().trim().max(80).nullable().optional(),
+  email: z.string().trim().email().max(255).nullable().optional(),
+  mode: z.literal('at_cost').default('at_cost'),
+  enabled: z.boolean().default(true),
+}).refine((value) => Boolean(value.user_id || value.email), {
+  message: 'Нужно указать user_id или email',
+});
+
+const updateProfitabilitySettingsSchema = z.object({
+  enabled: z.boolean().default(true),
+  global_markup_multiplier: z.coerce.number().min(0).max(20),
+  min_charge_usd: z.coerce.number().min(0).max(10),
+  fixed_fee_usd: z.coerce.number().min(0).max(10),
+  rounding_decimals: z.coerce.number().int().min(2).max(4),
+  yookassa_fee_percent: z.coerce.number().min(0).max(30),
+  yookassa_fee_fixed_rub: z.coerce.number().min(0).max(10_000),
+  tax_reserve_percent: z.coerce.number().min(0).max(100),
+  fx_buffer_percent: z.coerce.number().min(0).max(100),
+  bonus_reserve_percent: z.coerce.number().min(0).max(100),
+  user_role_multipliers: z.object({
+    user: z.coerce.number().min(0).max(10),
+    power_user: z.coerce.number().min(0).max(10),
+    curator: z.coerce.number().min(0).max(10),
+    admin: z.coerce.number().min(0).max(10),
+  }),
+  model_rules: z.array(profitabilityModelRuleSchema).max(20),
+  user_overrides: z.array(profitabilityUserOverrideSchema).max(200).default([]),
+});
+
+export const validateUpdateProfitabilitySettings = validate(updateProfitabilitySettingsSchema, 'body');
+
 const adminRuntimesQuerySchema = z.object({
   search: z.string().max(200).optional(),
   status: z.enum(['all', 'deploying', 'running', 'stopped', 'failed']).optional(),

@@ -118,6 +118,7 @@ export async function startRun(req: Request<{ agentId: string }>, res: Response,
   try {
     const result = await runtimeService.startRun(req.params.agentId, req.session.userId!, req.body, {
       sync_to_chats: true,
+      user_role: req.session.userRole,
     });
     res.status(201).json({ data: result });
   } catch (err) {

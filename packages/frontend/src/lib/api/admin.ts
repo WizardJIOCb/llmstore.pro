@@ -108,6 +108,120 @@ export interface AdminSettings {
   openrouter_disabled_message: string;
 }
 
+export interface ProfitabilityModelRule {
+  id: string;
+  label: string;
+  model_pattern: string;
+  markup_multiplier: number;
+  enabled: boolean;
+}
+
+export interface ProfitabilityUserOverride {
+  id: string;
+  label: string;
+  user_id: string | null;
+  email: string | null;
+  mode: 'at_cost';
+  enabled: boolean;
+}
+
+export interface ProfitabilitySettings {
+  enabled: boolean;
+  global_markup_multiplier: number;
+  min_charge_usd: number;
+  fixed_fee_usd: number;
+  rounding_decimals: number;
+  yookassa_fee_percent: number;
+  yookassa_fee_fixed_rub: number;
+  tax_reserve_percent: number;
+  fx_buffer_percent: number;
+  bonus_reserve_percent: number;
+  user_role_multipliers: {
+    user: number;
+    power_user: number;
+    curator: number;
+    admin: number;
+  };
+  model_rules: ProfitabilityModelRule[];
+  user_overrides: ProfitabilityUserOverride[];
+}
+
+export interface AdminProfitabilityParams {
+  date_from?: string;
+  date_to?: string;
+}
+
+export interface AdminProfitabilityResponse {
+  range: {
+    date_from: string;
+    date_to: string;
+    days: number;
+  };
+  settings: ProfitabilitySettings;
+  current: {
+    usage_events_count: number;
+    total_tokens: number;
+    provider_cost_usd: number;
+    usage_charged_from_messages_usd: number;
+    balance_spend_usd: number;
+    topups_usd: number;
+    paid_topups_usd: number;
+    bonus_credits_usd: number;
+    manual_debits_usd: number;
+    payment_fee_usd: number;
+    tax_reserve_usd: number;
+    fx_buffer_usd: number;
+    gross_margin_usd: number;
+    gross_margin_percent: number | null;
+    roi_percent: number | null;
+    net_cashflow_usd: number;
+    transaction_count: number;
+    payers_count: number;
+  };
+  simulation: {
+    usage_revenue_usd: number;
+    provider_cost_usd: number;
+    gross_margin_usd: number;
+    gross_margin_percent: number | null;
+    roi_percent: number | null;
+    delta_revenue_usd: number;
+    delta_margin_usd: number;
+    payment_fee_usd: number;
+    tax_reserve_usd: number;
+    fx_buffer_usd: number;
+    bonus_reserve_usd: number;
+    net_after_reserves_usd: number;
+  };
+  waterfall: Array<{
+    key: string;
+    label: string;
+    amount_usd: number;
+    kind: 'income' | 'cost';
+  }>;
+  by_model: Array<{
+    model: string;
+    events_count: number;
+    total_tokens: number;
+    provider_cost_usd: number;
+    current_charged_usd: number;
+    simulated_charge_usd: number;
+    margin_usd: number;
+    margin_percent: number | null;
+    effective_markup_percent: number | null;
+  }>;
+  usage_segments: Array<{
+    user_id: string | null;
+    user_email: string | null;
+    user_role: string;
+    model: string;
+    events_count: number;
+    total_tokens: number;
+    provider_cost_usd: number;
+    current_charged_usd: number;
+    simulated_charge_usd: number;
+  }>;
+}
+
 export interface ResetUserPasswordInput {
   password: string;
 }
@@ -610,6 +724,12 @@ export const adminApi = {
 
   getPayments: (params: AdminPaymentsParams) =>
     apiClient.get<{ data: AdminPaymentsResponse }>('/admin/payments', { params }).then((r) => r.data.data),
+
+  getProfitability: (params: AdminProfitabilityParams) =>
+    apiClient.get<{ data: AdminProfitabilityResponse }>('/admin/profitability', { params }).then((r) => r.data.data),
+
+  updateProfitabilitySettings: (data: ProfitabilitySettings) =>
+    apiClient.put<{ data: ProfitabilitySettings }>('/admin/profitability/settings', data).then((r) => r.data.data),
 
   listAliceLogs: (params: AdminAliceLogsParams) =>
     apiClient.get<AdminAliceLogsResponse>('/admin/alice/logs', { params }).then((r) => r.data),

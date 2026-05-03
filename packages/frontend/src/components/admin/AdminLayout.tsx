@@ -5,6 +5,7 @@ import { RouteTransitionShell } from '../layout/RouteTransitionShell';
 const adminNav = [
   { to: '/admin/dashboard', label: 'Дашборд' },
   { to: '/admin/charts', label: 'Графики' },
+  { to: '/admin/profitability', label: 'Экономика' },
   { to: '/admin/payments', label: 'Платежи' },
   { to: '/admin/settings', label: 'Настройки' },
   { to: '/admin/alice', label: 'Алиса' },

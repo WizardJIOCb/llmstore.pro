@@ -6,6 +6,8 @@ import {
   type AdminAgentsParams,
   type AdminDashboardChartsParams,
   type AdminPaymentsParams,
+  type AdminProfitabilityParams,
+  type ProfitabilitySettings,
   type AdminRuntimesParams,
   type AdminDebugChatsParams,
   type AdminAliceLogsParams,
@@ -36,6 +38,26 @@ export function useAdminPayments(params: AdminPaymentsParams) {
     queryKey: ['admin', 'payments', params],
     queryFn: () => adminApi.getPayments(params),
     placeholderData: (previousData) => previousData,
+  });
+}
+
+export function useAdminProfitability(params: AdminProfitabilityParams) {
+  return useQuery({
+    queryKey: ['admin', 'profitability', params],
+    queryFn: () => adminApi.getProfitability(params),
+    placeholderData: (previousData) => previousData,
+  });
+}
+
+export function useUpdateAdminProfitabilitySettings() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: ProfitabilitySettings) => adminApi.updateProfitabilitySettings(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'profitability'] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['profile'] });
+    },
   });
 }
 

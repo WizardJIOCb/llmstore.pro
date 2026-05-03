@@ -35,6 +35,24 @@ export async function getAdminPayments(req: Request, res: Response, next: NextFu
   }
 }
 
+export async function getAdminProfitability(req: Request, res: Response, next: NextFunction) {
+  try {
+    const profitability = await adminService.getAdminProfitability(req.query as any);
+    res.json({ data: profitability });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function updateAdminProfitabilitySettings(req: Request, res: Response, next: NextFunction) {
+  try {
+    const settings = await adminService.updateAdminProfitabilitySettings(req.body, req.session.userId!);
+    res.json({ data: settings });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function listAliceLogs(req: Request, res: Response, next: NextFunction) {
   try {
     const result = await adminService.listAliceLogs(req.query as any);

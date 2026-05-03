@@ -4,7 +4,7 @@ import {
   validateCreateItem, validateUpdateItem, validateAdminListQuery,
   validateTaxonomyCreate, validateTaxonomyUpdate,
   validateCreateTool, validateUpdateTool,
-  validateUpdateAdminSettings, validateAdminChartsQuery, validateAdminPaymentsQuery, validateAdminRuntimesQuery, validateAdminDebugChatsQuery, validateAdminAliceLogsQuery, validateResetUserPassword,
+  validateUpdateAdminSettings, validateAdminChartsQuery, validateAdminPaymentsQuery, validateAdminProfitabilityQuery, validateUpdateProfitabilitySettings, validateAdminRuntimesQuery, validateAdminDebugChatsQuery, validateAdminAliceLogsQuery, validateResetUserPassword,
 } from './admin.validators.js';
 import { validateCreateNews, validateUpdateNews, validateAdminNewsListQuery } from '../news/news.validators.js';
 import { requireRole } from '../../middleware/auth-guard.js';
@@ -19,6 +19,8 @@ router.use(requireRole('admin', 'curator'));
 router.get('/dashboard/stats', controller.getDashboardStats);
 router.get('/dashboard/charts', validateAdminChartsQuery, controller.getDashboardCharts);
 router.get('/payments', requireRole('admin'), validateAdminPaymentsQuery, controller.getAdminPayments);
+router.get('/profitability', requireRole('admin'), validateAdminProfitabilityQuery, controller.getAdminProfitability);
+router.put('/profitability/settings', requireRole('admin'), validateUpdateProfitabilitySettings, controller.updateAdminProfitabilitySettings);
 router.get('/alice/logs', validateAdminAliceLogsQuery, controller.listAliceLogs);
 router.get('/runtimes', validateAdminRuntimesQuery, controller.listRuntimes);
 router.get('/debug/chats', validateAdminDebugChatsQuery, controller.searchDebugChats);

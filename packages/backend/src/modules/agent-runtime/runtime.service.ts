@@ -40,6 +40,7 @@ import {
   resolveStarterPromptsForAgentSlug,
 } from '../../lib/app-settings.js';
 import { chargeUserBalanceForUsage } from '../../lib/billing.js';
+import { calculateCustomerChargeForUsage, type ProfitabilityQuote } from '../../lib/profitability.js';
 import { env } from '../../config/env.js';
 import {
   estimateCost,
@@ -630,6 +631,7 @@ interface StartRunOptions {
   sync_conversation_id?: string | null;
   skip_sync_user_message?: boolean;
   sync_chat_title?: string | null;
+  user_role?: string | null;
 }
 
 interface RunResult {
@@ -3285,6 +3287,7 @@ export async function startRun(
   await ensureSufficientBalance(userId);
   const syncToChats = options.sync_to_chats ?? false;
   const chargeUsage = options.charge_usage ?? true;
+  const billingUserRole = options.user_role ?? 'user';
   const emitEvent = options.on_event ?? (() => undefined);
   const latestUserMessage = [...input.messages]
     .reverse()
@@ -3496,7 +3499,9 @@ ${agent.description.trim()}`);
   }>();
   let usageEventRateCache: number | null = null;
   let chargedCostUsd = 0;
+  let pricedProviderCostUsd = 0;
   let balanceAfterChargeUsd: string | null = null;
+  let latestPricingQuote: ProfitabilityQuote | null = null;
   const chargeTransactionIds: string[] = [];
   const recordUsage = (
     usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number },
@@ -3522,6 +3527,12 @@ ${agent.description.trim()}`);
   const getUsageBreakdownPayload = () => serializeUsageBreakdown(usageBreakdown);
   const getActualBillingPayload = () => ({
     charged_cost: chargedCostUsd > 0 ? chargedCostUsd.toFixed(4) : undefined,
+    provider_cost: pricedProviderCostUsd > 0 ? pricedProviderCostUsd.toFixed(6) : undefined,
+    pricing_margin_usd: chargedCostUsd > 0
+      ? (chargedCostUsd - pricedProviderCostUsd).toFixed(6)
+      : undefined,
+    pricing_markup_multiplier: latestPricingQuote?.effective_markup_multiplier,
+    pricing_policy_snapshot: latestPricingQuote?.policy_snapshot,
     balance_after_usd: balanceAfterChargeUsd ?? undefined,
     charge_transaction_ids: chargeTransactionIds.length > 0 ? [...chargeTransactionIds] : undefined,
   });
@@ -3568,10 +3579,23 @@ ${agent.description.trim()}`);
   const chargeAccumulatedUsage = async (force = false) => {
     if (!chargeUsage) return;
 
-    const targetCost = Number(getEstimatedCostTotal());
-    if (!Number.isFinite(targetCost) || targetCost <= chargedCostUsd) return;
+    const targetProviderCost = Number(getEstimatedCostTotal());
+    if (!Number.isFinite(targetProviderCost) || targetProviderCost <= 0) return;
 
-    const deltaUsd = targetCost - chargedCostUsd;
+    const providerDeltaUsd = targetProviderCost - pricedProviderCostUsd;
+    if (!force && providerDeltaUsd < 0.0001) return;
+
+    const pricingQuote = await calculateCustomerChargeForUsage({
+      provider_cost_usd: targetProviderCost,
+      model_external_id: modelId,
+      user_role: billingUserRole,
+      user_id: userId,
+    });
+    latestPricingQuote = pricingQuote;
+    pricedProviderCostUsd = targetProviderCost;
+
+    const deltaUsd = pricingQuote.customer_charge_usd - chargedCostUsd;
+    if (!Number.isFinite(deltaUsd) || deltaUsd <= 0) return;
     if (!force && deltaUsd < 0.0001) return;
 
     const chargeResult = await chargeUserBalanceForUsage({
@@ -4242,6 +4266,8 @@ ${agent.description.trim()}`);
           run_total_tokens: totalUsage.total_tokens,
           run_total_estimated_cost: estCost,
           run_total_charged_cost: chargedCostUsd.toFixed(4),
+          run_total_provider_cost: pricedProviderCostUsd.toFixed(6),
+          pricing_margin_usd: (chargedCostUsd - pricedProviderCostUsd).toFixed(6),
         } as Record<string, unknown>,
       }))
       : [{
@@ -4256,6 +4282,8 @@ ${agent.description.trim()}`);
         raw_usage_json: {
           ...(totalUsage as unknown as Record<string, unknown>),
           run_total_charged_cost: chargedCostUsd.toFixed(4),
+          run_total_provider_cost: pricedProviderCostUsd.toFixed(6),
+          pricing_margin_usd: (chargedCostUsd - pricedProviderCostUsd).toFixed(6),
         },
       }];
     await db.insert(usageLedger).values(ledgerRows);
@@ -8348,6 +8376,7 @@ export async function sendChatMessage(
         skip_sync_user_message: true,
         sync_chat_title: nextTitle,
         charge_usage: true,
+        user_role: userRole,
         on_event: emitChatEvent,
         strict_preview_edit: strictPreviewEdit && latestPreviewSnapshot
           ? {
@@ -8428,6 +8457,7 @@ export async function sendChatMessage(
         skip_sync_user_message: true,
         sync_chat_title: nextTitle,
         charge_usage: true,
+        user_role: userRole,
         on_event: emitChatEvent,
         strict_preview_edit: strictPreviewEdit && latestPreviewSnapshot
           ? {
@@ -8520,11 +8550,32 @@ export async function sendChatMessage(
   assistantText = normalizedAssistant.content || assistantText;
   usagePayload = attachUsdToRubRate(normalizedAssistant.usage, usdToRubRate);
 
-  const chargedCost = Number(
+  const providerCost = Number(
     typeof usagePayload?.estimated_cost === 'string'
       ? usagePayload.estimated_cost
       : (typeof usagePayload?.estimated_cost === 'number' ? usagePayload.estimated_cost : 0),
   );
+  const usageModel = typeof usagePayload?.model === 'string'
+    ? usagePayload.model
+    : (chat.model_external_id ?? DEFAULT_GENERAL_MODEL);
+  const pricingQuote = providerCost > 0
+    ? await calculateCustomerChargeForUsage({
+      provider_cost_usd: providerCost,
+      model_external_id: usageModel,
+      user_role: userRole,
+      user_id: userId,
+    })
+    : null;
+  const chargedCost = pricingQuote?.customer_charge_usd ?? providerCost;
+  if (usagePayload && pricingQuote) {
+    usagePayload = {
+      ...usagePayload,
+      provider_cost: pricingQuote.provider_cost_usd.toFixed(6),
+      pricing_margin_usd: pricingQuote.margin_usd.toFixed(6),
+      pricing_markup_multiplier: pricingQuote.effective_markup_multiplier,
+      pricing_policy_snapshot: pricingQuote.policy_snapshot,
+    };
+  }
   const chargeResult = chargedCost > 0
     ? await chargeUserBalanceForUsage({
       user_id: userId,

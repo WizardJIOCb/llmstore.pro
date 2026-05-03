@@ -25,6 +25,12 @@ import {
   updateSignupBonusSettings,
   updateOpenRouterRequestsSettings,
 } from '../../lib/app-settings.js';
+import {
+  getProfitabilitySettings,
+  quoteUsageCharge,
+  updateProfitabilitySettings,
+  type ProfitabilitySettings,
+} from '../../lib/profitability.js';
 import { openRouterClient } from '../openrouter/index.js';
 import { logger } from '../../lib/logger.js';
 import {
@@ -1148,6 +1154,38 @@ interface AdminPaymentsQuery {
   search?: string;
 }
 
+interface AdminProfitabilityQuery {
+  date_from?: string;
+  date_to?: string;
+}
+
+interface AdminProfitabilityUsageDbRow extends Record<string, unknown> {
+  event_id: string;
+  user_id: string | null;
+  user_email: string | null;
+  model: string | null;
+  user_role: string | null;
+  total_tokens: string | number | null;
+  provider_cost_usd: string | number | null;
+  current_charged_usd: string | number | null;
+}
+
+interface AdminProfitabilityTxDbRow extends Record<string, unknown> {
+  topups_usd: string | number;
+  paid_topups_usd: string | number;
+  bonus_credits_usd: string | number;
+  balance_spend_usd: string | number;
+  manual_debits_usd: string | number;
+  transaction_count: string | number;
+  payers_count: string | number;
+}
+
+interface AdminProfitabilityTopupDbRow extends Record<string, unknown> {
+  amount_rub: string | number;
+  amount_usd: string | number;
+  usd_to_rub_rate: string | number;
+}
+
 type AdminPaymentsRange = {
   startDate: Date;
   endDate: Date;
@@ -1294,6 +1332,10 @@ function normalizeAdminPaymentsRange(query: AdminPaymentsQuery): AdminPaymentsRa
   };
 }
 
+function normalizeProfitabilityRange(query: AdminProfitabilityQuery): AdminPaymentsRange {
+  return normalizeAdminPaymentsRange(query);
+}
+
 function buildAdminPaymentsFilters(query: AdminPaymentsQuery, range: AdminPaymentsRange) {
   const paymentDayExpr = sql<Date>`timezone('UTC', coalesce(${balanceTopups.paid_at}, ${balanceTopups.created_at}))::date`;
   const paymentEventAtExpr = sql<Date>`coalesce(${balanceTopups.paid_at}, ${balanceTopups.created_at})`;
@@ -1328,6 +1370,341 @@ function buildAdminPaymentsFilters(query: AdminPaymentsQuery, range: AdminPaymen
     paymentDayExpr,
     paymentEventAtExpr,
   };
+}
+
+function formatNullablePercent(value: number, base: number): number | null {
+  if (!Number.isFinite(base) || base <= 0) return null;
+  return roundMetric((value / base) * 100, 2);
+}
+
+function buildReserveCosts(input: {
+  paidTopupsUsd: number;
+  bonusCreditsUsd: number;
+  simulatedUsageRevenueUsd: number;
+  topups: AdminProfitabilityTopupDbRow[];
+  settings: ProfitabilitySettings;
+}) {
+  const paymentFeeUsd = input.topups.reduce((sum, topup) => {
+    const amountRub = toSafeNumber(topup.amount_rub);
+    const usdToRubRate = toSafeNumber(topup.usd_to_rub_rate) || 1;
+    const feeRub = (amountRub * input.settings.yookassa_fee_percent / 100)
+      + input.settings.yookassa_fee_fixed_rub;
+    return sum + (feeRub / usdToRubRate);
+  }, 0);
+  const taxReserveUsd = input.paidTopupsUsd * input.settings.tax_reserve_percent / 100;
+  const fxBufferUsd = input.paidTopupsUsd * input.settings.fx_buffer_percent / 100;
+  const bonusReserveUsd = input.bonusCreditsUsd
+    + (input.simulatedUsageRevenueUsd * input.settings.bonus_reserve_percent / 100);
+
+  return {
+    payment_fee_usd: roundMetric(paymentFeeUsd, 6),
+    tax_reserve_usd: roundMetric(taxReserveUsd, 6),
+    fx_buffer_usd: roundMetric(fxBufferUsd, 6),
+    bonus_reserve_usd: roundMetric(bonusReserveUsd, 6),
+  };
+}
+
+export async function getAdminProfitability(query: AdminProfitabilityQuery) {
+  const range = normalizeProfitabilityRange(query);
+  const settings = await getProfitabilitySettings();
+
+  const [usageRows, txRows, topupRows] = await Promise.all([
+    db.execute<AdminProfitabilityUsageDbRow>(sql`
+      WITH params AS (
+        SELECT ${range.startDateIso}::date AS start_day, ${range.endDateIso}::date AS end_day
+      ),
+      chat_usage AS (
+        SELECT
+          ccm.id::text AS event_id,
+          u.id::text AS user_id,
+          u.email AS user_email,
+          COALESCE(ccm.usage_json->>'model', usage_totals.model_external_id, cc.model_external_id, 'unknown') AS model,
+          COALESCE(u.role::text, 'user') AS user_role,
+          COALESCE(
+            NULLIF(ccm.usage_json->>'total_tokens', '')::numeric,
+            COALESCE(usage_totals.total_tokens, usage_totals.prompt_tokens + usage_totals.completion_tokens, 0),
+            0
+          ) AS total_tokens,
+          COALESCE(NULLIF(ccm.usage_json->>'estimated_cost', '')::numeric, usage_totals.estimated_cost, 0) AS provider_cost_usd,
+          COALESCE(NULLIF(ccm.usage_json->>'charged_cost', '')::numeric, 0) AS current_charged_usd
+        FROM chat_conversation_messages ccm
+        INNER JOIN chat_conversations cc ON cc.id = ccm.conversation_id
+        INNER JOIN users u ON u.id = cc.user_id
+        LEFT JOIN LATERAL (
+          SELECT
+            MAX(ul.model_external_id) AS model_external_id,
+            SUM(COALESCE(ul.prompt_tokens, 0)) AS prompt_tokens,
+            SUM(COALESCE(ul.completion_tokens, 0)) AS completion_tokens,
+            SUM(COALESCE(ul.total_tokens, ul.prompt_tokens + ul.completion_tokens, 0)) AS total_tokens,
+            SUM(COALESCE(ul.estimated_cost, 0)) AS estimated_cost
+          FROM usage_ledger ul
+          WHERE ul.run_id = ccm.run_id
+        ) usage_totals ON true
+        INNER JOIN params ON true
+        WHERE ccm.role = 'assistant'
+          AND (ccm.usage_json IS NOT NULL OR ccm.run_id IS NOT NULL)
+          AND timezone('UTC', ccm.created_at)::date BETWEEN params.start_day AND params.end_day
+      ),
+      standalone_usage AS (
+        SELECT
+          ul.id::text AS event_id,
+          u.id::text AS user_id,
+          u.email AS user_email,
+          COALESCE(ul.model_external_id, 'unknown') AS model,
+          COALESCE(u.role::text, 'user') AS user_role,
+          COALESCE(ul.total_tokens, ul.prompt_tokens + ul.completion_tokens, 0)::numeric AS total_tokens,
+          COALESCE(ul.estimated_cost, 0)::numeric AS provider_cost_usd,
+          0::numeric AS current_charged_usd
+        FROM usage_ledger ul
+        INNER JOIN agent_runs ar ON ar.id = ul.run_id
+        INNER JOIN users u ON u.id = ar.user_id
+        INNER JOIN params ON true
+        WHERE timezone('UTC', ul.created_at)::date BETWEEN params.start_day AND params.end_day
+          AND NOT EXISTS (
+            SELECT 1
+            FROM chat_conversation_messages ccm
+            WHERE ccm.run_id = ar.id
+          )
+      )
+      SELECT * FROM chat_usage
+      UNION ALL
+      SELECT * FROM standalone_usage
+    `),
+    db.execute<AdminProfitabilityTxDbRow>(sql`
+      WITH params AS (
+        SELECT ${range.startDateIso}::date AS start_day, ${range.endDateIso}::date AS end_day
+      )
+      SELECT
+        COALESCE(SUM(CASE WHEN bt.amount::numeric > 0 THEN bt.amount::numeric ELSE 0 END), 0) AS topups_usd,
+        COALESCE(SUM(CASE WHEN bt.type = 'topup' AND bt.amount::numeric > 0 THEN bt.amount::numeric ELSE 0 END), 0) AS paid_topups_usd,
+        COALESCE(SUM(CASE WHEN bt.amount::numeric > 0 AND bt.type <> 'topup' THEN bt.amount::numeric ELSE 0 END), 0) AS bonus_credits_usd,
+        COALESCE(SUM(CASE WHEN bt.type IN ('chat_usage', 'agent_run_usage') AND bt.amount::numeric < 0 THEN ABS(bt.amount::numeric) ELSE 0 END), 0) AS balance_spend_usd,
+        COALESCE(SUM(CASE WHEN bt.amount::numeric < 0 AND bt.type NOT IN ('chat_usage', 'agent_run_usage') THEN ABS(bt.amount::numeric) ELSE 0 END), 0) AS manual_debits_usd,
+        COUNT(*)::int AS transaction_count,
+        COUNT(DISTINCT CASE WHEN bt.amount::numeric > 0 THEN bt.user_id END)::int AS payers_count
+      FROM balance_transactions bt
+      INNER JOIN params ON true
+      WHERE timezone('UTC', bt.created_at)::date BETWEEN params.start_day AND params.end_day
+    `),
+    db.execute<AdminProfitabilityTopupDbRow>(sql`
+      WITH params AS (
+        SELECT ${range.startDateIso}::date AS start_day, ${range.endDateIso}::date AS end_day
+      )
+      SELECT
+        bt.amount_rub,
+        bt.amount_usd,
+        bt.usd_to_rub_rate
+      FROM balance_topups bt
+      INNER JOIN params ON true
+      WHERE bt.status = 'succeeded'
+        AND timezone('UTC', COALESCE(bt.paid_at, bt.created_at))::date BETWEEN params.start_day AND params.end_day
+    `),
+  ]);
+
+  const tx = txRows[0] ?? {
+    topups_usd: 0,
+    paid_topups_usd: 0,
+    bonus_credits_usd: 0,
+    balance_spend_usd: 0,
+    manual_debits_usd: 0,
+    transaction_count: 0,
+    payers_count: 0,
+  };
+  const byModel = new Map<string, {
+    model: string;
+    events_count: number;
+    total_tokens: number;
+    provider_cost_usd: number;
+    current_charged_usd: number;
+    simulated_charge_usd: number;
+    margin_usd: number;
+    effective_markup_percent: number | null;
+  }>();
+  const usageSegments = new Map<string, {
+    user_id: string | null;
+    user_email: string | null;
+    user_role: string;
+    model: string;
+    events_count: number;
+    total_tokens: number;
+    provider_cost_usd: number;
+    current_charged_usd: number;
+    simulated_charge_usd: number;
+  }>();
+
+  let providerCostUsd = 0;
+  let currentUsageChargedUsd = 0;
+  let simulatedUsageRevenueUsd = 0;
+  let totalTokens = 0;
+
+  for (const row of usageRows) {
+    const model = row.model?.trim() || 'unknown';
+    const userRole = row.user_role?.trim() || 'user';
+    const providerCost = toSafeNumber(row.provider_cost_usd);
+    const currentCharged = toSafeNumber(row.current_charged_usd);
+    const tokens = toSafeNumber(row.total_tokens);
+    const quote = quoteUsageCharge({
+      provider_cost_usd: providerCost,
+      model_external_id: model,
+      user_role: userRole,
+      user_id: row.user_id,
+      user_email: row.user_email,
+    }, settings);
+    const existing = byModel.get(model) ?? {
+      model,
+      events_count: 0,
+      total_tokens: 0,
+      provider_cost_usd: 0,
+      current_charged_usd: 0,
+      simulated_charge_usd: 0,
+      margin_usd: 0,
+      effective_markup_percent: null,
+    };
+
+    existing.events_count += 1;
+    existing.total_tokens += tokens;
+    existing.provider_cost_usd += providerCost;
+    existing.current_charged_usd += currentCharged;
+    existing.simulated_charge_usd += quote.customer_charge_usd;
+    existing.margin_usd += quote.margin_usd;
+    existing.effective_markup_percent = quote.effective_markup_percent;
+    byModel.set(model, existing);
+
+    const segmentKey = `${row.user_id ?? ''}|${row.user_email ?? ''}|${userRole}|${model}`;
+    const segment = usageSegments.get(segmentKey) ?? {
+      user_id: row.user_id ?? null,
+      user_email: row.user_email ?? null,
+      user_role: userRole,
+      model,
+      events_count: 0,
+      total_tokens: 0,
+      provider_cost_usd: 0,
+      current_charged_usd: 0,
+      simulated_charge_usd: 0,
+    };
+    segment.events_count += 1;
+    segment.total_tokens += tokens;
+    segment.provider_cost_usd += providerCost;
+    segment.current_charged_usd += currentCharged;
+    segment.simulated_charge_usd += quote.customer_charge_usd;
+    usageSegments.set(segmentKey, segment);
+
+    providerCostUsd += providerCost;
+    currentUsageChargedUsd += currentCharged;
+    simulatedUsageRevenueUsd += quote.customer_charge_usd;
+    totalTokens += tokens;
+  }
+
+  const topupsUsd = toSafeNumber(tx.topups_usd);
+  const paidTopupsUsd = toSafeNumber(tx.paid_topups_usd);
+  const bonusCreditsUsd = toSafeNumber(tx.bonus_credits_usd);
+  const balanceSpendUsd = toSafeNumber(tx.balance_spend_usd);
+  const manualDebitsUsd = toSafeNumber(tx.manual_debits_usd);
+  const reserveCosts = buildReserveCosts({
+    paidTopupsUsd,
+    bonusCreditsUsd,
+    simulatedUsageRevenueUsd,
+    topups: topupRows,
+    settings,
+  });
+  const currentGrossMarginUsd = balanceSpendUsd - providerCostUsd;
+  const simulatedGrossMarginUsd = simulatedUsageRevenueUsd - providerCostUsd;
+  const currentNetCashflowUsd = paidTopupsUsd
+    - reserveCosts.payment_fee_usd
+    - reserveCosts.tax_reserve_usd
+    - reserveCosts.fx_buffer_usd
+    - bonusCreditsUsd
+    - providerCostUsd;
+  const simulatedNetAfterReservesUsd = simulatedUsageRevenueUsd
+    - providerCostUsd
+    - reserveCosts.payment_fee_usd
+    - reserveCosts.tax_reserve_usd
+    - reserveCosts.fx_buffer_usd
+    - reserveCosts.bonus_reserve_usd;
+
+  return {
+    range: {
+      date_from: range.startDateIso,
+      date_to: range.endDateIso,
+      days: range.days,
+    },
+    settings,
+    current: {
+      usage_events_count: usageRows.length,
+      total_tokens: roundMetric(totalTokens, 0),
+      provider_cost_usd: roundMetric(providerCostUsd, 6),
+      usage_charged_from_messages_usd: roundMetric(currentUsageChargedUsd, 6),
+      balance_spend_usd: roundMetric(balanceSpendUsd, 6),
+      topups_usd: roundMetric(topupsUsd, 6),
+      paid_topups_usd: roundMetric(paidTopupsUsd, 6),
+      bonus_credits_usd: roundMetric(bonusCreditsUsd, 6),
+      manual_debits_usd: roundMetric(manualDebitsUsd, 6),
+      payment_fee_usd: reserveCosts.payment_fee_usd,
+      tax_reserve_usd: reserveCosts.tax_reserve_usd,
+      fx_buffer_usd: reserveCosts.fx_buffer_usd,
+      gross_margin_usd: roundMetric(currentGrossMarginUsd, 6),
+      gross_margin_percent: formatNullablePercent(currentGrossMarginUsd, balanceSpendUsd),
+      roi_percent: providerCostUsd > 0
+        ? roundMetric((balanceSpendUsd / providerCostUsd) * 100, 2)
+        : null,
+      net_cashflow_usd: roundMetric(currentNetCashflowUsd, 6),
+      transaction_count: toSafeNumber(tx.transaction_count),
+      payers_count: toSafeNumber(tx.payers_count),
+    },
+    simulation: {
+      usage_revenue_usd: roundMetric(simulatedUsageRevenueUsd, 6),
+      provider_cost_usd: roundMetric(providerCostUsd, 6),
+      gross_margin_usd: roundMetric(simulatedGrossMarginUsd, 6),
+      gross_margin_percent: formatNullablePercent(simulatedGrossMarginUsd, simulatedUsageRevenueUsd),
+      roi_percent: providerCostUsd > 0
+        ? roundMetric((simulatedUsageRevenueUsd / providerCostUsd) * 100, 2)
+        : null,
+      delta_revenue_usd: roundMetric(simulatedUsageRevenueUsd - balanceSpendUsd, 6),
+      delta_margin_usd: roundMetric(simulatedGrossMarginUsd - currentGrossMarginUsd, 6),
+      payment_fee_usd: reserveCosts.payment_fee_usd,
+      tax_reserve_usd: reserveCosts.tax_reserve_usd,
+      fx_buffer_usd: reserveCosts.fx_buffer_usd,
+      bonus_reserve_usd: reserveCosts.bonus_reserve_usd,
+      net_after_reserves_usd: roundMetric(simulatedNetAfterReservesUsd, 6),
+    },
+    waterfall: [
+      { key: 'paid_topups_usd', label: 'Оплаты клиентов', amount_usd: roundMetric(paidTopupsUsd, 6), kind: 'income' },
+      { key: 'payment_fee_usd', label: 'Комиссия YooKassa', amount_usd: -reserveCosts.payment_fee_usd, kind: 'cost' },
+      { key: 'tax_reserve_usd', label: 'Налоговый резерв', amount_usd: -reserveCosts.tax_reserve_usd, kind: 'cost' },
+      { key: 'fx_buffer_usd', label: 'FX-буфер', amount_usd: -reserveCosts.fx_buffer_usd, kind: 'cost' },
+      { key: 'bonus_reserve_usd', label: 'Бонусы и промо-резерв', amount_usd: -reserveCosts.bonus_reserve_usd, kind: 'cost' },
+      { key: 'openrouter_cost_usd', label: 'OpenRouter себестоимость', amount_usd: -roundMetric(providerCostUsd, 6), kind: 'cost' },
+      { key: 'current_balance_spend_usd', label: 'Текущие списания', amount_usd: roundMetric(balanceSpendUsd, 6), kind: 'income' },
+      { key: 'simulated_usage_revenue_usd', label: 'Списания по настройкам', amount_usd: roundMetric(simulatedUsageRevenueUsd, 6), kind: 'income' },
+    ],
+    by_model: Array.from(byModel.values())
+      .map((model) => ({
+        ...model,
+        total_tokens: roundMetric(model.total_tokens, 0),
+        provider_cost_usd: roundMetric(model.provider_cost_usd, 6),
+        current_charged_usd: roundMetric(model.current_charged_usd, 6),
+        simulated_charge_usd: roundMetric(model.simulated_charge_usd, 6),
+        margin_usd: roundMetric(model.margin_usd, 6),
+        margin_percent: formatNullablePercent(model.margin_usd, model.simulated_charge_usd),
+      }))
+      .sort((a, b) => b.provider_cost_usd - a.provider_cost_usd),
+    usage_segments: Array.from(usageSegments.values())
+      .map((segment) => ({
+        ...segment,
+        total_tokens: roundMetric(segment.total_tokens, 0),
+        provider_cost_usd: roundMetric(segment.provider_cost_usd, 6),
+        current_charged_usd: roundMetric(segment.current_charged_usd, 6),
+        simulated_charge_usd: roundMetric(segment.simulated_charge_usd, 6),
+      }))
+      .sort((a, b) => b.provider_cost_usd - a.provider_cost_usd),
+  };
+}
+
+export async function updateAdminProfitabilitySettings(
+  input: ProfitabilitySettings,
+  adminUserId: string,
+) {
+  return updateProfitabilitySettings(input, adminUserId);
 }
 
 export async function getAdminPayments(query: AdminPaymentsQuery) {
