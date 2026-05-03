@@ -563,10 +563,88 @@ def list_items(chat_id, limit=30):
     with DB_LOCK:
         with connect_db() as conn:
             rows = conn.execute(
-                "SELECT name, qty, note FROM items WHERE chat_id = ? ORDER BY id DESC LIMIT ?",
+                "SELECT id, name, qty, note FROM items WHERE chat_id = ? ORDER BY id DESC LIMIT ?",
                 (str(chat_id), int(limit)),
             ).fetchall()
     return [dict(row) for row in rows]
+
+
+def item_display(item):
+    return f"{item['name']}: {item['qty']}" + (f" ({item['note']})" if item.get("note") else "")
+
+
+def normalize_item_match_text(value):
+    text = " ".join((value or "").strip().split()).lower()
+    for prefix in ("- ", "• "):
+        if text.startswith(prefix):
+            text = text[len(prefix):].strip()
+    return text
+
+
+def parse_delete_item_query(text):
+    stripped = (text or "").strip()
+    lower = stripped.lower()
+    prefixes = [
+        "/delete_item",
+        "/delitem",
+        "/remove_item",
+        "удали товар",
+        "удалить товар",
+        "убери товар",
+        "удали позицию",
+        "удалить позицию",
+        "remove item",
+        "delete item",
+    ]
+    for prefix in prefixes:
+        if lower.startswith(prefix):
+            return stripped[len(prefix):].strip(" :—-")
+    return ""
+
+
+def delete_item(chat_id, raw_query):
+    query = (raw_query or "").strip()
+    if not query:
+        return {"deleted": None, "remaining": list_items(chat_id), "ambiguous": []}
+
+    items = list_items(chat_id, limit=200)
+    normalized_query = normalize_item_match_text(query)
+    exact = [
+        item for item in items
+        if normalize_item_match_text(item_display(item)) == normalized_query
+        or normalize_item_match_text(f"{item['name']} | {item['qty']} | {item.get('note') or ''}") == normalized_query
+    ]
+
+    candidates = exact
+    if not candidates:
+        candidates = [
+            item for item in items
+            if normalize_item_match_text(item["name"]) == normalized_query
+        ]
+
+    if not candidates:
+        candidates = [
+            item for item in items
+            if normalized_query in normalize_item_match_text(item_display(item))
+        ]
+
+    if len(candidates) != 1:
+        return {"deleted": None, "remaining": items, "ambiguous": candidates[:10]}
+
+    deleted = candidates[0]
+    with DB_LOCK:
+        with connect_db() as conn:
+            conn.execute(
+                "DELETE FROM items WHERE id = ? AND chat_id = ?",
+                (deleted["id"], str(chat_id)),
+            )
+    return {"deleted": deleted, "remaining": list_items(chat_id), "ambiguous": []}
+
+
+def format_items(items):
+    if not items:
+        return "Список товаров пока пустой."
+    return "Товары:\\n" + "\\n".join(f"- {item_display(item)}" for item in items)
 
 
 def send_telegram_api(method, payload, timeout=30):
@@ -722,6 +800,7 @@ def handle_command(chat_id, text):
             "/memory - показать память\\n"
             "/clear_memory - очистить память\\n"
             "/item название | количество | заметка - добавить товар\\n"
+            "/delete_item название: количество (заметка) - удалить товар\\n"
             "/items - показать товары",
         )
         return True
@@ -758,16 +837,36 @@ def handle_command(chat_id, text):
         send_telegram_message(chat_id, f"Добавил товар: {item['name']} - {item['qty']}{note}")
         return True
 
+    delete_query = parse_delete_item_query(stripped)
+    if delete_query or cmd in {"/delete_item", "/delitem", "/remove_item"}:
+        if not delete_query:
+            send_telegram_message(chat_id, "Напишите, какой товар удалить: /delete_item название: количество (заметка)")
+            return True
+        result = delete_item(chat_id, delete_query)
+        if result["deleted"]:
+            remaining = result["remaining"]
+            if remaining:
+                send_telegram_message(
+                    chat_id,
+                    f"Удалил товар: {item_display(result['deleted'])}\\n\\nОсталось:\\n"
+                    + "\\n".join(f"- {item_display(item)}" for item in remaining),
+                )
+            else:
+                send_telegram_message(chat_id, f"Удалил товар: {item_display(result['deleted'])}\\n\\nСписок товаров теперь пустой.")
+            return True
+        if result["ambiguous"]:
+            send_telegram_message(
+                chat_id,
+                "Нашёл несколько похожих товаров. Укажите точнее, например целую строку из /items:\\n"
+                + "\\n".join(f"- {item_display(item)}" for item in result["ambiguous"]),
+            )
+            return True
+        send_telegram_message(chat_id, "Не нашёл такой товар. Проверьте название через /items и повторите удаление.")
+        return True
+
     if cmd == "/items":
         items = list_items(chat_id)
-        if not items:
-            send_telegram_message(chat_id, "Список товаров пока пустой.")
-            return True
-        lines = [
-            f"- {item['name']}: {item['qty']}" + (f" ({item['note']})" if item.get("note") else "")
-            for item in items
-        ]
-        send_telegram_message(chat_id, "Товары:\\n" + "\\n".join(lines))
+        send_telegram_message(chat_id, format_items(items))
         return True
 
     return False
