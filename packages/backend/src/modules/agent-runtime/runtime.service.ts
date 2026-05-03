@@ -3478,6 +3478,7 @@ ${agent.description.trim()}`);
       'File artifact instruction.',
       `When the user asks you to prepare a downloadable file, call ${CREATE_CHAT_FILES_TOOL_SLUG}.`,
       'Use the tool for reports, markdown, CSV, JSON, HTML, code files, exports, datasets, and similar artifacts.',
+      'If the user asks for a file but omits details, choose a sensible default format and fields instead of asking follow-up questions.',
       'After the tool succeeds, mention the created files briefly; the chat UI will show download cards automatically.',
     ].join('\n'));
   }
@@ -3990,6 +3991,240 @@ ${agent.description.trim()}`);
     };
   };
 
+  const executeAssistantToolCalls = async (
+    assistantMessage: ChatMessage,
+    iterationLabel: number | 'forced_file',
+  ): Promise<number> => {
+    const toolCalls = assistantMessage.tool_calls ?? [];
+    if (toolCalls.length === 0) return 0;
+
+    messages.push(assistantMessage);
+
+    const detailLabel = iterationLabel === 'forced_file'
+      ? 'Создание файла'
+      : `Шаг ${iterationLabel}`;
+
+    await db.update(agentRuns).set({ status: 'tool_executing' }).where(eq(agentRuns.id, run.id));
+    await emitRunEvent('chat.run.status', {
+      run_id: run.id,
+      status: 'tool_executing',
+      iteration: iterationLabel === 'forced_file' ? undefined : iterationLabel,
+      label: `Запускаю инструменты: ${toolCalls.length}`,
+    });
+
+    for (const [toolIndex, toolCall] of toolCalls.entries()) {
+      const toolSlug = toolCall.function.name;
+      let toolInput: Record<string, unknown>;
+      try {
+        toolInput = JSON.parse(toolCall.function.arguments);
+      } catch {
+        toolInput = {};
+      }
+
+      const toolDef = tools.find(t => t.slug === toolSlug);
+
+      const [tcRecord] = await db.insert(agentRunToolCalls).values({
+        run_id: run.id,
+        tool_definition_id: toolDef?.id ?? null,
+        tool_call_id: toolCall.id,
+        tool_name: toolSlug,
+        tool_input: toolInput,
+        status: 'running',
+      }).returning();
+      await emitRunEvent('chat.run.tool.started', {
+        run_id: run.id,
+        tool_call_id: toolCall.id,
+        tool_name: toolSlug,
+        input: toolInput,
+        label: `Запущен инструмент ${toolSlug}`,
+        detail: `${detailLabel}: ${toolIndex + 1} из ${toolCalls.length}`,
+      });
+
+      let trace: ToolTrace;
+      try {
+        const toolConfig = toolSlug === CREATE_CHAT_FILES_TOOL_SLUG
+          ? {
+            ...(toolDef?.config_json ?? {}),
+            storage_dir: CHAT_GENERATED_FILES_DIR,
+            chat_id: syncedConversationId,
+            run_id: run.id,
+          }
+          : (toolDef?.config_json ?? undefined);
+        const execResult = await executeTool(toolSlug, toolInput, toolConfig);
+        if (toolSlug === CREATE_CHAT_FILES_TOOL_SLUG) {
+          pendingGeneratedFiles.push(...extractGeneratedFilesFromToolResult(execResult.result, toolCall.id));
+        }
+        for (const usageEntry of normalizeToolUsageEntries(execResult.usage)) {
+          recordUsage({
+            prompt_tokens: usageEntry.prompt_tokens,
+            completion_tokens: usageEntry.completion_tokens,
+            total_tokens: usageEntry.total_tokens || (usageEntry.prompt_tokens + usageEntry.completion_tokens),
+          }, usageEntry.model_external_id, `tool:${toolSlug}`);
+        }
+        await chargeAccumulatedUsage();
+
+        await db.update(agentRunToolCalls).set({
+          tool_output: execResult.result,
+          status: 'success',
+          duration_ms: execResult.duration_ms,
+        }).where(eq(agentRunToolCalls.id, tcRecord.id));
+
+        messages.push({
+          role: 'tool',
+          content: JSON.stringify(execResult.result),
+          tool_call_id: toolCall.id,
+        });
+
+        trace = {
+          tool_call_id: toolCall.id,
+          tool_name: toolSlug,
+          input: toolInput,
+          output: execResult.result,
+          status: 'success',
+          duration_ms: execResult.duration_ms,
+        };
+        await emitRunEvent('chat.run.tool.finished', {
+          run_id: run.id,
+          tool_call_id: toolCall.id,
+          tool_name: toolSlug,
+          input: toolInput,
+          output: execResult.result,
+          status: 'success',
+          duration_ms: execResult.duration_ms,
+          label: `Инструмент ${toolSlug} завершён успешно`,
+          detail: `${detailLabel}: ${toolIndex + 1} из ${toolCalls.length} завершён за ${execResult.duration_ms} мс`,
+        });
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : 'Unknown error';
+
+        await db.update(agentRunToolCalls).set({
+          status: 'error',
+          error_message: errMsg,
+          duration_ms: 0,
+        }).where(eq(agentRunToolCalls.id, tcRecord.id));
+
+        messages.push({
+          role: 'tool',
+          content: JSON.stringify({ error: errMsg }),
+          tool_call_id: toolCall.id,
+        });
+
+        trace = {
+          tool_call_id: toolCall.id,
+          tool_name: toolSlug,
+          input: toolInput,
+          output: null,
+          status: 'error',
+          duration_ms: 0,
+          error: errMsg,
+        };
+        await emitRunEvent('chat.run.tool.finished', {
+          run_id: run.id,
+          tool_call_id: toolCall.id,
+          tool_name: toolSlug,
+          input: toolInput,
+          output: { error: errMsg },
+          status: 'error',
+          duration_ms: 0,
+          error: errMsg,
+          label: `Инструмент ${toolSlug} завершился с ошибкой`,
+          detail: `${detailLabel}: ${toolIndex + 1} из ${toolCalls.length} завершился с ошибкой`,
+        });
+      }
+
+      toolTraces.push(trace);
+    }
+
+    await db.update(agentRuns).set({ status: 'continuing' }).where(eq(agentRuns.id, run.id));
+    await emitRunEvent('chat.run.status', {
+      run_id: run.id,
+      status: 'continuing',
+      iteration: iterationLabel === 'forced_file' ? undefined : iterationLabel,
+      label: 'Обрабатываю результаты инструментов',
+      detail: iterationLabel === 'forced_file'
+        ? 'Файл создан через принудительный file-pass, сохраняю результат в чат.'
+        : 'Собираю данные от инструментов в единый финальный ответ.',
+    });
+
+    return toolCalls.length;
+  };
+
+  const maybeForceChatFileCreation = async (): Promise<boolean> => {
+    if (!syncToChats || !syncedConversationId) return false;
+    if (pendingGeneratedFiles.length > 0) return false;
+    if (!looksLikeChatFileArtifactRequest(latestUserMessage)) return false;
+
+    const fileToolParam = toolParams.find((tool) => tool.function.name === CREATE_CHAT_FILES_TOOL_SLUG);
+    if (!fileToolParam) return false;
+
+    await emitRunEvent('chat.run.status', {
+      run_id: run.id,
+      status: 'file_artifact_forced',
+      label: 'Создаю файл',
+      detail: 'Модель не вызвала файловый инструмент сама, запускаю отдельный шаг создания файла.',
+    });
+
+    const prompt = [
+      `The user explicitly asked for a downloadable file: ${latestUserMessage}`,
+      `Call ${CREATE_CHAT_FILES_TOOL_SLUG} now.`,
+      'Use the conversation and tool results above as source material.',
+      'If exact formatting is missing, choose a practical default.',
+      'For a periodic table request, create a CSV file with useful columns such as atomic_number, symbol, name, group, period, category, atomic_mass, phase, summary when possible.',
+      'Do not ask follow-up questions in this pass.',
+    ].join('\n');
+
+    try {
+      const response = await requestRuntimeCompletion({
+        messages: [
+          ...messages,
+          { role: 'user', content: prompt },
+        ],
+        tools: [fileToolParam],
+        tool_choice: { type: 'function', function: { name: CREATE_CHAT_FILES_TOOL_SLUG } },
+        temperature: Math.min(effectiveTemperature, 0.1),
+        max_tokens: Math.max(responseMaxTokens, 8_000),
+      }, 'file_artifact_forced');
+
+      if (response.usage) {
+        recordUsage(response.usage, response.model || modelId, 'file_artifact_forced');
+        await chargeAccumulatedUsage();
+      }
+
+      const beforeCount = pendingGeneratedFiles.length;
+      const choice = requireFirstChoice(response, 'LLM returned no choices during forced file creation');
+      const forcedMessage = choice.message;
+      if (forcedMessage.tool_calls?.length) {
+        await executeAssistantToolCalls(forcedMessage, 'forced_file');
+      } else {
+        const forcedText = extractAssistantTextFromMessage(forcedMessage);
+        if (forcedText && !finalOutput.trim()) {
+          finalOutput = forcedText.trim();
+          rawTerminalAssistantOutput = finalOutput;
+          gotTerminalAssistantMessage = true;
+        }
+      }
+
+      if (pendingGeneratedFiles.length > beforeCount) {
+        if (!finalOutput.trim()) {
+          finalOutput = 'Файл подготовлен.';
+          rawTerminalAssistantOutput = finalOutput;
+          gotTerminalAssistantMessage = true;
+        }
+        return true;
+      }
+    } catch (err) {
+      logger.warn({ runId: run.id, err }, 'Forced chat file creation failed');
+      await emitRunEvent('chat.run.status', {
+        run_id: run.id,
+        status: 'file_artifact_failed',
+        label: 'Не удалось создать файл автоматически',
+        detail: err instanceof Error ? err.message : 'Файловый шаг завершился с ошибкой.',
+      });
+    }
+
+    return false;
+  };
+
   try {
     // 8. Main loop
     for (
@@ -4036,156 +4271,10 @@ ${agent.description.trim()}`);
         responseMaxTokens,
       }, 'LLM response received');
 
-            // If tool calls are present, execute tools and continue
+      // If tool calls are present, execute tools and continue
       if (assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0) {
-        // Add assistant message with tool calls
-        messages.push(assistantMessage);
-
-        await db.update(agentRuns).set({ status: 'tool_executing' }).where(eq(agentRuns.id, run.id));
-        await emitRunEvent('chat.run.status', {
-          run_id: run.id,
-          status: 'tool_executing',
-          iteration: iteration + 1,
-          label: `Запускаю инструменты: ${assistantMessage.tool_calls.length}`,
-        });
-
-        for (const [toolIndex, toolCall] of assistantMessage.tool_calls.entries()) {
-          const toolSlug = toolCall.function.name;
-          let toolInput: Record<string, unknown>;
-          try {
-            toolInput = JSON.parse(toolCall.function.arguments);
-          } catch {
-            toolInput = {};
-          }
-
-          // Find tool definition
-          const toolDef = tools.find(t => t.slug === toolSlug);
-
-          // Create tool call record
-          const [tcRecord] = await db.insert(agentRunToolCalls).values({
-            run_id: run.id,
-            tool_definition_id: toolDef?.id ?? null,
-            tool_call_id: toolCall.id,
-            tool_name: toolSlug,
-            tool_input: toolInput,
-            status: 'running',
-          }).returning();
-          await emitRunEvent('chat.run.tool.started', {
-            run_id: run.id,
-            tool_call_id: toolCall.id,
-            tool_name: toolSlug,
-            input: toolInput,
-            label: `Запущен инструмент ${toolSlug}`,
-            detail: `Шаг ${toolIndex + 1} из ${assistantMessage.tool_calls.length}`,
-          });
-
-          let trace: ToolTrace;
-          try {
-            const toolConfig = toolSlug === CREATE_CHAT_FILES_TOOL_SLUG
-              ? {
-                ...(toolDef?.config_json ?? {}),
-                storage_dir: CHAT_GENERATED_FILES_DIR,
-                chat_id: syncedConversationId,
-                run_id: run.id,
-              }
-              : (toolDef?.config_json ?? undefined);
-            const execResult = await executeTool(toolSlug, toolInput, toolConfig);
-            if (toolSlug === CREATE_CHAT_FILES_TOOL_SLUG) {
-              pendingGeneratedFiles.push(...extractGeneratedFilesFromToolResult(execResult.result, toolCall.id));
-            }
-            for (const usageEntry of normalizeToolUsageEntries(execResult.usage)) {
-              recordUsage({
-                prompt_tokens: usageEntry.prompt_tokens,
-                completion_tokens: usageEntry.completion_tokens,
-                total_tokens: usageEntry.total_tokens || (usageEntry.prompt_tokens + usageEntry.completion_tokens),
-              }, usageEntry.model_external_id, `tool:${toolSlug}`);
-            }
-            await chargeAccumulatedUsage();
-
-            // Update tool call record
-            await db.update(agentRunToolCalls).set({
-              tool_output: execResult.result,
-              status: 'success',
-              duration_ms: execResult.duration_ms,
-            }).where(eq(agentRunToolCalls.id, tcRecord.id));
-
-            // Add tool result message
-            messages.push({
-              role: 'tool',
-              content: JSON.stringify(execResult.result),
-              tool_call_id: toolCall.id,
-            });
-
-            trace = {
-              tool_call_id: toolCall.id,
-              tool_name: toolSlug,
-              input: toolInput,
-              output: execResult.result,
-              status: 'success',
-              duration_ms: execResult.duration_ms,
-            };
-            await emitRunEvent('chat.run.tool.finished', {
-              run_id: run.id,
-              tool_call_id: toolCall.id,
-              tool_name: toolSlug,
-              input: toolInput,
-              output: execResult.result,
-              status: 'success',
-              duration_ms: execResult.duration_ms,
-              label: `Инструмент ${toolSlug} завершён успешно`,
-              detail: `Шаг ${toolIndex + 1} из ${assistantMessage.tool_calls.length} завершён за ${execResult.duration_ms} мс`,
-            });
-          } catch (err) {
-            const errMsg = err instanceof Error ? err.message : 'Unknown error';
-
-            await db.update(agentRunToolCalls).set({
-              status: 'error',
-              error_message: errMsg,
-              duration_ms: 0,
-            }).where(eq(agentRunToolCalls.id, tcRecord.id));
-
-            // Still add tool result so the LLM knows about the error
-            messages.push({
-              role: 'tool',
-              content: JSON.stringify({ error: errMsg }),
-              tool_call_id: toolCall.id,
-            });
-
-            trace = {
-              tool_call_id: toolCall.id,
-              tool_name: toolSlug,
-              input: toolInput,
-              output: null,
-              status: 'error',
-              duration_ms: 0,
-              error: errMsg,
-            };
-            await emitRunEvent('chat.run.tool.finished', {
-              run_id: run.id,
-              tool_call_id: toolCall.id,
-              tool_name: toolSlug,
-              input: toolInput,
-              output: { error: errMsg },
-              status: 'error',
-              duration_ms: 0,
-              error: errMsg,
-              label: `Инструмент ${toolSlug} завершился с ошибкой`,
-              detail: `Шаг ${toolIndex + 1} из ${assistantMessage.tool_calls.length} завершился с ошибкой`,
-            });
-          }
-
-          toolTraces.push(trace);
-        }
-
-        await db.update(agentRuns).set({ status: 'continuing' }).where(eq(agentRuns.id, run.id));
-        await emitRunEvent('chat.run.status', {
-          run_id: run.id,
-          status: 'continuing',
-          iteration: iteration + 1,
-          label: 'Обрабатываю результаты инструментов',
-          detail: 'Собираю данные от инструментов в единый финальный ответ.',
-        });
-                continue; // Next iteration: LLM processes tool results
+        await executeAssistantToolCalls(assistantMessage, iteration + 1);
+        continue; // Next iteration: LLM processes tool results
       }
 
       // No tool calls: final answer
@@ -4314,6 +4403,10 @@ ${agent.description.trim()}`);
     runStatus = 'failed';
     errorMessage = err instanceof Error ? err.message : 'Unknown error';
     logger.error({ runId: run.id, err }, 'Runtime execution failed');
+  }
+
+  if (runStatus === 'completed' && pendingGeneratedFiles.length === 0) {
+    await maybeForceChatFileCreation();
   }
 
   if (runStatus === 'completed' && !finalOutput.trim()) {
@@ -4928,6 +5021,23 @@ function resolveOpenRouterRuntimeFallbackModel(
   }
 
   return null;
+}
+
+function looksLikeChatFileArtifactRequest(value: string): boolean {
+  const normalized = value.toLowerCase();
+  return [
+    /\b(csv|json|html|markdown|md|txt|xml|sql|xlsx?)\b/i,
+    /файл/i,
+    /скача/i,
+    /экспорт/i,
+    /табличк/i,
+    /таблиц/i,
+    /сгенерируй\s+.*документ/i,
+    /созда[йть]\s+.*документ/i,
+    /downloadable/i,
+    /\bfile\b/i,
+    /\bexport\b/i,
+  ].some((pattern) => pattern.test(normalized));
 }
 
 function resolveAgentResponseMaxTokens(
@@ -8856,7 +8966,8 @@ export async function sendChatMessage(
     const isDefaultTitle = chat.title === 'Новый чат';
     const nextTitle = isDefaultTitle ? compactTitle(trimmedContent || 'Вложение') : chat.title;
 
-    const previousMessages = await getConversationMessages(chatId);
+    const previousMessages = (await getConversationMessages(chatId))
+      .filter((message) => message.id !== userMessageRow.id);
     const historyForModel = [
       ...(chat.system_prompt ? [{ role: 'system' as const, content: chat.system_prompt }] : []),
       { role: 'system' as const, content: modelEnvironmentContext },
