@@ -318,7 +318,12 @@ export function TelegramBotQuickstartPage() {
               )}
 
               <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
-                <Button type="submit" size="lg" disabled={!canSubmit} className="w-full sm:w-auto">
+                <Button
+                  type="submit"
+                  size="lg"
+                  disabled={!canSubmit}
+                  className="w-full whitespace-nowrap sm:w-auto sm:min-w-[230px] sm:flex-none"
+                >
                   {isCreating ? <Spinner size="sm" /> : <Rocket className="h-4 w-4" />}
                   Создать и запустить
                 </Button>
