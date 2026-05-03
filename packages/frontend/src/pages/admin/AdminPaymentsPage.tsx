@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AdminLayout } from '../../components/admin/AdminLayout';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -8,11 +8,20 @@ import { Select } from '../../components/ui/Select';
 import { Spinner } from '../../components/ui/Spinner';
 import { useAdminPayments } from '../../hooks/useAdmin';
 import type { AdminPaymentDailyPoint, AdminPaymentItem, AdminPaymentsParams } from '../../lib/api/admin';
+import { cn } from '../../lib/utils';
 
 const PRESET_DAYS = [7, 30, 90, 180, 365];
 const PER_PAGE = 25;
 
 type PaymentStatusFilter = NonNullable<AdminPaymentsParams['status']>;
+
+type PaymentSeriesDefinition = {
+  key: string;
+  label: string;
+  color: string;
+  value: (point: AdminPaymentDailyPoint) => number | null;
+  formatValue: (value: number | null) => string;
+};
 
 const STATUS_OPTIONS = [
   { value: 'all', label: 'Все статусы' },
@@ -100,6 +109,13 @@ function formatUsd(value: number) {
   })}`;
 }
 
+function formatCompactRub(value: number) {
+  return `${new Intl.NumberFormat('ru-RU', {
+    notation: 'compact',
+    maximumFractionDigits: 1,
+  }).format(value)} ₽`;
+}
+
 function formatPercent(value: number | null) {
   if (value === null) return 'Нет данных';
   return `${value.toLocaleString('ru-RU', {
@@ -120,6 +136,28 @@ function getUserLabel(payment: AdminPaymentItem) {
   return payment.user.name || payment.user.username || payment.user.email;
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function buildTickIndices(length: number, desired = 6) {
+  if (length <= 1) return [0];
+  const ticks = new Set<number>([0, length - 1]);
+  const count = Math.min(desired, length);
+
+  for (let i = 1; i < count - 1; i += 1) {
+    ticks.add(Math.round((i * (length - 1)) / (count - 1)));
+  }
+
+  return Array.from(ticks).sort((a, b) => a - b);
+}
+
+function toggleKey(current: string[], key: string) {
+  return current.includes(key)
+    ? current.filter((item) => item !== key)
+    : [...current, key];
+}
+
 function MetricCard({ label, value, hint }: { label: string; value: string; hint: string }) {
   return (
     <Card>
@@ -134,52 +172,344 @@ function MetricCard({ label, value, hint }: { label: string; value: string; hint
   );
 }
 
-function PaymentsBarChart({ data }: { data: AdminPaymentDailyPoint[] }) {
-  const maxAmount = Math.max(...data.map((point) => point.succeeded_amount_rub), 1);
-  const labelEvery = Math.max(1, Math.ceil(data.length / 8));
-  const chartWidth = Math.max(720, data.length * 18);
+function PaymentsLineChart({ data }: { data: AdminPaymentDailyPoint[] }) {
+  const series: PaymentSeriesDefinition[] = [
+    {
+      key: 'succeeded_amount_rub',
+      label: 'Оплачено, ₽',
+      color: '#0f766e',
+      value: (point) => point.succeeded_amount_rub,
+      formatValue: (value) => formatRub(value ?? 0),
+    },
+    {
+      key: 'total_amount_rub',
+      label: 'Все попытки, ₽',
+      color: '#2563eb',
+      value: (point) => point.total_amount_rub,
+      formatValue: (value) => formatRub(value ?? 0),
+    },
+  ];
+
+  const defaultVisibleKeys = ['succeeded_amount_rub', 'total_amount_rub'];
+  const [visibleKeys, setVisibleKeys] = useState<string[]>(defaultVisibleKeys);
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const [isPointerInside, setIsPointerInside] = useState(false);
+  const [pointerPosition, setPointerPosition] = useState<{ x: number; y: number } | null>(null);
+  const [chartHeightPx, setChartHeightPx] = useState(320);
+  const chartContainerRef = useRef<HTMLDivElement | null>(null);
+  const [chartPixelWidth, setChartPixelWidth] = useState(920);
+
+  const activeSeries = series.filter((item) => visibleKeys.includes(item.key));
+  const width = Math.max(chartPixelWidth, 320);
+  const height = chartHeightPx;
+  const padding = { top: 18, right: 18, bottom: 46, left: 64 };
+  const chartWidth = width - padding.left - padding.right;
+  const chartHeight = height - padding.top - padding.bottom;
+
+  useEffect(() => {
+    const node = chartContainerRef.current;
+    if (!node || typeof window === 'undefined') return;
+
+    const updateWidth = () => {
+      const nextWidth = Math.round(node.getBoundingClientRect().width);
+      setChartPixelWidth((current) => (current === nextWidth || nextWidth <= 0 ? current : nextWidth));
+    };
+
+    updateWidth();
+
+    const observer = new window.ResizeObserver(updateWidth);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  let minValue = 0;
+  let maxValue = 0;
+
+  for (const point of data) {
+    for (const item of activeSeries) {
+      const value = item.value(point);
+      if (value === null || Number.isNaN(value)) continue;
+      minValue = Math.min(minValue, value);
+      maxValue = Math.max(maxValue, value);
+    }
+  }
+
+  if (minValue === maxValue) {
+    if (maxValue === 0) {
+      maxValue = 1;
+    } else if (maxValue > 0) {
+      minValue = 0;
+    } else {
+      maxValue = 0;
+    }
+  }
+
+  const yRange = maxValue - minValue || 1;
+  const yScale = (value: number) => padding.top + ((maxValue - value) / yRange) * chartHeight;
+  const xScale = (index: number) => {
+    if (data.length <= 1) return padding.left + chartWidth / 2;
+    return padding.left + (index / (data.length - 1)) * chartWidth;
+  };
+
+  const yTicks = Array.from({ length: 5 }, (_, index) => minValue + (yRange / 4) * index).reverse();
+  const xTicks = buildTickIndices(data.length, 6);
+  const zeroY = yScale(0);
+  const selectedIndex = hoveredIndex ?? (data.length > 0 ? data.length - 1 : null);
+  const selectedPoint = selectedIndex !== null ? data[selectedIndex] : null;
+  const tooltipWidth = 260;
+  const tooltipGap = 18;
+  const tooltipHeight = 144;
+  const tooltipAnchorX = pointerPosition
+    ? pointerPosition.x
+    : selectedIndex !== null
+      ? xScale(selectedIndex)
+      : width / 2;
+  const tooltipAnchorY = pointerPosition ? pointerPosition.y : padding.top + 12;
+  const showTooltipOnRight = tooltipAnchorX < width * 0.55;
+  const tooltipLeftPx = clamp(
+    showTooltipOnRight ? tooltipAnchorX + tooltipGap : tooltipAnchorX - tooltipGap,
+    showTooltipOnRight ? 12 : tooltipWidth + 12,
+    showTooltipOnRight ? width - tooltipWidth - 12 : width - 12,
+  );
+  const tooltipTopPx = clamp(tooltipAnchorY - tooltipHeight / 2, 12, height - tooltipHeight - 12);
+
+  function buildPath(item: PaymentSeriesDefinition) {
+    let path = '';
+
+    data.forEach((point, index) => {
+      const value = item.value(point);
+      if (value === null || Number.isNaN(value)) return;
+      const command = path ? 'L' : 'M';
+      path += `${command}${xScale(index)} ${yScale(value)} `;
+    });
+
+    return path.trim();
+  }
 
   return (
-    <div className="overflow-x-auto">
-      <div className="flex h-72 min-w-full items-end gap-1 border-b border-slate-200 pb-9" style={{ width: chartWidth }}>
-        {data.map((point, index) => {
-          const height = point.succeeded_amount_rub > 0
-            ? Math.max(4, (point.succeeded_amount_rub / maxAmount) * 100)
-            : 0;
-          const showLabel = index === 0 || index === data.length - 1 || index % labelEvery === 0;
+    <Card>
+      <CardHeader>
+        <CardTitle>График оплат по дням</CardTitle>
+        <CardDescription>
+          Линейный график в стиле раздела «Графики»: можно включать успешные оплаты и все созданные попытки оплаты.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex flex-wrap gap-2">
+            {series.map((item) => {
+              const isActive = visibleKeys.includes(item.key);
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => setVisibleKeys((current) => toggleKey(current, item.key))}
+                  className={cn(
+                    'rounded-full border px-3 py-1.5 text-xs font-medium transition-colors',
+                    isActive
+                      ? 'border-foreground/20 bg-foreground text-background'
+                      : 'border-border bg-background text-foreground/80 hover:border-foreground/20 hover:bg-accent',
+                  )}
+                >
+                  <span className="mr-2 inline-block h-2.5 w-2.5 rounded-full align-middle" style={{ backgroundColor: item.color }} />
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setChartHeightPx((current) => clamp(current - 40, 240, 480))}
+              aria-label="Уменьшить высоту графика платежей"
+            >
+              −
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setChartHeightPx((current) => clamp(current + 40, 240, 480))}
+              aria-label="Увеличить высоту графика платежей"
+            >
+              +
+            </Button>
+          </div>
+        </div>
 
-          return (
-            <div key={point.date} className="group relative flex h-full min-w-3 flex-1 items-end justify-center">
-              <div
-                className="w-full max-w-5 rounded-t bg-emerald-500 transition-colors group-hover:bg-emerald-600"
-                style={{ height: `${height}%` }}
-                title={`${point.date}: ${formatRub(point.succeeded_amount_rub)}, успешных платежей: ${point.succeeded_count}`}
+        {data.length === 0 || activeSeries.length === 0 ? (
+          <div className="rounded-lg border border-dashed px-4 py-10 text-center text-sm text-muted-foreground">
+            Нет данных для отображения в выбранном диапазоне.
+          </div>
+        ) : (
+          <div
+            ref={chartContainerRef}
+            className="relative w-full overflow-hidden"
+            onPointerLeave={() => {
+              setHoveredIndex(null);
+              setIsPointerInside(false);
+              setPointerPosition(null);
+            }}
+            onPointerMove={(event) => {
+              const rect = event.currentTarget.getBoundingClientRect();
+              const rawPointerX = clamp(event.clientX - rect.left, 0, rect.width);
+              const pointerX = clamp(rawPointerX, padding.left, width - padding.right);
+              const ratio = clamp((pointerX - padding.left) / Math.max(chartWidth, 1), 0, 1);
+              const yRatio = clamp((event.clientY - rect.top) / rect.height, 0, 1);
+              const pointerY = clamp(yRatio * height, padding.top, height - padding.bottom);
+              const nextIndex = Math.round(ratio * (data.length - 1));
+              setHoveredIndex(nextIndex);
+              setIsPointerInside(true);
+              setPointerPosition({ x: pointerX, y: pointerY });
+            }}
+          >
+            <svg
+              width={width}
+              height={height}
+              className="block w-full overflow-visible"
+              style={{ height: `${chartHeightPx}px` }}
+            >
+              {yTicks.map((tick) => (
+                <g key={tick}>
+                  <line
+                    x1={padding.left}
+                    x2={width - padding.right}
+                    y1={yScale(tick)}
+                    y2={yScale(tick)}
+                    stroke="currentColor"
+                    strokeOpacity={0.08}
+                  />
+                  <text
+                    x={padding.left - 12}
+                    y={yScale(tick) + 4}
+                    textAnchor="end"
+                    fontSize="11"
+                    fill="currentColor"
+                    fillOpacity={0.6}
+                  >
+                    {formatCompactRub(tick)}
+                  </text>
+                </g>
+              ))}
+
+              <line
+                x1={padding.left}
+                x2={width - padding.right}
+                y1={zeroY}
+                y2={zeroY}
+                stroke="currentColor"
+                strokeOpacity={0.22}
               />
 
-              {point.pending_count > 0 ? (
-                <span
-                  className="absolute top-2 h-1.5 w-1.5 rounded-full bg-amber-500"
-                  title={`Ожидают оплаты: ${point.pending_count}`}
+              {xTicks.map((index) => (
+                <g key={index}>
+                  <line
+                    x1={xScale(index)}
+                    x2={xScale(index)}
+                    y1={padding.top}
+                    y2={height - padding.bottom}
+                    stroke="currentColor"
+                    strokeOpacity={0.05}
+                  />
+                  <text
+                    x={xScale(index)}
+                    y={height - 14}
+                    textAnchor={index === 0 ? 'start' : index === data.length - 1 ? 'end' : 'middle'}
+                    fontSize="11"
+                    fill="currentColor"
+                    fillOpacity={0.6}
+                  >
+                    {formatDate(data[index].date)}
+                  </text>
+                </g>
+              ))}
+
+              {activeSeries.map((item) => (
+                <path
+                  key={item.key}
+                  d={buildPath(item)}
+                  fill="none"
+                  stroke={item.color}
+                  strokeWidth={2.5}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              ))}
+
+              {pointerPosition && isPointerInside ? (
+                <line
+                  x1={pointerPosition.x}
+                  x2={pointerPosition.x}
+                  y1={padding.top}
+                  y2={height - padding.bottom}
+                  stroke="currentColor"
+                  strokeOpacity={0.22}
+                  strokeDasharray="4 4"
                 />
               ) : null}
 
-              {showLabel ? (
-                <span className="absolute -bottom-7 whitespace-nowrap text-[11px] text-muted-foreground">
-                  {formatDate(point.date)}
-                </span>
+              {pointerPosition && isPointerInside ? (
+                <line
+                  x1={padding.left}
+                  x2={width - padding.right}
+                  y1={pointerPosition.y}
+                  y2={pointerPosition.y}
+                  stroke="currentColor"
+                  strokeOpacity={0.16}
+                  strokeDasharray="4 4"
+                />
               ) : null}
 
-              <div className="pointer-events-none absolute bottom-full z-20 mb-2 hidden w-52 rounded-lg border bg-background p-3 text-xs shadow-xl group-hover:block">
-                <p className="font-semibold text-foreground">{formatDate(point.date)}</p>
-                <p className="mt-2 text-muted-foreground">Оплачено: {formatRub(point.succeeded_amount_rub)}</p>
-                <p className="text-muted-foreground">Платежей: {point.succeeded_count} из {point.total_count}</p>
-                <p className="text-muted-foreground">В ожидании: {point.pending_count}</p>
+              {selectedPoint && activeSeries.map((item) => {
+                const value = item.value(selectedPoint);
+                if (value === null || Number.isNaN(value)) return null;
+
+                return (
+                  <circle
+                    key={item.key}
+                    cx={xScale(selectedIndex!)}
+                    cy={yScale(value)}
+                    r={4}
+                    fill={item.color}
+                    stroke="white"
+                    strokeWidth={2}
+                  />
+                );
+              })}
+            </svg>
+
+            {selectedPoint && isPointerInside ? (
+              <div
+                className={cn(
+                  'pointer-events-none absolute z-10 w-[260px] max-w-[calc(100%-1.5rem)] rounded-xl border bg-background/95 p-3 shadow-xl backdrop-blur',
+                  showTooltipOnRight ? 'translate-x-0' : '-translate-x-full',
+                )}
+                style={{ left: `${tooltipLeftPx}px`, top: `${tooltipTopPx}px` }}
+              >
+                <div className="mb-3">
+                  <p className="text-sm font-semibold text-foreground">{formatDate(selectedPoint.date)}</p>
+                  <p className="text-xs text-muted-foreground">{selectedPoint.date}</p>
+                </div>
+
+                <div className="space-y-2">
+                  {activeSeries.map((item) => (
+                    <div key={item.key} className="flex items-center justify-between gap-3 text-sm">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: item.color }} />
+                        <span className="truncate text-muted-foreground">{item.label}</span>
+                      </div>
+                      <span className="shrink-0 font-medium text-foreground">{item.formatValue(item.value(selectedPoint))}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
+            ) : null}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -448,17 +778,7 @@ export function AdminPaymentsPage() {
               />
             </div>
 
-            <Card>
-              <CardHeader>
-                <CardTitle>График оплат по дням</CardTitle>
-                <CardDescription>
-                  Зеленые столбцы показывают сумму успешных платежей в рублях. Желтая точка отмечает дни с ожидающими платежами.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <PaymentsBarChart data={data.daily} />
-              </CardContent>
-            </Card>
+            <PaymentsLineChart data={data.daily} />
 
             <Card>
               <CardHeader>
