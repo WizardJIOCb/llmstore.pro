@@ -3221,9 +3221,14 @@ export function ChatMessage({
                                     </span>
                                   </div>
                                   {run.input_summary && (
-                                    <p className="mt-2 line-clamp-2 text-sm text-slate-900">
-                                      {run.input_summary}
-                                    </p>
+                                    <div className="mt-3">
+                                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                        Сообщение
+                                      </p>
+                                      <p className="mt-1 line-clamp-3 text-sm leading-5 text-slate-900">
+                                        {run.input_summary}
+                                      </p>
+                                    </div>
                                   )}
                                   <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
                                     <span>Токены: <span className="font-semibold text-foreground">{formatCompactNumber(run.total_tokens)}</span></span>
@@ -3235,9 +3240,14 @@ export function ChatMessage({
                                     </p>
                                   )}
                                   {!run.error_message && run.output_summary && (
-                                    <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
-                                      {run.output_summary}
-                                    </p>
+                                    <div className="mt-3">
+                                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                        Ответ
+                                      </p>
+                                      <p className="mt-1 line-clamp-3 text-xs leading-5 text-muted-foreground">
+                                        {run.output_summary}
+                                      </p>
+                                    </div>
                                   )}
                                 </div>
                               ))}

@@ -153,6 +153,32 @@ function summarizeDeploymentRunText(value: string | null | undefined): string | 
   return text ? text.slice(0, 200) : null;
 }
 
+function summarizeDeploymentRunInput(value: string | null | undefined): string | null {
+  const text = value?.trim() ?? '';
+  if (!text) return null;
+
+  for (const marker of ['Сообщение пользователя:', 'User message:']) {
+    const markerIndex = text.lastIndexOf(marker);
+    if (markerIndex < 0) continue;
+
+    const rawMessage = text.slice(markerIndex + marker.length).trim();
+    const stopMarkers = [
+      '\n\nОтветь обычным текстом',
+      '\nОтветь обычным текстом',
+      '\n\nRespond with',
+      '\nRespond with',
+    ];
+    const endIndex = stopMarkers.reduce((current, stopMarker) => {
+      const index = rawMessage.indexOf(stopMarker);
+      return index >= 0 ? Math.min(current, index) : current;
+    }, rawMessage.length);
+    const userMessage = rawMessage.slice(0, endIndex).trim();
+    if (userMessage) return summarizeDeploymentRunText(userMessage);
+  }
+
+  return summarizeDeploymentRunText(text);
+}
+
 const deploymentRuntimes = new Map<string, DeploymentRuntime>();
 const deploymentStartLocks = new Map<string, Promise<void>>();
 
@@ -742,7 +768,7 @@ async function getDeploymentRunInsights(
     recent_runs: recentRows.map((row) => ({
       id: row.id,
       status: row.status,
-      input_summary: row.input_summary ?? null,
+      input_summary: summarizeDeploymentRunInput(row.input_summary),
       output_summary: isUnhelpfulDeploymentAgentOutput(row.output_summary)
         ? summarizeDeploymentRunText(row.assistant_output)
         : (row.output_summary ?? null),
@@ -1577,7 +1603,12 @@ export async function runLinkedAgentForProjectDeployment(
     charge_usage: true,
   });
 
+  const inputSummary = summarizeDeploymentRunInput(message);
+
   if (result.status !== 'completed') {
+    await db.update(agentRuns)
+      .set({ input_summary: inputSummary })
+      .where(eq(agentRuns.id, result.run_id));
     throw new AppError(502, 'DEPLOYMENT_AGENT_FAILED', result.error_message ?? 'Связанный агент не смог обработать запрос');
   }
 
@@ -1587,14 +1618,17 @@ export async function runLinkedAgentForProjectDeployment(
     ? (latestAssistantText ?? result.output ?? '')
     : (result.output ?? latestAssistantText ?? '');
 
-  if (resultOutputUnhelpful && latestAssistantText) {
-    await db.update(agentRuns)
-      .set({
-        final_output: latestAssistantText,
-        output_summary: summarizeDeploymentRunText(latestAssistantText),
-      })
-      .where(eq(agentRuns.id, result.run_id));
-  }
+  await db.update(agentRuns)
+    .set({
+      input_summary: inputSummary,
+      ...(resultOutputUnhelpful && latestAssistantText
+        ? {
+          final_output: latestAssistantText,
+          output_summary: summarizeDeploymentRunText(latestAssistantText),
+        }
+        : {}),
+    })
+    .where(eq(agentRuns.id, result.run_id));
 
   return {
     text: outputText,
