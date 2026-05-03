@@ -13,6 +13,7 @@ const PERIOD_SECONDS: Record<string, number> = {
   day: 86400,
   week: 7 * 86400,
   month: 30 * 86400,
+  year: 365 * 86400,
 };
 
 interface CachedData {

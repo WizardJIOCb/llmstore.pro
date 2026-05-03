@@ -331,8 +331,8 @@ const builtinTools = [
         },
         period: {
           type: 'string',
-          enum: ['day', 'week', 'month', 'all'],
-          description: 'Период фильтрации: day — за день, week — за неделю, month — за месяц, all — за всё время',
+          enum: ['day', 'week', 'month', 'year', 'all'],
+          description: 'Период фильтрации: day — за день, week — за неделю, month — за месяц, year — за год, all — за всё время',
           default: 'day',
         },
         limit: {
@@ -405,7 +405,19 @@ export async function seedBuiltinTools() {
     await db
       .insert(toolDefinitions)
       .values(tool)
-      .onConflictDoNothing({ target: toolDefinitions.slug });
+      .onConflictDoUpdate({
+        target: toolDefinitions.slug,
+        set: {
+          name: tool.name,
+          tool_type: tool.tool_type,
+          description: tool.description,
+          input_schema: tool.input_schema,
+          output_schema: tool.output_schema,
+          config_json: tool.config_json,
+          is_builtin: tool.is_builtin,
+          is_active: tool.is_active,
+        },
+      });
   }
   console.log(`Seeded ${builtinTools.length} built-in tools`);
 }
