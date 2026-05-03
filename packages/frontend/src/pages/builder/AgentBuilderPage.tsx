@@ -14,6 +14,7 @@ const DTF_TEMPLATE = {
 
 Возможности:
 - Получить список последних статей с DTF через инструмент dtf-latest-feed
+- Получить популярные и обсуждаемые статьи за период через инструмент dtf-popular-feed
 - Загрузить полный текст конкретной статьи по URL через инструмент dtf-article-fetch
 - Сделать краткий пересказ статьи
 - Ответить на вопросы по содержанию статей
@@ -297,7 +298,7 @@ export function AgentBuilderPage() {
   const getDtfToolIds = () => {
     if (!tools) return [];
     return tools
-      .filter((t) => t.slug === 'dtf-latest-feed' || t.slug === 'dtf-article-fetch')
+      .filter((t) => t.slug === 'dtf-latest-feed' || t.slug === 'dtf-popular-feed' || t.slug === 'dtf-article-fetch')
       .map((t) => t.id);
   };
 
