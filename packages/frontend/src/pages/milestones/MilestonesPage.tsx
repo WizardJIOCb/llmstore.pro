@@ -854,22 +854,22 @@ export function MilestonesPage() {
               </p>
 
               <div className="mt-7 grid grid-cols-4 gap-1.5 sm:gap-3">
-                <div className="min-w-0 rounded-2xl border border-emerald-200 bg-emerald-50 px-1.5 py-3 text-center sm:p-4">
+                <a href="#roadmap-done" className="min-w-0 rounded-2xl border border-emerald-200 bg-emerald-50 px-1.5 py-3 text-center transition hover:bg-emerald-100 sm:p-4">
                   <p className="text-xl font-semibold text-slate-950 sm:text-2xl">{counts.done}</p>
                   <p className="mt-1 whitespace-nowrap text-[13px] leading-tight tracking-tight text-emerald-700 sm:text-sm">Done</p>
-                </div>
-                <div className="min-w-0 rounded-2xl border border-sky-200 bg-sky-50 px-1.5 py-3 text-center sm:p-4">
+                </a>
+                <a href="#roadmap-inProgress" className="min-w-0 rounded-2xl border border-sky-200 bg-sky-50 px-1.5 py-3 text-center transition hover:bg-sky-100 sm:p-4">
                   <p className="text-xl font-semibold text-slate-950 sm:text-2xl">{counts.inProgress}</p>
                   <p className="mt-1 whitespace-nowrap text-[13px] leading-tight tracking-tight text-sky-700 sm:text-sm">In Progress</p>
-                </div>
-                <div className="min-w-0 rounded-2xl border border-amber-200 bg-amber-50 px-1.5 py-3 text-center sm:p-4">
+                </a>
+                <a href="#roadmap-planned" className="min-w-0 rounded-2xl border border-amber-200 bg-amber-50 px-1.5 py-3 text-center transition hover:bg-amber-100 sm:p-4">
                   <p className="text-xl font-semibold text-slate-950 sm:text-2xl">{counts.planned}</p>
                   <p className="mt-1 whitespace-nowrap text-[13px] leading-tight tracking-tight text-amber-700 sm:text-sm">Planned</p>
-                </div>
-                <div className="min-w-0 rounded-2xl border border-violet-200 bg-violet-50 px-1.5 py-3 text-center sm:p-4">
+                </a>
+                <a href="#roadmap-research" className="min-w-0 rounded-2xl border border-violet-200 bg-violet-50 px-1.5 py-3 text-center transition hover:bg-violet-100 sm:p-4">
                   <p className="text-xl font-semibold text-slate-950 sm:text-2xl">{counts.research}</p>
                   <p className="mt-1 whitespace-nowrap text-[13px] leading-tight tracking-tight text-violet-700 sm:text-sm">Research</p>
-                </div>
+                </a>
               </div>
             </Card>
           </div>
@@ -894,7 +894,7 @@ export function MilestonesPage() {
             const isCurrentFocus = status === 'inProgress';
 
             return (
-              <section key={status}>
+              <section key={status} id={`roadmap-${status}`} className="scroll-mt-24">
                 <Card className={`rounded-[30px] border p-6 shadow-[0_24px_70px_-44px_rgba(15,23,42,0.35)] ${meta.sectionClassName}`}>
                   <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                     <div className="max-w-2xl">

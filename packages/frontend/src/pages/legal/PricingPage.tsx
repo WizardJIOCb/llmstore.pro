@@ -25,6 +25,36 @@ const PAID_SERVICE_EXAMPLES = [
   },
 ];
 
+const BALANCE_SCENARIO_EXAMPLES = [
+  {
+    label: 'Короткий чат',
+    title: 'Лёгкая операция',
+    description: 'Один вопрос, небольшая правка текста или короткое объяснение обычно расходуют совсем небольшую часть баланса.',
+  },
+  {
+    label: 'Правка результата',
+    title: 'Итерации считаются отдельно',
+    description: 'Если вы просите переписать блок, изменить структуру или уточнить ответ, списание зависит от новой операции.',
+  },
+  {
+    label: 'Preview или demo',
+    title: 'Стоимость зависит от контекста',
+    description: 'HTML-preview, проект или агентный сценарий могут стоить по-разному: влияет модель, длина диалога и число запусков.',
+  },
+  {
+    label: 'Длинная задача',
+    title: 'Баланс как запас',
+    description: 'Большое пополнение не является ценой одной задачи. Это запас для нескольких операций, которые видны в истории.',
+  },
+];
+
+const COST_VARIATION_REASONS = [
+  'разные модели стоят по-разному за input и output токены;',
+  'длинный контекст, вложения и большие ответы увеличивают расход;',
+  'запуски preview, анализ ошибок и повторные итерации списываются отдельно;',
+  'финальная стоимость видна в истории операций и зависит от фактического использования.',
+];
+
 function buildGalleryPreviewUrl(item: GalleryPreviewItem): string | null {
   if (!item.preview_url) return null;
 
@@ -237,13 +267,13 @@ export function PricingPage() {
                     </div>
 
                     <div className="space-y-4 p-5">
-                      <div className="rounded-2xl border border-emerald-200 bg-[linear-gradient(135deg,#ecfdf5,#ffffff)] p-4">
-                        <p className="text-xs uppercase tracking-[0.2em] text-emerald-700">Стоимость этого примера</p>
-                        <p className="mt-2 text-3xl font-bold tracking-tight text-emerald-950">
+                      <div className="rounded-2xl border border-emerald-200 bg-emerald-50/50 p-4">
+                        <p className="text-xs uppercase tracking-[0.2em] text-emerald-700">Фактический расход по истории</p>
+                        <p className="mt-2 text-2xl font-semibold tracking-tight text-emerald-950">
                           {formatLandingRubCost(item.total_rub_cost)}
                         </p>
                         <p className="mt-1 text-sm text-emerald-800">
-                          {formatLandingUsdCost(item.total_usd_cost)} за весь чат с preview
+                          {formatLandingUsdCost(item.total_usd_cost)} за весь чат с preview, не цена одного запуска
                         </p>
                       </div>
 
@@ -323,6 +353,44 @@ export function PricingPage() {
               Дополнительно пользователь может ввести другую сумму пополнения в пределах {customAmountLabel}.
             </p>
           ) : null}
+        </CardContent>
+      </Card>
+
+      <section className="rounded-2xl border bg-[linear-gradient(135deg,#f8fafc,#ffffff_48%,#eefcf5)] p-6">
+        <div className="max-w-3xl">
+          <p className="text-sm uppercase tracking-[0.22em] text-muted-foreground">Как читать баланс</p>
+          <h2 className="mt-2 text-3xl font-bold tracking-tight text-slate-950">
+            Пополнение не равно цене одного сценария
+          </h2>
+          <p className="mt-3 text-sm leading-7 text-slate-600">
+            Баланс работает как кошелёк внутри аккаунта. Из него постепенно списываются фактические операции:
+            запросы к моделям, генерации, preview, агентные запуски и повторные правки.
+          </p>
+        </div>
+
+        <div className="mt-6 grid gap-4 md:grid-cols-2">
+          {BALANCE_SCENARIO_EXAMPLES.map((example) => (
+            <article key={example.label} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <p className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-emerald-800">
+                {example.label}
+              </p>
+              <h3 className="mt-3 text-lg font-semibold text-slate-950">{example.title}</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">{example.description}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Почему расход может отличаться</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm text-muted-foreground">
+          {COST_VARIATION_REASONS.map((reason, index) => (
+            <p key={reason}>
+              {index + 1}. {reason}
+            </p>
+          ))}
         </CardContent>
       </Card>
 

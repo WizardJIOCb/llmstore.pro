@@ -1,5 +1,5 @@
 ﻿import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -27,6 +27,14 @@ const GALLERY_KIND_FILTERS = [
   { value: 'project', label: 'Runnable Projects' },
   { value: 'preview', label: 'Лендинги и Preview' },
 ] as const;
+const GALLERY_SCENARIO_FILTERS = [
+  { value: 'all', label: 'Все сценарии' },
+  { value: 'landing', label: 'Лендинги' },
+  { value: 'bot', label: 'Боты и webhook' },
+  { value: 'agent', label: 'Агенты' },
+  { value: 'parser', label: 'Парсеры и дайджесты' },
+  { value: 'prototype', label: 'Прототипы' },
+] as const;
 const TEXT_CHAT_SORT_OPTIONS: Array<{ value: GalleryTextChatSort; label: string }> = [
   { value: 'newest', label: 'Сначала новые' },
   { value: 'oldest', label: 'Сначала старые' },
@@ -39,6 +47,7 @@ const TEXT_CHAT_SORT_OPTIONS: Array<{ value: GalleryTextChatSort; label: string 
 ];
 
 type GalleryKindFilter = (typeof GALLERY_KIND_FILTERS)[number]['value'];
+type GalleryScenarioFilter = (typeof GALLERY_SCENARIO_FILTERS)[number]['value'];
 
 function getApiErrorMessage(error: unknown): string | undefined {
   if (!error || typeof error !== 'object') return undefined;
@@ -194,6 +203,54 @@ function matchesKindFilter(item: GalleryPreviewItem, filter: GalleryKindFilter):
   return item.kind === 'preview' || item.kind === 'hybrid';
 }
 
+function inferGalleryScenario(item: GalleryPreviewItem): Exclude<GalleryScenarioFilter, 'all'> {
+  const text = [
+    item.chat_title,
+    item.preview_title,
+    item.project_title,
+    item.project_runtime,
+    item.project_entrypoint,
+    item.model,
+  ]
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .join(' ')
+    .toLowerCase();
+
+  if (/(telegram|телеграм|bot|бот|webhook|вебхук|callback)/i.test(text)) return 'bot';
+  if (/(agent|агент|assistant|ассистент|workflow|scenario|сценар)/i.test(text)) return 'agent';
+  if (/(parser|парсер|дайджест|digest|scrap|monitor|report|отчет|отчёт|dashboard|дашборд)/i.test(text)) return 'parser';
+  if (/(landing|лендинг|сайт|site|страниц|preview|html)/i.test(text)) return 'landing';
+  if (item.kind === 'project' || item.project_runtime) return 'prototype';
+
+  return 'landing';
+}
+
+function matchesScenarioFilter(item: GalleryPreviewItem, filter: GalleryScenarioFilter): boolean {
+  return filter === 'all' || inferGalleryScenario(item) === filter;
+}
+
+function formatScenarioLabel(scenario: GalleryScenarioFilter): string {
+  return GALLERY_SCENARIO_FILTERS.find((filter) => filter.value === scenario)?.label ?? 'Сценарий';
+}
+
+function buildSimilarBuilderLink(scenario: GalleryScenarioFilter): string {
+  switch (scenario) {
+    case 'landing':
+      return '/builder/agent?template=landing-generator';
+    case 'bot':
+      return '/builder/agent?template=webhook-bot';
+    case 'agent':
+      return '/builder/agent?template=telegram-news-agent';
+    case 'parser':
+      return '/builder/agent?template=site-monitor';
+    case 'prototype':
+      return '/builder/stack';
+    case 'all':
+    default:
+      return '/builder/stack';
+  }
+}
+
 function buildSearchText(item: GalleryPreviewItem): string {
   return [
     item.chat_title,
@@ -306,6 +363,7 @@ export function GalleryPage() {
   const TEXT_CHAT_PAGE_SIZE = 6;
 
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const textChatsTopRef = useRef<HTMLDivElement | null>(null);
   const resultsTopRef = useRef<HTMLDivElement | null>(null);
   const previousTextChatPageRef = useRef(1);
@@ -317,6 +375,10 @@ export function GalleryPage() {
   const [gallerySort, setGallerySort] = useState<GalleryTextChatSort>('newest');
   const [textChatSort, setTextChatSort] = useState<GalleryTextChatSort>('newest');
   const [kindFilter, setKindFilter] = useState<GalleryKindFilter>('preview');
+  const [scenarioFilter, setScenarioFilter] = useState<GalleryScenarioFilter>(() => {
+    const value = searchParams.get('scenario') ?? searchParams.get('type');
+    return GALLERY_SCENARIO_FILTERS.some((filter) => filter.value === value) ? (value as GalleryScenarioFilter) : 'all';
+  });
   const [runningMessageId, setRunningMessageId] = useState<string | null>(null);
   const [cloningChatId, setCloningChatId] = useState<string | null>(null);
   const [fullscreenPreview, setFullscreenPreview] = useState<{
@@ -380,13 +442,17 @@ export function GalleryPage() {
         return false;
       }
 
+      if (!matchesScenarioFilter(item, scenarioFilter)) {
+        return false;
+      }
+
       if (!query) {
         return true;
       }
 
       return buildSearchText(item).includes(query);
     });
-  }, [items, kindFilter, search]);
+  }, [items, kindFilter, scenarioFilter, search]);
   const sortedFilteredItems = useMemo(() => {
     const nextItems = [...filteredItems];
     nextItems.sort((a, b) => {
@@ -430,7 +496,7 @@ export function GalleryPage() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [gallerySort, kindFilter, pageSize, search]);
+  }, [gallerySort, kindFilter, pageSize, scenarioFilter, search]);
 
   useEffect(() => {
     setTextChatPage(1);
@@ -581,6 +647,23 @@ export function GalleryPage() {
                 ))}
               </div>
             </div>
+
+            <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Сценарий</p>
+              <div className="flex flex-wrap gap-2">
+                {GALLERY_SCENARIO_FILTERS.map((filter) => (
+                  <Button
+                    key={filter.value}
+                    type="button"
+                    size="sm"
+                    variant={scenarioFilter === filter.value ? 'primary' : 'outline'}
+                    onClick={() => setScenarioFilter(filter.value)}
+                  >
+                    {filter.label}
+                  </Button>
+                ))}
+              </div>
+            </div>
           </div>
         )}
 
@@ -604,7 +687,7 @@ export function GalleryPage() {
 
         {!isLoading && !error && items.length > 0 && filteredItems.length === 0 && (
           <div className="rounded-2xl border bg-muted/20 p-8 text-center text-muted-foreground">
-            По текущему фильтру ничего не найдено. Попробуйте другой запрос или переключите тип карточек.
+            По текущему фильтру ничего не найдено. Попробуйте другой запрос, тип карточек или сценарий.
           </div>
         )}
 
@@ -613,6 +696,8 @@ export function GalleryPage() {
             {currentItems.map((item) => {
               const previewUrl = buildGalleryPreviewUrl(item);
               const displayTitle = item.project_title || item.preview_title || item.chat_title;
+              const scenario = inferGalleryScenario(item);
+              const similarBuilderLink = buildSimilarBuilderLink(scenario);
 
               return (
                 <article key={item.message_id} className="overflow-hidden rounded-2xl border bg-white shadow-sm">
@@ -625,6 +710,9 @@ export function GalleryPage() {
                       <div className="flex flex-wrap gap-2">
                         <span className="rounded-full border bg-muted/20 px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                           {formatKindLabel(item.kind)}
+                        </span>
+                        <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide text-emerald-800">
+                          {formatScenarioLabel(scenario)}
                         </span>
                         {item.project_runtime ? (
                           <span className="rounded-full border bg-muted/20 px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -761,6 +849,11 @@ export function GalleryPage() {
                       >
                         {cloningChatId === item.chat_id ? 'Клонирую...' : 'Клонировать'}
                       </Button>
+                      <Link to={similarBuilderLink}>
+                        <Button type="button" variant="outline" size="sm">
+                          Собрать похожее
+                        </Button>
+                      </Link>
                       {(item.kind === 'project' || item.kind === 'hybrid') && (
                         <Button
                           type="button"

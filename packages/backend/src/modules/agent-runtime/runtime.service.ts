@@ -2371,7 +2371,81 @@ async function materializeProjectFiles(project: CodingReportProject, workspaceDi
   }
 }
 
-async function runProjectBundle(project: CodingReportProject): Promise<ProjectRunResult> {
+interface ProjectRunOptions {
+  env?: Record<string, string>;
+}
+
+function sanitizeProjectRunEnvValue(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.replace(/\r\n/g, '\n');
+  return normalized.length <= 4000 ? normalized : normalized.slice(0, 4000);
+}
+
+function normalizeProjectRunEnv(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+
+  const normalized: Record<string, string> = {};
+  for (const [key, rawValue] of Object.entries(value)) {
+    const envKey = key.trim().toUpperCase();
+    if (!/^[A-Z_][A-Z0-9_]{0,63}$/.test(envKey)) continue;
+    const envValue = sanitizeProjectRunEnvValue(rawValue);
+    if (envValue == null) continue;
+    normalized[envKey] = envValue;
+    if (Object.keys(normalized).length >= 32) break;
+  }
+
+  return normalized;
+}
+
+function buildProjectRunWebhookUrl(publicToken: string): string {
+  return new URL(`/api/project-deployments/${publicToken}/webhook`, env.BACKEND_URL).toString();
+}
+
+function buildProjectRunAgentRunUrl(publicToken: string): string {
+  return new URL(`/api/project-deployments/${publicToken}/agent-run`, env.BACKEND_URL).toString();
+}
+
+async function getChatProjectDeploymentRunEnv(
+  chatId: string,
+  messageId: string,
+  userId: string,
+): Promise<Record<string, string>> {
+  const [deployment] = await db
+    .select({
+      id: chatProjectDeployments.id,
+      public_token: chatProjectDeployments.public_token,
+      deployment_secret: chatProjectDeployments.deployment_secret,
+      linked_agent_id: chatProjectDeployments.linked_agent_id,
+      env_json: chatProjectDeployments.env_json,
+    })
+    .from(chatProjectDeployments)
+    .where(and(
+      eq(chatProjectDeployments.conversation_id, chatId),
+      eq(chatProjectDeployments.message_id, messageId),
+      eq(chatProjectDeployments.user_id, userId),
+    ))
+    .orderBy(desc(chatProjectDeployments.updated_at))
+    .limit(1);
+
+  if (!deployment) {
+    return {};
+  }
+
+  return {
+    PUBLIC_WEBHOOK_URL: buildProjectRunWebhookUrl(deployment.public_token),
+    LLMSTORE_BACKEND_URL: env.BACKEND_URL,
+    LLMSTORE_DEPLOYMENT_ID: deployment.id,
+    LLMSTORE_DEPLOYMENT_TOKEN: deployment.public_token,
+    LLMSTORE_DEPLOYMENT_SECRET: deployment.deployment_secret,
+    LLMSTORE_LINKED_AGENT_ID: deployment.linked_agent_id ?? '',
+    LLMSTORE_AGENT_RUN_URL: deployment.linked_agent_id ? buildProjectRunAgentRunUrl(deployment.public_token) : '',
+    ...normalizeProjectRunEnv(deployment.env_json),
+  };
+}
+
+async function runProjectBundle(project: CodingReportProject, options: ProjectRunOptions = {}): Promise<ProjectRunResult> {
   const workspaceDir = await mkdtemp(path.join(tmpdir(), 'llmstore-run-'));
   const startedAt = Date.now();
 
@@ -2398,6 +2472,7 @@ async function runProjectBundle(project: CodingReportProject): Promise<ProjectRu
         HOST: '127.0.0.1',
         NODE_ENV: 'production',
         PYTHONUNBUFFERED: '1',
+        ...options.env,
       },
     });
 
@@ -2782,30 +2857,32 @@ function applyCodingReportToContent(content: string, report: CodingReport): stri
     : `<dev-report>\n${encoded}\n</dev-report>`;
 }
 
-function forceStandardPreviewFavicon(html: string): string {
+function ensurePreviewFavicon(html: string): string {
+  const hasCustomFavicon = /<link\b[^>]*\brel\s*=\s*["'][^"']*\b(?:shortcut\s+icon|icon|apple-touch-icon|apple-touch-icon-precomposed|mask-icon)\b[^"']*["'][^>]*>/i.test(html);
+  if (hasCustomFavicon) {
+    return html;
+  }
+
   const faviconMarkup = `
-<link rel="icon" type="image/x-icon" href="/preview-favicon.ico">
-<link rel="icon" type="image/png" href="/preview-icon.png">
-<link rel="apple-touch-icon" sizes="180x180" href="/preview-apple-touch-icon.png">
-<link rel="manifest" href="/preview.webmanifest">`;
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<link rel="shortcut icon" href="/favicon.ico">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">`;
 
-  const cleaned = html
-    .replace(/<link\b[^>]*\brel\s*=\s*["'][^"']*\b(?:shortcut\s+icon|icon|apple-touch-icon|apple-touch-icon-precomposed|mask-icon)\b[^"']*["'][^>]*>\s*/gi, '')
-    .replace(/<link\b[^>]*\brel\s*=\s*["']manifest["'][^>]*>\s*/gi, '');
-
-  if (/<\/head>/i.test(cleaned)) {
-    return cleaned.replace(/<\/head>/i, `${faviconMarkup}\n</head>`);
+  if (/<\/head>/i.test(html)) {
+    return html.replace(/<\/head>/i, `${faviconMarkup}\n</head>`);
   }
 
-  if (/<html[^>]*>/i.test(cleaned)) {
-    return cleaned.replace(/<html([^>]*)>/i, `<html$1><head>${faviconMarkup}</head>`);
+  if (/<html[^>]*>/i.test(html)) {
+    return html.replace(/<html([^>]*)>/i, `<html$1><head>${faviconMarkup}</head>`);
   }
 
-  return `<head>${faviconMarkup}</head>${cleaned}`;
+  return `<head>${faviconMarkup}</head>${html}`;
 }
 
 function injectPreviewBridgeHtml(html: string, previewId?: string): string {
-  const htmlWithFavicon = forceStandardPreviewFavicon(html);
+  const htmlWithFavicon = ensurePreviewFavicon(html);
   const resolvedPreviewId = previewId ?? 'standalone-preview';
   const emojiAssetVersion = '20260401b';
   const imageFallbackSrc = buildPreviewImagePlaceholderDataUrl('Image unavailable');
@@ -7096,7 +7173,8 @@ export async function runChatMessageProject(
   const message = await getAssistantMessageForConversation(chatId, messageId);
   const project = extractProjectBundleFromMessage(message);
   const projectRunCount = await incrementProjectRunCount(message.id);
-  const result = await runProjectBundle(project);
+  const deploymentEnv = await getChatProjectDeploymentRunEnv(chatId, message.id, userId);
+  const result = await runProjectBundle(project, { env: deploymentEnv });
   return {
     ...result,
     project_run_count: projectRunCount,

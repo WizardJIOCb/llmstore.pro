@@ -29,6 +29,7 @@ const PROJECT_DEPLOY_HTTP_PROBE_INTERVAL_MS = 500;
 const PROJECT_DEPLOY_OUTPUT_LIMIT = 24_000;
 const PROJECT_DEPLOYMENTS_DIR = path.join(UPLOADS_DIR, 'project-deployments');
 const DEFAULT_DEPLOYMENT_AGENT_MODEL = 'google/gemini-2.0-flash-001';
+const WEBHOOK_PROXY_FALLBACK_PATHS = ['/webhook', '/', '/api/webhook', '/telegram/webhook', '/telegram'];
 
 export type ProjectDeploymentStatus = 'deploying' | 'running' | 'stopped' | 'failed';
 
@@ -1047,6 +1048,30 @@ function buildProxyHeaders(req: Request): Headers {
   return headers;
 }
 
+function shouldReturnWebhookInfo(req: Request, suffix: string): boolean {
+  return (req.method === 'GET' || req.method === 'HEAD') && !suffix;
+}
+
+function buildProxyTargetUrl(port: number, pathname: string, suffix: string, search: string): string {
+  const normalizedPathname = pathname === '/' ? '/' : pathname.replace(/\/+$/g, '');
+  const normalizedSuffix = suffix.startsWith('/') ? suffix : (suffix ? `/${suffix}` : '');
+  const pathWithSuffix = normalizedPathname === '/'
+    ? normalizedSuffix || '/'
+    : `${normalizedPathname}${normalizedSuffix}`;
+
+  return `http://127.0.0.1:${port}${pathWithSuffix}${search}`;
+}
+
+function buildJsonProxyResponse(status: number, body: unknown): { status: number; headers: Headers; body: Buffer } {
+  const headers = new Headers();
+  headers.set('content-type', 'application/json; charset=utf-8');
+  return {
+    status,
+    headers,
+    body: Buffer.from(JSON.stringify(body), 'utf8'),
+  };
+}
+
 export async function getChatMessageProjectDeployment(
   chatId: string,
   messageId: string,
@@ -1182,17 +1207,45 @@ export async function proxyProjectDeploymentWebhook(
   publicToken: string,
   req: Request,
 ): Promise<{ status: number; headers: Headers; body: Buffer }> {
-  const runtime = await ensureRuntimeForWebhook(publicToken);
   const suffix = typeof req.params[0] === 'string' ? req.params[0] : '';
   const search = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
-  const targetUrl = `http://127.0.0.1:${runtime.port}/webhook${suffix || ''}${search}`;
+  if (shouldReturnWebhookInfo(req, suffix)) {
+    const deployment = await getDeploymentByToken(publicToken);
+    return buildJsonProxyResponse(200, {
+      ok: true,
+      type: 'llmstore_project_deployment_webhook',
+      deployment_id: deployment.id,
+      status: deployment.status,
+      title: deployment.title,
+      message: 'Webhook URL is active. Telegram sends POST requests to this URL; opening it in a browser uses GET and does not call the bot.',
+    });
+  }
 
-  const response = await fetch(targetUrl, {
-    method: req.method,
-    headers: buildProxyHeaders(req),
-    body: buildProxyBody(req),
-    redirect: 'manual',
-  });
+  const runtime = await ensureRuntimeForWebhook(publicToken);
+  const headers = buildProxyHeaders(req);
+  const body = buildProxyBody(req);
+  let response: Response | null = null;
+
+  for (const pathname of WEBHOOK_PROXY_FALLBACK_PATHS) {
+    response = await fetch(buildProxyTargetUrl(runtime.port, pathname, suffix, search), {
+      method: req.method,
+      headers,
+      body,
+      redirect: 'manual',
+    });
+
+    if (response.status !== 404 && response.status !== 405) {
+      break;
+    }
+  }
+
+  if (!response) {
+    return buildJsonProxyResponse(502, {
+      ok: false,
+      error: 'WEBHOOK_PROXY_FAILED',
+      message: 'Не удалось проксировать webhook в deployment',
+    });
+  }
 
   return {
     status: response.status,

@@ -1374,30 +1374,32 @@ function highlightHtmlCode(value: string): string {
   );
 }
 
-function forceStandardPreviewFavicon(html: string): string {
+function ensurePreviewFavicon(html: string): string {
+  const hasCustomFavicon = /<link\b[^>]*\brel\s*=\s*["'][^"']*\b(?:shortcut\s+icon|icon|apple-touch-icon|apple-touch-icon-precomposed|mask-icon)\b[^"']*["'][^>]*>/i.test(html);
+  if (hasCustomFavicon) {
+    return html;
+  }
+
   const faviconMarkup = `
-<link rel="icon" type="image/x-icon" href="/preview-favicon.ico">
-<link rel="icon" type="image/png" href="/preview-icon.png">
-<link rel="apple-touch-icon" sizes="180x180" href="/preview-apple-touch-icon.png">
-<link rel="manifest" href="/preview.webmanifest">`;
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<link rel="shortcut icon" href="/favicon.ico">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">`;
 
-  const cleaned = html
-    .replace(/<link\b[^>]*\brel\s*=\s*["'][^"']*\b(?:shortcut\s+icon|icon|apple-touch-icon|apple-touch-icon-precomposed|mask-icon)\b[^"']*["'][^>]*>\s*/gi, '')
-    .replace(/<link\b[^>]*\brel\s*=\s*["']manifest["'][^>]*>\s*/gi, '');
-
-  if (/<\/head>/i.test(cleaned)) {
-    return cleaned.replace(/<\/head>/i, `${faviconMarkup}\n</head>`);
+  if (/<\/head>/i.test(html)) {
+    return html.replace(/<\/head>/i, `${faviconMarkup}\n</head>`);
   }
 
-  if (/<html[^>]*>/i.test(cleaned)) {
-    return cleaned.replace(/<html([^>]*)>/i, `<html$1><head>${faviconMarkup}</head>`);
+  if (/<html[^>]*>/i.test(html)) {
+    return html.replace(/<html([^>]*)>/i, `<html$1><head>${faviconMarkup}</head>`);
   }
 
-  return `<head>${faviconMarkup}</head>${cleaned}`;
+  return `<head>${faviconMarkup}</head>${html}`;
 }
 
 function injectPreviewBridge(html: string, previewId: string): string {
-  const htmlWithFavicon = forceStandardPreviewFavicon(html);
+  const htmlWithFavicon = ensurePreviewFavicon(html);
   const emojiAssetVersion = '20260401b';
   const bridge = `
 <style id="llmstore-preview-emoji-bridge">

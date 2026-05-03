@@ -6,6 +6,7 @@ import { Button } from '../../components/ui/Button';
 import { Spinner } from '../../components/ui/Spinner';
 import type { NewsArticle } from '../../lib/api/news';
 import { formatNewsDateParts } from '../../lib/newsDates';
+import { getNewsProductBadge } from '../../lib/newsProduct';
 
 function getExcerpt(article: NewsArticle): string {
   return article.excerpt || (article.content.length > 220 ? `${article.content.slice(0, 220)}...` : article.content);
@@ -23,6 +24,7 @@ export function NewsListPage() {
   const lead = items[0];
   const feed = items.slice(1);
   const leadDate = formatNewsDateParts(lead?.published_at ?? null);
+  const leadBadge = lead ? getNewsProductBadge(lead) : null;
 
   const openArticle = (slug: string, hash?: string) => {
     navigate(`/news/${slug}${hash ?? ''}`);
@@ -75,7 +77,14 @@ export function NewsListPage() {
                 <article className="overflow-hidden rounded-[32px] border border-slate-200 bg-white shadow-[0_24px_80px_-54px_rgba(15,23,42,0.32)]">
                   <div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_360px]">
                     <div className="p-6 md:p-8">
-                      <p className="text-xs uppercase tracking-[0.22em] text-slate-400">Последний релиз</p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-xs uppercase tracking-[0.22em] text-slate-400">Последний релиз</p>
+                        {leadBadge ? (
+                          <span className={`rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${leadBadge.className}`}>
+                            {leadBadge.label}
+                          </span>
+                        ) : null}
+                      </div>
                       <button
                         type="button"
                         className="mt-4 text-left"
@@ -157,11 +166,14 @@ export function NewsListPage() {
               </div>
 
               <div className="space-y-4">
-                {feed.map((article: NewsArticle) => (
-                  <article
-                    key={article.id}
-                    className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_18px_60px_-48px_rgba(15,23,42,0.25)] transition hover:border-slate-300 hover:shadow-[0_24px_80px_-50px_rgba(15,23,42,0.3)] md:p-6"
-                  >
+                {feed.map((article: NewsArticle) => {
+                  const badge = getNewsProductBadge(article);
+
+                  return (
+                    <article
+                      key={article.id}
+                      className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_18px_60px_-48px_rgba(15,23,42,0.25)] transition hover:border-slate-300 hover:shadow-[0_24px_80px_-50px_rgba(15,23,42,0.3)] md:p-6"
+                    >
                     <div className="grid gap-5 lg:grid-cols-[88px_minmax(0,1fr)_160px] lg:items-start">
                       <div className="flex items-start gap-3 lg:block">
                         <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Дата</div>
@@ -176,9 +188,12 @@ export function NewsListPage() {
                       </div>
 
                       <div className="min-w-0">
+                        <span className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${badge.className}`}>
+                          {badge.label}
+                        </span>
                         <button
                           type="button"
-                          className="text-left"
+                          className="mt-3 block text-left"
                           onClick={() => openArticle(article.slug)}
                         >
                           <h3 className="text-2xl font-semibold tracking-tight text-slate-950 transition hover:text-primary">
@@ -243,8 +258,9 @@ export function NewsListPage() {
                         )}
                       </div>
                     </div>
-                  </article>
-                ))}
+                    </article>
+                  );
+                })}
               </div>
             </section>
 

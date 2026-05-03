@@ -4,6 +4,12 @@ import { useArticlesList } from '../../hooks/useArticles';
 import { useAuth } from '../../hooks/useAuth';
 import { UserLink } from '../../components/users/UserLink';
 import type { NewsArticle } from '../../lib/api/news';
+import {
+  ComparisonSection,
+  CostExamplesSection,
+  ProductWorkflowSection,
+  UseCaseCardsSection,
+} from '../../components/product/ProductClaritySections';
 
 const sections = [
   {
@@ -44,24 +50,6 @@ const sections = [
   },
 ];
 
-const workflowSteps = [
-  {
-    eyebrow: 'Шаг 1',
-    title: 'Собираете агента под задачу',
-    description: 'Быстрый конструктор помогает выбрать роль агента, стиль ответа, модель и нужные возможности.',
-  },
-  {
-    eyebrow: 'Шаг 2',
-    title: 'Подключаете инструменты и сценарии',
-    description: 'Добавляйте поиск, HTTP/API, шаблоны, расчёты и другие инструменты, которые реально можно использовать в агентах.',
-  },
-  {
-    eyebrow: 'Шаг 3',
-    title: 'Запускаете в чатах и делитесь',
-    description: 'Используйте агента в обычной работе, открывайте его для чатов, тестируйте сценарии и публикуйте результаты.',
-  },
-];
-
 function formatLongDate(value: string | null): string | null {
   if (!value) return null;
   return new Date(value).toLocaleDateString('ru-RU', {
@@ -97,131 +85,68 @@ export function HomePage() {
         <div className="container mx-auto px-4 text-center">
           <h1 className="mb-6 text-4xl font-bold tracking-tight md:text-5xl">
             <span className="block md:hidden">
-              <span className="block">Создавайте</span>
-              <span className="block">AI-агентов,</span>
-              <span className="block text-primary">запускайте их в чатах</span>
+              <span className="block">AI-агенты</span>
+              <span className="block">для живых</span>
+              <span className="block text-primary">проектов</span>
             </span>
             <span className="hidden md:inline">
-              Создавайте AI-агентов,
+              AI-агенты, которые не просто отвечают,
               <br />
-              <span className="text-primary">запускайте их в чатах</span>
+              <span className="text-primary">а собирают и запускают результат</span>
             </span>
           </h1>
           <p className="mx-auto mb-8 max-w-2xl text-lg text-muted-foreground">
             LLMStore.pro помогает собрать агента под задачу, выбрать модель и инструменты,
-            запускать чаты с агентами и находить готовых публичных агентов в одном месте.
+            получить runnable-проект, посмотреть логи, исправить ошибку и поделиться результатом.
           </p>
           <div className="mx-auto flex max-w-[420px] flex-col items-stretch gap-3 sm:hidden">
             <Link
               to="/builder/stack"
               className="inline-flex w-full items-center justify-center rounded-md bg-primary px-6 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
             >
-              Быстрый запуск агента
-            </Link>
-            <Link
-              to="/tools"
-              className="inline-flex w-full items-center justify-center rounded-md border border-input bg-background px-6 py-3 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
-            >
-              Инструменты
+              Собрать агента
             </Link>
             <Link
               to="/gallery"
               className="inline-flex w-full items-center justify-center rounded-md border border-input bg-background px-6 py-3 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
             >
-              Галерея
+              Смотреть галерею
             </Link>
+            <a
+              href="#how-it-works"
+              className="inline-flex w-full items-center justify-center rounded-md border border-input bg-background px-6 py-3 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
+            >
+              Как это работает
+            </a>
           </div>
 
           <div className="mx-auto hidden max-w-[760px] grid-cols-3 gap-4 sm:grid">
             <Link
-              to="/tools"
-              className="inline-flex items-center justify-center rounded-md border border-input bg-background px-6 py-3 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
-            >
-              Инструменты
-            </Link>
-            <Link
               to="/builder/stack"
               className="inline-flex items-center justify-center rounded-md bg-primary px-6 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
             >
-              Быстрый запуск агента
+              Собрать агента
             </Link>
             <Link
               to="/gallery"
               className="inline-flex items-center justify-center rounded-md border border-input bg-background px-6 py-3 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
             >
-              Галерея
+              Смотреть галерею
             </Link>
+            <a
+              href="#how-it-works"
+              className="inline-flex items-center justify-center rounded-md border border-input bg-background px-6 py-3 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
+            >
+              Как это работает
+            </a>
           </div>
         </div>
       </section>
 
-      <section className="container mx-auto px-4 py-12">
-        <div className="rounded-[30px] border border-slate-200 bg-white p-6 shadow-[0_24px_80px_-52px_rgba(15,23,42,0.35)] md:p-8">
-          <div className="grid gap-8 xl:grid-cols-[minmax(0,1.35fr)_minmax(340px,1fr)] xl:items-start">
-            <div>
-              <p className="text-sm uppercase tracking-[0.22em] text-muted-foreground">Как это работает</p>
-              <h2 className="mt-3 text-3xl font-bold tracking-tight text-slate-950">
-                Платформа для реальных агентных сценариев, а не просто каталог
-              </h2>
-              <p className="mt-4 max-w-3xl text-base leading-7 text-muted-foreground">
-                Пользователь регистрируется в LLMStore.pro и сразу получает доступ к чатам с моделями,
-                конструкторам агентов, инструментам и готовым публичным сценариям. Для первых тестов мы
-                начисляем стартовый бонус, чтобы можно было попробовать платформу без лишнего трения, а когда
-                сценарий уже подходит для рабочей задачи, баланс можно пополнить прямо внутри аккаунта.
-              </p>
-
-              <div className="mt-6 grid gap-3 sm:grid-cols-3">
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
-                  <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Сценарии</div>
-                  <div className="mt-2 text-lg font-semibold text-slate-950">Агенты, чаты, инструменты</div>
-                </div>
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
-                  <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Запуск</div>
-                  <div className="mt-2 text-lg font-semibold text-slate-950">Сразу после настройки</div>
-                </div>
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
-                  <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Оплата</div>
-                  <div className="mt-2 text-lg font-semibold text-slate-950">Стартовый бонус и баланс</div>
-                </div>
-              </div>
-
-              <div className="mt-6 flex flex-wrap gap-3">
-                <Link
-                  to="/pricing"
-                  className="inline-flex items-center justify-center rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-                >
-                  Оплата и тарифы
-                </Link>
-                <Link
-                  to="/offer"
-                  className="inline-flex items-center justify-center rounded-md border border-input bg-background px-5 py-2.5 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
-                >
-                  Публичная оферта
-                </Link>
-                <Link
-                  to="/contacts"
-                  className="inline-flex items-center justify-center rounded-md border border-input bg-background px-5 py-2.5 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
-                >
-                  Контакты и реквизиты
-                </Link>
-              </div>
-            </div>
-
-            <div className="grid gap-4">
-              {workflowSteps.map((step) => (
-                <div
-                  key={step.title}
-                  className="rounded-[24px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-5"
-                >
-                  <p className="text-xs uppercase tracking-[0.22em] text-slate-400">{step.eyebrow}</p>
-                  <h3 className="mt-3 text-lg font-semibold text-slate-950">{step.title}</h3>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">{step.description}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
+      <UseCaseCardsSection />
+      <ProductWorkflowSection />
+      <ComparisonSection />
+      <CostExamplesSection />
 
       {newsItems.length > 0 && (
         <section className="container mx-auto px-4 py-12">

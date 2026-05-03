@@ -74,7 +74,7 @@ import { GENERAL_CHAT_MODELS, type GeneralModelOption } from '../../lib/chat-mod
 import { cn, formatRub, formatUsd } from '../../lib/utils';
 import { TopUpHelp } from '../../components/billing/TopUpHelp';
 
-type PropertiesModeView = 'general' | 'coding' | 'other';
+type PropertiesModeView = 'general' | 'landing' | 'coding' | 'other';
 type LocalNoticeAction = {
   label: string;
   onClick: () => void;
@@ -292,6 +292,17 @@ function formatGeneralModelPricing(model: GeneralModelOption): string {
 
 function buildAgentMetaLabel(agent: ChatAgentOption): string {
   return agent.model_external_id?.trim() || '';
+}
+
+function isLandingAgentOption(agent: ChatAgentOption): boolean {
+  const haystack = [
+    agent.name,
+    agent.description ?? '',
+    agent.chat_description ?? '',
+    agent.model_label ?? '',
+  ].join(' ').toLowerCase();
+
+  return haystack.includes('landing') || haystack.includes('лендинг');
 }
 
 function formatDuration(ms: number): string {
@@ -2138,9 +2149,11 @@ function AuthenticatedChatsPage() {
     setPropertiesModeView(
       activeChat.mode === 'general'
         ? 'general'
-        : activeAgent?.is_coding_model
-          ? 'coding'
-          : 'other',
+        : activeAgent && isLandingAgentOption(activeAgent)
+          ? 'landing'
+          : activeAgent?.is_coding_model
+            ? 'coding'
+            : 'other',
     );
     setPropertiesAgentId(activeChat.agent_id ?? '');
     setPropertiesModel(activeChat.model_external_id ?? 'openai/gpt-4o-mini');
@@ -2225,6 +2238,7 @@ function AuthenticatedChatsPage() {
   const propertiesModeOptions = useMemo(
     () => [
       { value: 'general', label: 'Общение' },
+      { value: 'landing', label: 'Лендинги' },
       { value: 'coding', label: 'Coding' },
       { value: 'other', label: 'Другие' },
     ],
@@ -2252,12 +2266,16 @@ function AuthenticatedChatsPage() {
     }),
     [agents],
   );
+  const landingAgentOptions = useMemo(
+    () => sortedAgentOptions.filter((agent) => isLandingAgentOption(agent)),
+    [sortedAgentOptions],
+  );
   const codingAgentOptions = useMemo(
-    () => sortedAgentOptions.filter((agent) => agent.is_coding_model),
+    () => sortedAgentOptions.filter((agent) => agent.is_coding_model && !isLandingAgentOption(agent)),
     [sortedAgentOptions],
   );
   const otherAgentOptions = useMemo(
-    () => sortedAgentOptions.filter((agent) => !agent.is_coding_model),
+    () => sortedAgentOptions.filter((agent) => !agent.is_coding_model && !isLandingAgentOption(agent)),
     [sortedAgentOptions],
   );
   const propertiesSelectedAgent = useMemo(
@@ -2825,6 +2843,14 @@ function AuthenticatedChatsPage() {
   const handlePropertiesModeViewChange = (value: string) => {
     const nextValue = value as PropertiesModeView;
     setPropertiesModeView(nextValue);
+
+    if (nextValue === 'landing') {
+      const currentIsLanding = landingAgentOptions.some((agent) => agent.id === propertiesAgentId);
+      if (!currentIsLanding && landingAgentOptions[0]) {
+        setPropertiesAgentId(landingAgentOptions[0].id);
+      }
+      return;
+    }
 
     if (nextValue === 'coding') {
       const currentIsCoding = codingAgentOptions.some((agent) => agent.id === propertiesAgentId);
@@ -4640,7 +4666,7 @@ function AuthenticatedChatsPage() {
                       <p className="text-xs text-muted-foreground">
                         {propertiesSelectedAgent
                           ? `Сейчас выбран: ${propertiesSelectedAgent.model_label ?? propertiesSelectedAgent.name}${formatAgentPricing(propertiesSelectedAgent) ? ` • ${formatAgentPricing(propertiesSelectedAgent)}` : ''}`
-                          : 'Выберите агента ниже. Для coding-моделей сразу видна ориентировочная стоимость input/output.'}
+                          : 'Выберите агента ниже. Лендинги, coding-модели и остальные агенты разнесены по вкладкам.'}
                       </p>
                     </div>
 
@@ -4650,6 +4676,52 @@ function AuthenticatedChatsPage() {
                         <p className="text-xs text-muted-foreground">Модель и цена показаны отдельно для удобного выбора</p>
                       </div>
                       <div className="space-y-3">
+                        {propertiesModeView === 'landing' && landingAgentOptions.length > 0 && (
+                          <div className="space-y-2">
+                            <p className="text-xs uppercase tracking-wide text-muted-foreground">Лендинги и сайты</p>
+                            <div className="max-h-72 space-y-2 overflow-y-auto rounded-xl border bg-background p-2">
+                              {landingAgentOptions.map((agent) => {
+                                const isSelected = propertiesAgentId === agent.id;
+                                const agentMeta = buildAgentMetaLabel(agent);
+                                const pricingLabel = formatAgentPricing(agent);
+
+                                return (
+                                  <button
+                                    key={agent.id}
+                                    type="button"
+                                    onClick={() => setPropertiesAgentId(agent.id)}
+                                    className={cn(
+                                      'w-full rounded-lg border px-3 py-3 text-left transition-colors',
+                                      isSelected
+                                        ? 'border-primary bg-primary/8 shadow-sm'
+                                        : 'border-border bg-background hover:border-primary/30 hover:bg-accent/40',
+                                    )}
+                                  >
+                                    <div className="flex items-start justify-between gap-3">
+                                      <div className="min-w-0">
+                                        <p className="truncate text-sm font-medium text-foreground">{agent.name}</p>
+                                        {agentMeta ? (
+                                          <p className="mt-1 break-all text-xs text-muted-foreground">
+                                            {agentMeta}
+                                          </p>
+                                        ) : null}
+                                        <p className="mt-1 text-xs text-muted-foreground">
+                                          {agent.chat_description ?? agent.description ?? 'Агент для сборки лендингов и сайтов.'}
+                                        </p>
+                                        {pricingLabel ? (
+                                          <p className="mt-1 text-xs text-muted-foreground">{pricingLabel}</p>
+                                        ) : null}
+                                      </div>
+                                      <span className="shrink-0 rounded-full border border-emerald-300/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+                                        landing
+                                      </span>
+                                    </div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
                         {propertiesModeView === 'coding' && codingAgentOptions.length > 0 && (
                           <div className="space-y-2">
                             <p className="text-xs uppercase tracking-wide text-muted-foreground">Подходят для кодинга</p>
@@ -4734,6 +4806,11 @@ function AuthenticatedChatsPage() {
                         {propertiesModeView === 'coding' && codingAgentOptions.length === 0 && (
                           <div className="rounded-lg border bg-background px-3 py-4 text-sm text-muted-foreground">
                             Сейчас нет доступных coding-агентов.
+                          </div>
+                        )}
+                        {propertiesModeView === 'landing' && landingAgentOptions.length === 0 && (
+                          <div className="rounded-lg border bg-background px-3 py-4 text-sm text-muted-foreground">
+                            Сейчас нет доступных landing-агентов.
                           </div>
                         )}
                         {propertiesModeView === 'other' && otherAgentOptions.length === 0 && (

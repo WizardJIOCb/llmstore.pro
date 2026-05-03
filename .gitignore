@@ -8,6 +8,7 @@ Thumbs.db
 *.tsbuildinfo
 coverage/
 .turbo/
+.codex/
 packages/backend/drizzle/*
 !packages/backend/drizzle/*.sql
 !packages/backend/drizzle/meta/

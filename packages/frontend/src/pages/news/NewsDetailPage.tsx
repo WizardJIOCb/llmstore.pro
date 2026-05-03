@@ -16,6 +16,7 @@ import { RichNewsContent } from '../../components/news/RichNewsContent';
 import { Spinner } from '../../components/ui/Spinner';
 import { UserLink } from '../../components/users/UserLink';
 import { formatNewsDateParts } from '../../lib/newsDates';
+import { getNewsProductBadge, getNewsTryLinks } from '../../lib/newsProduct';
 
 function scrollToElement(id: string) {
   requestAnimationFrame(() => {
@@ -87,6 +88,8 @@ export function NewsDetailPage() {
   const displayDate = formatNewsDateParts(article.published_at);
   const initialComposerOpen = location.hash === '#comment-form';
   const resolvedCommentsCount = commentsLoading ? article.comments_count : comments.length;
+  const productBadge = getNewsProductBadge(article);
+  const tryLinks = getNewsTryLinks(article);
 
   return (
     <div className="bg-[linear-gradient(180deg,#f8fafc_0%,#ffffff_25%,#f8fafc_100%)]">
@@ -97,7 +100,10 @@ export function NewsDetailPage() {
             <Link to="/news" className="absolute right-0 top-0 inline-flex items-center gap-2 text-sm text-slate-500 transition hover:text-slate-900">
               {'\u2190 \u0412\u0441\u0435 \u043d\u043e\u0432\u043e\u0441\u0442\u0438'}
             </Link>
-            <h1 className="pr-40 text-2xl font-bold tracking-tight text-slate-950 md:pr-56 md:text-3xl">
+            <span className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${productBadge.className}`}>
+              {productBadge.label}
+            </span>
+            <h1 className="mt-4 pr-40 text-2xl font-bold tracking-tight text-slate-950 md:pr-56 md:text-3xl">
               {article.title}
             </h1>
             {article.excerpt && (
@@ -158,6 +164,26 @@ export function NewsDetailPage() {
 
           <div className="mt-10 min-w-0">
             <RichNewsContent content={article.content} />
+
+            <section className="mt-10 rounded-[28px] border border-slate-200 bg-[linear-gradient(135deg,#f8fafc,#ffffff_46%,#eefcf5)] p-6">
+              <p className="text-sm uppercase tracking-[0.22em] text-slate-500">Где попробовать</p>
+              <h2 className="mt-2 text-2xl font-semibold text-slate-950">Связанные продуктовые маршруты</h2>
+              <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">
+                Если обновление хочется проверить руками, начните с ближайшего раздела продукта. Ссылки подобраны по теме новости.
+              </p>
+              <div className="mt-5 grid gap-3 md:grid-cols-3">
+                {tryLinks.map((link) => (
+                  <Link
+                    key={link.href}
+                    to={link.href}
+                    className="block rounded-2xl border border-slate-200 bg-white p-4 transition hover:border-slate-300 hover:bg-slate-50"
+                  >
+                    <span className="text-sm font-semibold text-primary">{link.label}</span>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">{link.description}</p>
+                  </Link>
+                ))}
+              </div>
+            </section>
 
             {article.images.length > 1 && (
               <div className="mt-10">
