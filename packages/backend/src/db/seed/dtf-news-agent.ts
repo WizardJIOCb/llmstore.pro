@@ -140,7 +140,7 @@ export async function seedDtfNewsAgent() {
         .onConflictDoNothing();
     }
 
-    console.log('Ensured DTF News Agent v8 with 4 tools');
+    console.log(`Ensured DTF News Agent v${DTF_AGENT_VERSION_NUMBER} with 4 tools`);
     return;
   }
 
