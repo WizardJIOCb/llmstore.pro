@@ -3493,10 +3493,6 @@ function AuthenticatedChatsPage() {
               <span>Открепить</span>
             </button>
             )}
-            <button type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent" onClick={() => openProperties(chat.id)}>
-              {getChatActionIcon('properties')}
-              <span>Свойства</span>
-            </button>
             <button type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent" onClick={() => exportChatBundle(chat.id)}>
               {getChatActionIcon('export')}
               <span>Экспортировать</span>
@@ -3539,6 +3535,10 @@ function AuthenticatedChatsPage() {
             <button type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent" onClick={() => shareChat(chat.id)}>
               {getChatActionIcon('share')}
               <span>Поделиться</span>
+            </button>
+            <button type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent" onClick={() => openProperties(chat.id)}>
+              {getChatActionIcon('properties')}
+              <span>Свойства</span>
             </button>
           </div>
         )}
@@ -3713,20 +3713,6 @@ function AuthenticatedChatsPage() {
                           type="button"
                           className={`${mobileChatActionButtonClass} mt-2`}
                           onClick={() => {
-                            if (!activeChatMenuTarget) return;
-                            openProperties(activeChatMenuTarget.id);
-                          }}
-                        >
-                          <span className="flex items-center gap-2">
-                            {getChatActionIcon('properties')}
-                            <span>Свойства</span>
-                          </span>
-                          <span className="text-xs text-slate-400">↗</span>
-                        </button>
-                        <button
-                          type="button"
-                          className={`${mobileChatActionButtonClass} mt-2`}
-                          onClick={() => {
                             setOpenMenu(null);
                             exportChatBundle(activeChat.id);
                           }}
@@ -3840,6 +3826,20 @@ function AuthenticatedChatsPage() {
                             className="w-full bg-white"
                           />
                         </div>
+                        <button
+                          type="button"
+                          className={`${mobileChatActionButtonClass} mt-2`}
+                          onClick={() => {
+                            if (!activeChatMenuTarget) return;
+                            openProperties(activeChatMenuTarget.id);
+                          }}
+                        >
+                          <span className="flex items-center gap-2">
+                            {getChatActionIcon('properties')}
+                            <span>Свойства</span>
+                          </span>
+                          <span className="text-xs text-slate-400">↗</span>
+                        </button>
                       </div>
                     )}
                   </div>
