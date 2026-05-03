@@ -49,16 +49,19 @@ else
   exit 1
 fi
 
-echo "[4/8] Building shared package..."
+echo "[4/9] Seeding built-in tools..."
+npm run db:seed:tools -w @llmstore/backend
+
+echo "[5/9] Building shared package..."
 npm run build -w @llmstore/shared
 
-echo "[5/8] Building backend..."
+echo "[6/9] Building backend..."
 npm run build -w @llmstore/backend
 
-echo "[6/8] Building frontend..."
+echo "[7/9] Building frontend..."
 npm run build -w @llmstore/frontend
 
-echo "[7/8] Restarting backend..."
+echo "[8/9] Restarting backend..."
 ensure_single_backend_manager
 if pm2 describe "$PM2_APP" >/dev/null 2>&1; then
   pm2 delete "$PM2_APP" >/dev/null 2>&1 || true
@@ -68,7 +71,7 @@ pm2 start "$TSX_BIN" --name "$PM2_APP" --cwd "$BACKEND_DIR" -- src/server.ts
 pm2 save >/dev/null 2>&1 || true
 sleep 5
 
-echo "[8/8] Health check..."
+echo "[9/9] Health check..."
 STATUS=""
 for _ in $(seq 1 15); do
   STATUS="$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:$PORT/api/health" || true)"
