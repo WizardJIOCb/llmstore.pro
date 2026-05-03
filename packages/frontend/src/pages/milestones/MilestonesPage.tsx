@@ -447,6 +447,7 @@ const milestones: MilestoneItem[] = [
     title: 'Coding Agents Preview',
     status: 'done',
     description: 'LLMStore уже вышел за рамки обычного чата и двигается к агентам, которые помогают собирать и править проекты.',
+    completedAt: '2026-04-04',
     ctaLabel: 'Читать релизы',
     ctaHref: '/news',
   },
@@ -455,6 +456,7 @@ const milestones: MilestoneItem[] = [
     title: 'Preview Editor Upgrade',
     status: 'done',
     description: 'Preview Editor стал чище и удобнее: авто-Beautify, лучшее расположение действий и меньше трения в HTML-preview.',
+    completedAt: '2026-04-23',
     ctaLabel: 'Открыть новости',
     ctaHref: '/news',
   },
@@ -463,6 +465,7 @@ const milestones: MilestoneItem[] = [
     title: 'Project Gallery',
     status: 'done',
     description: 'Галерея собрала runnable и demo-проекты в одно место, чтобы их можно было нормально смотреть и переиспользовать.',
+    completedAt: '2026-04-09',
     ctaLabel: 'Открыть gallery',
     ctaHref: '/gallery',
   },
@@ -471,6 +474,7 @@ const milestones: MilestoneItem[] = [
     title: 'Balance, Usage & History',
     status: 'done',
     description: 'Баланс, история запросов и расход токенов стали прозрачнее и понятнее без эффекта "где-то что-то списалось".',
+    completedAt: '2026-05-03',
     ctaLabel: 'Смотреть оплату',
     ctaHref: '/pricing',
   },
@@ -479,6 +483,7 @@ const milestones: MilestoneItem[] = [
     title: 'Private Links & Sharing',
     status: 'done',
     description: 'Приватные ссылки и шаринг упростили точечный показ проектов, превью и результатов работы.',
+    completedAt: '2026-04-01',
     ctaLabel: 'Смотреть галерею',
     ctaHref: '/gallery',
   },
@@ -487,6 +492,7 @@ const milestones: MilestoneItem[] = [
     title: 'Reactions & Small UX Fixes',
     status: 'done',
     description: 'Реакции и мелкие UX-фиксы сделали сервис живее и приятнее в ежедневном использовании.',
+    completedAt: '2026-04-04',
     ctaLabel: 'Открыть релизы',
     ctaHref: '/news',
   },
@@ -512,7 +518,7 @@ const milestones: MilestoneItem[] = [
     title: 'Alice Skill Integration',
     status: 'done',
     description: 'Интеграция навыка Алисы перенесена в shipped-слой: сценарии диалога, связка с агентами и пользовательский поток для voice-first и assistant-first использования готовы к показу в roadmap.',
-    completedAt: '2026-05-03',
+    completedAt: '2026-04-15',
     ctaLabel: 'Читать гайды',
     ctaHref: '/guides',
   },
@@ -529,6 +535,7 @@ const milestones: MilestoneItem[] = [
     title: 'Runnable Project Bundles + Fix From Error',
     status: 'done',
     description: 'Project Bundle должен собирать проект, окружение и запуск в один runnable-формат, а после ошибки агент должен быстро чинить проблему по логам и контексту без ручного цирка.',
+    completedAt: '2026-04-04',
     ctaLabel: 'Смотреть demo',
     ctaHref: '/gallery',
   },
@@ -537,6 +544,7 @@ const milestones: MilestoneItem[] = [
     title: 'Deploy for Bots & Webhooks',
     status: 'done',
     description: 'Двигаем deploy для webhook-ботов и похожих сценариев с логами, статусами и историей запусков.',
+    completedAt: '2026-04-04',
     ctaLabel: 'Читать гайды',
     ctaHref: '/guides',
   },
@@ -569,6 +577,7 @@ const milestones: MilestoneItem[] = [
     title: 'Templates for Real Use Cases',
     status: 'done',
     description: 'Нужны готовые шаблоны под ботов, лендинги, вебхуки, мини-сервисы и code helpers.',
+    completedAt: '2026-04-23',
     ctaLabel: 'Читать гайды',
     ctaHref: '/guides',
   },
@@ -577,6 +586,7 @@ const milestones: MilestoneItem[] = [
     title: 'User Articles & Creator Layer',
     status: 'done',
     description: '8 апреля 2026 запустили статьи пользователей: редактор на Tiptap, публичную витрину, лайки, комментарии, закладки и рейтинги лучших материалов по времени.',
+    completedAt: '2026-04-08',
     ctaLabel: 'Открыть статьи',
     ctaHref: '/articles',
   },
@@ -617,6 +627,7 @@ const milestones: MilestoneItem[] = [
     title: 'Telegram-first Integrations',
     status: 'done',
     description: '8 апреля 2026 это уже часть shipped-слоя: Telegram-связки и быстрые runnable-сценарии перестали быть исследованием и перешли в реальную продуктовую поверхность.',
+    completedAt: '2026-04-08',
     ctaLabel: 'Открыть гайд',
     ctaHref: 'https://llmstore.pro/guides/fast-telegram-bot-deploy',
   },
@@ -749,8 +760,18 @@ const statusMeta: Record<MilestoneStatus, StatusMeta> = {
 const summaryText =
   'LLMStore это рабочая платформа для runnable AI-проектов, статей с реальными CTA, галереи результатов и agent-first сценариев. Сейчас у продукта уже есть builder-поток, Tiptap-редактор статей, рейтинги по окнам времени, social-layer вокруг публикаций и живой галерейный слой. Следующий фокус: tools inside chat, bundles + deploy, наблюдаемость раннов, safe execution и нормальный цикл работы внутри runnable AI-продукта.';
 
-function getItemsByStatus(status: MilestoneStatus) {
-  return milestones.filter((item) => item.status === status);
+function getMilestoneSortDate(item: MilestoneItem): string {
+  return item.completedAt ?? '9999-12-31';
+}
+
+function compareMilestonesByCompletionDate(a: MilestoneItem, b: MilestoneItem): number {
+  const dateCompare = getMilestoneSortDate(a).localeCompare(getMilestoneSortDate(b));
+  return dateCompare === 0 ? a.id - b.id : dateCompare;
+}
+
+function getItemsByStatus(status: MilestoneStatus): MilestoneItem[] {
+  const items = milestones.filter((item) => item.status === status);
+  return status === 'done' ? [...items].sort(compareMilestonesByCompletionDate) : items;
 }
 
 export function MilestonesPage() {
