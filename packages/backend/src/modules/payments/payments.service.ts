@@ -33,6 +33,23 @@ type YooKassaPayment = {
   test?: boolean;
 };
 
+type YooKassaReceipt = {
+  customer: {
+    email: string;
+  };
+  items: Array<{
+    description: string;
+    quantity: string;
+    amount: {
+      value: string;
+      currency: 'RUB';
+    };
+    vat_code: number;
+    payment_mode: 'full_prepayment';
+    payment_subject: 'service';
+  }>;
+};
+
 type TopUpStatus =
   | 'pending'
   | 'waiting_for_capture'
@@ -81,6 +98,27 @@ function buildReturnUrl(topupId: string) {
   url.searchParams.set('topup', 'return');
   url.searchParams.set('topup_id', topupId);
   return url.toString();
+}
+
+function buildYooKassaReceipt(userEmail: string, amountRub: number): YooKassaReceipt {
+  return {
+    customer: {
+      email: userEmail,
+    },
+    items: [
+      {
+        description: 'Пополнение внутреннего баланса LLMStore.pro',
+        quantity: '1.00',
+        amount: {
+          value: amountRub.toFixed(2),
+          currency: 'RUB',
+        },
+        vat_code: env.YOOKASSA_RECEIPT_VAT_CODE,
+        payment_mode: 'full_prepayment',
+        payment_subject: 'service',
+      },
+    ],
+  };
 }
 
 function getTopUpDescription(amountRub: number) {
@@ -359,7 +397,7 @@ export async function createYooKassaTopUp(userId: string, input: { amount_rub: n
   assertYooKassaConfigured();
 
   const [user] = await db
-    .select({ id: users.id })
+    .select({ id: users.id, email: users.email })
     .from(users)
     .where(eq(users.id, userId))
     .limit(1);
@@ -375,6 +413,7 @@ export async function createYooKassaTopUp(userId: string, input: { amount_rub: n
   const idempotenceKey = randomUUID();
   const returnUrl = buildReturnUrl(topupId);
   const description = getTopUpDescription(amountRub);
+  const receipt = buildYooKassaReceipt(user.email, amountRub);
 
   await db.insert(balanceTopups).values({
     id: topupId,
@@ -405,6 +444,7 @@ export async function createYooKassaTopUp(userId: string, input: { amount_rub: n
           return_url: returnUrl,
         },
         description,
+        receipt,
         metadata: {
           topup_id: topupId,
           user_id: userId,

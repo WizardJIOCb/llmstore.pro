@@ -76,6 +76,7 @@ const envSchema = z.object({
   YOOKASSA_SECRET_KEY: z.string().default(''),
   YOOKASSA_TOPUP_MIN_RUB: z.coerce.number().positive().default(100),
   YOOKASSA_TOPUP_MAX_RUB: z.coerce.number().positive().default(500000),
+  YOOKASSA_RECEIPT_VAT_CODE: z.coerce.number().int().min(1).max(12).default(1),
   TURNSTILE_SECRET_KEY: z.string().default(''),
   SMTP_HOST: z.string().default(''),
   SMTP_PORT: z.coerce.number().int().positive().default(587),
