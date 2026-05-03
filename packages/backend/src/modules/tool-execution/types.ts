@@ -43,6 +43,18 @@ export interface DtfPopularResult {
   fetched_at: string;
 }
 
+export interface DtfSearchArticle extends DtfPopularArticle {
+  views_count: number;
+  is_editorial: boolean;
+}
+
+export interface DtfSearchResult {
+  query: string;
+  period: string;
+  articles: DtfSearchArticle[];
+  fetched_at: string;
+}
+
 export interface DtfArticleResult {
   title: string;
   author: string;

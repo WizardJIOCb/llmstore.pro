@@ -316,6 +316,63 @@ const builtinTools = [
     is_active: true,
   },
   {
+    name: 'DTF Search Articles',
+    slug: 'dtf-search-articles',
+    tool_type: 'http_request' as const,
+    description: 'Ищет статьи на DTF.ru по теме, игре, компании, человеку или ключевому слову. Подходит для запросов вроде "новости по Doom", "что пишут про Silent Hill" или "материалы про Nintendo".',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Поисковый запрос: игра, тема, компания, персона или ключевые слова',
+        },
+        period: {
+          type: 'string',
+          enum: ['day', 'week', 'month', 'year', 'all'],
+          description: 'Период фильтрации результатов: day — за день, week — за неделю, month — за месяц, year — за год, all — за всё доступное время',
+          default: 'all',
+        },
+        limit: {
+          type: 'number',
+          description: 'Количество статей (по умолчанию 10, максимум 30)',
+          default: 10,
+        },
+      },
+      required: ['query'],
+    },
+    output_schema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string' },
+        period: { type: 'string' },
+        articles: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              title: { type: 'string' },
+              url: { type: 'string' },
+              author: { type: 'string' },
+              snippet: { type: 'string' },
+              published_at: { type: ['string', 'null'] },
+              comments_count: { type: 'number' },
+              reactions_count: { type: 'number' },
+              reactions_summary: { type: 'string' },
+              favorites_count: { type: 'number' },
+              views_count: { type: 'number' },
+              is_editorial: { type: 'boolean' },
+            },
+          },
+        },
+        fetched_at: { type: 'string' },
+      },
+    },
+    config_json: { handler: 'dtf_search_articles', timeout_ms: 20000 },
+    is_builtin: true,
+    is_active: true,
+  },
+  {
     name: 'DTF Popular Feed',
     slug: 'dtf-popular-feed',
     tool_type: 'http_request' as const,

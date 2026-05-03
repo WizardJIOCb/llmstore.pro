@@ -3,6 +3,7 @@ import { AppError } from '../../../middleware/error-handler.js';
 import { executeDtfFeed } from './dtf-feed.executor.js';
 import { executeDtfArticleFetch } from './dtf-article.executor.js';
 import { executeDtfPopularFeed } from './dtf-popular-feed.executor.js';
+import { executeDtfSearch } from './dtf-search.executor.js';
 import { executeHttpRequest } from './http-request.executor.js';
 import { executeWebSearchCascade } from './web-search-cascade.executor.js';
 import { executeJsonTransform } from './json-transform.executor.js';
@@ -35,6 +36,11 @@ executorRegistry.set('dtf-article-fetch', async (input) => {
 
 executorRegistry.set('dtf-popular-feed', async (input) => {
   const result = await executeDtfPopularFeed(input as { sorting?: string; period?: string; limit?: number });
+  return { payload: result as unknown as Record<string, unknown> };
+});
+
+executorRegistry.set('dtf-search-articles', async (input) => {
+  const result = await executeDtfSearch(input as { query: string; period?: string; limit?: number });
   return { payload: result as unknown as Record<string, unknown> };
 });
 

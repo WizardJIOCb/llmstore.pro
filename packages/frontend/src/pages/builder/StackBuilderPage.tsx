@@ -430,9 +430,9 @@ const capabilityPacks: CapabilityPack[] = [
   {
     id: 'dtf_news',
     title: 'Новости и DTF-источники',
-    description: 'Лента DTF, популярные публикации и разбор конкретных материалов.',
+    description: 'Поиск по DTF, лента, популярные публикации и разбор конкретных материалов.',
     icon: Newspaper,
-    toolSlugs: ['dtf-latest-feed', 'dtf-popular-feed', 'dtf-article-fetch'],
+    toolSlugs: ['dtf-latest-feed', 'dtf-search-articles', 'dtf-popular-feed', 'dtf-article-fetch'],
   },
   {
     id: 'templates',

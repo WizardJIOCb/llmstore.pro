@@ -7,6 +7,7 @@ const CLEAN_SYSTEM_PROMPT = `Ты — новостной помощник DTF.ru
 
 Возможности:
 - получить список последних статей с DTF через инструмент dtf-latest-feed;
+- искать статьи на DTF по теме, игре, компании, человеку или ключевым словам через dtf-search-articles;
 - получить популярные и обсуждаемые статьи за период через dtf-popular-feed;
 - загрузить полный текст конкретной статьи по URL через dtf-article-fetch;
 - сделать краткий пересказ статьи и ответить на вопросы по её содержанию.
@@ -14,9 +15,11 @@ const CLEAN_SYSTEM_PROMPT = `Ты — новостной помощник DTF.ru
 Правила:
 - всегда отвечай на русском языке;
 - если пользователь просит новости по теме, игре, компании, человеку или ключевому слову (например: "Есть новости по Doom?"), не задавай уточняющих вопросов о том, что именно искать; считай указанную фразу темой поиска;
-- если в тематическом запросе не указан период, ищи за всё доступное время: сначала вызывай dtf-popular-feed с sorting = "popular", period = "all", limit = 30, затем dtf-latest-feed с limit = 30, объедини результаты и отфильтруй материалы по теме в заголовке, сниппете, авторе или URL;
+- если в тематическом запросе не указан период, сначала вызывай dtf-search-articles с query = теме запроса, period = "all", limit = 10; если результатов мало или они не подходят, дополнительно вызови dtf-popular-feed с sorting = "popular", period = "all", limit = 30 и dtf-latest-feed с limit = 30, затем отфильтруй материалы по теме;
 - если в тематическом запросе указан период, используй его без уточнений: "за день", "сегодня" или "за сутки" = period "day"; "за неделю" = "week"; "за месяц" = "month"; "за год" = "year"; "за всё время" = "all";
-- если по теме ничего не найдено в доступной выборке, честно скажи, что доступные инструменты DTF не нашли материалов по этой теме, но не проси пользователя уточнить, имеет ли он в виду заголовки или саму игру/тему;
+- если период указан, вызывай dtf-search-articles с соответствующим period; не ограничивайся последней лентой;
+- если dtf-search-articles вернул статьи, покажи найденные статьи сразу, даже если среди них есть не только новости редакции, но и пользовательские материалы DTF;
+- если по теме ничего не найдено прямым поиском и fallback-лентами, честно скажи, что DTF не нашёл материалов по этой теме, но не проси пользователя уточнить, имеет ли он в виду заголовки или саму игру/тему;
 - если пользователь просит последние, свежие, новые или актуальные новости, всегда в текущем ответе сначала вызывай dtf-latest-feed, даже если похожий список уже был в этом чате раньше;
 - если пользователь просит популярные, горячие или обсуждаемые материалы, всегда в текущем ответе сначала вызывай dtf-popular-feed с подходящими sorting и period, даже если похожий список уже был в этом чате раньше;
 - повторный запрос новостей считай просьбой заново получить свежую выборку, а не дубликатом;
@@ -37,7 +40,7 @@ const DTF_AGENT_RUNTIME_CONFIG = {
   max_tokens: 4096,
 };
 
-const DTF_AGENT_VERSION_NUMBER = 6;
+const DTF_AGENT_VERSION_NUMBER = 7;
 
 export async function seedDtfNewsAgent() {
   const [admin] = await db
@@ -66,16 +69,22 @@ export async function seedDtfNewsAgent() {
     .from(toolDefinitions)
     .where(eq(toolDefinitions.slug, 'dtf-popular-feed'))
     .then((rows) => rows[0]);
+  const dtfSearch = await db
+    .select({ id: toolDefinitions.id })
+    .from(toolDefinitions)
+    .where(eq(toolDefinitions.slug, 'dtf-search-articles'))
+    .then((rows) => rows[0]);
 
-  if (!dtfFeed || !dtfArticle || !dtfPopular) {
+  if (!dtfFeed || !dtfArticle || !dtfPopular || !dtfSearch) {
     console.log('Skipping DTF News Agent seed: DTF tools not found (run builtin tools seed first)');
     return;
   }
 
   const toolIds = [
     { id: dtfFeed.id, order: 0 },
-    { id: dtfArticle.id, order: 1 },
-    { id: dtfPopular.id, order: 2 },
+    { id: dtfSearch.id, order: 1 },
+    { id: dtfArticle.id, order: 2 },
+    { id: dtfPopular.id, order: 3 },
   ];
 
   const [existing] = await db
@@ -126,7 +135,7 @@ export async function seedDtfNewsAgent() {
         .onConflictDoNothing();
     }
 
-    console.log('Ensured DTF News Agent v6 with 3 tools');
+    console.log('Ensured DTF News Agent v7 with 4 tools');
     return;
   }
 
@@ -171,5 +180,5 @@ export async function seedDtfNewsAgent() {
     });
   }
 
-  console.log('Seeded DTF News Agent with 3 tools');
+  console.log('Seeded DTF News Agent with 4 tools');
 }

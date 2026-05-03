@@ -20,7 +20,7 @@ const TOOL_GROUPS: ToolGroupDefinition[] = [
     title: 'Поиск и работа с источниками',
     description: 'Для ресерча, новостей, фактчекинга и агентов, которые должны опираться на внешние данные.',
     audience: 'Подходит для поисковых, новостных и аналитических агентов.',
-    slugs: ['web-search-cascade', 'dtf-latest-feed', 'dtf-article-fetch', 'dtf-popular-feed', 'http-request'],
+    slugs: ['web-search-cascade', 'dtf-latest-feed', 'dtf-search-articles', 'dtf-article-fetch', 'dtf-popular-feed', 'http-request'],
   },
   {
     key: 'data',
@@ -57,8 +57,8 @@ const EXAMPLE_AGENT_CARDS = [
   },
   {
     title: 'DTF News Agent',
-    description: 'Показывает свежие и популярные материалы DTF, умеет загружать статьи и делать краткие пересказы.',
-    tools: ['DTF Latest Feed', 'DTF Article Fetch', 'DTF Popular Feed'],
+    description: 'Показывает свежие и популярные материалы DTF, ищет статьи по теме, умеет загружать статьи и делать краткие пересказы.',
+    tools: ['DTF Latest Feed', 'DTF Search Articles', 'DTF Article Fetch', 'DTF Popular Feed'],
     href: '/my/agents?tab=search',
     cta: 'Открыть поиск агентов',
   },
@@ -88,6 +88,8 @@ function buildToolUseCases(tool: ToolDefinition): string {
     case 'dtf-latest-feed':
     case 'dtf-popular-feed':
       return 'Ленты новостей и подборки материалов.';
+    case 'dtf-search-articles':
+      return 'Поиск статей DTF по игре, теме, компании или ключевому слову.';
     case 'dtf-article-fetch':
       return 'Загрузка полной статьи и пересказ содержимого.';
     case 'http-request':
