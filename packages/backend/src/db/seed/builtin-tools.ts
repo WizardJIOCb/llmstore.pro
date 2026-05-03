@@ -247,7 +247,7 @@ const builtinTools = [
     name: 'DTF Latest Feed',
     slug: 'dtf-latest-feed',
     tool_type: 'http_request' as const,
-    description: 'Получает список последних статей с DTF.ru. Возвращает заголовки, авторов, ссылки и статистику.',
+    description: 'Получает список последних статей с DTF.ru, отсортированный по дате публикации: самые новые сверху. Возвращает заголовки, авторов, ссылки и статистику.',
     input_schema: {
       type: 'object',
       properties: {
@@ -319,7 +319,7 @@ const builtinTools = [
     name: 'DTF Search Articles',
     slug: 'dtf-search-articles',
     tool_type: 'http_request' as const,
-    description: 'Ищет статьи на DTF.ru по теме, игре, компании, человеку или ключевому слову. Подходит для запросов вроде "новости по Doom", "что пишут про Silent Hill" или "материалы про Nintendo".',
+    description: 'Ищет статьи на DTF.ru по теме, игре, компании, человеку или ключевому слову. Результаты возвращаются по дате публикации: самые новые сверху. Подходит для запросов вроде "новости по Doom", "что пишут про Silent Hill" или "материалы про Nintendo".',
     input_schema: {
       type: 'object',
       properties: {

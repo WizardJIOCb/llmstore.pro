@@ -71,6 +71,16 @@ function toPublishedAt(value: number | undefined): string | null {
   return new Date(value * 1000).toISOString();
 }
 
+function publishedAtMs(article: DtfFeedArticle): number {
+  if (!article.published_at) return 0;
+  const timestamp = Date.parse(article.published_at);
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function sortByNewest(articles: DtfFeedArticle[]): DtfFeedArticle[] {
+  return [...articles].sort((a, b) => publishedAtMs(b) - publishedAtMs(a));
+}
+
 export async function executeDtfFeed(input: { limit?: number }): Promise<DtfFeedResult> {
   const limit = Math.min(input.limit ?? 10, 30);
 
@@ -80,7 +90,7 @@ export async function executeDtfFeed(input: { limit?: number }): Promise<DtfFeed
     logger.info('DTF feed: serving from cache');
     return {
       ...cached,
-      articles: cached.articles.slice(0, limit),
+      articles: sortByNewest(cached.articles).slice(0, limit),
     };
   }
 
@@ -102,7 +112,7 @@ export async function executeDtfFeed(input: { limit?: number }): Promise<DtfFeed
       logger.warn({ err: error }, 'DTF feed: serving stale cache after API failure');
       return {
         ...staleCache,
-        articles: staleCache.articles.slice(0, limit),
+        articles: sortByNewest(staleCache.articles).slice(0, limit),
       };
     }
 
@@ -155,7 +165,7 @@ export async function executeDtfFeed(input: { limit?: number }): Promise<DtfFeed
   }
 
   const result: DtfFeedResult = {
-    articles: articles.slice(0, 30),
+    articles: sortByNewest(articles).slice(0, 30),
     fetched_at: new Date().toISOString(),
   };
 

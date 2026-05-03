@@ -57,6 +57,10 @@ function toPublishedAt(value: number | undefined): string | null {
   return new Date(value * 1000).toISOString();
 }
 
+function sortByNewest(articles: ParsedEntry[]): ParsedEntry[] {
+  return [...articles].sort((a, b) => b._date - a._date);
+}
+
 async function getCached(query: string, includeExpired = false): Promise<ParsedEntry[] | null> {
   const [entry] = await db
     .select()
@@ -142,7 +146,7 @@ function applyFilters(
     filtered = filtered.filter((article) => article._date >= threshold);
   }
 
-  const clean: DtfSearchArticle[] = filtered
+  const clean: DtfSearchArticle[] = sortByNewest(filtered)
     .slice(0, limit)
     .map(({ _date, ...article }) => article);
 
@@ -203,7 +207,8 @@ export async function executeDtfSearch(input: {
     articles.push(article);
   }
 
-  await setCache(query, articles);
+  const sortedArticles = sortByNewest(articles);
+  await setCache(query, sortedArticles);
 
-  return applyFilters(articles, query, period, limit, new Date().toISOString());
+  return applyFilters(sortedArticles, query, period, limit, new Date().toISOString());
 }
