@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import type { AliceProfileLinkDto, ProfileLeaderboardEntry, ProfileLeaderboardSort } from '@llmstore/shared/types';
@@ -260,6 +261,17 @@ export function ProfilePage() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isLeaderboardOpen]);
+
+  useEffect(() => {
+    if (!isLeaderboardOpen || typeof document === 'undefined') return undefined;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
   }, [isLeaderboardOpen]);
 
   useEffect(() => {
@@ -1094,13 +1106,13 @@ export function ProfilePage() {
               ) : null}
             </div>
 
-            {isLeaderboardOpen && (
+            {isLeaderboardOpen && typeof document !== 'undefined' && createPortal(
               <div
-                className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 p-4"
+                className="fixed inset-0 z-[140] flex items-center justify-center bg-black/50 p-4"
                 onClick={() => setIsLeaderboardOpen(false)}
               >
                 <div
-                  className="w-full max-w-5xl rounded-2xl border bg-background shadow-2xl"
+                  className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border bg-background shadow-2xl"
                   onClick={(event) => event.stopPropagation()}
                 >
                   <div className="flex items-start justify-between gap-4 border-b p-6">
@@ -1116,7 +1128,7 @@ export function ProfilePage() {
                     </Button>
                   </div>
 
-                  <div className="space-y-4 p-6">
+                  <div className="min-h-0 space-y-4 overflow-y-auto p-6">
                     <div className="flex flex-wrap gap-2">
                       {LEADERBOARD_SORT_OPTIONS.map((option) => (
                         <Button
@@ -1373,7 +1385,8 @@ export function ProfilePage() {
                     )}
                   </div>
                 </div>
-              </div>
+              </div>,
+              document.body,
             )}
             {LINKABLE_PROVIDERS.map((provider) => {
               const isLinked = linkedProviders.has(provider);
