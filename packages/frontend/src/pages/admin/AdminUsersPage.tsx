@@ -12,9 +12,12 @@ import { useAuth } from '../../hooks/useAuth';
 
 type SortField = 'spent_usd' | 'spent_tokens' | 'agents_count' | 'chats_count' | 'balance_usd' | 'last_activity_at' | 'last_login_at' | 'created_at' | 'role';
 type SortOrder = 'asc' | 'desc';
+type PerPageOption = 5 | 10 | 20;
+type PaginationItem = number | 'start-ellipsis' | 'end-ellipsis';
 
 const ALICE_ROLE_FILTER_VALUE = '__alice';
 const ALICE_SYNTHETIC_EMAIL_DOMAIN = '@alice.llmstore.local';
+const perPageOptions: PerPageOption[] = [5, 10, 20];
 
 const roleLabels: Record<string, string> = {
   user: 'Пользователь',
@@ -58,11 +61,46 @@ function isAliceUser(user: Pick<AdminUserListItem, 'email'>): boolean {
   return user.email.toLowerCase().endsWith(ALICE_SYNTHETIC_EMAIL_DOMAIN);
 }
 
+function buildPaginationItems(currentPage: number, totalPages: number): PaginationItem[] {
+  const safeTotalPages = Math.max(1, totalPages);
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), safeTotalPages);
+
+  if (safeTotalPages <= 7) {
+    return Array.from({ length: safeTotalPages }, (_, index) => index + 1);
+  }
+
+  const pageSet = new Set<number>([1, safeTotalPages, safeCurrentPage, safeCurrentPage - 1, safeCurrentPage + 1]);
+
+  if (safeCurrentPage <= 4) {
+    [2, 3, 4, 5].forEach((pageNumber) => pageSet.add(pageNumber));
+  }
+
+  if (safeCurrentPage >= safeTotalPages - 3) {
+    [safeTotalPages - 4, safeTotalPages - 3, safeTotalPages - 2, safeTotalPages - 1].forEach((pageNumber) =>
+      pageSet.add(pageNumber),
+    );
+  }
+
+  const pages = Array.from(pageSet)
+    .filter((pageNumber) => pageNumber >= 1 && pageNumber <= safeTotalPages)
+    .sort((a, b) => a - b);
+
+  return pages.reduce<PaginationItem[]>((items, pageNumber, index) => {
+    const previousPage = pages[index - 1];
+    if (previousPage && pageNumber - previousPage > 1) {
+      items.push(index === 1 ? 'start-ellipsis' : 'end-ellipsis');
+    }
+    items.push(pageNumber);
+    return items;
+  }, []);
+}
+
 export function AdminUsersPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user: authUser, fetchMe } = useAuth();
   const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState<PerPageOption>(10);
   const [search, setSearch] = useState('');
   const [filterRole, setFilterRole] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
@@ -84,7 +122,7 @@ export function AdminUsersPage() {
 
   const { data, isLoading } = useAdminUsers({
     page,
-    per_page: 20,
+    per_page: perPage,
     search: search || undefined,
     role: filterRole && filterRole !== ALICE_ROLE_FILTER_VALUE ? filterRole : undefined,
     status: filterStatus || undefined,
@@ -124,7 +162,12 @@ export function AdminUsersPage() {
   }, [openActionMenuUserId]);
 
   const users = data?.data ?? [];
-  const meta = data?.meta ?? { total: 0, page: 1, per_page: 20, total_pages: 1 };
+  const meta = data?.meta ?? { total: 0, page: 1, per_page: perPage, total_pages: 1 };
+  const totalPages = Math.max(1, meta.total_pages);
+  const currentPage = Math.min(Math.max(1, page), totalPages);
+  const pageStart = meta.total === 0 ? 0 : (currentPage - 1) * perPage + 1;
+  const pageEnd = Math.min(currentPage * perPage, meta.total);
+  const paginationItems = buildPaginationItems(currentPage, totalPages);
 
   const handleSort = (field: SortField) => {
     setPage(1);
@@ -412,21 +455,67 @@ export function AdminUsersPage() {
           </div>
 
           {/* Pagination */}
-          {meta.total_pages > 1 && (
-            <div className="mt-4 flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">
-                Страница {page} из {meta.total_pages}
-              </span>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+          <div className="mt-4 rounded-lg border bg-muted/20 p-3">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex flex-col gap-2 text-sm text-muted-foreground sm:flex-row sm:items-center sm:gap-4">
+                <label className="flex items-center gap-2">
+                  <span>Записей на странице</span>
+                  <select
+                    value={perPage}
+                    onChange={(event) => {
+                      setPerPage(Number(event.target.value) as PerPageOption);
+                      setPage(1);
+                    }}
+                    className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground"
+                  >
+                    {perPageOptions.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <span>
+                  Показано {pageStart}-{pageEnd} из {meta.total}
+                </span>
+              </div>
+
+              <nav className="flex flex-wrap items-center gap-2" aria-label="Пагинация пользователей">
+                <Button variant="outline" size="sm" disabled={currentPage <= 1} onClick={() => setPage(1)}>
+                  Первая
+                </Button>
+                <Button variant="outline" size="sm" disabled={currentPage <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
                   Назад
                 </Button>
-                <Button variant="outline" size="sm" disabled={page >= meta.total_pages} onClick={() => setPage((p) => p + 1)}>
+                <div className="flex flex-wrap items-center gap-1">
+                  {paginationItems.map((item) =>
+                    typeof item === 'number' ? (
+                      <Button
+                        key={item}
+                        variant={item === currentPage ? 'primary' : 'outline'}
+                        size="sm"
+                        className="min-w-9 px-3"
+                        aria-current={item === currentPage ? 'page' : undefined}
+                        onClick={() => setPage(item)}
+                      >
+                        {item}
+                      </Button>
+                    ) : (
+                      <span key={item} className="px-1.5 text-sm text-muted-foreground">
+                        ...
+                      </span>
+                    ),
+                  )}
+                </div>
+                <Button variant="outline" size="sm" disabled={currentPage >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>
                   Вперёд
                 </Button>
-              </div>
+                <Button variant="outline" size="sm" disabled={currentPage >= totalPages} onClick={() => setPage(totalPages)}>
+                  Последняя
+                </Button>
+              </nav>
             </div>
-          )}
+          </div>
         </>
       )}
 
