@@ -119,7 +119,7 @@ interface DeploymentUpsertInput {
 }
 
 export interface DeploymentControlInput extends DeploymentUpsertInput {
-  action: 'start' | 'stop' | 'update_settings';
+  action: 'start' | 'stop' | 'update_settings' | 'clear_logs';
 }
 
 interface DeploymentAgentRunInput {
@@ -1134,6 +1134,16 @@ async function stopDeploymentInternal(deploymentId: string, userId: string): Pro
   });
 }
 
+async function clearDeploymentLogsInternal(deploymentId: string, userId: string): Promise<void> {
+  await getDeploymentWithAgentMeta(deploymentId, userId);
+  const runtime = deploymentRuntimes.get(deploymentId);
+  if (runtime) {
+    runtime.stdout = '';
+    runtime.stderr = '';
+  }
+  await resetDeploymentLogs(deploymentId);
+}
+
 async function getDeploymentByToken(publicToken: string) {
   const [row] = await db
     .select({
@@ -1500,6 +1510,11 @@ export async function controlChatMessageProjectDeployment(
 
   if (!deployment) {
     throw new NotFoundError('Deployment not found');
+  }
+
+  if (input.action === 'clear_logs') {
+    await clearDeploymentLogsInternal(deployment.id, userId);
+    return await toProjectDeploymentRecord(await getDeploymentWithAgentMeta(deployment.id, userId));
   }
 
   await stopDeploymentInternal(deployment.id, userId);

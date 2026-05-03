@@ -158,7 +158,7 @@ export interface ProjectDeployment {
   last_stopped_at: string | null;
 }
 
-export type ProjectDeploymentAction = 'start' | 'stop' | 'update_settings';
+export type ProjectDeploymentAction = 'start' | 'stop' | 'update_settings' | 'clear_logs';
 
 export interface ProjectDeploymentActionPayload {
   action: ProjectDeploymentAction;

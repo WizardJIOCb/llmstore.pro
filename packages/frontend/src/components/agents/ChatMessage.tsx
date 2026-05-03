@@ -3,7 +3,7 @@ import type { ComponentPropsWithoutRef, CSSProperties, KeyboardEvent, ReactNode 
 import { createPortal } from 'react-dom';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Activity, Download, ExternalLink, Link as LinkIcon, Pencil, Play, Settings, Square, Trash2 } from 'lucide-react';
+import { Activity, Download, ExternalLink, Pencil, Play, Settings, Square, Trash2 } from 'lucide-react';
 import type { CodingReport, CodingReportProject, ProjectRunResult, ToolTrace } from '../../lib/api/agents';
 import type { ProjectDeployment, ProjectDeploymentActionPayload, PublishedLanding } from '../../lib/api/chats';
 import { GENERAL_CHAT_MODELS } from '../../lib/chat-models';
@@ -1872,6 +1872,7 @@ export function ChatMessage({
   const [projectStartingDeployment, setProjectStartingDeployment] = useState(false);
   const [projectReinstallingWebhook, setProjectReinstallingWebhook] = useState(false);
   const [projectStoppingDeployment, setProjectStoppingDeployment] = useState(false);
+  const [projectClearingLogs, setProjectClearingLogs] = useState(false);
   const [projectDeploymentError, setProjectDeploymentError] = useState<string | null>(null);
   const [projectDeploymentStatus, setProjectDeploymentStatus] = useState<string | null>(null);
   const [projectDeploymentEditorOpen, setProjectDeploymentEditorOpen] = useState(false);
@@ -1940,7 +1941,7 @@ export function ChatMessage({
   const projectDeploymentSavedModelExternalId = (projectDeployment?.model_external_id ?? '').trim();
   const projectDeploymentDraftModelExternalId = projectDeploymentModelExternalId.trim();
   const projectDeploymentModelDirty = projectDeploymentSavedModelExternalId !== projectDeploymentDraftModelExternalId;
-  const projectDeploymentBusy = projectDeploying || projectStartingDeployment || projectStoppingDeployment || projectReinstallingWebhook;
+  const projectDeploymentBusy = projectDeploying || projectStartingDeployment || projectStoppingDeployment || projectReinstallingWebhook || projectClearingLogs;
   const editorBusy = editorSaving || editorExporting;
   const messageActionBusy = deletingMessage || editingMessage;
   const canManagePublishedLanding = Boolean(resolvedHtmlPreview && (onPublishLanding || onUpdateLanding || onUnpublishLanding));
@@ -2400,16 +2401,6 @@ export function ChatMessage({
     }
   };
 
-  const copyTextToClipboard = async (value: string, successMessage: string) => {
-    try {
-      await navigator.clipboard.writeText(value);
-      setProjectDeploymentStatus(successMessage);
-      setProjectDeploymentError(null);
-    } catch {
-      setProjectDeploymentError('Не удалось скопировать в буфер обмена');
-    }
-  };
-
   const openProjectDeploymentSettings = () => {
     setProjectDeploymentEditorOpen(true);
     setProjectDeploymentError(null);
@@ -2502,6 +2493,22 @@ export function ChatMessage({
       setProjectDeploymentError(error instanceof Error ? error.message : 'Не удалось остановить deployment');
     } finally {
       setProjectStoppingDeployment(false);
+    }
+  };
+
+  const clearProjectDeploymentLogs = async () => {
+    if (!onControlProjectDeployment) return;
+    setProjectClearingLogs(true);
+    setProjectDeploymentError(null);
+    setProjectDeploymentStatus(null);
+    try {
+      const deployment = await onControlProjectDeployment({ action: 'clear_logs' });
+      setProjectDeployment(deployment);
+      setProjectDeploymentStatus('Логи очищены');
+    } catch (error) {
+      setProjectDeploymentError(error instanceof Error ? error.message : 'Не удалось очистить логи deployment');
+    } finally {
+      setProjectClearingLogs(false);
     }
   };
 
@@ -3060,7 +3067,15 @@ export function ChatMessage({
                               {projectDeployment.entrypoint ? `, entrypoint: ${projectDeployment.entrypoint}` : ''}
                             </p>
                             <p className="break-all text-xs text-muted-foreground">
-                              Webhook URL: {projectDeployment.webhook_url}
+                              Webhook URL:{' '}
+                              <a
+                                href={projectDeployment.webhook_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="font-medium text-primary underline-offset-2 hover:underline"
+                              >
+                                {projectDeployment.webhook_url}
+                              </a>
                             </p>
                             {projectDeployment.linked_agent_name && (
                               <p className="text-xs text-muted-foreground">
@@ -3135,22 +3150,25 @@ export function ChatMessage({
                               variant="outline"
                               size="sm"
                               className="gap-1.5"
-                              onClick={() => { void copyTextToClipboard(projectDeployment.webhook_url, 'Webhook URL скопирован'); }}
-                            >
-                              <LinkIcon className="h-4 w-4" aria-hidden="true" />
-                              URL
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              className="gap-1.5"
                               onClick={openProjectDeploymentSettings}
                               disabled={projectDeploymentBusy}
                             >
                               <Settings className="h-4 w-4" aria-hidden="true" />
                               Настройки
                             </Button>
+                            {onControlProjectDeployment && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="gap-1.5"
+                                onClick={() => { void clearProjectDeploymentLogs(); }}
+                                disabled={projectDeploymentBusy || deploymentLogLines.length === 0}
+                              >
+                                <Trash2 className="h-4 w-4" aria-hidden="true" />
+                                {projectClearingLogs ? 'Очищаю...' : 'Очистить логи'}
+                              </Button>
+                            )}
                             {deploymentRunsDashboardUrl && (
                               <a
                                 href={deploymentRunsDashboardUrl}

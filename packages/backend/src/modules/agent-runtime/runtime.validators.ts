@@ -88,7 +88,7 @@ const upsertProjectDeploymentSchema = z.object({
 });
 
 const controlProjectDeploymentSchema = upsertProjectDeploymentSchema.extend({
-  action: z.enum(['start', 'stop', 'update_settings']),
+  action: z.enum(['start', 'stop', 'update_settings', 'clear_logs']),
 });
 
 const projectDeploymentAgentRunSchema = z.object({
