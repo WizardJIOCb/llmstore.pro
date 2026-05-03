@@ -1,5 +1,5 @@
 import argon2 from 'argon2';
-import { eq, and, or, desc, asc, ilike, sql, count, inArray, type SQL } from 'drizzle-orm';
+import { eq, and, or, desc, asc, ilike, not, sql, count, inArray, type SQL } from 'drizzle-orm';
 import { db } from '../../config/database.js';
 import {
   catalogItems, catalogItemMeta,
@@ -588,9 +588,12 @@ interface AdminUsersQuery {
   search?: string;
   role?: string;
   status?: string;
+  source?: 'regular' | 'alice' | 'all';
   sort_by?: 'spent_usd' | 'spent_tokens' | 'agents_count' | 'chats_count' | 'balance_usd' | 'last_activity_at' | 'last_login_at' | 'created_at' | 'role';
   sort_order?: 'asc' | 'desc';
 }
+
+const ALICE_SYNTHETIC_EMAIL_PATTERN = 'alice-%@alice.llmstore.local';
 
 export async function listUsers(query: AdminUsersQuery) {
   const page = query.page ?? 1;
@@ -612,6 +615,11 @@ export async function listUsers(query: AdminUsersQuery) {
   }
   if (query.status) {
     conditions.push(eq(users.status, query.status as any));
+  }
+  if (query.source === 'alice') {
+    conditions.push(ilike(users.email, ALICE_SYNTHETIC_EMAIL_PATTERN));
+  } else if (query.source !== 'all') {
+    conditions.push(not(ilike(users.email, ALICE_SYNTHETIC_EMAIL_PATTERN)));
   }
 
   const where = conditions.length > 0 ? and(...conditions) : undefined;

@@ -13,6 +13,9 @@ import { useAuth } from '../../hooks/useAuth';
 type SortField = 'spent_usd' | 'spent_tokens' | 'agents_count' | 'chats_count' | 'balance_usd' | 'last_activity_at' | 'last_login_at' | 'created_at' | 'role';
 type SortOrder = 'asc' | 'desc';
 
+const ALICE_ROLE_FILTER_VALUE = '__alice';
+const ALICE_SYNTHETIC_EMAIL_DOMAIN = '@alice.llmstore.local';
+
 const roleLabels: Record<string, string> = {
   user: 'Пользователь',
   power_user: 'Power User',
@@ -51,6 +54,10 @@ function formatDateTime(value: string | null | undefined) {
   });
 }
 
+function isAliceUser(user: Pick<AdminUserListItem, 'email'>): boolean {
+  return user.email.toLowerCase().endsWith(ALICE_SYNTHETIC_EMAIL_DOMAIN);
+}
+
 export function AdminUsersPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -79,8 +86,9 @@ export function AdminUsersPage() {
     page,
     per_page: 20,
     search: search || undefined,
-    role: filterRole || undefined,
+    role: filterRole && filterRole !== ALICE_ROLE_FILTER_VALUE ? filterRole : undefined,
     status: filterStatus || undefined,
+    source: filterRole === ALICE_ROLE_FILTER_VALUE ? 'alice' : 'regular',
     sort_by: sortBy,
     sort_order: sortOrder,
   });
@@ -228,6 +236,7 @@ export function AdminUsersPage() {
           {Object.entries(roleLabels).map(([v, l]) => (
             <option key={v} value={v}>{l}</option>
           ))}
+          <option value={ALICE_ROLE_FILTER_VALUE}>Alice user</option>
         </select>
         <select
           value={filterStatus}
@@ -295,6 +304,11 @@ export function AdminUsersPage() {
                       <Badge variant={roleVariants[user.role] ?? 'secondary'}>
                         {roleLabels[user.role] ?? user.role}
                       </Badge>
+                      {isAliceUser(user) && (
+                        <Badge variant="outline" className="ml-2">
+                          Alice
+                        </Badge>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <Badge variant={statusVariants[user.status] ?? 'secondary'}>
