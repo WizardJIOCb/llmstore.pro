@@ -163,10 +163,11 @@ export function AdminUsersPage() {
 
   const users = data?.data ?? [];
   const meta = data?.meta ?? { total: 0, page: 1, per_page: perPage, total_pages: 1 };
+  const resolvedPerPage = Number(meta.per_page) || perPage;
   const totalPages = Math.max(1, meta.total_pages);
   const currentPage = Math.min(Math.max(1, page), totalPages);
-  const pageStart = meta.total === 0 ? 0 : (currentPage - 1) * perPage + 1;
-  const pageEnd = Math.min(currentPage * perPage, meta.total);
+  const pageStart = meta.total === 0 ? 0 : (currentPage - 1) * resolvedPerPage + 1;
+  const pageEnd = meta.total === 0 ? 0 : Math.min(pageStart + users.length - 1, meta.total);
   const paginationItems = buildPaginationItems(currentPage, totalPages);
 
   const handleSort = (field: SortField) => {

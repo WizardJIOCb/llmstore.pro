@@ -583,8 +583,8 @@ export async function deleteTool(id: string) {
 // ─── User Management ────────────────────────────────────────
 
 interface AdminUsersQuery {
-  page?: number;
-  per_page?: number;
+  page?: number | string;
+  per_page?: number | string;
   search?: string;
   role?: string;
   status?: string;
@@ -594,10 +594,24 @@ interface AdminUsersQuery {
 }
 
 const ALICE_SYNTHETIC_EMAIL_PATTERN = 'alice-%@alice.llmstore.local';
+const ADMIN_USERS_DEFAULT_PAGE_SIZE = 10;
+const ADMIN_USERS_PAGE_SIZE_OPTIONS = [5, 10, 20] as const;
+
+function normalizePositiveInteger(value: number | string | undefined, fallback: number): number {
+  const parsed = typeof value === 'number' ? value : Number.parseInt(value ?? '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function normalizeAdminUsersPerPage(value: number | string | undefined): number {
+  const parsed = normalizePositiveInteger(value, ADMIN_USERS_DEFAULT_PAGE_SIZE);
+  return ADMIN_USERS_PAGE_SIZE_OPTIONS.includes(parsed as (typeof ADMIN_USERS_PAGE_SIZE_OPTIONS)[number])
+    ? parsed
+    : ADMIN_USERS_DEFAULT_PAGE_SIZE;
+}
 
 export async function listUsers(query: AdminUsersQuery) {
-  const page = query.page ?? 1;
-  const perPage = query.per_page ?? 20;
+  const page = normalizePositiveInteger(query.page, 1);
+  const perPage = normalizeAdminUsersPerPage(query.per_page);
   const offset = (page - 1) * perPage;
   const sortBy = query.sort_by ?? 'created_at';
   const sortOrder = query.sort_order === 'asc' ? 'asc' : 'desc';
