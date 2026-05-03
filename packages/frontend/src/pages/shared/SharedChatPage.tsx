@@ -909,6 +909,9 @@ export function SharedChatPage() {
             onUpsertProjectDeployment={canManageSharedChat && data.chatId && msg.role === 'assistant' && msg.id
               ? async (payload) => chatsApi.upsertProjectDeployment(data.chatId!, msg.id!, payload)
               : undefined}
+            onControlProjectDeployment={canManageSharedChat && data.chatId && msg.role === 'assistant' && msg.id
+              ? async (payload) => chatsApi.controlProjectDeployment(data.chatId!, msg.id!, payload)
+              : undefined}
             onStartProjectDeployment={canManageSharedChat && data.chatId && msg.role === 'assistant' && msg.id
               ? async () => chatsApi.startProjectDeployment(data.chatId!, msg.id!)
               : undefined}

@@ -3930,6 +3930,10 @@ function AuthenticatedChatsPage() {
                     && !isAdminForeignChat
                     ? async (payload) => chatsApi.upsertProjectDeployment(activeChat.id, msg.id, payload)
                     : undefined}
+                  onControlProjectDeployment={msg.role === 'assistant' && activeChat
+                    && !isAdminForeignChat
+                    ? async (payload) => chatsApi.controlProjectDeployment(activeChat.id, msg.id, payload)
+                    : undefined}
                   onStartProjectDeployment={msg.role === 'assistant' && activeChat
                     && !isAdminForeignChat
                     ? async () => chatsApi.startProjectDeployment(activeChat.id, msg.id)
@@ -4054,6 +4058,10 @@ function AuthenticatedChatsPage() {
                       onUpsertProjectDeployment={activeChat
                         && !isAdminForeignChat
                         ? async (payload) => chatsApi.upsertProjectDeployment(activeChat.id, assistantSlotResolvedMessage.id, payload)
+                        : undefined}
+                      onControlProjectDeployment={activeChat
+                        && !isAdminForeignChat
+                        ? async (payload) => chatsApi.controlProjectDeployment(activeChat.id, assistantSlotResolvedMessage.id, payload)
                         : undefined}
                       onStartProjectDeployment={activeChat
                         && !isAdminForeignChat

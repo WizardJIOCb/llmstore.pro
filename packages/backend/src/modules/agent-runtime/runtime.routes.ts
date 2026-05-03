@@ -12,6 +12,7 @@ import {
   validateUpdateLanding,
   validateSetGalleryReaction,
   validateUpsertProjectDeployment,
+  validateControlProjectDeployment,
   validateProjectDeploymentAgentRun,
   validateCloneChat,
 } from './runtime.validators.js';
@@ -52,6 +53,7 @@ router.delete('/chats/:chatId/messages/:messageId/landing', requireAuth, control
 router.post('/chats/:chatId/messages/:messageId/project-run', requireAuth, controller.runChatMessageProject);
 router.get('/chats/:chatId/messages/:messageId/project-deployment', requireAuth, controller.getChatMessageProjectDeployment);
 router.post('/chats/:chatId/messages/:messageId/project-deployment', requireAuth, validateUpsertProjectDeployment, controller.upsertChatMessageProjectDeployment);
+router.post('/chats/:chatId/messages/:messageId/project-deployment/action', requireAuth, validateControlProjectDeployment, controller.controlChatMessageProjectDeployment);
 router.post('/chats/:chatId/messages/:messageId/project-deployment/start', requireAuth, controller.startChatMessageProjectDeployment);
 router.post('/chats/:chatId/messages/:messageId/project-deployment/reinstall-webhook', requireAuth, controller.reinstallTelegramWebhookForChatMessageProjectDeployment);
 router.post('/chats/:chatId/messages/:messageId/project-deployment/stop', requireAuth, controller.stopChatMessageProjectDeployment);

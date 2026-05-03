@@ -3,9 +3,9 @@ import type { ComponentPropsWithoutRef, CSSProperties, KeyboardEvent, ReactNode 
 import { createPortal } from 'react-dom';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Pencil, Trash2 } from 'lucide-react';
+import { Activity, Download, Link as LinkIcon, Pencil, Play, Settings, Square, Trash2 } from 'lucide-react';
 import type { CodingReport, CodingReportProject, ProjectRunResult, ToolTrace } from '../../lib/api/agents';
-import type { ProjectDeployment, PublishedLanding } from '../../lib/api/chats';
+import type { ProjectDeployment, ProjectDeploymentActionPayload, PublishedLanding } from '../../lib/api/chats';
 import { GENERAL_CHAT_MODELS } from '../../lib/chat-models';
 import { cn } from '../../lib/utils';
 import { ToolTracePanel } from './ToolTracePanel';
@@ -48,6 +48,7 @@ interface ChatMessageProps {
     model_external_id?: string | null;
     set_telegram_webhook?: boolean;
   }) => Promise<ProjectDeployment>;
+  onControlProjectDeployment?: (payload: ProjectDeploymentActionPayload) => Promise<ProjectDeployment>;
   onStartProjectDeployment?: () => Promise<ProjectDeployment>;
   onReinstallProjectDeploymentWebhook?: () => Promise<ProjectDeployment>;
   onStopProjectDeployment?: () => Promise<ProjectDeployment>;
@@ -1838,6 +1839,7 @@ export function ChatMessage({
   canManageDeployment = false,
   onLoadProjectDeployment,
   onUpsertProjectDeployment,
+  onControlProjectDeployment,
   onStartProjectDeployment,
   onReinstallProjectDeploymentWebhook,
   onStopProjectDeployment,
@@ -1915,7 +1917,7 @@ export function ChatMessage({
   const canDeployProject = Boolean(
     projectBundle
     && canManageDeployment
-    && onUpsertProjectDeployment
+    && (onControlProjectDeployment || onUpsertProjectDeployment)
     && onLoadProjectDeployment
     && (projectBundle.runtime === 'node' || projectBundle.runtime === 'python'),
   );
@@ -1938,6 +1940,7 @@ export function ChatMessage({
   const projectDeploymentSavedModelExternalId = (projectDeployment?.model_external_id ?? '').trim();
   const projectDeploymentDraftModelExternalId = projectDeploymentModelExternalId.trim();
   const projectDeploymentModelDirty = projectDeploymentSavedModelExternalId !== projectDeploymentDraftModelExternalId;
+  const projectDeploymentBusy = projectDeploying || projectStartingDeployment || projectStoppingDeployment || projectReinstallingWebhook;
   const editorBusy = editorSaving || editorExporting;
   const messageActionBusy = deletingMessage || editingMessage;
   const canManagePublishedLanding = Boolean(resolvedHtmlPreview && (onPublishLanding || onUpdateLanding || onUnpublishLanding));
@@ -2407,19 +2410,32 @@ export function ChatMessage({
     }
   };
 
+  const openProjectDeploymentSettings = () => {
+    setProjectDeploymentEditorOpen(true);
+    setProjectDeploymentError(null);
+    setProjectDeploymentStatus(null);
+    setProjectDeploymentEnvText(formatEnvText(projectDeployment?.env));
+    setProjectDeploymentLinkedAgentId(projectDeployment?.linked_agent_id ?? '');
+    setProjectDeploymentModelExternalId(projectDeployment?.model_external_id ?? '');
+    setProjectDeploymentSetTelegramWebhook(Boolean(projectDeployment?.env.TELEGRAM_BOT_TOKEN));
+  };
+
   const saveProjectDeployment = async (options?: { closeEditor?: boolean; successMessage?: string }) => {
-    if (!onUpsertProjectDeployment) return;
+    if (!onControlProjectDeployment && !onUpsertProjectDeployment) return;
 
     setProjectDeploying(true);
     setProjectDeploymentError(null);
     setProjectDeploymentStatus(null);
     try {
-      const deployment = await onUpsertProjectDeployment({
+      const payload = {
         env: parseEnvText(projectDeploymentEnvText),
         linked_agent_id: projectDeploymentLinkedAgentId.trim() || null,
         model_external_id: projectDeploymentModelExternalId.trim() || null,
         set_telegram_webhook: projectDeploymentSetTelegramWebhook,
-      });
+      };
+      const deployment = onControlProjectDeployment
+        ? await onControlProjectDeployment({ action: 'update_settings', ...payload })
+        : await onUpsertProjectDeployment!(payload);
       setProjectDeployment(deployment);
       setProjectDeploymentStatus(
         options?.successMessage
@@ -2433,7 +2449,7 @@ export function ChatMessage({
         setProjectDeploymentEditorOpen(false);
       }
     } catch (error) {
-      setProjectDeploymentError(error instanceof Error ? error.message : 'Не удалось развернуть webhook-проект');
+      setProjectDeploymentError(error instanceof Error ? error.message : 'Не удалось сохранить настройки запуска');
     } finally {
       setProjectDeploying(false);
     }
@@ -2449,12 +2465,19 @@ export function ChatMessage({
   };
 
   const startProjectDeployment = async () => {
-    if (!onStartProjectDeployment) return;
+    if (!onControlProjectDeployment && !onStartProjectDeployment) return;
+    if (!projectDeployment) {
+      openProjectDeploymentSettings();
+      return;
+    }
+
     setProjectStartingDeployment(true);
     setProjectDeploymentError(null);
     setProjectDeploymentStatus(null);
     try {
-      const deployment = await onStartProjectDeployment();
+      const deployment = onControlProjectDeployment
+        ? await onControlProjectDeployment({ action: 'start' })
+        : await onStartProjectDeployment!();
       setProjectDeployment(deployment);
       setProjectDeploymentStatus('Deployment снова запущен');
     } catch (error) {
@@ -2465,12 +2488,14 @@ export function ChatMessage({
   };
 
   const stopProjectDeployment = async () => {
-    if (!onStopProjectDeployment) return;
+    if (!onControlProjectDeployment && !onStopProjectDeployment) return;
     setProjectStoppingDeployment(true);
     setProjectDeploymentError(null);
     setProjectDeploymentStatus(null);
     try {
-      const deployment = await onStopProjectDeployment();
+      const deployment = onControlProjectDeployment
+        ? await onControlProjectDeployment({ action: 'stop' })
+        : await onStopProjectDeployment!();
       setProjectDeployment(deployment);
       setProjectDeploymentStatus('Deployment остановлен');
     } catch (error) {
@@ -2953,10 +2978,11 @@ export function ChatMessage({
                         type="button"
                         variant="outline"
                         size="sm"
-                        className="whitespace-nowrap"
+                        className="gap-1.5 whitespace-nowrap"
                         onClick={() => { void exportProjectBundle(); }}
                         disabled={projectExporting}
                       >
+                        <Download className="h-4 w-4" aria-hidden="true" />
                         {projectExporting ? 'Экспортирую...' : 'Скачать проект'}
                       </Button>
                       {canRunProject && onRunProject && (
@@ -2964,32 +2990,49 @@ export function ChatMessage({
                           type="button"
                           variant="outline"
                           size="sm"
-                          className="whitespace-nowrap"
+                          className="gap-1.5 whitespace-nowrap"
                           onClick={() => { void runProjectBundleOnServer(); }}
                           disabled={projectRunning}
                         >
-                          {projectRunning ? 'Запускаю...' : 'Запустить'}
+                          <Activity className="h-4 w-4" aria-hidden="true" />
+                          {projectRunning ? 'Проверяю...' : 'Проверить bundle'}
                         </Button>
                       )}
                       {canDeployProject && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="whitespace-nowrap"
-                          onClick={() => {
-                            setProjectDeploymentEditorOpen(true);
-                            setProjectDeploymentError(null);
-                            setProjectDeploymentStatus(null);
-                            setProjectDeploymentEnvText(formatEnvText(projectDeployment?.env));
-                            setProjectDeploymentLinkedAgentId(projectDeployment?.linked_agent_id ?? '');
-                            setProjectDeploymentModelExternalId(projectDeployment?.model_external_id ?? '');
-                            setProjectDeploymentSetTelegramWebhook(false);
-                          }}
-                          disabled={projectDeploymentLoading}
-                        >
-                          {projectDeployment ? 'Обновить deploy' : 'Развернуть webhook'}
-                        </Button>
+                        <>
+                          <Button
+                            type="button"
+                            variant={projectDeployment?.status === 'running' ? 'outline' : 'primary'}
+                            size="sm"
+                            className="gap-1.5 whitespace-nowrap"
+                            onClick={() => {
+                              if (projectDeployment?.status === 'running') {
+                                void stopProjectDeployment();
+                                return;
+                              }
+                              void startProjectDeployment();
+                            }}
+                            disabled={projectDeploymentLoading || projectDeploymentBusy}
+                          >
+                            {projectDeployment?.status === 'running'
+                              ? <Square className="h-4 w-4" aria-hidden="true" />
+                              : <Play className="h-4 w-4" aria-hidden="true" />}
+                            {projectDeployment?.status === 'running'
+                              ? (projectStoppingDeployment ? 'Останавливаю...' : 'Остановить')
+                              : (!projectDeployment ? 'Настроить запуск' : (projectStartingDeployment ? 'Запускаю...' : 'Запустить'))}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="gap-1.5 whitespace-nowrap"
+                            onClick={openProjectDeploymentSettings}
+                            disabled={projectDeploymentLoading || projectDeploymentBusy}
+                          >
+                            <Settings className="h-4 w-4" aria-hidden="true" />
+                            Настройки
+                          </Button>
+                        </>
                       )}
                     </div>
 
@@ -3074,83 +3117,57 @@ export function ChatMessage({
                                 </div>
                               </div>
                             )}
-                            {canManageDeployment && projectDeployment.linked_agent_id && (
-                              <div className="mt-3 space-y-2 rounded-md border border-border/60 bg-muted/20 p-3">
-                                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                                  Модель runtime
-                                </p>
-                                <div className="flex flex-col gap-2 sm:flex-row">
-                                  <Select
-                                    value={projectDeploymentModelExternalId}
-                                    onChange={(e) => setProjectDeploymentModelExternalId(e.target.value)}
-                                    options={projectDeploymentModelOptions}
-                                    className="h-9 sm:flex-1"
-                                  />
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    className="whitespace-nowrap"
-                                    onClick={() => { void saveProjectDeploymentModel(); }}
-                                    disabled={projectDeploying || !projectDeploymentModelDirty}
-                                  >
-                                    {projectDeploying ? 'Сохраняю...' : 'Сохранить модель'}
-                                  </Button>
-                                </div>
-                                <p className="text-xs text-muted-foreground">
-                                  Можно быстро переключить модель для этого runtime прямо из чата, не меняя настройки самого агента.
-                                </p>
-                              </div>
-                            )}
                           </div>
                           <div className="flex flex-wrap gap-2">
                             <Button
                               type="button"
                               variant="outline"
                               size="sm"
+                              className="gap-1.5"
                               onClick={() => { void copyTextToClipboard(projectDeployment.webhook_url, 'Webhook URL скопирован'); }}
                             >
-                              Копировать URL
+                              <LinkIcon className="h-4 w-4" aria-hidden="true" />
+                              URL
                             </Button>
-                            {onReinstallProjectDeploymentWebhook && projectDeployment.env.TELEGRAM_BOT_TOKEN && (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => { void reinstallProjectDeploymentWebhook(); }}
-                                disabled={projectReinstallingWebhook}
-                              >
-                                {projectReinstallingWebhook ? 'Переустанавливаю...' : 'Переустановить webhook'}
-                              </Button>
-                            )}
-                            {projectDeployment.status !== 'running' && onStartProjectDeployment && (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => { void startProjectDeployment(); }}
-                                disabled={projectStartingDeployment}
-                              >
-                                {projectStartingDeployment ? 'Запускаю...' : 'Запустить deploy'}
-                              </Button>
-                            )}
-                            {projectDeployment.status === 'running' && onStopProjectDeployment && (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => { void stopProjectDeployment(); }}
-                                disabled={projectStoppingDeployment}
-                              >
-                                {projectStoppingDeployment ? 'Останавливаю...' : 'Остановить deploy'}
-                              </Button>
-                            )}
+                            <Button
+                              type="button"
+                              variant={projectDeployment.status === 'running' ? 'outline' : 'primary'}
+                              size="sm"
+                              className="gap-1.5"
+                              onClick={() => {
+                                if (projectDeployment.status === 'running') {
+                                  void stopProjectDeployment();
+                                  return;
+                                }
+                                void startProjectDeployment();
+                              }}
+                              disabled={projectDeploymentBusy}
+                            >
+                              {projectDeployment.status === 'running'
+                                ? <Square className="h-4 w-4" aria-hidden="true" />
+                                : <Play className="h-4 w-4" aria-hidden="true" />}
+                              {projectDeployment.status === 'running'
+                                ? (projectStoppingDeployment ? 'Останавливаю...' : 'Остановить')
+                                : (projectStartingDeployment ? 'Запускаю...' : 'Запустить')}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="gap-1.5"
+                              onClick={openProjectDeploymentSettings}
+                              disabled={projectDeploymentBusy}
+                            >
+                              <Settings className="h-4 w-4" aria-hidden="true" />
+                              Настройки
+                            </Button>
                             {deploymentRunsDashboardUrl && (
                               <a
                                 href={deploymentRunsDashboardUrl}
-                                className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium text-foreground shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground"
+                                className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-input bg-background px-3 text-sm font-medium text-foreground shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground"
                               >
-                                Все запросы
+                                <Activity className="h-4 w-4" aria-hidden="true" />
+                                Запросы
                               </a>
                             )}
                           </div>
@@ -3656,9 +3673,9 @@ export function ChatMessage({
           >
             <div className="flex items-center justify-between gap-3 border-b px-5 py-4">
               <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-slate-900">Deploy webhook-проекта</p>
+                <p className="truncate text-sm font-semibold text-slate-900">Настройки запуска Project Bundle</p>
                 <p className="text-xs text-slate-500">
-                  Подходит для Telegram webhook-ботов и других long-running HTTP проектов.
+                  Здесь обновляются env, связанный агент, модель и Telegram webhook. После сохранения runtime перезапустится.
                 </p>
               </div>
               <Button
@@ -3789,9 +3806,9 @@ export function ChatMessage({
                   onChange={(e) => setProjectDeploymentSetTelegramWebhook(e.target.checked)}
                 />
                 <span className="space-y-1">
-                  <span className="block font-medium text-foreground">Сразу установить webhook в Telegram</span>
+                  <span className="block font-medium text-foreground">Установить или обновить webhook в Telegram</span>
                   <span className="block text-xs text-muted-foreground">
-                    После успешного deploy backend вызовет `setWebhook` в Telegram на URL этого deployment.
+                    После сохранения backend вызовет `setWebhook` в Telegram на URL этого deployment.
                     Нужен `TELEGRAM_BOT_TOKEN`, а если указан `TELEGRAM_SECRET_TOKEN`, он тоже будет передан.
                   </span>
                 </span>
@@ -3820,7 +3837,7 @@ export function ChatMessage({
                 onClick={() => { void saveProjectDeployment({ closeEditor: true }); }}
                 disabled={projectDeploying}
               >
-                {projectDeploying ? 'Разворачиваю...' : 'Развернуть'}
+                {projectDeploying ? 'Сохраняю...' : (projectDeployment ? 'Сохранить и перезапустить' : 'Сохранить и запустить')}
               </Button>
             </div>
           </div>

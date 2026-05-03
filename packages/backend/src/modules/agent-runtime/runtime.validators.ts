@@ -75,6 +75,10 @@ const upsertProjectDeploymentSchema = z.object({
   set_telegram_webhook: z.boolean().optional().default(false),
 });
 
+const controlProjectDeploymentSchema = upsertProjectDeploymentSchema.extend({
+  action: z.enum(['start', 'stop', 'update_settings']),
+});
+
 const projectDeploymentAgentRunSchema = z.object({
   message: z.string().min(1).max(16_000),
 });
@@ -90,6 +94,7 @@ export const validateUpdateMessagePreview = validate(updateMessagePreviewSchema,
 export const validatePublishLanding = validate(publishLandingSchema, 'body');
 export const validateUpdateLanding = validate(updateLandingSchema, 'body');
 export const validateUpsertProjectDeployment = validate(upsertProjectDeploymentSchema, 'body');
+export const validateControlProjectDeployment = validate(controlProjectDeploymentSchema, 'body');
 export const validateProjectDeploymentAgentRun = validate(projectDeploymentAgentRunSchema, 'body');
 export const validateSetGalleryReaction = validate(setGalleryReactionSchema, 'body');
 export const validateCloneChat = validate(z.object({

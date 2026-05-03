@@ -156,6 +156,16 @@ export interface ProjectDeployment {
   last_stopped_at: string | null;
 }
 
+export type ProjectDeploymentAction = 'start' | 'stop' | 'update_settings';
+
+export interface ProjectDeploymentActionPayload {
+  action: ProjectDeploymentAction;
+  env?: Record<string, string>;
+  linked_agent_id?: string | null;
+  model_external_id?: string | null;
+  set_telegram_webhook?: boolean;
+}
+
 export interface ToolTrace {
   tool_call_id: string;
   tool_name: string;
@@ -674,6 +684,15 @@ export const chatsApi = {
   ) =>
     apiClient
       .post<{ data: ProjectDeployment }>(`/chats/${chatId}/messages/${messageId}/project-deployment`, payload)
+      .then((r) => r.data.data),
+
+  controlProjectDeployment: (
+    chatId: string,
+    messageId: string,
+    payload: ProjectDeploymentActionPayload,
+  ) =>
+    apiClient
+      .post<{ data: ProjectDeployment }>(`/chats/${chatId}/messages/${messageId}/project-deployment/action`, payload)
       .then((r) => r.data.data),
 
   startProjectDeployment: (chatId: string, messageId: string) =>

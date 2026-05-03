@@ -116,6 +116,10 @@ interface DeploymentUpsertInput {
   set_telegram_webhook?: boolean;
 }
 
+export interface DeploymentControlInput extends DeploymentUpsertInput {
+  action: 'start' | 'stop' | 'update_settings';
+}
+
 interface DeploymentAgentRunInput {
   message: string;
 }
@@ -997,8 +1001,13 @@ async function getDeploymentByToken(publicToken: string) {
   return row;
 }
 
-async function ensureRuntimeForWebhook(publicToken: string): Promise<DeploymentRuntime> {
-  const deployment = await getDeploymentByToken(publicToken);
+type DeploymentByTokenRow = Awaited<ReturnType<typeof getDeploymentByToken>>;
+
+async function ensureRuntimeForDeployment(deployment: DeploymentByTokenRow): Promise<DeploymentRuntime> {
+  if (deployment.status === 'stopped') {
+    throw new AppError(503, 'DEPLOYMENT_STOPPED', 'Webhook-project остановлен');
+  }
+
   let runtime = deploymentRuntimes.get(deployment.id);
   if (runtime && runtime.child.exitCode === null) {
     return runtime;
@@ -1011,6 +1020,10 @@ async function ensureRuntimeForWebhook(publicToken: string): Promise<DeploymentR
   }
 
   return runtime;
+}
+
+async function ensureRuntimeForWebhook(publicToken: string): Promise<DeploymentRuntime> {
+  return ensureRuntimeForDeployment(await getDeploymentByToken(publicToken));
 }
 
 function buildProxyBody(req: Request): BodyInit | undefined {
@@ -1070,6 +1083,93 @@ function buildJsonProxyResponse(status: number, body: unknown): { status: number
     headers,
     body: Buffer.from(JSON.stringify(body), 'utf8'),
   };
+}
+
+function getSingleHeader(req: Request, headerName: string): string {
+  const value = req.headers[headerName.toLowerCase()];
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) return value[0] ?? '';
+  return '';
+}
+
+function getTelegramUpdateId(req: Request): number | null {
+  const body = req.body;
+  if (!body || typeof body !== 'object' || Buffer.isBuffer(body) || Array.isArray(body)) {
+    return null;
+  }
+
+  const updateId = (body as Record<string, unknown>).update_id;
+  return typeof updateId === 'number' && Number.isFinite(updateId) ? updateId : null;
+}
+
+function isTelegramWebhookRequest(req: Request, deployment: DeploymentByTokenRow): boolean {
+  if (req.method !== 'POST') return false;
+  const deploymentEnv = normalizeDeploymentEnv(deployment.env_json);
+  return Boolean(deploymentEnv.TELEGRAM_BOT_TOKEN && getTelegramUpdateId(req) != null);
+}
+
+function validateTelegramWebhookSecret(req: Request, deployment: DeploymentByTokenRow): boolean {
+  const deploymentEnv = normalizeDeploymentEnv(deployment.env_json);
+  const expectedSecret = deploymentEnv.TELEGRAM_SECRET_TOKEN?.trim();
+  if (!expectedSecret) return true;
+  return getSingleHeader(req, 'x-telegram-bot-api-secret-token') === expectedSecret;
+}
+
+async function fetchProjectDeploymentWebhook(
+  runtime: DeploymentRuntime,
+  request: {
+    method: string;
+    headers: Headers;
+    body: BodyInit | undefined;
+    suffix: string;
+    search: string;
+  },
+): Promise<Response> {
+  let response: Response | null = null;
+
+  for (const pathname of WEBHOOK_PROXY_FALLBACK_PATHS) {
+    response = await fetch(buildProxyTargetUrl(runtime.port, pathname, request.suffix, request.search), {
+      method: request.method,
+      headers: request.headers,
+      body: request.body,
+      redirect: 'manual',
+    });
+
+    if (response.status !== 404 && response.status !== 405) {
+      break;
+    }
+  }
+
+  if (!response) {
+    throw new AppError(502, 'WEBHOOK_PROXY_FAILED', 'Не удалось проксировать webhook в deployment');
+  }
+
+  return response;
+}
+
+async function forwardProjectDeploymentWebhookInBackground(
+  deployment: DeploymentByTokenRow,
+  request: {
+    method: string;
+    headers: Headers;
+    body: BodyInit | undefined;
+    suffix: string;
+    search: string;
+    updateId: number | null;
+  },
+): Promise<void> {
+  const runtime = await ensureRuntimeForDeployment(deployment);
+  const response = await fetchProjectDeploymentWebhook(runtime, request);
+  const body = Buffer.from(await response.arrayBuffer()).toString('utf8').slice(0, 2000);
+
+  if (!response.ok) {
+    logger.warn({
+      deploymentId: deployment.id,
+      updateId: request.updateId,
+      status: response.status,
+      body,
+    }, 'Background Telegram webhook handling returned non-2xx status');
+  }
 }
 
 export async function getChatMessageProjectDeployment(
@@ -1203,14 +1303,51 @@ export async function stopChatMessageProjectDeployment(
   return await toProjectDeploymentRecord(await getDeploymentWithAgentMeta(deployment.id, userId));
 }
 
+export async function controlChatMessageProjectDeployment(
+  chatId: string,
+  messageId: string,
+  userId: string,
+  input: DeploymentControlInput,
+): Promise<ProjectDeploymentRecord> {
+  if (input.action === 'update_settings') {
+    return upsertChatMessageProjectDeployment(chatId, messageId, userId, input);
+  }
+
+  const deployment = await getChatMessageProjectDeployment(chatId, messageId, userId);
+
+  if (input.action === 'start') {
+    if (!deployment) {
+      return upsertChatMessageProjectDeployment(chatId, messageId, userId, input);
+    }
+
+    await startDeploymentInternal(deployment.id, userId);
+    if (input.set_telegram_webhook) {
+      await installTelegramWebhookForDeployment(
+        deployment.id,
+        userId,
+        Object.keys(input.env ?? {}).length > 0 ? normalizeDeploymentEnv(input.env) : deployment.env,
+      );
+    }
+    return await toProjectDeploymentRecord(await getDeploymentWithAgentMeta(deployment.id, userId));
+  }
+
+  if (!deployment) {
+    throw new NotFoundError('Deployment not found');
+  }
+
+  await stopDeploymentInternal(deployment.id, userId);
+  return await toProjectDeploymentRecord(await getDeploymentWithAgentMeta(deployment.id, userId));
+}
+
 export async function proxyProjectDeploymentWebhook(
   publicToken: string,
   req: Request,
 ): Promise<{ status: number; headers: Headers; body: Buffer }> {
   const suffix = typeof req.params[0] === 'string' ? req.params[0] : '';
   const search = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+  const deployment = await getDeploymentByToken(publicToken);
+
   if (shouldReturnWebhookInfo(req, suffix)) {
-    const deployment = await getDeploymentByToken(publicToken);
     return buildJsonProxyResponse(200, {
       ok: true,
       type: 'llmstore_project_deployment_webhook',
@@ -1221,31 +1358,55 @@ export async function proxyProjectDeploymentWebhook(
     });
   }
 
-  const runtime = await ensureRuntimeForWebhook(publicToken);
   const headers = buildProxyHeaders(req);
   const body = buildProxyBody(req);
-  let response: Response | null = null;
+  const updateId = getTelegramUpdateId(req);
 
-  for (const pathname of WEBHOOK_PROXY_FALLBACK_PATHS) {
-    response = await fetch(buildProxyTargetUrl(runtime.port, pathname, suffix, search), {
+  if (isTelegramWebhookRequest(req, deployment)) {
+    if (!validateTelegramWebhookSecret(req, deployment)) {
+      return buildJsonProxyResponse(403, {
+        ok: false,
+        error: 'TELEGRAM_SECRET_INVALID',
+      });
+    }
+
+    if (deployment.status === 'stopped') {
+      return buildJsonProxyResponse(200, {
+        ok: true,
+        ignored: true,
+        status: deployment.status,
+      });
+    }
+
+    void forwardProjectDeploymentWebhookInBackground(deployment, {
       method: req.method,
       headers,
       body,
-      redirect: 'manual',
+      suffix,
+      search,
+      updateId,
+    }).catch((error) => {
+      logger.error({
+        err: error,
+        deploymentId: deployment.id,
+        updateId,
+      }, 'Failed to handle Telegram webhook in background');
     });
 
-    if (response.status !== 404 && response.status !== 405) {
-      break;
-    }
-  }
-
-  if (!response) {
-    return buildJsonProxyResponse(502, {
-      ok: false,
-      error: 'WEBHOOK_PROXY_FAILED',
-      message: 'Не удалось проксировать webhook в deployment',
+    return buildJsonProxyResponse(200, {
+      ok: true,
+      accepted: true,
     });
   }
+
+  const runtime = await ensureRuntimeForWebhook(publicToken);
+  const response = await fetchProjectDeploymentWebhook(runtime, {
+    method: req.method,
+    headers,
+    body,
+    suffix,
+    search,
+  });
 
   return {
     status: response.status,
