@@ -413,6 +413,11 @@ function buildWebhookUrl(publicToken: string): string {
   return new URL(`/api/project-deployments/${publicToken}/webhook`, env.BACKEND_URL).toString();
 }
 
+function buildTelegramWebhookUrl(publicToken: string): string {
+  const baseUrl = env.TELEGRAM_WEBHOOK_BASE_URL.trim() || env.BACKEND_URL;
+  return new URL(`/api/project-deployments/${publicToken}/webhook`, baseUrl).toString();
+}
+
 function buildAgentRunUrl(publicToken: string): string {
   return new URL(`/api/project-deployments/${publicToken}/agent-run`, env.BACKEND_URL).toString();
 }
@@ -790,7 +795,8 @@ async function installTelegramWebhookForDeployment(
       'content-type': 'application/json',
     },
     body: JSON.stringify({
-      url: buildWebhookUrl(row.public_token),
+      url: buildTelegramWebhookUrl(row.public_token),
+      drop_pending_updates: true,
       ...(secretToken ? { secret_token: secretToken } : {}),
     }),
   });

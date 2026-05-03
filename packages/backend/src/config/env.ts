@@ -70,6 +70,7 @@ const envSchema = z.object({
   VK_CLIENT_SECRET: z.string().default(''),
   UPLOADS_DIR: z.string().default('./uploads'),
   BACKEND_URL: z.string().default('http://localhost:3001'),
+  TELEGRAM_WEBHOOK_BASE_URL: z.string().url().or(z.literal('')).default(''),
   PORT: z.coerce.number().default(3001),
   FRONTEND_URL: z.string().url().default('http://localhost:5173'),
   YOOKASSA_SHOP_ID: z.string().default(''),
