@@ -319,7 +319,13 @@ export function GalleryPage() {
   const [kindFilter, setKindFilter] = useState<GalleryKindFilter>('preview');
   const [runningMessageId, setRunningMessageId] = useState<string | null>(null);
   const [cloningChatId, setCloningChatId] = useState<string | null>(null);
-  const [fullscreenPreview, setFullscreenPreview] = useState<{ title: string; url: string; chatId: string } | null>(null);
+  const [fullscreenPreview, setFullscreenPreview] = useState<{
+    title: string;
+    url: string;
+    chatId: string;
+    model: string | null;
+    createdAt: string;
+  } | null>(null);
   const [cloneToast, setCloneToast] = useState<GalleryCloneToastState | null>(null);
   const [projectRunCounts, setProjectRunCounts] = useState<Record<string, number>>({});
   const [runResult, setRunResult] = useState<(ProjectRunResult & {
@@ -731,7 +737,13 @@ export function GalleryPage() {
                         <Button
                           type="button"
                           size="sm"
-                          onClick={() => setFullscreenPreview({ title: displayTitle, url: previewUrl, chatId: item.chat_id })}
+                          onClick={() => setFullscreenPreview({
+                            title: displayTitle,
+                            url: previewUrl,
+                            chatId: item.chat_id,
+                            model: item.model,
+                            createdAt: item.created_at,
+                          })}
                         >
                           Открыть preview
                         </Button>
@@ -1084,7 +1096,14 @@ export function GalleryPage() {
             <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold text-slate-900">{fullscreenPreview.title}</p>
-                <p className="text-xs text-slate-500">Gallery preview</p>
+                <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500">
+                  <span className="rounded-full border bg-slate-50 px-2.5 py-1">
+                    Модель: {formatModelName(fullscreenPreview.model) ?? 'Не указана'}
+                  </span>
+                  <span className="rounded-full border bg-slate-50 px-2.5 py-1">
+                    Сгенерировано: {formatDate(fullscreenPreview.createdAt)}
+                  </span>
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 <Button
