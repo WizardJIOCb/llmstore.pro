@@ -75,10 +75,20 @@ import { cn, formatRub, formatUsd } from '../../lib/utils';
 import { TopUpHelp } from '../../components/billing/TopUpHelp';
 
 type PropertiesModeView = 'general' | 'landing' | 'coding' | 'other';
+type PropertiesTab = 'overview' | 'settings' | 'prompts' | 'tools' | 'project' | 'stats' | 'access';
 type LocalNoticeAction = {
   label: string;
   onClick: () => void;
 };
+const PROPERTIES_TABS: Array<{ value: PropertiesTab; label: string }> = [
+  { value: 'overview', label: 'Обзор' },
+  { value: 'settings', label: 'Настройки' },
+  { value: 'prompts', label: 'Промпты' },
+  { value: 'tools', label: 'Инструменты' },
+  { value: 'project', label: 'Project Bundle' },
+  { value: 'stats', label: 'Статистика' },
+  { value: 'access', label: 'Доступ' },
+];
 const PENDING_REPLY_RECOVERY_WINDOW_MS = 5 * 60_000;
 const TIMEOUT_REPLY_RECOVERY_WINDOW_MS = 12_000;
 const TIMEOUT_REPLY_RECOVERY_ATTEMPT_MS = 4_000;
@@ -195,6 +205,27 @@ function formatMoney(value: number, currency: 'USD' | 'RUB'): string {
   return currency === 'USD'
     ? formatUsd(value, { minimumFractionDigits: 4, maximumFractionDigits: 4 })
     : formatRub(value, { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+}
+
+function formatPropertiesJson(value: Record<string, unknown> | null | undefined): string | null {
+  if (!value || Object.keys(value).length === 0) return null;
+  return JSON.stringify(value, null, 2);
+}
+
+function readStringSetting(config: Record<string, unknown> | null | undefined, key: string): string | null {
+  const value = config?.[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function readNumberSetting(config: Record<string, unknown> | null | undefined, key: string): number | null {
+  const value = config?.[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function formatTelegramUsername(username: string | null | undefined): string | null {
+  if (!username?.trim()) return null;
+  const normalized = username.trim().replace(/^@+/, '');
+  return normalized ? `@${normalized}` : null;
 }
 
 function formatUsdCompact(value: number): string {
@@ -926,6 +957,7 @@ function AuthenticatedChatsPage() {
   const [newChatAgentId, setNewChatAgentId] = useState('');
   const [newChatAgentSearch, setNewChatAgentSearch] = useState('');
   const [newChatModel, setNewChatModel] = useState('openai/gpt-4o-mini');
+  const [propertiesTab, setPropertiesTab] = useState<PropertiesTab>('overview');
   const [propertiesModeView, setPropertiesModeView] = useState<PropertiesModeView>('general');
   const [propertiesAgentId, setPropertiesAgentId] = useState('');
   const [propertiesModel, setPropertiesModel] = useState('openai/gpt-4o-mini');
@@ -2144,6 +2176,12 @@ function AuthenticatedChatsPage() {
   ]);
 
   useEffect(() => {
+    if (isPropertiesOpen) {
+      setPropertiesTab('overview');
+    }
+  }, [isPropertiesOpen, activeChat?.id]);
+
+  useEffect(() => {
     if (!isPropertiesOpen || !activeChat) return;
     const activeAgent = (agents ?? []).find((agent) => agent.id === (activeChat.agent_id ?? '')) ?? null;
     setPropertiesModeView(
@@ -2318,6 +2356,80 @@ function AuthenticatedChatsPage() {
     [propertiesAvailableTools, propertiesEffectiveToolIds],
   );
   const isPropertiesAgentMode = propertiesModeView !== 'general';
+  const propertiesProjectDeployments = useMemo(
+    () => activeChat?.project_deployments ?? [],
+    [activeChat?.project_deployments],
+  );
+  const propertiesTelegramDeployment = useMemo(
+    () => propertiesProjectDeployments.find((deployment) => (
+      Boolean(deployment.telegram_bot_username)
+      || deployment.delivery_mode === 'polling'
+      || deployment.title.toLowerCase().includes('telegram')
+    )) ?? null,
+    [propertiesProjectDeployments],
+  );
+  const propertiesPromptSections = useMemo(
+    () => [
+      {
+        title: 'Системный промпт агента',
+        description: 'Главная инструкция, которая определяет поведение Telegram-бота или агента в этом чате.',
+        content: activeChat?.agent_system_prompt?.trim() || null,
+      },
+      {
+        title: 'Developer prompt',
+        description: 'Дополнительные правила исполнения, если они заданы в версии агента.',
+        content: activeChat?.agent_developer_prompt?.trim() || null,
+      },
+      {
+        title: 'Промпт чата',
+        description: 'Локальная инструкция самого чата поверх выбранной модели.',
+        content: activeChat?.system_prompt?.trim() || null,
+      },
+    ].filter((section) => Boolean(section.content)),
+    [activeChat?.agent_developer_prompt, activeChat?.agent_system_prompt, activeChat?.system_prompt],
+  );
+  const propertiesRuntimeConfigJson = useMemo(
+    () => formatPropertiesJson(activeChat?.agent_runtime_config),
+    [activeChat?.agent_runtime_config],
+  );
+  const propertiesToolConfigJson = useMemo(
+    () => formatPropertiesJson(activeChat?.agent_tool_config),
+    [activeChat?.agent_tool_config],
+  );
+  const propertiesChatSettingsJson = useMemo(
+    () => formatPropertiesJson(activeChat?.settings_json),
+    [activeChat?.settings_json],
+  );
+  const propertiesRuntimeHighlights = useMemo(() => {
+    const runtime = activeChat?.agent_runtime_config;
+    return [
+      {
+        label: 'Модель',
+        value: activeChat?.agent_model_external_id ?? activeChat?.model_external_id ?? '—',
+      },
+      {
+        label: 'Temperature',
+        value: readNumberSetting(runtime, 'temperature')?.toString() ?? '—',
+      },
+      {
+        label: 'Max tokens',
+        value: readNumberSetting(runtime, 'max_tokens')?.toString() ?? '—',
+      },
+      {
+        label: 'Итерации',
+        value: readNumberSetting(runtime, 'max_iterations')?.toString() ?? '—',
+      },
+      {
+        label: 'Quickstart',
+        value: readStringSetting(activeChat?.settings_json, 'quickstart') ?? '—',
+      },
+    ];
+  }, [
+    activeChat?.agent_model_external_id,
+    activeChat?.agent_runtime_config,
+    activeChat?.model_external_id,
+    activeChat?.settings_json,
+  ]);
 
   const activeModeValue = useMemo(() => {
     if (!activeChat) return '';
@@ -4554,7 +4666,7 @@ function AuthenticatedChatsPage() {
         >
           <div
             className={cn(
-              'w-full max-w-3xl rounded-xl border bg-white shadow-2xl',
+              'w-full max-w-5xl rounded-xl border bg-white shadow-2xl',
               isPropertiesClosing ? 'animate-[zoomOut_200ms_ease-in_forwards]' : 'animate-[zoomIn_220ms_ease-out]',
             )}
             onClick={(e) => e.stopPropagation()}
@@ -4571,7 +4683,7 @@ function AuthenticatedChatsPage() {
                 </div>
                 <div className="rounded-xl border bg-muted/10 p-3 space-y-1">
                   <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Текущий агент</p>
-                  <p className="text-sm font-medium">{activeChatStats?.chat.agent_name ?? '—'}</p>
+                  <p className="text-sm font-medium">{activeChat.agent_name ?? activeChatStats?.chat.agent_name ?? '—'}</p>
                 </div>
                 <div className="rounded-xl border bg-muted/10 p-3 space-y-1">
                   <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Создан</p>
@@ -4587,7 +4699,97 @@ function AuthenticatedChatsPage() {
                 </div>
               </div>
 
+              <div className="flex gap-2 overflow-x-auto rounded-xl border bg-muted/10 p-1">
+                {PROPERTIES_TABS.map((tab) => (
+                  <button
+                    key={tab.value}
+                    type="button"
+                    onClick={() => setPropertiesTab(tab.value)}
+                    className={cn(
+                      'shrink-0 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                      propertiesTab === tab.value
+                        ? 'bg-white text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:bg-white/70 hover:text-foreground',
+                    )}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {propertiesTab === 'overview' && (
+                <div className="space-y-4">
+                  <div className="rounded-2xl border bg-muted/10 p-4 space-y-3">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0 space-y-1">
+                        <p className="text-sm font-medium">Что это за бот</p>
+                        <p className="text-sm leading-6 text-muted-foreground">
+                          {activeChat.agent_chat_description
+                            ?? activeChat.note
+                            ?? 'Описание пока не задано. Его можно добавить в настройках агента или в пометке чата.'}
+                        </p>
+                      </div>
+                      {propertiesTelegramDeployment ? (
+                        <Badge variant={propertiesTelegramDeployment.status === 'running' ? 'success' : 'secondary'}>
+                          Telegram: {propertiesTelegramDeployment.status}
+                        </Badge>
+                      ) : null}
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                      {propertiesRuntimeHighlights.map((item) => (
+                        <div key={item.label} className="rounded-xl border bg-background/80 p-3">
+                          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{item.label}</p>
+                          <p className="mt-1 break-words text-sm font-medium">{item.value}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {propertiesTelegramDeployment ? (
+                    <div className="rounded-2xl border bg-muted/10 p-4 space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-medium">Telegram подключение</p>
+                          <p className="text-xs text-muted-foreground">
+                            Видно, какой Project Bundle обслуживает сообщения из Telegram и куда Telegram должен отправлять callback.
+                          </p>
+                        </div>
+                        {propertiesTelegramDeployment.telegram_bot_url ? (
+                          <a
+                            href={propertiesTelegramDeployment.telegram_bot_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex h-8 items-center justify-center rounded-md border border-input bg-background px-3 text-xs font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
+                          >
+                            Перейти в бота
+                          </a>
+                        ) : null}
+                      </div>
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <div className="rounded-xl border bg-background/80 p-3">
+                          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Бот</p>
+                          <p className="mt-1 break-words text-sm font-medium">
+                            {formatTelegramUsername(propertiesTelegramDeployment.telegram_bot_username) ?? '—'}
+                          </p>
+                        </div>
+                        <div className="rounded-xl border bg-background/80 p-3">
+                          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Доставка</p>
+                          <p className="mt-1 break-words text-sm font-medium">{propertiesTelegramDeployment.delivery_mode ?? 'webhook'}</p>
+                        </div>
+                        <div className="rounded-xl border bg-background/80 p-3 md:col-span-2">
+                          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Callback</p>
+                          <p className="mt-1 break-all font-mono text-xs">{propertiesTelegramDeployment.webhook_url}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              )}
+
+              {(propertiesTab === 'settings' || propertiesTab === 'tools') && (
               <div className="rounded-2xl border bg-muted/10 p-4 space-y-4">
+                {propertiesTab === 'settings' && (
+                  <>
                 <div className="rounded-xl border bg-background/80 p-4 space-y-2">
                   <div className="space-y-1">
                     <p className="text-sm font-medium">Пометка для себя</p>
@@ -4831,6 +5033,9 @@ function AuthenticatedChatsPage() {
                   </div>
                 )}
 
+                  </>
+                )}
+                {propertiesTab === 'tools' && (
                 <div className="rounded-xl border bg-background/80 p-4 space-y-4">
                   <div className="space-y-1">
                     <p className="text-sm font-medium">Инструменты чата</p>
@@ -4961,10 +5166,135 @@ function AuthenticatedChatsPage() {
                     </p>
                   </div>
                 </div>
+                )}
               </div>
+              )}
 
-              {chatStatsLoading ? <div className="flex justify-center py-6"><Spinner /></div> : null}
-              {!chatStatsLoading && activeChatStats && (
+              {propertiesTab === 'prompts' && (
+                <div className="space-y-4">
+                  {propertiesPromptSections.length > 0 ? (
+                    propertiesPromptSections.map((section) => (
+                      <div key={section.title} className="rounded-2xl border bg-muted/10 p-4 space-y-3">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium">{section.title}</p>
+                          <p className="text-xs text-muted-foreground">{section.description}</p>
+                        </div>
+                        <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-xl border bg-slate-950 p-4 text-xs leading-5 text-slate-100">
+                          {section.content}
+                        </pre>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-2xl border bg-muted/10 p-4 text-sm text-muted-foreground">
+                      Для этого чата пока не найдено системных промптов.
+                    </div>
+                  )}
+
+                  <div className="rounded-2xl border bg-muted/10 p-4 space-y-3">
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium">Стартовые сообщения</p>
+                      <p className="text-xs text-muted-foreground">Короткие примеры запросов, которые показываются в пустом чате.</p>
+                    </div>
+                    {activeChat.agent_starter_prompts.length > 0 ? (
+                      <div className="flex flex-wrap gap-2">
+                        {activeChat.agent_starter_prompts.map((prompt) => (
+                          <Badge key={prompt} variant="outline" className="rounded-full px-3 py-1">
+                            {prompt}
+                          </Badge>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">Стартовые сообщения не заданы.</p>
+                    )}
+                  </div>
+
+                  {(propertiesRuntimeConfigJson || propertiesToolConfigJson || propertiesChatSettingsJson) && (
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      {propertiesRuntimeConfigJson ? (
+                        <div className="rounded-2xl border bg-muted/10 p-4 space-y-3">
+                          <p className="text-sm font-medium">Runtime config</p>
+                          <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-xl border bg-background p-4 text-xs leading-5">
+                            {propertiesRuntimeConfigJson}
+                          </pre>
+                        </div>
+                      ) : null}
+                      {propertiesToolConfigJson ? (
+                        <div className="rounded-2xl border bg-muted/10 p-4 space-y-3">
+                          <p className="text-sm font-medium">Tool config</p>
+                          <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-xl border bg-background p-4 text-xs leading-5">
+                            {propertiesToolConfigJson}
+                          </pre>
+                        </div>
+                      ) : null}
+                      {propertiesChatSettingsJson ? (
+                        <div className="rounded-2xl border bg-muted/10 p-4 space-y-3 lg:col-span-2">
+                          <p className="text-sm font-medium">Настройки чата</p>
+                          <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-xl border bg-background p-4 text-xs leading-5">
+                            {propertiesChatSettingsJson}
+                          </pre>
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {propertiesTab === 'project' && (
+                <div className="space-y-4">
+                  {propertiesProjectDeployments.length > 0 ? (
+                    propertiesProjectDeployments.map((deployment) => (
+                      <div key={deployment.id} className="rounded-2xl border bg-muted/10 p-4 space-y-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium">{deployment.title}</p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              Runtime: {deployment.runtime}{deployment.entrypoint ? ` • ${deployment.entrypoint}` : ''}
+                            </p>
+                          </div>
+                          <Badge variant={deployment.status === 'running' ? 'success' : 'secondary'}>
+                            {deployment.status}
+                          </Badge>
+                        </div>
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <div className="rounded-xl border bg-background/80 p-3">
+                            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Связанный агент</p>
+                            <p className="mt-1 break-words text-sm font-medium">{deployment.linked_agent_name ?? '—'}</p>
+                          </div>
+                          <div className="rounded-xl border bg-background/80 p-3">
+                            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Telegram bot</p>
+                            <p className="mt-1 break-words text-sm font-medium">{formatTelegramUsername(deployment.telegram_bot_username) ?? '—'}</p>
+                          </div>
+                          <div className="rounded-xl border bg-background/80 p-3">
+                            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Доставка</p>
+                            <p className="mt-1 break-words text-sm font-medium">{deployment.delivery_mode ?? 'webhook'}</p>
+                          </div>
+                          <div className="rounded-xl border bg-background/80 p-3">
+                            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Обновлен</p>
+                            <p className="mt-1 break-words text-sm font-medium">{formatDate(deployment.updated_at)}</p>
+                          </div>
+                          <div className="rounded-xl border bg-background/80 p-3 md:col-span-2">
+                            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Webhook URL</p>
+                            <p className="mt-1 break-all font-mono text-xs">{deployment.webhook_url}</p>
+                          </div>
+                          {deployment.last_error ? (
+                            <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 md:col-span-2">
+                              <p className="text-[11px] uppercase tracking-wide text-destructive">Последняя ошибка</p>
+                              <p className="mt-1 whitespace-pre-wrap text-xs text-destructive">{deployment.last_error}</p>
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-2xl border bg-muted/10 p-4 text-sm text-muted-foreground">
+                      Project Bundle для этого чата пока не найден.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {propertiesTab === 'stats' && chatStatsLoading ? <div className="flex justify-center py-6"><Spinner /></div> : null}
+              {propertiesTab === 'stats' && !chatStatsLoading && activeChatStats && (
                 <div className="space-y-5">
                   <div className="space-y-2">
                     <p className="text-sm font-medium">Статистика чата</p>
@@ -5015,6 +5345,7 @@ function AuthenticatedChatsPage() {
                   </div>
                 </div>
               )}
+              {propertiesTab === 'access' && (
               <div className="rounded-2xl border bg-muted/10 p-4">
                 <div className="space-y-4">
                   <div className="space-y-2">
@@ -5045,6 +5376,7 @@ function AuthenticatedChatsPage() {
                   ) : null}
                 </div>
               </div>
+              )}
             </div>
             <div className="border-t px-5 py-4 flex items-center justify-between gap-3">
               <div className="min-h-5 text-sm text-destructive">

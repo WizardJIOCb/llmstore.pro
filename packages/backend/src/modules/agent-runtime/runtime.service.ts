@@ -2399,6 +2399,10 @@ function sanitizeProjectRunEnvValue(value: unknown): string | null {
   return normalized.length <= 4000 ? normalized : normalized.slice(0, 4000);
 }
 
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
 function normalizeProjectRunEnv(value: unknown): Record<string, string> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return {};
@@ -4883,9 +4887,15 @@ interface PublishedLandingResult {
 interface ConversationDetails {
   chat: Omit<ConversationListItem, 'last_message_preview' | 'message_count'> & {
     message_count: number;
+    system_prompt: string | null;
+    settings_json: Record<string, unknown> | null;
     agent_name: string | null;
     agent_chat_description: string | null;
     agent_starter_prompts: string[];
+    agent_system_prompt: string | null;
+    agent_developer_prompt: string | null;
+    agent_runtime_config: Record<string, unknown> | null;
+    agent_tool_config: Record<string, unknown> | null;
     tool_ids: string[];
     tools: ChatToolSummary[];
     chat_tool_ids: string[];
@@ -4894,9 +4904,30 @@ interface ConversationDetails {
     agent_tools: ChatToolSummary[];
     effective_tool_ids: string[];
     effective_tools: ChatToolSummary[];
+    project_deployments: ChatProjectDeploymentSummary[];
     pending_run: SharedPendingRunState | null;
   };
   messages: ConversationMessage[];
+}
+
+interface ChatProjectDeploymentSummary {
+  id: string;
+  title: string;
+  status: string;
+  runtime: string;
+  entrypoint: string | null;
+  linked_agent_id: string | null;
+  linked_agent_name: string | null;
+  model_external_id: string | null;
+  telegram_bot_username: string | null;
+  telegram_bot_url: string | null;
+  delivery_mode: string | null;
+  webhook_url: string;
+  last_error: string | null;
+  last_started_at: string | null;
+  last_stopped_at: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 interface ChatToolSummary {
@@ -6459,6 +6490,10 @@ async function getAgentChatMeta(agentId: string | null): Promise<{
   agent_model_label: string | null;
   agent_chat_description: string | null;
   agent_starter_prompts: string[];
+  agent_system_prompt: string | null;
+  agent_developer_prompt: string | null;
+  agent_runtime_config: Record<string, unknown> | null;
+  agent_tool_config: Record<string, unknown> | null;
 }> {
   if (!agentId) {
     return {
@@ -6467,6 +6502,10 @@ async function getAgentChatMeta(agentId: string | null): Promise<{
       agent_model_label: null,
       agent_chat_description: null,
       agent_starter_prompts: [],
+      agent_system_prompt: null,
+      agent_developer_prompt: null,
+      agent_runtime_config: null,
+      agent_tool_config: null,
     };
   }
 
@@ -6475,7 +6514,10 @@ async function getAgentChatMeta(agentId: string | null): Promise<{
       slug: agents.slug,
       name: agents.name,
       description: agents.description,
+      system_prompt: agentVersions.system_prompt,
+      developer_prompt: agentVersions.developer_prompt,
       runtime_config: agentVersions.runtime_config,
+      tool_config: agentVersions.tool_config,
       version_model_external_id: aiModels.external_model_id,
     })
     .from(agents)
@@ -6491,10 +6533,15 @@ async function getAgentChatMeta(agentId: string | null): Promise<{
       agent_model_label: null,
       agent_chat_description: null,
       agent_starter_prompts: [],
+      agent_system_prompt: null,
+      agent_developer_prompt: null,
+      agent_runtime_config: null,
+      agent_tool_config: null,
     };
   }
 
-  const runtime = row.runtime_config as Record<string, unknown> | null;
+  const runtime = isPlainRecord(row.runtime_config) ? row.runtime_config : null;
+  const toolConfig = isPlainRecord(row.tool_config) ? row.tool_config : null;
   const modelExternalId = resolveAgentModelExternalId(runtime, row.version_model_external_id ?? null);
   const chatIntro = cleanDisplayText(runtime?.chat_intro);
   const starterPrompts = resolveStarterPromptsForAgentSlug(
@@ -6509,7 +6556,78 @@ async function getAgentChatMeta(agentId: string | null): Promise<{
     agent_model_label: getModelDisplayLabel(modelExternalId),
     agent_chat_description: chatIntro || row.description || null,
     agent_starter_prompts: starterPrompts,
+    agent_system_prompt: row.system_prompt ?? null,
+    agent_developer_prompt: row.developer_prompt ?? null,
+    agent_runtime_config: runtime,
+    agent_tool_config: toolConfig,
   };
+}
+
+function normalizeTelegramUsername(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const username = value.trim().replace(/^@+/, '');
+  return username ? username : null;
+}
+
+async function getChatProjectDeploymentSummaries(chatId: string, userId: string): Promise<ChatProjectDeploymentSummary[]> {
+  const rows = await db
+    .select({
+      id: chatProjectDeployments.id,
+      title: chatProjectDeployments.title,
+      status: chatProjectDeployments.status,
+      runtime: chatProjectDeployments.runtime,
+      entrypoint: chatProjectDeployments.entrypoint,
+      public_token: chatProjectDeployments.public_token,
+      linked_agent_id: chatProjectDeployments.linked_agent_id,
+      linked_agent_name: agents.name,
+      model_external_id: chatProjectDeployments.model_external_id,
+      env_json: chatProjectDeployments.env_json,
+      last_error: chatProjectDeployments.last_error,
+      last_started_at: chatProjectDeployments.last_started_at,
+      last_stopped_at: chatProjectDeployments.last_stopped_at,
+      created_at: chatProjectDeployments.created_at,
+      updated_at: chatProjectDeployments.updated_at,
+    })
+    .from(chatProjectDeployments)
+    .leftJoin(agents, eq(agents.id, chatProjectDeployments.linked_agent_id))
+    .where(and(
+      eq(chatProjectDeployments.conversation_id, chatId),
+      eq(chatProjectDeployments.user_id, userId),
+    ))
+    .orderBy(desc(chatProjectDeployments.updated_at))
+    .limit(20);
+
+  return rows.map((row) => {
+    const deploymentEnv = normalizeProjectRunEnv(row.env_json);
+    const telegramUsername = normalizeTelegramUsername(
+      deploymentEnv.TELEGRAM_BOT_USERNAME
+      ?? deploymentEnv.BOT_USERNAME
+      ?? deploymentEnv.TELEGRAM_USERNAME,
+    );
+    const deliveryMode = typeof deploymentEnv.TELEGRAM_DELIVERY_MODE === 'string'
+      ? deploymentEnv.TELEGRAM_DELIVERY_MODE.trim() || null
+      : null;
+
+    return {
+      id: row.id,
+      title: row.title,
+      status: row.status,
+      runtime: row.runtime,
+      entrypoint: row.entrypoint ?? null,
+      linked_agent_id: row.linked_agent_id ?? null,
+      linked_agent_name: row.linked_agent_name ?? null,
+      model_external_id: row.model_external_id ?? null,
+      telegram_bot_username: telegramUsername,
+      telegram_bot_url: telegramUsername ? `https://t.me/${telegramUsername}` : null,
+      delivery_mode: deliveryMode,
+      webhook_url: buildProjectRunWebhookUrl(row.public_token),
+      last_error: row.last_error ?? null,
+      last_started_at: row.last_started_at ? toIso(row.last_started_at) : null,
+      last_stopped_at: row.last_stopped_at ? toIso(row.last_stopped_at) : null,
+      created_at: toIso(row.created_at),
+      updated_at: toIso(row.updated_at),
+    };
+  });
 }
 
 function estimateGeneralChatCost(model: string, usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number }) {
@@ -7094,11 +7212,12 @@ export async function getChatById(chatId: string, userId: string): Promise<Conve
   const chat = await getConversationForUser(chatId, userId);
   const shareToken = await ensureChatShareToken(chat.id, chat.share_token);
   const chatToolSettings = extractChatToolSettings(chat.settings_json);
-  const [messages, agentMeta, chatTools, agentTools] = await Promise.all([
+  const [messages, agentMeta, chatTools, agentTools, projectDeployments] = await Promise.all([
     getConversationMessages(chatId),
     getAgentChatMeta(chat.agent_id ?? null),
     getActiveToolSummariesByIds(chatToolSettings.tool_ids),
     getActiveAgentToolSummaries(chat.agent_id ?? null),
+    getChatProjectDeploymentSummaries(chat.id, userId),
   ]);
   const effectiveTools = mergeToolSummaries(agentTools, chatTools);
   const pending_run = await getConversationRuntimeState(chat, messages);
@@ -7109,6 +7228,8 @@ export async function getChatById(chatId: string, userId: string): Promise<Conve
       title: chat.title,
       note: extractChatNote(chat.settings_json),
       mode: chat.mode,
+      system_prompt: chat.system_prompt ?? null,
+      settings_json: chat.settings_json ?? null,
       agent_id: chat.agent_id ?? null,
       agent_name: agentMeta.agent_name,
       agent_model_external_id: agentMeta.agent_model_external_id,
@@ -7123,6 +7244,10 @@ export async function getChatById(chatId: string, userId: string): Promise<Conve
       message_count: messages.length,
       agent_chat_description: agentMeta.agent_chat_description,
       agent_starter_prompts: agentMeta.agent_starter_prompts,
+      agent_system_prompt: agentMeta.agent_system_prompt,
+      agent_developer_prompt: agentMeta.agent_developer_prompt,
+      agent_runtime_config: agentMeta.agent_runtime_config,
+      agent_tool_config: agentMeta.agent_tool_config,
       tool_ids: chatTools.map((tool) => tool.id),
       tools: chatTools,
       chat_tool_ids: chatTools.map((tool) => tool.id),
@@ -7131,6 +7256,7 @@ export async function getChatById(chatId: string, userId: string): Promise<Conve
       agent_tools: agentTools,
       effective_tool_ids: effectiveTools.map((tool) => tool.id),
       effective_tools: effectiveTools,
+      project_deployments: projectDeployments,
       pending_run,
       pinned_at: chat.pinned_at ? toIso(chat.pinned_at) : null,
       last_message_at: toIso(chat.last_message_at),

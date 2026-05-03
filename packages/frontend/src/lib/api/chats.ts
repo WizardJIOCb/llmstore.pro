@@ -270,11 +270,37 @@ export interface ChatPendingRunEvent {
   ts: string;
 }
 
+export interface ChatProjectDeploymentSummary {
+  id: string;
+  title: string;
+  status: string;
+  runtime: string;
+  entrypoint: string | null;
+  linked_agent_id: string | null;
+  linked_agent_name: string | null;
+  model_external_id: string | null;
+  telegram_bot_username: string | null;
+  telegram_bot_url: string | null;
+  delivery_mode: string | null;
+  webhook_url: string;
+  last_error: string | null;
+  last_started_at: string | null;
+  last_stopped_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ChatDetails {
   chat: Omit<ChatListItem, 'last_message_preview'> & {
+    system_prompt: string | null;
+    settings_json: Record<string, unknown> | null;
     agent_name: string | null;
     agent_chat_description: string | null;
     agent_starter_prompts: string[];
+    agent_system_prompt: string | null;
+    agent_developer_prompt: string | null;
+    agent_runtime_config: Record<string, unknown> | null;
+    agent_tool_config: Record<string, unknown> | null;
     tool_ids: string[];
     tools: ChatToolDefinition[];
     chat_tool_ids: string[];
@@ -283,6 +309,7 @@ export interface ChatDetails {
     agent_tools: ChatToolDefinition[];
     effective_tool_ids: string[];
     effective_tools: ChatToolDefinition[];
+    project_deployments: ChatProjectDeploymentSummary[];
     pending_run: ChatPendingRunState | null;
   };
   messages: ChatMessage[];
