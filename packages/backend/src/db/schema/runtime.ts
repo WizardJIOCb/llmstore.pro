@@ -134,6 +134,27 @@ export const chatConversationMessages = pgTable('chat_conversation_messages', {
   index('chat_conversation_messages_conversation_created_idx').on(table.conversation_id, table.created_at),
 ]);
 
+export const chatMessageFiles = pgTable('chat_message_files', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  conversation_id: uuid('conversation_id').notNull().references(() => chatConversations.id, { onDelete: 'cascade' }),
+  message_id: uuid('message_id').notNull().references(() => chatConversationMessages.id, { onDelete: 'cascade' }),
+  user_id: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  run_id: uuid('run_id').references(() => agentRuns.id, { onDelete: 'set null' }),
+  tool_call_id: varchar('tool_call_id', { length: 255 }),
+  storage_filename: varchar('storage_filename', { length: 255 }).notNull(),
+  original_name: varchar('original_name', { length: 500 }).notNull(),
+  mime_type: varchar('mime_type', { length: 200 }).notNull(),
+  kind: varchar('kind', { length: 20 }).notNull().default('file'),
+  size: integer('size').notNull(),
+  text_preview: text('text_preview'),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex('chat_message_files_storage_filename_idx').on(table.storage_filename),
+  index('chat_message_files_message_idx').on(table.message_id),
+  index('chat_message_files_conversation_idx').on(table.conversation_id),
+  index('chat_message_files_user_created_idx').on(table.user_id, table.created_at),
+]);
+
 export const chatProjectDeployments = pgTable('chat_project_deployments', {
   id: uuid('id').primaryKey().defaultRandom(),
   conversation_id: uuid('conversation_id').notNull().references(() => chatConversations.id, { onDelete: 'cascade' }),

@@ -9,7 +9,7 @@ import { Spinner } from '../../components/ui/Spinner';
 import { Button } from '../../components/ui/Button';
 import { UserLink } from '../../components/users/UserLink';
 import { apiClient } from '../../lib/api-client';
-import { chatsApi, type ChatAttachment, type ChatPendingRunState, type CodingReport } from '../../lib/api/chats';
+import { chatsApi, type ChatAttachment, type ChatGeneratedFile, type ChatPendingRunState, type CodingReport } from '../../lib/api/chats';
 import { appendLiveProgressEvent, createLiveProgressEvent } from '../../lib/chat-live-progress';
 import { applyLiveBalanceDelta, shouldApplyLiveBalanceEvent } from '../../lib/live-balance';
 import { cn } from '../../lib/utils';
@@ -38,6 +38,8 @@ interface V2SharedChat {
     role: 'user' | 'assistant';
     content: string;
     usage?: Record<string, unknown> | null;
+    attachments?: ChatAttachment[];
+    generated_files?: ChatGeneratedFile[];
     project_run_count?: number | null;
     latency_ms?: number | null;
     created_at: string;
@@ -51,6 +53,7 @@ interface SharedMessageItem {
   usage?: Record<string, unknown> | null;
   project_run_count?: number | null;
   attachments?: ChatAttachment[];
+  generated_files?: ChatGeneratedFile[];
   latency_ms?: number | null;
   created_at?: string;
 }
@@ -203,6 +206,23 @@ function extractAttachments(value?: Record<string, unknown> | null): ChatAttachm
     .map((item) => item as ChatAttachment);
 }
 
+function extractGeneratedFiles(value?: Record<string, unknown> | null): ChatGeneratedFile[] {
+  const direct = value && Array.isArray((value as { generated_files?: unknown[] }).generated_files)
+    ? (value as { generated_files: unknown[] }).generated_files
+    : null;
+  const artifactFiles = value
+    && value.artifacts
+    && typeof value.artifacts === 'object'
+    && !Array.isArray(value.artifacts)
+    && Array.isArray((value.artifacts as { files?: unknown[] }).files)
+    ? (value.artifacts as { files: unknown[] }).files
+    : null;
+
+  return (direct ?? artifactFiles ?? [])
+    .filter((item) => item && typeof item === 'object')
+    .map((item) => item as ChatGeneratedFile);
+}
+
 function extractUsage(value: Record<string, unknown> | null | undefined) {
   if (!value) return null;
   const prompt_tokens = typeof value.prompt_tokens === 'number' ? value.prompt_tokens : null;
@@ -327,7 +347,8 @@ export function SharedChatPage() {
             content: message.content,
             usage: message.usage ?? null,
             project_run_count: message.project_run_count ?? 0,
-            attachments: extractAttachments(message.usage ?? null),
+            attachments: message.attachments ?? extractAttachments(message.usage ?? null),
+            generated_files: message.generated_files ?? extractGeneratedFiles(message.usage ?? null),
             latency_ms: message.latency_ms ?? null,
             created_at: message.created_at,
           })),
@@ -877,6 +898,7 @@ export function SharedChatPage() {
             createdAt={msg.created_at}
             authorLabel={msg.role === 'user' ? userMessageAuthorLabel : getAssistantAuthorLabel(msg)}
             attachments={msg.attachments ?? extractAttachments(msg.usage)}
+            generatedFiles={msg.role === 'assistant' ? (msg.generated_files ?? extractGeneratedFiles(msg.usage)) : undefined}
             toolTraces={msg.role === 'assistant' ? extractToolTraces(msg.usage) : undefined}
             codingReport={msg.role === 'assistant' ? extractCodingReport(msg.usage, msg.content) : undefined}
             projectRunCount={msg.project_run_count}

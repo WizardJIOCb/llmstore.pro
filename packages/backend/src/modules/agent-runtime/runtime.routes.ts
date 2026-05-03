@@ -48,6 +48,7 @@ router.post('/chats/import', requireAuth, chatBundleUpload.single('file'), contr
 router.get('/chats/:chatId/export', requireAuth, controller.exportChatBundle);
 router.get('/chats/:chatId/messages/:messageId/preview', controller.getChatMessagePreview);
 router.patch('/chats/:chatId/messages/:messageId/preview', requireAuth, validateUpdateMessagePreview, controller.updateChatMessagePreview);
+router.get('/chats/:chatId/messages/:messageId/files/:fileId/download', requireAuth, controller.downloadChatMessageFile);
 router.get('/chats/:chatId/messages/:messageId/landing', requireAuth, controller.getPublishedLanding);
 router.post('/chats/:chatId/messages/:messageId/landing', requireAuth, validatePublishLanding, controller.publishChatMessageLanding);
 router.patch('/chats/:chatId/messages/:messageId/landing', requireAuth, validateUpdateLanding, controller.updatePublishedLanding);
@@ -74,6 +75,7 @@ router.post('/chats/:chatId/messages', requireAuth, validateSendChatMessage, con
 // Shared conversation (public, no auth)
 router.get('/shared/chats/:token/messages/:messageId/preview', controller.getSharedChatMessagePreview);
 router.patch('/shared/chats/:token/messages/:messageId/preview', requireAuth, validateUpdateMessagePreview, controller.updateSharedChatMessagePreview);
+router.get('/shared/chats/:token/messages/:messageId/files/:fileId/download', controller.downloadSharedChatMessageFile);
 router.get('/shared/chats/:token', controller.getSharedChatById);
 router.get('/shared/chats/:token/events', controller.streamSharedChatEvents);
 router.get('/shared/chats/:token/export', controller.exportSharedChatBundle);

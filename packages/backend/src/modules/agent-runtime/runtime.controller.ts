@@ -1,4 +1,5 @@
 import type { Request, Response, NextFunction } from 'express';
+import { readFile } from 'fs/promises';
 import { randomUUID } from 'crypto';
 import * as runtimeService from './runtime.service.js';
 import * as projectDeploymentsService from './project-deployments.service.js';
@@ -742,6 +743,51 @@ export async function uploadChatFiles(req: Request, res: Response, next: NextFun
     const files = req.files as Express.Multer.File[] | undefined;
     const result = await runtimeService.prepareUploadedChatFiles(files ?? []);
     res.status(201).json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function downloadChatMessageFile(
+  req: Request<{ chatId: string; messageId: string; fileId: string }>,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const result = await runtimeService.getChatMessageFileDownload(
+      req.params.chatId,
+      req.params.messageId,
+      req.params.fileId,
+      req.session.userId!,
+    );
+    const buffer = await readFile(result.file_path);
+    res.setHeader('Content-Type', result.file.mime_type || 'application/octet-stream');
+    res.setHeader('Content-Length', String(buffer.length));
+    res.setHeader('Content-Disposition', buildAttachmentDisposition(result.file.original_name));
+    res.send(buffer);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function downloadSharedChatMessageFile(
+  req: Request<{ token: string; messageId: string; fileId: string }>,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const viewer = resolveViewerContext(req, res);
+    const result = await runtimeService.getSharedChatMessageFileDownload(
+      req.params.token,
+      req.params.messageId,
+      req.params.fileId,
+      viewer.viewerUserId,
+    );
+    const buffer = await readFile(result.file_path);
+    res.setHeader('Content-Type', result.file.mime_type || 'application/octet-stream');
+    res.setHeader('Content-Length', String(buffer.length));
+    res.setHeader('Content-Disposition', buildAttachmentDisposition(result.file.original_name));
+    res.send(buffer);
   } catch (err) {
     next(err);
   }

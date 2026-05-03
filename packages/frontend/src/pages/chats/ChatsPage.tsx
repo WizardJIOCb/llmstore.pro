@@ -386,6 +386,32 @@ function extractAttachments(value: Record<string, unknown> | null) {
     });
 }
 
+function extractGeneratedFiles(value: Record<string, unknown> | null) {
+  const direct = value && Array.isArray((value as { generated_files?: unknown[] }).generated_files)
+    ? (value as { generated_files: unknown[] }).generated_files
+    : null;
+  const artifactFiles = value
+    && value.artifacts
+    && typeof value.artifacts === 'object'
+    && !Array.isArray(value.artifacts)
+    && Array.isArray((value.artifacts as { files?: unknown[] }).files)
+    ? (value.artifacts as { files: unknown[] }).files
+    : null;
+
+  return (direct ?? artifactFiles ?? [])
+    .filter((item) => item && typeof item === 'object')
+    .map((item) => item as {
+      id: string;
+      original_name: string;
+      mime_type: string;
+      size: number;
+      kind: 'image' | 'text' | 'file';
+      url: string;
+      text_preview?: string;
+      created_at?: string;
+    });
+}
+
 function extractToolTraces(value: Record<string, unknown> | null): ToolTrace[] {
   if (!value || !Array.isArray((value as { tool_traces?: unknown[] }).tool_traces)) return [];
   return ((value as { tool_traces: unknown[] }).tool_traces ?? [])
@@ -4044,6 +4070,7 @@ function AuthenticatedChatsPage() {
                   animateOnMount={shouldAnimateMessage}
                   authorLabel={msg.role === 'user' ? userMessageAuthorLabel : getAssistantAuthorLabel(msg)}
                   attachments={resolvedAttachments}
+                  generatedFiles={msg.role === 'assistant' ? (msg.generated_files ?? extractGeneratedFiles(msg.usage)) : undefined}
                   toolTraces={msg.role === 'assistant' ? extractToolTraces(msg.usage) : undefined}
                   codingReport={msg.role === 'assistant' ? extractCodingReport(msg.usage, msg.content) : undefined}
                   projectRunCount={msg.project_run_count}
@@ -4173,6 +4200,7 @@ function AuthenticatedChatsPage() {
                       animateOnMount={false}
                       authorLabel={getAssistantAuthorLabel(assistantSlotResolvedMessage)}
                       attachments={assistantSlotResolvedMessage.attachments ?? extractAttachments(assistantSlotResolvedMessage.usage)}
+                      generatedFiles={assistantSlotResolvedMessage.generated_files ?? extractGeneratedFiles(assistantSlotResolvedMessage.usage)}
                       toolTraces={extractToolTraces(assistantSlotResolvedMessage.usage)}
                       codingReport={extractCodingReport(assistantSlotResolvedMessage.usage, assistantSlotResolvedMessage.content)}
                       projectRunCount={assistantSlotResolvedMessage.project_run_count}

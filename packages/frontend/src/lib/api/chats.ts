@@ -216,6 +216,7 @@ export interface ChatMessage {
   usage: Record<string, unknown> | null;
   project_run_count?: number | null;
   attachments?: ChatAttachment[];
+  generated_files?: ChatGeneratedFile[];
   latency_ms: number | null;
   created_at: string;
 }
@@ -228,6 +229,17 @@ export interface ChatAttachment {
   kind: 'image' | 'text' | 'file';
   url: string;
   text_preview?: string;
+}
+
+export interface ChatGeneratedFile {
+  id: string;
+  original_name: string;
+  mime_type: string;
+  size: number;
+  kind: 'image' | 'text' | 'file';
+  url: string;
+  text_preview?: string;
+  created_at?: string;
 }
 
 export interface ChatToolDefinition {

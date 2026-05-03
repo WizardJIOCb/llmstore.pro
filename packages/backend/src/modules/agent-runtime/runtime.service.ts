@@ -13,6 +13,7 @@ import {
   chatSessions,
   chatConversations,
   chatConversationMessages,
+  chatMessageFiles,
   chatConversationViewers,
   chatConversationDailyViews,
   chatConversationReactions,
@@ -30,7 +31,7 @@ import { executeHttpRequest } from '../tool-execution/executors/http-request.exe
 import { NotFoundError, AppError, ConflictError } from '../../middleware/error-handler.js';
 import { logger } from '../../lib/logger.js';
 import type { ChatCompletionChoice, ChatCompletionParams, ChatMessage, ToolDefinitionParam } from '../openrouter/types.js';
-import { UPLOADS_DIR } from '../../config/upload.js';
+import { CHAT_GENERATED_FILES_DIR, UPLOADS_DIR } from '../../config/upload.js';
 import { openChatEventStream, openSharedChatEventStream, publishChatEvent, publishSharedChatEvent } from './chat-events.service.js';
 import {
   getOpenRouterRequestsEnabled,
@@ -98,6 +99,22 @@ interface ChatAttachmentMeta {
   kind: 'image' | 'text' | 'file';
   url: string;
   text_preview?: string;
+}
+
+interface GeneratedChatFileArtifact {
+  storage_filename: string;
+  original_name: string;
+  mime_type: string;
+  size: number;
+  kind: 'image' | 'text' | 'file';
+  text_preview?: string;
+  tool_call_id?: string | null;
+}
+
+interface ChatGeneratedFileMeta extends GeneratedChatFileArtifact {
+  id: string;
+  url: string;
+  created_at: string;
 }
 
 type ChatAccess = 'public' | 'private' | 'restricted';
@@ -1646,6 +1663,10 @@ function isTextMime(mimeType: string): boolean {
 
 function safeAttachmentPath(filename: string): string {
   return path.join(CHAT_UPLOADS_DIR, path.basename(filename));
+}
+
+function safeGeneratedFilePath(filename: string): string {
+  return path.join(CHAT_GENERATED_FILES_DIR, path.basename(filename));
 }
 
 function clampText(value: unknown, max = 4000): string | undefined {
@@ -3318,7 +3339,7 @@ export async function startRun(
       ),
     )
     .orderBy(agentVersionTools.order_index);
-  const tools = versionToolRows.map(r => r.tool);
+  let tools = versionToolRows.map(r => r.tool);
 
   // 2. Parse runtime config
   const runtimeConfig = (version.runtime_config || {}) as {
@@ -3377,6 +3398,17 @@ export async function startRun(
         role: 'user',
         content_text: latestUserMessage,
       });
+    }
+
+    const autoRunTools = await getActiveToolDefinitionRowsBySlugs(AUTO_RUN_CHAT_TOOL_SLUGS);
+    if (autoRunTools.length > 0) {
+      const toolsById = new Map(tools.map((tool) => [tool.id, tool]));
+      for (const tool of autoRunTools) {
+        if (!toolsById.has(tool.id)) {
+          toolsById.set(tool.id, tool);
+        }
+      }
+      tools = [...toolsById.values()];
     }
   }
 
@@ -3440,6 +3472,14 @@ ${agent.description.trim()}`);
   }
   if (strictPreviewEdit) {
     systemParts.push(buildStrictPreviewEditInstruction(strictPreviewEdit));
+  }
+  if (tools.some((tool) => tool.slug === CREATE_CHAT_FILES_TOOL_SLUG)) {
+    systemParts.push([
+      'File artifact instruction.',
+      `When the user asks you to prepare a downloadable file, call ${CREATE_CHAT_FILES_TOOL_SLUG}.`,
+      'Use the tool for reports, markdown, CSV, JSON, HTML, code files, exports, datasets, and similar artifacts.',
+      'After the tool succeeds, mention the created files briefly; the chat UI will show download cards automatically.',
+    ].join('\n'));
   }
   systemParts.push(buildModelEnvironmentContext());
   if (systemParts.length > 0) {
@@ -3634,6 +3674,7 @@ ${agent.description.trim()}`);
   });
 
   const toolTraces: ToolTrace[] = [];
+  const pendingGeneratedFiles: GeneratedChatFileArtifact[] = [];
   let finalOutput = '';
   let codingReport: CodingReport | null = null;
   let runStatus: 'completed' | 'failed' = 'completed';
@@ -3990,7 +4031,18 @@ ${agent.description.trim()}`);
 
           let trace: ToolTrace;
           try {
-            const execResult = await executeTool(toolSlug, toolInput, toolDef?.config_json ?? undefined);
+            const toolConfig = toolSlug === CREATE_CHAT_FILES_TOOL_SLUG
+              ? {
+                ...(toolDef?.config_json ?? {}),
+                storage_dir: CHAT_GENERATED_FILES_DIR,
+                chat_id: syncedConversationId,
+                run_id: run.id,
+              }
+              : (toolDef?.config_json ?? undefined);
+            const execResult = await executeTool(toolSlug, toolInput, toolConfig);
+            if (toolSlug === CREATE_CHAT_FILES_TOOL_SLUG) {
+              pendingGeneratedFiles.push(...extractGeneratedFilesFromToolResult(execResult.result, toolCall.id));
+            }
             for (const usageEntry of normalizeToolUsageEntries(execResult.usage)) {
               recordUsage({
                 prompt_tokens: usageEntry.prompt_tokens,
@@ -4321,6 +4373,8 @@ ${agent.description.trim()}`);
           : null
       );
 
+    let syncedAssistantMessageId: string | null = null;
+
     if (partialAssistantMessageId) {
       await db.update(chatConversationMessages).set({
         ...(runStatus === 'completed' && finalOutput.trim().length > 0
@@ -4329,15 +4383,34 @@ ${agent.description.trim()}`);
         usage_json: usagePayload as Record<string, unknown> | null,
         latency_ms: latencyMs,
       }).where(eq(chatConversationMessages.id, partialAssistantMessageId));
-    } else if (runStatus === 'completed' && finalOutput.trim().length > 0) {
-      await db.insert(chatConversationMessages).values({
+      syncedAssistantMessageId = partialAssistantMessageId;
+    } else if (runStatus === 'completed' && (finalOutput.trim().length > 0 || pendingGeneratedFiles.length > 0)) {
+      const [insertedAssistantMessage] = await db.insert(chatConversationMessages).values({
         conversation_id: syncedConversationId,
         role: 'assistant',
-        content_text: finalOutput,
+        content_text: finalOutput.trim().length > 0 ? finalOutput : 'Файлы подготовлены.',
         run_id: run.id,
         usage_json: usagePayload as Record<string, unknown> | null,
         latency_ms: latencyMs,
+      }).returning({ id: chatConversationMessages.id });
+      syncedAssistantMessageId = insertedAssistantMessage?.id ?? null;
+    }
+
+    if (syncedAssistantMessageId && pendingGeneratedFiles.length > 0) {
+      const generatedFiles = await persistGeneratedFilesForMessage({
+        conversationId: syncedConversationId,
+        messageId: syncedAssistantMessageId,
+        userId,
+        runId: run.id,
+        files: pendingGeneratedFiles,
       });
+      if (generatedFiles.length > 0) {
+        await db.update(chatConversationMessages)
+          .set({
+            usage_json: attachGeneratedFilesToUsage(usagePayload as Record<string, unknown> | null, generatedFiles),
+          })
+          .where(eq(chatConversationMessages.id, syncedAssistantMessageId));
+      }
     }
 
     await db.update(chatConversations).set({
@@ -4720,6 +4793,9 @@ export async function clearChatHistory(agentId: string, userId: string) {
 
 const DEFAULT_GENERAL_MODEL = 'openai/gpt-4o-mini';
 const CHAT_TOOL_RUNTIME_AGENT_SLUG_PREFIX = 'chat-tool-runtime-';
+const CREATE_CHAT_FILES_TOOL_SLUG = 'create-chat-files';
+const AUTO_ATTACH_CHAT_TOOL_SLUGS = [CREATE_CHAT_FILES_TOOL_SLUG] as const;
+const AUTO_RUN_CHAT_TOOL_SLUGS = [CREATE_CHAT_FILES_TOOL_SLUG] as const;
 const MAX_CHAT_TOOL_IDS = 64;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const AGENT_OPENROUTER_TIMEOUT_MS = 3 * 60_000;
@@ -4896,6 +4972,7 @@ interface ConversationMessage {
   run_id: string | null;
   usage: Record<string, unknown> | null;
   attachments: ChatAttachmentMeta[];
+  generated_files: ChatGeneratedFileMeta[];
   project_run_count: number;
   latency_ms: number | null;
   created_at: string;
@@ -5266,6 +5343,82 @@ async function getActiveToolSummariesByIds(toolIds: string[]): Promise<ChatToolS
   return orderedTools;
 }
 
+async function getActiveToolDefinitionRowsBySlugs(
+  slugs: readonly string[],
+): Promise<Array<typeof toolDefinitions.$inferSelect>> {
+  if (slugs.length === 0) return [];
+
+  const rows = await db
+    .select()
+    .from(toolDefinitions)
+    .where(and(
+      inArray(toolDefinitions.slug, [...slugs]),
+      eq(toolDefinitions.is_active, true),
+    ));
+
+  const bySlug = new Map(rows.map((row) => [row.slug, row]));
+  return slugs
+    .map((slug) => bySlug.get(slug) ?? null)
+    .filter((row): row is typeof toolDefinitions.$inferSelect => Boolean(row));
+}
+
+async function getAutoAttachChatToolSummaries(): Promise<ChatToolSummary[]> {
+  const rows = await getActiveToolDefinitionRowsBySlugs(AUTO_ATTACH_CHAT_TOOL_SLUGS);
+  if (rows.length !== AUTO_ATTACH_CHAT_TOOL_SLUGS.length) {
+    logger.warn({ slugs: AUTO_ATTACH_CHAT_TOOL_SLUGS }, 'One or more auto chat tools are unavailable');
+  }
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    slug: row.slug,
+    tool_type: row.tool_type,
+    description: row.description,
+    is_builtin: row.is_builtin,
+    is_active: row.is_active,
+  }));
+}
+
+async function mergeAutoChatToolIds(toolIds: string[]): Promise<string[]> {
+  const normalizedToolIds = normalizeChatToolIds(toolIds);
+  const autoTools = await getAutoAttachChatToolSummaries();
+  return normalizeChatToolIds([
+    ...normalizedToolIds,
+    ...autoTools.map((tool) => tool.id),
+  ]);
+}
+
+async function ensureAutoChatToolsForConversation(
+  chat: ChatConversationRow,
+): Promise<ChatConversationRow> {
+  if (chat.mode !== 'general') return chat;
+
+  const existingToolSettings = extractChatToolSettings(chat.settings_json);
+  const nextToolIds = await mergeAutoChatToolIds(existingToolSettings.tool_ids);
+  if (
+    nextToolIds.length === existingToolSettings.tool_ids.length
+    && nextToolIds.every((toolId, index) => toolId === existingToolSettings.tool_ids[index])
+  ) {
+    return chat;
+  }
+
+  const nextSettings = buildChatSettingsJson(chat.settings_json, {
+    tool_ids: nextToolIds,
+  });
+
+  await db.update(chatConversations)
+    .set({
+      settings_json: nextSettings,
+      updated_at: new Date(),
+    })
+    .where(eq(chatConversations.id, chat.id));
+
+  return {
+    ...chat,
+    settings_json: nextSettings,
+    updated_at: new Date(),
+  };
+}
+
 async function getActiveAgentToolSummaries(agentId: string | null): Promise<ChatToolSummary[]> {
   if (!agentId) return [];
 
@@ -5507,7 +5660,10 @@ async function getPublishedLandingRowForOwner(chatId: string, messageId: string,
   return { chat, message, landing: landing ?? null };
 }
 
-async function getConversationMessages(chatId: string): Promise<ConversationMessage[]> {
+async function getConversationMessages(
+  chatId: string,
+  options?: { sharedToken?: string | null },
+): Promise<ConversationMessage[]> {
   const usdToRubRate = await getUsdToRubRate();
   const rows = await db
     .select()
@@ -5515,9 +5671,19 @@ async function getConversationMessages(chatId: string): Promise<ConversationMess
     .where(eq(chatConversationMessages.conversation_id, chatId))
     .orderBy(asc(chatConversationMessages.created_at));
 
-  return rows
+  const messages = rows
     .filter((row) => row.role === 'user' || row.role === 'assistant')
     .map((row) => toConversationMessage(row, usdToRubRate));
+
+  const filesByMessageId = await loadGeneratedFilesForMessages(messages.map((message) => message.id), options);
+  return messages.map((message) => {
+    const generatedFiles = filesByMessageId.get(message.id) ?? [];
+    return {
+      ...message,
+      generated_files: generatedFiles,
+      usage: attachGeneratedFilesToUsage(message.usage, generatedFiles),
+    };
+  });
 }
 
 function isConversationMessagePartial(message?: ConversationMessage | null): boolean {
@@ -5898,6 +6064,186 @@ function extractUsageAttachments(value: Record<string, unknown> | null | undefin
     .map((item) => item as ChatAttachmentMeta);
 }
 
+function buildGeneratedFileDownloadUrl(
+  conversationId: string,
+  messageId: string,
+  fileId: string,
+  options?: { sharedToken?: string | null },
+): string {
+  if (options?.sharedToken) {
+    return `/api/shared/chats/${options.sharedToken}/messages/${messageId}/files/${fileId}/download`;
+  }
+
+  return `/api/chats/${conversationId}/messages/${messageId}/files/${fileId}/download`;
+}
+
+function toGeneratedFileMeta(
+  row: typeof chatMessageFiles.$inferSelect,
+  options?: { sharedToken?: string | null },
+): ChatGeneratedFileMeta {
+  const kind: ChatGeneratedFileMeta['kind'] = row.kind === 'image' || row.kind === 'text' || row.kind === 'file'
+    ? row.kind
+    : 'file';
+
+  return {
+    id: row.id,
+    storage_filename: row.storage_filename,
+    original_name: row.original_name,
+    mime_type: row.mime_type,
+    size: row.size,
+    kind,
+    text_preview: row.text_preview ?? undefined,
+    tool_call_id: row.tool_call_id ?? null,
+    url: buildGeneratedFileDownloadUrl(row.conversation_id, row.message_id, row.id, options),
+    created_at: toIso(row.created_at),
+  };
+}
+
+function attachGeneratedFilesToUsage(
+  usage: Record<string, unknown> | null,
+  files: ChatGeneratedFileMeta[],
+): Record<string, unknown> | null {
+  if (files.length === 0) return usage;
+
+  const publicFiles = files.map(({ storage_filename: _storageFilename, ...file }) => file);
+  const nextUsage: Record<string, unknown> = usage ? { ...usage } : {};
+  nextUsage.generated_files = publicFiles;
+  nextUsage.artifacts = {
+    ...(
+      nextUsage.artifacts && typeof nextUsage.artifacts === 'object' && !Array.isArray(nextUsage.artifacts)
+        ? nextUsage.artifacts as Record<string, unknown>
+        : {}
+    ),
+    files: publicFiles,
+  };
+  return nextUsage;
+}
+
+function stripGeneratedFilesFromUsage(
+  usage: Record<string, unknown> | null,
+): Record<string, unknown> | null {
+  if (!usage) return null;
+  const nextUsage: Record<string, unknown> = { ...usage };
+  delete nextUsage.generated_files;
+
+  if (nextUsage.artifacts && typeof nextUsage.artifacts === 'object' && !Array.isArray(nextUsage.artifacts)) {
+    const artifacts = { ...(nextUsage.artifacts as Record<string, unknown>) };
+    delete artifacts.files;
+    if (Object.keys(artifacts).length > 0) {
+      nextUsage.artifacts = artifacts;
+    } else {
+      delete nextUsage.artifacts;
+    }
+  }
+
+  return nextUsage;
+}
+
+function extractGeneratedFilesFromToolResult(
+  value: Record<string, unknown> | null | undefined,
+  toolCallId: string,
+): GeneratedChatFileArtifact[] {
+  if (!value || !Array.isArray((value as { files?: unknown[] }).files)) return [];
+
+  return ((value as { files: unknown[] }).files ?? [])
+    .map((item): GeneratedChatFileArtifact | null => {
+      if (!item || typeof item !== 'object') return null;
+      const row = item as Record<string, unknown>;
+      const storageFilename = typeof row.storage_filename === 'string'
+        ? path.basename(row.storage_filename)
+        : (typeof row.filename === 'string' ? path.basename(row.filename) : '');
+      const originalName = typeof row.original_name === 'string' && row.original_name.trim()
+        ? row.original_name.trim().slice(0, 500)
+        : storageFilename;
+      const mimeType = typeof row.mime_type === 'string' && row.mime_type.trim()
+        ? row.mime_type.trim().slice(0, 200)
+        : getAttachmentMimeType(originalName || storageFilename);
+      const kind: GeneratedChatFileArtifact['kind'] = row.kind === 'image' || row.kind === 'text' || row.kind === 'file'
+        ? row.kind
+        : (isImageMime(mimeType) ? 'image' : (isTextMime(mimeType) ? 'text' : 'file'));
+      const size = typeof row.size === 'number' && Number.isFinite(row.size) ? Math.max(0, Math.floor(row.size)) : 0;
+      if (!storageFilename || !originalName || size <= 0) return null;
+      return {
+        storage_filename: storageFilename,
+        original_name: originalName,
+        mime_type: mimeType,
+        size,
+        kind,
+        text_preview: typeof row.text_preview === 'string' && row.text_preview.trim()
+          ? row.text_preview.trim().slice(0, 400)
+          : undefined,
+        tool_call_id: toolCallId,
+      };
+    })
+    .filter((item): item is GeneratedChatFileArtifact => Boolean(item));
+}
+
+async function persistGeneratedFilesForMessage(input: {
+  conversationId: string;
+  messageId: string;
+  userId: string;
+  runId: string | null;
+  files: GeneratedChatFileArtifact[];
+}): Promise<ChatGeneratedFileMeta[]> {
+  if (input.files.length === 0) return [];
+
+  const verifiedFiles: GeneratedChatFileArtifact[] = [];
+  for (const file of input.files) {
+    try {
+      const fileStats = await stat(safeGeneratedFilePath(file.storage_filename));
+      if (!fileStats.isFile()) continue;
+      verifiedFiles.push({
+        ...file,
+        size: fileStats.size,
+      });
+    } catch {
+    }
+  }
+
+  if (verifiedFiles.length === 0) return [];
+
+  const inserted = await db.insert(chatMessageFiles).values(
+    verifiedFiles.map((file) => ({
+      conversation_id: input.conversationId,
+      message_id: input.messageId,
+      user_id: input.userId,
+      run_id: input.runId,
+      tool_call_id: file.tool_call_id ?? null,
+      storage_filename: file.storage_filename,
+      original_name: file.original_name,
+      mime_type: file.mime_type,
+      kind: file.kind,
+      size: file.size,
+      text_preview: file.text_preview ?? null,
+    })),
+  ).returning();
+
+  return inserted.map((row) => toGeneratedFileMeta(row));
+}
+
+async function loadGeneratedFilesForMessages(
+  messageIds: string[],
+  options?: { sharedToken?: string | null },
+): Promise<Map<string, ChatGeneratedFileMeta[]>> {
+  const normalizedIds = messageIds.filter((id) => UUID_PATTERN.test(id));
+  if (normalizedIds.length === 0) return new Map();
+
+  const rows = await db
+    .select()
+    .from(chatMessageFiles)
+    .where(inArray(chatMessageFiles.message_id, normalizedIds))
+    .orderBy(asc(chatMessageFiles.created_at));
+
+  const filesByMessageId = new Map<string, ChatGeneratedFileMeta[]>();
+  for (const row of rows) {
+    const list = filesByMessageId.get(row.message_id) ?? [];
+    list.push(toGeneratedFileMeta(row, options));
+    filesByMessageId.set(row.message_id, list);
+  }
+
+  return filesByMessageId;
+}
+
 function sanitizeImportedDate(value: string | undefined, fallback: Date): Date {
   if (!value) return fallback;
   const parsed = new Date(value);
@@ -6033,7 +6379,7 @@ async function buildChatTransferBundlePayload(
     messages: messages.map((message) => ({
       role: message.role,
       content: message.content,
-      usage: message.usage,
+      usage: stripGeneratedFilesFromUsage(message.usage),
       project_run_count: message.project_run_count,
       latency_ms: message.latency_ms,
       created_at: message.created_at,
@@ -6159,6 +6505,7 @@ function toConversationMessage(
     run_id: row.run_id ?? null,
     usage: attachUsdToRubRate(normalizedUsage, usdToRubRate),
     attachments,
+    generated_files: [],
     project_run_count: row.project_run_count ?? 0,
     latency_ms: row.latency_ms ?? null,
     created_at: toIso(row.created_at),
@@ -6212,7 +6559,7 @@ async function cloneConversationAttachments(
       }
       return {
         ...message,
-        usage: usageCopy,
+        usage: stripGeneratedFilesFromUsage(usageCopy),
       };
     }),
   };
@@ -6265,6 +6612,9 @@ async function cloneChatFromMessages(
   const clonedTitle = clonedTitleBase.toLowerCase().startsWith('копия ')
     ? clonedTitleBase
     : `Копия ${clonedTitleBase}`;
+  const clonedToolIds = nextMode === 'general'
+    ? await mergeAutoChatToolIds(sourceChat.mode === 'general' ? sourceToolSettings.tool_ids : [])
+    : [];
 
   const [chat] = await db.insert(chatConversations).values({
     user_id: userId,
@@ -6277,7 +6627,7 @@ async function cloneChatFromMessages(
     access_identifiers: [],
     share_token: shareToken,
     settings_json: buildChatSettingsJson(null, {
-      tool_ids: nextMode === 'general' ? sourceToolSettings.tool_ids : [],
+      tool_ids: clonedToolIds,
       tool_agent_id: null,
       note: extractChatNote(sourceChat.settings_json),
     }),
@@ -6304,11 +6654,11 @@ async function cloneChatFromMessages(
     );
   }
 
-  if (nextMode === 'general' && sourceToolSettings.tool_ids.length > 0) {
+  if (nextMode === 'general' && clonedToolIds.length > 0) {
     const toolAgentId = await ensureChatToolRuntimeAgent(
       { id: chat.id, title: chat.title },
       userId,
-      sourceToolSettings.tool_ids,
+      clonedToolIds,
       chat.model_external_id ?? DEFAULT_GENERAL_MODEL,
       chat.system_prompt,
     );
@@ -6316,7 +6666,7 @@ async function cloneChatFromMessages(
     await db.update(chatConversations)
       .set({
         settings_json: buildChatSettingsJson(chat.settings_json, {
-          tool_ids: sourceToolSettings.tool_ids,
+          tool_ids: clonedToolIds,
           tool_agent_id: toolAgentId,
           note: extractChatNote(sourceChat.settings_json),
         }),
@@ -6745,6 +7095,7 @@ export async function listChats(userId: string): Promise<ConversationListItem[]>
       run_id: m.run_id ?? null,
       usage: (m.usage_json as Record<string, unknown> | null) ?? null,
       attachments: extractUsageAttachments((m.usage_json as Record<string, unknown> | null) ?? null),
+      generated_files: [],
       project_run_count: m.project_run_count ?? 0,
       latency_ms: m.latency_ms ?? null,
       created_at: toIso(m.created_at),
@@ -7150,7 +7501,9 @@ export async function createChat(userId: string, input: {
   const mode = input.mode ?? 'general';
   const access = normalizeChatAccess(input.access);
   const accessIdentifiers = normalizeAccessIdentifiers(input.access_identifiers);
-  const normalizedToolIds = normalizeChatToolIds(input.tool_ids);
+  const normalizedToolIds = mode === 'general'
+    ? await mergeAutoChatToolIds(normalizeChatToolIds(input.tool_ids))
+    : normalizeChatToolIds(input.tool_ids);
   if (mode === 'agent' && !input.agent_id) {
     throw new AppError(400, 'VALIDATION_ERROR', 'Для режима чата с агентом требуется agent_id');
   }
@@ -7219,7 +7572,7 @@ export async function createChat(userId: string, input: {
   return {
     id: chat.id,
     title: chat.title,
-    note: extractChatNote(initialSettings),
+    note: extractChatNote(chat.settings_json ?? initialSettings),
     mode: chat.mode,
     agent_id: chat.agent_id,
     agent_name: agentMeta?.agent_name ?? null,
@@ -7241,17 +7594,18 @@ export async function createChat(userId: string, input: {
 }
 
 export async function getChatById(chatId: string, userId: string): Promise<ConversationDetails> {
-  const chat = await getConversationForUser(chatId, userId);
+  const chat = await ensureAutoChatToolsForConversation(await getConversationForUser(chatId, userId));
   const shareToken = await ensureChatShareToken(chat.id, chat.share_token);
   const chatToolSettings = extractChatToolSettings(chat.settings_json);
-  const [messages, agentMeta, chatTools, agentTools, projectDeployments] = await Promise.all([
+  const [messages, agentMeta, chatTools, agentTools, projectDeployments, autoChatTools] = await Promise.all([
     getConversationMessages(chatId),
     getAgentChatMeta(chat.agent_id ?? null),
     getActiveToolSummariesByIds(chatToolSettings.tool_ids),
     getActiveAgentToolSummaries(chat.agent_id ?? null),
     getChatProjectDeploymentSummaries(chat.id, userId),
+    getAutoAttachChatToolSummaries(),
   ]);
-  const effectiveTools = mergeToolSummaries(agentTools, chatTools);
+  const effectiveTools = mergeToolSummaries(agentTools, chatTools, chat.mode === 'agent' ? autoChatTools : []);
   const pending_run = await getConversationRuntimeState(chat, messages);
 
   return {
@@ -7375,6 +7729,62 @@ export async function runGalleryPreviewProject(
     ...result,
     project_run_count: projectRunCount,
   };
+}
+
+async function getGeneratedFileForMessage(
+  conversationId: string,
+  messageId: string,
+  fileId: string,
+) {
+  const [file] = await db
+    .select()
+    .from(chatMessageFiles)
+    .where(and(
+      eq(chatMessageFiles.id, fileId),
+      eq(chatMessageFiles.conversation_id, conversationId),
+      eq(chatMessageFiles.message_id, messageId),
+    ))
+    .limit(1);
+
+  if (!file) {
+    throw new NotFoundError('File not found');
+  }
+
+  const filePath = safeGeneratedFilePath(file.storage_filename);
+  try {
+    const fileStats = await stat(filePath);
+    if (!fileStats.isFile()) {
+      throw new NotFoundError('File not found');
+    }
+  } catch (error) {
+    if (error instanceof NotFoundError) throw error;
+    throw new NotFoundError('File not found');
+  }
+
+  return {
+    file,
+    file_path: filePath,
+  };
+}
+
+export async function getChatMessageFileDownload(
+  chatId: string,
+  messageId: string,
+  fileId: string,
+  userId: string,
+) {
+  await getConversationForUser(chatId, userId);
+  return getGeneratedFileForMessage(chatId, messageId, fileId);
+}
+
+export async function getSharedChatMessageFileDownload(
+  token: string,
+  messageId: string,
+  fileId: string,
+  viewerUserId?: string | null,
+) {
+  const chat = await getConversationForSharedViewer(token, viewerUserId);
+  return getGeneratedFileForMessage(chat.id, messageId, fileId);
 }
 
 export async function getChatMessagePreviewHtml(
@@ -7850,7 +8260,7 @@ export async function updateChat(chatId: string, userId: string, input: {
   pin_to_top?: boolean;
   unpin_from_top?: boolean;
 }, userRole?: string) {
-  const existing = await getConversationForUser(chatId, userId);
+  const existing = await ensureAutoChatToolsForConversation(await getConversationForUser(chatId, userId));
   const nextMode = input.mode ?? existing.mode;
   const nextAgentId = input.agent_id === undefined ? existing.agent_id : input.agent_id;
   const nextAccess = input.access === undefined ? existing.access : normalizeChatAccess(input.access);
@@ -7858,9 +8268,12 @@ export async function updateChat(chatId: string, userId: string, input: {
     ? normalizeAccessIdentifiers(existing.access_identifiers)
     : normalizeAccessIdentifiers(input.access_identifiers);
   const existingToolSettings = extractChatToolSettings(existing.settings_json);
-  const nextToolIds = input.tool_ids === undefined
+  const requestedNextToolIds = input.tool_ids === undefined
     ? existingToolSettings.tool_ids
     : normalizeChatToolIds(input.tool_ids);
+  const nextToolIds = nextMode === 'general'
+    ? await mergeAutoChatToolIds(requestedNextToolIds)
+    : requestedNextToolIds;
 
   if (nextMode === 'agent' && !nextAgentId) {
     throw new AppError(400, 'VALIDATION_ERROR', 'Для режима чата с агентом требуется agent_id');
@@ -7977,6 +8390,9 @@ async function createReusableChatFromSource(
   sourceChat: ChatConversationRow,
 ): Promise<ConversationListItem> {
   const sourceToolSettings = extractChatToolSettings(sourceChat.settings_json);
+  const copiedToolIds = sourceChat.mode === 'general'
+    ? await mergeAutoChatToolIds(sourceToolSettings.tool_ids)
+    : [];
   const sourceAgentMeta = sourceChat.agent_id
     ? await getAgentChatMeta(sourceChat.agent_id)
     : null;
@@ -7998,7 +8414,7 @@ async function createReusableChatFromSource(
     access_identifiers: [],
     share_token: shareToken,
     settings_json: buildChatSettingsJson(null, {
-      tool_ids: sourceChat.mode === 'general' ? sourceToolSettings.tool_ids : [],
+      tool_ids: copiedToolIds,
       tool_agent_id: null,
       note: extractChatNote(sourceChat.settings_json),
     }),
@@ -8010,11 +8426,11 @@ async function createReusableChatFromSource(
     updated_at: createdAt,
   }).returning();
 
-  if (sourceChat.mode === 'general' && sourceToolSettings.tool_ids.length > 0) {
+  if (sourceChat.mode === 'general' && copiedToolIds.length > 0) {
     const toolAgentId = await ensureChatToolRuntimeAgent(
       { id: chat.id, title: chat.title },
       userId,
-      sourceToolSettings.tool_ids,
+      copiedToolIds,
       chat.model_external_id ?? DEFAULT_GENERAL_MODEL,
       chat.system_prompt,
     );
@@ -8022,7 +8438,7 @@ async function createReusableChatFromSource(
     await db.update(chatConversations)
       .set({
         settings_json: buildChatSettingsJson(chat.settings_json, {
-          tool_ids: sourceToolSettings.tool_ids,
+          tool_ids: copiedToolIds,
           tool_agent_id: toolAgentId,
           note: extractChatNote(sourceChat.settings_json),
         }),
@@ -8091,7 +8507,7 @@ export async function cloneChat(
   const transferableMessages: ChatTransferMessage[] = sourceMessages.map((message) => ({
     role: message.role,
     content: message.content,
-    usage: message.usage,
+    usage: stripGeneratedFilesFromUsage(message.usage),
     project_run_count: message.project_run_count,
     latency_ms: message.latency_ms,
     created_at: message.created_at,
@@ -8212,7 +8628,7 @@ export async function sendChatMessage(
   attachmentsInput?: ChatAttachmentInput[],
   userRole?: string,
 ) {
-  const chat = await getConversationForUser(chatId, userId);
+  const chat = await ensureAutoChatToolsForConversation(await getConversationForUser(chatId, userId));
   const chatToolSettings = extractChatToolSettings(chat.settings_json);
   const openRouterRequestsEnabled = await getOpenRouterRequestsEnabled();
   const openRouterDisabledMessage = openRouterRequestsEnabled
@@ -8295,6 +8711,7 @@ export async function sendChatMessage(
     project_run_count: 0,
     usage: attachmentMetas.length > 0 ? ({ attachments: attachmentMetas } as Record<string, unknown>) : null,
     attachments: attachmentMetas,
+    generated_files: [],
     latency_ms: null,
     created_at: new Date().toISOString(),
   };
@@ -8648,7 +9065,7 @@ export async function getSharedChatById(token: string, viewerUserId?: string | n
   const chat = await getConversationForSharedViewer(token, viewerUserId);
   await registerConversationView(chat, viewerUserId, viewerKey);
 
-  const messages = await getConversationMessages(chat.id);
+  const messages = await getConversationMessages(chat.id, { sharedToken: token });
   const pending_run = await getConversationRuntimeState(chat, messages);
   let agentName: string | null = null;
   let ownerName: string | null = null;
@@ -8692,6 +9109,7 @@ export async function getSharedChatById(token: string, viewerUserId?: string | n
       content: m.content,
       usage: m.usage,
       attachments: m.attachments,
+      generated_files: m.generated_files,
       project_run_count: m.project_run_count,
       latency_ms: m.latency_ms,
       created_at: m.created_at,
@@ -8838,7 +9256,7 @@ export async function importChatBundle(
     }
     return {
       ...message,
-      usage: usageCopy,
+      usage: stripGeneratedFilesFromUsage(usageCopy),
     };
   });
 
@@ -8881,6 +9299,7 @@ export async function importChatBundle(
     .sort((a, b) => a.createdAtDate.getTime() - b.createdAtDate.getTime());
 
   const lastMessageAt = orderedMessages[orderedMessages.length - 1]?.createdAtDate ?? createdAtFallback;
+  const importedToolIds = nextMode === 'general' ? await mergeAutoChatToolIds([]) : [];
 
   const [chat] = await db.insert(chatConversations).values({
     user_id: userId,
@@ -8892,6 +9311,10 @@ export async function importChatBundle(
     access: 'private',
     access_identifiers: [],
     share_token: shareToken,
+    settings_json: buildChatSettingsJson(null, {
+      tool_ids: importedToolIds,
+      tool_agent_id: null,
+    }),
     last_message_at: lastMessageAt,
     created_at: createdAtFallback,
     updated_at: new Date(),
@@ -8910,6 +9333,26 @@ export async function importChatBundle(
         created_at: message.createdAtDate,
       })),
     );
+  }
+
+  if (nextMode === 'general' && importedToolIds.length > 0) {
+    const toolAgentId = await ensureChatToolRuntimeAgent(
+      { id: chat.id, title: chat.title },
+      userId,
+      importedToolIds,
+      chat.model_external_id ?? DEFAULT_GENERAL_MODEL,
+      chat.system_prompt,
+    );
+
+    await db.update(chatConversations)
+      .set({
+        settings_json: buildChatSettingsJson(chat.settings_json, {
+          tool_ids: importedToolIds,
+          tool_agent_id: toolAgentId,
+        }),
+        updated_at: new Date(),
+      })
+      .where(eq(chatConversations.id, chat.id));
   }
 
   const agentMeta = chat.mode === 'agent'

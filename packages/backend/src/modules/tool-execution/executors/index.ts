@@ -9,6 +9,7 @@ import { executeWebSearchCascade } from './web-search-cascade.executor.js';
 import { executeJsonTransform } from './json-transform.executor.js';
 import { executeLlmOrchestratorWorker } from './llm-orchestrator-worker.executor.js';
 import { executeTemplateRenderer } from './template-renderer.executor.js';
+import { executeChatFileCreate } from './chat-file-create.executor.js';
 import type { ToolExecutionResult } from '../types.js';
 
 type ToolExecutorOutput = {
@@ -75,6 +76,10 @@ executorRegistry.set('json-transform', async (input) => {
 
 executorRegistry.set('template-renderer', async (input) => {
   return { payload: await executeTemplateRenderer(input) };
+});
+
+executorRegistry.set('create-chat-files', async (input, config) => {
+  return { payload: await executeChatFileCreate(input, config) };
 });
 
 executorRegistry.set('llm-orchestrator-worker', async (input, config) => {

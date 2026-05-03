@@ -24,6 +24,17 @@ interface Attachment {
   text_preview?: string;
 }
 
+interface GeneratedFile {
+  id: string;
+  original_name: string;
+  mime_type: string;
+  size: number;
+  kind: 'image' | 'text' | 'file';
+  url: string;
+  text_preview?: string;
+  created_at?: string;
+}
+
 interface ChatMessageProps {
   role: 'user' | 'assistant' | 'tool';
   content: string;
@@ -31,6 +42,7 @@ interface ChatMessageProps {
   createdAt?: string | null;
   animateOnMount?: boolean;
   attachments?: Attachment[];
+  generatedFiles?: GeneratedFile[];
   toolTraces?: ToolTrace[];
   codingReport?: CodingReport | null;
   previewPageUrl?: string | null;
@@ -67,6 +79,13 @@ interface ChatMessageProps {
 function trimFixPayload(value: string, limit = 12_000): string {
   if (value.length <= limit) return value;
   return `${value.slice(0, limit)}\n...[truncated]`;
+}
+
+function formatFileSize(size: number): string {
+  if (!Number.isFinite(size) || size <= 0) return '0 B';
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function buildFixProjectPrompt(project: CodingReportProject, result: ProjectRunResult): string {
@@ -1827,6 +1846,7 @@ export function ChatMessage({
   createdAt = null,
   animateOnMount = false,
   attachments = [],
+  generatedFiles = [],
   toolTraces = [],
   codingReport = null,
   previewPageUrl = null,
@@ -3477,6 +3497,40 @@ export function ChatMessage({
           {!isUser && toolTraces.length > 0 && (
             <div className="mt-3 rounded-lg border border-border/70 bg-background/70 p-3">
               <ToolTracePanel traces={toolTraces} />
+            </div>
+          )}
+
+          {!isUser && generatedFiles.length > 0 && (
+            <div className="mt-3 rounded-lg border border-border/70 bg-background/70 p-3">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Подготовленные файлы
+                </p>
+                <span className="text-xs text-muted-foreground">{generatedFiles.length}</span>
+              </div>
+              <div className="space-y-2">
+                {generatedFiles.map((file) => (
+                  <a
+                    key={file.id}
+                    href={file.url}
+                    download={file.original_name || undefined}
+                    className="flex min-w-0 items-center justify-between gap-3 rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-sm transition-colors hover:border-primary/40 hover:bg-muted/40"
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium text-slate-900">
+                        {file.original_name || file.id}
+                      </span>
+                      <span className="mt-0.5 block text-xs text-muted-foreground">
+                        {file.mime_type || file.kind} · {formatFileSize(file.size)}
+                      </span>
+                    </span>
+                    <span className="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-primary">
+                      <Download className="h-4 w-4" aria-hidden="true" />
+                      Скачать
+                    </span>
+                  </a>
+                ))}
+              </div>
             </div>
           )}
 

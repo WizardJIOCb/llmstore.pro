@@ -1,5 +1,7 @@
 import { db } from '../../config/database.js';
 import { toolDefinitions } from '../schema/agents.js';
+import { chatConversations } from '../schema/runtime.js';
+import { eq, sql } from 'drizzle-orm';
 
 const builtinTools = [
   {
@@ -244,6 +246,70 @@ const builtinTools = [
     is_active: true,
   },
   {
+    name: 'Create Chat Files',
+    slug: 'create-chat-files',
+    tool_type: 'mock_tool' as const,
+    description: 'Creates downloadable files for the current chat response. Use it when the user asks for a file, export, report, dataset, code file, CSV, JSON, HTML, markdown, or similar artifact.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        files: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 8,
+          items: {
+            type: 'object',
+            properties: {
+              name: {
+                type: 'string',
+                description: 'Download filename, for example report.md or data.csv.',
+              },
+              mime_type: {
+                type: 'string',
+                description: 'Optional MIME type.',
+              },
+              content: {
+                type: 'string',
+                description: 'UTF-8 file content.',
+              },
+              content_base64: {
+                type: 'string',
+                description: 'Optional base64 content for binary files.',
+              },
+            },
+            required: ['name'],
+          },
+        },
+      },
+      required: ['files'],
+    },
+    output_schema: {
+      type: 'object',
+      properties: {
+        files: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              filename: { type: 'string' },
+              original_name: { type: 'string' },
+              mime_type: { type: 'string' },
+              kind: { type: 'string' },
+              size: { type: 'number' },
+            },
+          },
+        },
+      },
+    },
+    config_json: {
+      max_files: 8,
+      max_file_size_bytes: 2 * 1024 * 1024,
+      max_total_size_bytes: 8 * 1024 * 1024,
+    },
+    is_builtin: true,
+    is_active: true,
+  },
+  {
     name: 'DTF Latest Feed',
     slug: 'dtf-latest-feed',
     tool_type: 'http_request' as const,
@@ -475,6 +541,50 @@ export async function seedBuiltinTools() {
           is_active: tool.is_active,
         },
       });
+  }
+  const [fileTool] = await db
+    .select({ id: toolDefinitions.id })
+    .from(toolDefinitions)
+    .where(eq(toolDefinitions.slug, 'create-chat-files'))
+    .limit(1);
+
+  if (fileTool) {
+    await db.update(chatConversations)
+      .set({
+        settings_json: sql<Record<string, unknown>>`jsonb_set(
+          coalesce(${chatConversations.settings_json}, '{}'::jsonb),
+          '{tool_ids}',
+          case
+            when coalesce(
+              case
+                when jsonb_typeof(${chatConversations.settings_json}->'tool_ids') = 'array'
+                  then ${chatConversations.settings_json}->'tool_ids'
+                else '[]'::jsonb
+              end,
+              '[]'::jsonb
+            ) ? ${fileTool.id}
+            then coalesce(
+              case
+                when jsonb_typeof(${chatConversations.settings_json}->'tool_ids') = 'array'
+                  then ${chatConversations.settings_json}->'tool_ids'
+                else '[]'::jsonb
+              end,
+              '[]'::jsonb
+            )
+            else coalesce(
+              case
+                when jsonb_typeof(${chatConversations.settings_json}->'tool_ids') = 'array'
+                  then ${chatConversations.settings_json}->'tool_ids'
+                else '[]'::jsonb
+              end,
+              '[]'::jsonb
+            ) || to_jsonb(${fileTool.id}::text)
+          end,
+          true
+        )`,
+        updated_at: new Date(),
+      })
+      .where(eq(chatConversations.mode, 'general'));
   }
   console.log(`Seeded ${builtinTools.length} built-in tools`);
 }

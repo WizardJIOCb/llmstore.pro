@@ -5,6 +5,8 @@ import { mkdirSync } from 'fs';
 import { env } from './env.js';
 
 export const UPLOADS_DIR = path.resolve(env.UPLOADS_DIR);
+export const PRIVATE_UPLOADS_DIR = path.resolve(UPLOADS_DIR, '..', 'private-uploads');
+export const CHAT_GENERATED_FILES_DIR = path.join(PRIVATE_UPLOADS_DIR, 'chat-message-files');
 const NEWS_DIR = path.join(UPLOADS_DIR, 'news');
 const CHAT_DIR = path.join(UPLOADS_DIR, 'chat');
 const ARTICLES_DIR = path.join(UPLOADS_DIR, 'articles');
@@ -13,6 +15,7 @@ const ARTICLES_DIR = path.join(UPLOADS_DIR, 'articles');
 mkdirSync(NEWS_DIR, { recursive: true });
 mkdirSync(CHAT_DIR, { recursive: true });
 mkdirSync(ARTICLES_DIR, { recursive: true });
+mkdirSync(CHAT_GENERATED_FILES_DIR, { recursive: true });
 
 const ALLOWED_MIME_TYPES = new Set([
   'image/jpeg',
