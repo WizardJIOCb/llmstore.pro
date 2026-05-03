@@ -4996,6 +4996,7 @@ function stringifyErrorDetails(error: unknown): string {
 
 function shouldTryOpenRouterRuntimeFallback(error: unknown): boolean {
   if (!(error instanceof AppError)) return false;
+  if (error.code === 'EMPTY_RESPONSE') return true;
   if (error.code !== 'LLM_PROVIDER_ERROR' && error.code !== 'LLM_BAD_REQUEST') return false;
 
   const haystack = `${error.message} ${stringifyErrorDetails(error)}`.toLowerCase();
