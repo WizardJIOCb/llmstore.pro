@@ -419,6 +419,7 @@ function buildTelegramBotPythonSource(input: TelegramBotQuickstartInput): string
   return `import json
 import logging
 import os
+import re
 import sqlite3
 import threading
 import time
@@ -557,6 +558,129 @@ def add_item(chat_id, raw):
                 (str(chat_id), name[:300], qty[:120], note[:1000], int(time.time())),
             )
     return {"name": name, "qty": qty, "note": note}
+
+
+def parse_quantity_number(value):
+    normalized = (value or "").strip().replace(",", ".")
+    if not re.match(r"^[+-]?\\d+(?:\\.\\d+)?$", normalized):
+        return None
+    number = float(normalized)
+    return int(number) if number.is_integer() else number
+
+
+def format_quantity_number(value):
+    number = float(value)
+    if number.is_integer():
+        return str(int(number))
+    return f"{number:.6f}".rstrip("0").rstrip(".")
+
+
+def split_item_name_note(value):
+    text = " ".join((value or "").strip().split())
+    lower = text.lower()
+    for marker in (" на ", " в "):
+        index = lower.rfind(marker)
+        if index <= 0:
+            continue
+        name = text[:index].strip()
+        note = text[index + len(marker):].strip()
+        if name and note and note.lower().startswith(("склад", "полк", "витрин", "магазин")):
+            return name, note
+    return text, ""
+
+
+def parse_add_item_delta(text):
+    stripped = (text or "").strip()
+    lower = stripped.lower()
+    prefixes = [
+        "/add_item",
+        "/additem",
+        "/inc_item",
+        "добавь товар",
+        "добавить товар",
+        "добавь позицию",
+        "добавить позицию",
+        "добавь",
+        "добавить",
+        "прибавь",
+        "прибавить",
+        "пополни",
+        "пополнить",
+        "положи",
+        "add item",
+    ]
+    rest = ""
+    for prefix in prefixes:
+        if lower.startswith(prefix):
+            rest = stripped[len(prefix):].strip(" :—-")
+            break
+    if not rest:
+        return None
+
+    if "|" in rest:
+        parts = [part.strip() for part in rest.split("|")]
+        if len(parts) >= 2:
+            quantity = parse_quantity_number(parts[1])
+            if quantity is not None and parts[0]:
+                return {"name": parts[0], "delta": quantity, "note": parts[2] if len(parts) >= 3 else ""}
+
+    match = re.match(r"^([+-]?\\d+(?:[,.]\\d+)?)\\s+(.+)$", rest)
+    if not match:
+        return None
+    quantity = parse_quantity_number(match.group(1))
+    name, note = split_item_name_note(match.group(2))
+    if quantity is None or not name:
+        return None
+    return {"name": name, "delta": quantity, "note": note}
+
+
+def add_item_delta(chat_id, parsed):
+    name = (parsed.get("name") or "").strip()
+    note = (parsed.get("note") or "").strip()
+    delta = parsed.get("delta")
+    if not name or delta is None:
+        return None
+
+    normalized_name = normalize_item_match_text(name)
+    normalized_note = normalize_item_match_text(note)
+    now = int(time.time())
+    with DB_LOCK:
+        with connect_db() as conn:
+            rows = conn.execute(
+                "SELECT id, name, qty, note FROM items WHERE chat_id = ? ORDER BY id DESC",
+                (str(chat_id),),
+            ).fetchall()
+            candidates = [
+                dict(row) for row in rows
+                if normalize_item_match_text(row["name"]) == normalized_name
+                and normalize_item_match_text(row["note"] or "") == normalized_note
+            ]
+
+            if len(candidates) == 1:
+                existing = candidates[0]
+                current_qty = parse_quantity_number(existing["qty"])
+                if current_qty is not None:
+                    next_qty = format_quantity_number(current_qty + delta)
+                    conn.execute(
+                        "UPDATE items SET qty = ?, updated_at = ? WHERE id = ? AND chat_id = ?",
+                        (next_qty, now, existing["id"], str(chat_id)),
+                    )
+                    return {
+                        "item": {"id": existing["id"], "name": existing["name"], "qty": next_qty, "note": existing.get("note") or ""},
+                        "created": False,
+                        "delta": format_quantity_number(delta),
+                    }
+
+            qty = format_quantity_number(delta)
+            cursor = conn.execute(
+                "INSERT INTO items(chat_id, name, qty, note, updated_at) VALUES(?, ?, ?, ?, ?)",
+                (str(chat_id), name[:300], qty[:120], note[:1000], now),
+            )
+            return {
+                "item": {"id": cursor.lastrowid, "name": name, "qty": qty, "note": note},
+                "created": True,
+                "delta": qty,
+            }
 
 
 def list_items(chat_id, limit=30):
@@ -800,6 +924,7 @@ def handle_command(chat_id, text):
             "/memory - показать память\\n"
             "/clear_memory - очистить память\\n"
             "/item название | количество | заметка - добавить товар\\n"
+            "/add_item количество название на склад - прибавить к остатку\\n"
             "/delete_item название: количество (заметка) - удалить товар\\n"
             "/items - показать товары",
         )
@@ -835,6 +960,22 @@ def handle_command(chat_id, text):
             return True
         note = f" ({item['note']})" if item.get("note") else ""
         send_telegram_message(chat_id, f"Добавил товар: {item['name']} - {item['qty']}{note}")
+        return True
+
+    add_delta = parse_add_item_delta(stripped)
+    if add_delta or cmd in {"/add_item", "/additem", "/inc_item"}:
+        if not add_delta:
+            send_telegram_message(chat_id, "Формат: /add_item количество название на склад. Например: Добавь 1 RTX 4070 на склад мск")
+            return True
+        result = add_item_delta(chat_id, add_delta)
+        if not result:
+            send_telegram_message(chat_id, "Не понял, какой товар и количество добавить. Например: Добавь 1 RTX 4070 на склад мск")
+            return True
+        action = "Создал позицию" if result["created"] else f"Добавил {result['delta']} к остатку"
+        send_telegram_message(
+            chat_id,
+            f"{action}: {item_display(result['item'])}\\n\\n" + format_items(list_items(chat_id)),
+        )
         return True
 
     delete_query = parse_delete_item_query(stripped)
