@@ -3,7 +3,7 @@ import type { ComponentPropsWithoutRef, CSSProperties, KeyboardEvent, ReactNode 
 import { createPortal } from 'react-dom';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Activity, Download, Link as LinkIcon, Pencil, Play, Settings, Square, Trash2 } from 'lucide-react';
+import { Activity, Download, ExternalLink, Link as LinkIcon, Pencil, Play, Settings, Square, Trash2 } from 'lucide-react';
 import type { CodingReport, CodingReportProject, ProjectRunResult, ToolTrace } from '../../lib/api/agents';
 import type { ProjectDeployment, ProjectDeploymentActionPayload, PublishedLanding } from '../../lib/api/chats';
 import { GENERAL_CHAT_MODELS } from '../../lib/chat-models';
@@ -3119,6 +3119,17 @@ export function ChatMessage({
                             )}
                           </div>
                           <div className="flex flex-wrap gap-2">
+                            {projectDeployment.telegram_bot_url && (
+                              <a
+                                href={projectDeployment.telegram_bot_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-input bg-background px-3 text-sm font-medium text-foreground shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground"
+                              >
+                                <ExternalLink className="h-4 w-4" aria-hidden="true" />
+                                Перейти в бота
+                              </a>
+                            )}
                             <Button
                               type="button"
                               variant="outline"

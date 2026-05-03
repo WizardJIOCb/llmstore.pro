@@ -42,6 +42,8 @@ export interface ProjectDeploymentRecord {
   env: Record<string, string>;
   services: ProjectServiceRecord[];
   webhook_url: string;
+  telegram_bot_username: string | null;
+  telegram_bot_url: string | null;
   linked_agent_id: string | null;
   linked_agent_name: string | null;
   linked_agent_model_external_id: string | null;
@@ -336,6 +338,69 @@ function normalizeDeploymentEnv(value: unknown): Record<string, string> {
   }
 
   return normalized;
+}
+
+function normalizeTelegramBotUsername(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const username = value.trim().replace(/^@+/, '');
+  return /^[A-Za-z0-9_]{5,32}$/.test(username) ? username : null;
+}
+
+function buildTelegramBotUrl(username: string | null): string | null {
+  return username ? `https://t.me/${username}` : null;
+}
+
+async function fetchTelegramBotUsername(token: string): Promise<string | null> {
+  if (!token) return null;
+
+  const response = await fetch(`https://api.telegram.org/bot${token}/getMe`, {
+    method: 'GET',
+    signal: AbortSignal.timeout(8000),
+  });
+
+  let payload: Record<string, unknown> | null = null;
+  try {
+    payload = await response.json() as Record<string, unknown>;
+  } catch {
+    payload = null;
+  }
+
+  if (!response.ok || payload?.ok !== true || !payload.result || typeof payload.result !== 'object') {
+    return null;
+  }
+
+  return normalizeTelegramBotUsername((payload.result as Record<string, unknown>).username);
+}
+
+async function resolveTelegramBotUsernameForDeployment(
+  deploymentId: string,
+  envVars: Record<string, string>,
+): Promise<string | null> {
+  const savedUsername = normalizeTelegramBotUsername(envVars.TELEGRAM_BOT_USERNAME);
+  if (savedUsername) return savedUsername;
+
+  const token = envVars.TELEGRAM_BOT_TOKEN?.trim();
+  if (!token) return null;
+
+  try {
+    const username = await fetchTelegramBotUsername(token);
+    if (!username) return null;
+
+    envVars.TELEGRAM_BOT_USERNAME = username;
+    await updateDeploymentState(deploymentId, {
+      env_json: {
+        ...envVars,
+        TELEGRAM_BOT_USERNAME: username,
+      },
+    }).catch((error) => {
+      logger.warn({ err: error, deploymentId }, 'Failed to persist Telegram bot username');
+    });
+
+    return username;
+  } catch (error) {
+    logger.warn({ err: error, deploymentId }, 'Failed to resolve Telegram bot username');
+    return null;
+  }
 }
 
 async function ensureLinkedAgentIsVisible(agentId: string, userId: string): Promise<{ id: string; name: string | null }> {
@@ -661,6 +726,8 @@ async function toProjectDeploymentRecord(
   const logs = await readDeploymentLogsForId(row.id);
   const services = await listProjectServicesForDeployment(row.id, row.user_id);
   const insights = await getDeploymentRunInsights(row.id);
+  const envVars = normalizeDeploymentEnv(row.env_json);
+  const telegramBotUsername = await resolveTelegramBotUsernameForDeployment(row.id, envVars);
   const modelInfo = resolveDeploymentModelInfo({
     linked_agent_id: row.linked_agent_id ?? null,
     deployment_model_external_id: row.model_external_id ?? null,
@@ -674,9 +741,11 @@ async function toProjectDeploymentRecord(
     title: row.title,
     runtime,
     entrypoint: row.entrypoint ?? null,
-    env: normalizeDeploymentEnv(row.env_json),
+    env: envVars,
     services,
     webhook_url: buildWebhookUrl(row.public_token),
+    telegram_bot_username: telegramBotUsername,
+    telegram_bot_url: buildTelegramBotUrl(telegramBotUsername),
     linked_agent_id: row.linked_agent_id ?? null,
     linked_agent_name: row.linked_agent_name ?? null,
     linked_agent_model_external_id: modelInfo.linkedAgentModelExternalId,
@@ -716,6 +785,8 @@ async function toAdminProjectDeploymentRecord(
   const logs = await readDeploymentLogsForId(row.id);
   const services = await listProjectServicesForDeployment(row.id, row.user_id);
   const insights = await getDeploymentRunInsights(row.id);
+  const envVars = normalizeDeploymentEnv(row.env_json);
+  const telegramBotUsername = normalizeTelegramBotUsername(envVars.TELEGRAM_BOT_USERNAME);
   const modelInfo = resolveDeploymentModelInfo({
     linked_agent_id: row.linked_agent_id ?? null,
     deployment_model_external_id: row.model_external_id ?? null,
@@ -737,9 +808,11 @@ async function toAdminProjectDeploymentRecord(
     title: row.title,
     runtime,
     entrypoint: row.entrypoint ?? null,
-    env: normalizeDeploymentEnv(row.env_json),
+    env: envVars,
     services,
     webhook_url: buildWebhookUrl(row.public_token),
+    telegram_bot_username: telegramBotUsername,
+    telegram_bot_url: buildTelegramBotUrl(telegramBotUsername),
     linked_agent_id: row.linked_agent_id ?? null,
     linked_agent_name: row.linked_agent_name ?? null,
     linked_agent_model_external_id: modelInfo.linkedAgentModelExternalId,

@@ -115,6 +115,8 @@ export interface ProjectDeployment {
     updated_at: string;
   }>;
   webhook_url: string;
+  telegram_bot_username: string | null;
+  telegram_bot_url: string | null;
   linked_agent_id: string | null;
   linked_agent_name: string | null;
   linked_agent_model_external_id: string | null;
