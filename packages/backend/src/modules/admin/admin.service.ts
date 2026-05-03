@@ -595,7 +595,7 @@ interface AdminUsersQuery {
 
 const ALICE_SYNTHETIC_EMAIL_PATTERN = 'alice-%@alice.llmstore.local';
 const ADMIN_USERS_DEFAULT_PAGE_SIZE = 10;
-const ADMIN_USERS_PAGE_SIZE_OPTIONS = [5, 10, 20] as const;
+const ADMIN_USERS_PAGE_SIZE_OPTIONS = [5, 10, 15, 20] as const;
 
 function normalizePositiveInteger(value: number | string | undefined, fallback: number): number {
   const parsed = typeof value === 'number' ? value : Number.parseInt(value ?? '', 10);

@@ -12,12 +12,12 @@ import { useAuth } from '../../hooks/useAuth';
 
 type SortField = 'spent_usd' | 'spent_tokens' | 'agents_count' | 'chats_count' | 'balance_usd' | 'last_activity_at' | 'last_login_at' | 'created_at' | 'role';
 type SortOrder = 'asc' | 'desc';
-type PerPageOption = 5 | 10 | 20;
+type PerPageOption = 5 | 10 | 15 | 20;
 type PaginationItem = number | 'start-ellipsis' | 'end-ellipsis';
 
 const ALICE_ROLE_FILTER_VALUE = '__alice';
 const ALICE_SYNTHETIC_EMAIL_DOMAIN = '@alice.llmstore.local';
-const perPageOptions: PerPageOption[] = [5, 10, 20];
+const perPageOptions: PerPageOption[] = [5, 10, 15, 20];
 
 const roleLabels: Record<string, string> = {
   user: 'Пользователь',
