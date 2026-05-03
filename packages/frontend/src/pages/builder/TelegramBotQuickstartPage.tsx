@@ -182,7 +182,7 @@ export function TelegramBotQuickstartPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div className="max-w-3xl">
             <div className="mb-2 flex items-center gap-2 text-sm font-medium text-cyan-700">
@@ -208,8 +208,8 @@ export function TelegramBotQuickstartPage() {
           </a>
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
-          <form className="flex flex-col gap-6" onSubmit={submit}>
+        <div className="flex flex-col gap-6">
+          <form className="order-2 flex flex-col gap-6" onSubmit={submit}>
             <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
               <div className="flex flex-col gap-1">
                 <h2 className="text-base font-semibold text-slate-950">1. Получите токен в Telegram</h2>
@@ -334,7 +334,7 @@ export function TelegramBotQuickstartPage() {
             </section>
           </form>
 
-          <aside className="flex flex-col gap-4">
+          <aside className="order-1 flex flex-col gap-4">
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">

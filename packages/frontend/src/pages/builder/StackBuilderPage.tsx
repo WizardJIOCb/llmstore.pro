@@ -859,9 +859,9 @@ export function StackBuilderPage() {
   return (
     <div className="bg-[linear-gradient(180deg,#f8fafc_0%,#ffffff_30%,#f8fafc_100%)]">
       <div className="container mx-auto max-w-7xl px-4 py-8 md:py-12">
-        <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
-          <div className="space-y-6">
-            <section className="rounded-[30px] border border-slate-200 bg-white p-8 shadow-[0_22px_60px_-40px_rgba(15,23,42,0.35)]">
+        <div className="flex flex-col gap-6">
+          <div className="contents">
+            <section className="order-1 rounded-[30px] border border-slate-200 bg-white p-8 shadow-[0_22px_60px_-40px_rgba(15,23,42,0.35)]">
               <div className="flex flex-wrap items-center gap-3">
                 <Badge className="rounded-full bg-slate-950 px-4 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-white">
                   Конструктор реального агента
@@ -900,7 +900,7 @@ export function StackBuilderPage() {
               </div>
             </section>
 
-            <section className="rounded-[30px] border border-slate-200 bg-white p-6 shadow-[0_22px_60px_-40px_rgba(15,23,42,0.35)] md:p-8">
+            <section className="order-3 rounded-[30px] border border-slate-200 bg-white p-6 shadow-[0_22px_60px_-40px_rgba(15,23,42,0.35)] md:p-8">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="text-sm uppercase tracking-[0.22em] text-slate-400">Fullstack blueprints</p>
@@ -956,7 +956,7 @@ export function StackBuilderPage() {
               </div>
             </section>
 
-            <section className="rounded-[30px] border border-slate-200 bg-white p-6 shadow-[0_22px_60px_-40px_rgba(15,23,42,0.35)] md:p-8">
+            <section className="order-4 rounded-[30px] border border-slate-200 bg-white p-6 shadow-[0_22px_60px_-40px_rgba(15,23,42,0.35)] md:p-8">
               <div className="flex flex-wrap items-center gap-3">
                 {[1, 2, 3, 4, 5].map((value) => (
                   <div
@@ -1381,7 +1381,7 @@ export function StackBuilderPage() {
             </section>
           </div>
 
-          <aside className="lg:sticky lg:top-24">
+          <aside className="order-2">
             <Card className="rounded-[30px] border-slate-200 bg-slate-950 p-6 text-white shadow-[0_30px_80px_-40px_rgba(15,23,42,0.8)]">
               <div className="flex items-start justify-between gap-4">
                 <div>
