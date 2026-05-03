@@ -62,6 +62,24 @@ const RESERVED_LANDING_SUBDOMAINS = new Set(['www', 'api', 'admin', 'app', 'stat
 const DEFAULT_MODEL_CONTEXT_TIMEZONE = 'Europe/Moscow';
 const DEFAULT_MODEL_CONTEXT_LOCALE = 'ru-RU';
 
+function isLikelyCorruptedDisplayText(value: string): boolean {
+  const compact = value.replace(/\s+/g, '');
+  if (!compact) return false;
+
+  if (value.includes('\uFFFD')) return true;
+
+  const questionMarkCount = (value.match(/\?/g) ?? []).length;
+  const hasLongQuestionRun = /\?{4,}/.test(value);
+  return hasLongQuestionRun && questionMarkCount >= 8 && questionMarkCount / compact.length > 0.2;
+}
+
+function cleanDisplayText(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  if (!trimmed || isLikelyCorruptedDisplayText(trimmed)) return '';
+  return trimmed;
+}
+
 interface ChatAttachmentInput {
   filename: string;
   original_name?: string | null;
@@ -6478,7 +6496,7 @@ async function getAgentChatMeta(agentId: string | null): Promise<{
 
   const runtime = row.runtime_config as Record<string, unknown> | null;
   const modelExternalId = resolveAgentModelExternalId(runtime, row.version_model_external_id ?? null);
-  const chatIntro = typeof runtime?.chat_intro === 'string' ? runtime.chat_intro.trim() : '';
+  const chatIntro = cleanDisplayText(runtime?.chat_intro);
   const starterPrompts = resolveStarterPromptsForAgentSlug(
     row.slug,
     extractStarterPrompts(runtime?.starter_prompts),
@@ -6728,9 +6746,7 @@ export async function listChatAgents(userId: string, userRole?: string): Promise
       pricing_output_usd_per_million: getModelPricingInfo(modelExternalId)?.output ?? null,
       is_coding_model: isCodingModel(modelExternalId),
       chat_description:
-        (typeof (row.runtime_config as Record<string, unknown> | null)?.chat_intro === 'string'
-          ? ((row.runtime_config as Record<string, unknown>).chat_intro as string).trim()
-          : '') || row.description || null,
+        cleanDisplayText((row.runtime_config as Record<string, unknown> | null)?.chat_intro) || row.description || null,
       starter_prompts: resolveStarterPromptsForAgentSlug(
         row.slug,
         extractStarterPrompts((row.runtime_config as Record<string, unknown> | null)?.starter_prompts),
