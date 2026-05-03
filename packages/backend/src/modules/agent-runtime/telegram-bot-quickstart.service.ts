@@ -652,13 +652,14 @@ def parse_add_item_delta(text):
         if len(parts) >= 2:
             quantity = parse_quantity_number(parts[1])
             if quantity is not None and parts[0]:
-                return {"name": parts[0], "delta": quantity, "note": parts[2] if len(parts) >= 3 else ""}
+                return {"name": strip_leading_item_words(parts[0]), "delta": quantity, "note": parts[2] if len(parts) >= 3 else ""}
 
     match = re.match(r"^([+-]?\\d+(?:[,.]\\d+)?)\\s+(.+)$", rest)
     if not match:
         return None
     quantity = parse_quantity_number(match.group(1))
-    name, note = split_item_name_note(match.group(2))
+    name_text = strip_leading_item_words(match.group(2))
+    name, note = split_item_name_note(name_text)
     if quantity is None or not name:
         return None
     return {"name": name, "delta": quantity, "note": note}
@@ -685,6 +686,11 @@ def add_item_delta(chat_id, parsed):
                 if normalize_item_match_text(row["name"]) == normalized_name
                 and normalize_item_match_text(row["note"] or "") == normalized_note
             ]
+            if not candidates and not note:
+                candidates = [
+                    dict(row) for row in rows
+                    if normalize_item_match_text(row["name"]) == normalized_name
+                ]
 
             if len(candidates) == 1:
                 existing = candidates[0]
