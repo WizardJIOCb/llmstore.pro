@@ -48,7 +48,7 @@ import {
   useUpdateChat,
   useImportChatBundle,
 } from '../../hooks/useChats';
-import { useBuiltinTools } from '../../hooks/useAgents';
+import { useBuiltinTools, useUpdateAgent } from '../../hooks/useAgents';
 import { useAppSettings } from '../../hooks/useAppSettings';
 import { useAuth } from '../../hooks/useAuth';
 import { useProfile } from '../../hooks/useProfile';
@@ -147,6 +147,14 @@ function clearGuestChatDraft(): void {
   } catch {
     // noop
   }
+}
+
+function parseStarterPrompts(value: string): string[] {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 24);
 }
 
 const GENERAL_MODELS: GeneralModelOption[] = GENERAL_CHAT_MODELS;
@@ -922,6 +930,7 @@ function AuthenticatedChatsPage() {
   const createChatMutation = useCreateChat();
   const cloneChatMutation = useCloneChat();
   const updateChatMutation = useUpdateChat();
+  const updateAgentMutation = useUpdateAgent();
   const deleteChatMutation = useDeleteChat();
   const transferChatMutation = useTransferChat();
   const deleteChatMessageMutation = useDeleteChatMessage();
@@ -965,6 +974,9 @@ function AuthenticatedChatsPage() {
   const [propertiesAccess, setPropertiesAccess] = useState<ChatAccess>('public');
   const [propertiesAllowedText, setPropertiesAllowedText] = useState('');
   const [propertiesNote, setPropertiesNote] = useState('');
+  const [propertiesChatSystemPrompt, setPropertiesChatSystemPrompt] = useState('');
+  const [propertiesAgentSystemPrompt, setPropertiesAgentSystemPrompt] = useState('');
+  const [propertiesStarterPromptsText, setPropertiesStarterPromptsText] = useState('');
   const [propertiesSaving, setPropertiesSaving] = useState(false);
   const [propertiesError, setPropertiesError] = useState<string | null>(null);
   const [streamEvents, setStreamEvents] = useState<LiveChatEvent[]>([]);
@@ -2194,11 +2206,18 @@ function AuthenticatedChatsPage() {
             : 'other',
     );
     setPropertiesAgentId(activeChat.agent_id ?? '');
-    setPropertiesModel(activeChat.model_external_id ?? 'openai/gpt-4o-mini');
+    setPropertiesModel(
+      activeChat.mode === 'agent'
+        ? (activeChat.model_external_id ?? '')
+        : (activeChat.model_external_id ?? 'openai/gpt-4o-mini'),
+    );
     setPropertiesToolIds(activeChat.chat_tool_ids ?? activeChat.tool_ids ?? []);
     setPropertiesAccess(activeChat.access ?? 'public');
     setPropertiesAllowedText((activeChat.access_identifiers ?? []).join('\n'));
     setPropertiesNote(activeChat.note ?? '');
+    setPropertiesChatSystemPrompt(activeChat.system_prompt ?? '');
+    setPropertiesAgentSystemPrompt(activeChat.agent_system_prompt ?? '');
+    setPropertiesStarterPromptsText((activeChat.agent_starter_prompts ?? []).join('\n'));
   }, [isPropertiesOpen, activeChat, agents]);
 
   useEffect(() => {
@@ -2316,6 +2335,7 @@ function AuthenticatedChatsPage() {
     () => sortedAgentOptions.filter((agent) => !agent.is_coding_model && !isLandingAgentOption(agent)),
     [sortedAgentOptions],
   );
+  const isPropertiesAgentMode = propertiesModeView !== 'general';
   const propertiesSelectedAgent = useMemo(
     () => (agents ?? []).find((agent) => agent.id === propertiesAgentId) ?? null,
     [agents, propertiesAgentId],
@@ -2323,6 +2343,16 @@ function AuthenticatedChatsPage() {
   const propertiesSelectedGeneralModel = useMemo(
     () => GENERAL_MODELS.find((model) => model.value === propertiesModel) ?? null,
     [propertiesModel],
+  );
+  const propertiesSelectedAgentModel = useMemo(
+    () => GENERAL_MODELS.find((model) => model.value === propertiesModel) ?? null,
+    [propertiesModel],
+  );
+  const canEditPropertiesAgent = Boolean(
+    isPropertiesAgentMode
+      && propertiesSelectedAgent?.is_owner
+      && propertiesAgentId
+      && propertiesAgentId === activeChat?.agent_id,
   );
   const propertiesAvailableTools = useMemo(
     () => availableTools ?? [],
@@ -2355,7 +2385,6 @@ function AuthenticatedChatsPage() {
     )),
     [propertiesAvailableTools, propertiesEffectiveToolIds],
   );
-  const isPropertiesAgentMode = propertiesModeView !== 'general';
   const propertiesProjectDeployments = useMemo(
     () => activeChat?.project_deployments ?? [],
     [activeChat?.project_deployments],
@@ -2371,22 +2400,12 @@ function AuthenticatedChatsPage() {
   const propertiesPromptSections = useMemo(
     () => [
       {
-        title: 'Системный промпт агента',
-        description: 'Главная инструкция, которая определяет поведение Telegram-бота или агента в этом чате.',
-        content: activeChat?.agent_system_prompt?.trim() || null,
-      },
-      {
         title: 'Developer prompt',
         description: 'Дополнительные правила исполнения, если они заданы в версии агента.',
         content: activeChat?.agent_developer_prompt?.trim() || null,
       },
-      {
-        title: 'Промпт чата',
-        description: 'Локальная инструкция самого чата поверх выбранной модели.',
-        content: activeChat?.system_prompt?.trim() || null,
-      },
     ].filter((section) => Boolean(section.content)),
-    [activeChat?.agent_developer_prompt, activeChat?.agent_system_prompt, activeChat?.system_prompt],
+    [activeChat?.agent_developer_prompt],
   );
   const propertiesRuntimeConfigJson = useMemo(
     () => formatPropertiesJson(activeChat?.agent_runtime_config),
@@ -2405,7 +2424,7 @@ function AuthenticatedChatsPage() {
     return [
       {
         label: 'Модель',
-        value: activeChat?.agent_model_external_id ?? activeChat?.model_external_id ?? '—',
+        value: activeChat?.model_external_id ?? activeChat?.agent_model_external_id ?? '—',
       },
       {
         label: 'Temperature',
@@ -2912,16 +2931,33 @@ function AuthenticatedChatsPage() {
     }
     setPropertiesSaving(true);
     try {
+      if (canEditPropertiesAgent && propertiesAgentId) {
+        const starter_prompts = parseStarterPrompts(propertiesStarterPromptsText);
+        const nextRuntimeConfig = {
+          ...(activeChat.agent_runtime_config ?? {}),
+          starter_prompts,
+        };
+        await updateAgentMutation.mutateAsync({
+          id: propertiesAgentId,
+          system_prompt: propertiesAgentSystemPrompt.trim(),
+          runtime_config: nextRuntimeConfig,
+        });
+      }
+
       await updateChatMutation.mutateAsync({
         chatId: activeChat.id,
         note: propertiesNote.trim() || null,
         mode: isPropertiesAgentMode ? 'agent' : 'general',
         agent_id: isPropertiesAgentMode ? propertiesAgentId : null,
-        model_external_id: isPropertiesAgentMode ? null : propertiesModel,
+        model_external_id: isPropertiesAgentMode ? (propertiesModel.trim() || null) : propertiesModel,
+        system_prompt: propertiesChatSystemPrompt.trim() || null,
         tool_ids: propertiesToolIds,
         access: propertiesAccess,
         access_identifiers: accessIdentifiers,
       });
+      if (canEditPropertiesAgent && propertiesAgentId) {
+        queryClient.invalidateQueries({ queryKey: ['chats', activeChat.id] });
+      }
       if (propertiesDialogTimerRef.current) clearTimeout(propertiesDialogTimerRef.current);
       setIsPropertiesOpen(false);
       setIsPropertiesClosing(false);
@@ -2955,6 +2991,13 @@ function AuthenticatedChatsPage() {
   const handlePropertiesModeViewChange = (value: string) => {
     const nextValue = value as PropertiesModeView;
     setPropertiesModeView(nextValue);
+
+    if (nextValue === 'general') {
+      setPropertiesModel((current) => current || 'openai/gpt-4o-mini');
+      return;
+    }
+
+    setPropertiesModel(activeChat?.mode === 'agent' ? (activeChat.model_external_id ?? '') : '');
 
     if (nextValue === 'landing') {
       const currentIsLanding = landingAgentOptions.some((agent) => agent.id === propertiesAgentId);
@@ -4880,6 +4923,61 @@ function AuthenticatedChatsPage() {
                       </p>
                     </div>
 
+                    <div className="space-y-3 rounded-xl border bg-background/80 p-4">
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium">Модель ответа</p>
+                        <p className="text-xs text-muted-foreground">
+                          Можно оставить модель агента по умолчанию или задать override только для этого чата и Telegram Project Bundle.
+                        </p>
+                      </div>
+                      <div className="max-h-72 space-y-2 overflow-y-auto rounded-xl border bg-background p-2">
+                        <button
+                          type="button"
+                          onClick={() => setPropertiesModel('')}
+                          className={cn(
+                            'w-full rounded-lg border px-3 py-3 text-left transition-colors',
+                            !propertiesModel
+                              ? 'border-primary bg-primary/8 shadow-sm'
+                              : 'border-border bg-background hover:border-primary/30 hover:bg-accent/40',
+                          )}
+                        >
+                          <p className="text-sm font-medium text-foreground">По умолчанию агента</p>
+                          <p className="mt-1 break-all text-xs text-muted-foreground">
+                            {activeChat.agent_model_external_id ?? propertiesSelectedAgent?.model_external_id ?? 'Модель указана в агенте'}
+                          </p>
+                          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                            Удобно, если модель должна меняться вместе с выбранным агентом.
+                          </p>
+                        </button>
+                        {GENERAL_MODELS.map((model) => {
+                          const isSelected = propertiesModel === model.value;
+                          return (
+                            <button
+                              key={model.value}
+                              type="button"
+                              onClick={() => setPropertiesModel(model.value)}
+                              className={cn(
+                                'w-full rounded-lg border px-3 py-3 text-left transition-colors',
+                                isSelected
+                                  ? 'border-primary bg-primary/8 shadow-sm'
+                                  : 'border-border bg-background hover:border-primary/30 hover:bg-accent/40',
+                              )}
+                            >
+                              <p className="text-sm font-medium text-foreground">{model.label}</p>
+                              <p className="mt-1 break-all text-xs text-muted-foreground">{model.value}</p>
+                              <p className="mt-1 text-xs leading-5 text-muted-foreground">{model.description}</p>
+                              <p className="mt-1 text-xs text-muted-foreground">{formatGeneralModelPricing(model)}</p>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {propertiesModel
+                          ? `Будет сохранён override: ${propertiesSelectedAgentModel?.label ?? propertiesModel}`
+                          : 'Сейчас чат использует модель выбранного агента.'}
+                      </p>
+                    </div>
+
                     <div className="space-y-3">
                       <div className="flex items-center justify-between gap-3">
                         <p className="text-sm font-medium">Каталог агентов</p>
@@ -5172,41 +5270,83 @@ function AuthenticatedChatsPage() {
 
               {propertiesTab === 'prompts' && (
                 <div className="space-y-4">
-                  {propertiesPromptSections.length > 0 ? (
-                    propertiesPromptSections.map((section) => (
-                      <div key={section.title} className="rounded-2xl border bg-muted/10 p-4 space-y-3">
+                  {isPropertiesAgentMode ? (
+                    <div className="rounded-2xl border bg-muted/10 p-4 space-y-3">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
                         <div className="space-y-1">
-                          <p className="text-sm font-medium">{section.title}</p>
-                          <p className="text-xs text-muted-foreground">{section.description}</p>
+                          <p className="text-sm font-medium">Системный промпт агента</p>
+                          <p className="text-xs text-muted-foreground">
+                            Главная инструкция выбранного агента. Для Telegram-бота она определяет поведение ответов из бота.
+                          </p>
                         </div>
-                        <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-xl border bg-slate-950 p-4 text-xs leading-5 text-slate-100">
-                          {section.content}
-                        </pre>
+                        {!canEditPropertiesAgent ? (
+                          <Badge variant="secondary">Сначала выберите своего агента</Badge>
+                        ) : null}
                       </div>
-                    ))
-                  ) : (
-                    <div className="rounded-2xl border bg-muted/10 p-4 text-sm text-muted-foreground">
-                      Для этого чата пока не найдено системных промптов.
+                      <textarea
+                        value={propertiesAgentSystemPrompt}
+                        onChange={(e) => setPropertiesAgentSystemPrompt(e.target.value.slice(0, 10000))}
+                        disabled={!canEditPropertiesAgent}
+                        className="min-h-64 w-full rounded-xl border border-input bg-background px-3 py-2 font-mono text-xs leading-5 outline-none focus:border-input disabled:cursor-not-allowed disabled:opacity-60"
+                        placeholder="Опишите роль, стиль, правила, источники данных и ограничения агента."
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        {propertiesAgentSystemPrompt.length}/10000
+                      </p>
                     </div>
-                  )}
+                  ) : null}
 
                   <div className="rounded-2xl border bg-muted/10 p-4 space-y-3">
                     <div className="space-y-1">
-                      <p className="text-sm font-medium">Стартовые сообщения</p>
-                      <p className="text-xs text-muted-foreground">Короткие примеры запросов, которые показываются в пустом чате.</p>
+                      <p className="text-sm font-medium">Промпт чата</p>
+                      <p className="text-xs text-muted-foreground">
+                        Локальная инструкция самого чата. В обычном режиме она добавляется поверх выбранной модели.
+                      </p>
                     </div>
-                    {activeChat.agent_starter_prompts.length > 0 ? (
-                      <div className="flex flex-wrap gap-2">
-                        {activeChat.agent_starter_prompts.map((prompt) => (
-                          <Badge key={prompt} variant="outline" className="rounded-full px-3 py-1">
-                            {prompt}
-                          </Badge>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">Стартовые сообщения не заданы.</p>
-                    )}
+                    <textarea
+                      value={propertiesChatSystemPrompt}
+                      onChange={(e) => setPropertiesChatSystemPrompt(e.target.value.slice(0, 8000))}
+                      className="min-h-40 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm leading-6 outline-none focus:border-input"
+                      placeholder="Например: отвечай кратко, сохраняй структуру, задавай уточнения только когда без них нельзя."
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {propertiesChatSystemPrompt.length}/8000
+                    </p>
                   </div>
+
+                  <div className="rounded-2xl border bg-muted/10 p-4 space-y-3">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium">Стартовые сообщения</p>
+                        <p className="text-xs text-muted-foreground">Один пример на строку. Они показываются в пустом агентском чате.</p>
+                      </div>
+                      {isPropertiesAgentMode && !canEditPropertiesAgent ? (
+                        <Badge variant="secondary">Read-only</Badge>
+                      ) : null}
+                    </div>
+                    <textarea
+                      value={propertiesStarterPromptsText}
+                      onChange={(e) => setPropertiesStarterPromptsText(e.target.value)}
+                      disabled={!isPropertiesAgentMode || !canEditPropertiesAgent}
+                      className="min-h-36 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm leading-6 outline-none focus:border-input disabled:cursor-not-allowed disabled:opacity-60"
+                      placeholder={'Что у нас по остаткам?\nЗапомни: RTX 4070 — 10 штук\nПокажи список товаров'}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {parseStarterPrompts(propertiesStarterPromptsText).length} стартовых сообщений
+                    </p>
+                  </div>
+
+                  {propertiesPromptSections.map((section) => (
+                    <div key={section.title} className="rounded-2xl border bg-muted/10 p-4 space-y-3">
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium">{section.title}</p>
+                        <p className="text-xs text-muted-foreground">{section.description}</p>
+                      </div>
+                      <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-xl border bg-slate-950 p-4 text-xs leading-5 text-slate-100">
+                        {section.content}
+                      </pre>
+                    </div>
+                  ))}
 
                   {(propertiesRuntimeConfigJson || propertiesToolConfigJson || propertiesChatSettingsJson) && (
                     <div className="grid gap-4 lg:grid-cols-2">

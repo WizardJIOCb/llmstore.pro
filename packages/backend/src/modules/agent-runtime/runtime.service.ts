@@ -6779,7 +6779,9 @@ export async function listChats(userId: string): Promise<ConversationListItem[]>
       agent_name: agentMeta?.name ?? null,
       agent_model_external_id: agentMeta?.model_external_id ?? null,
       agent_model_label: agentMeta?.model_label ?? null,
-      effective_model_label: chat.mode === 'agent' ? (agentMeta?.model_label ?? null) : generalModelLabel,
+      effective_model_label: chat.mode === 'agent'
+        ? getModelDisplayLabel(chat.model_external_id ?? null) ?? (agentMeta?.model_label ?? null)
+        : generalModelLabel,
       model_external_id: chat.model_external_id ?? null,
       access: normalizeChatAccess(chat.access),
       access_identifiers: normalizeAccessIdentifiers(chat.access_identifiers),
@@ -7149,7 +7151,7 @@ export async function createChat(userId: string, input: {
     mode,
     agent_id: input.agent_id ?? null,
     title: (input.title?.trim() || 'Новый чат').slice(0, 500),
-    model_external_id: mode === 'agent' ? null : (input.model_external_id ?? null),
+    model_external_id: input.model_external_id ?? null,
     system_prompt: input.system_prompt ?? null,
     access,
     access_identifiers: accessIdentifiers,
@@ -7183,7 +7185,7 @@ export async function createChat(userId: string, input: {
     ? await getAgentChatMeta(chat.agent_id ?? null)
     : null;
   const effectiveModelLabel = chat.mode === 'agent'
-    ? (agentMeta?.agent_model_label ?? null)
+    ? getModelDisplayLabel(chat.model_external_id ?? null) ?? (agentMeta?.agent_model_label ?? null)
     : getModelDisplayLabel(chat.model_external_id ?? null);
 
   return {
@@ -7237,7 +7239,7 @@ export async function getChatById(chatId: string, userId: string): Promise<Conve
       agent_model_external_id: agentMeta.agent_model_external_id,
       agent_model_label: agentMeta.agent_model_label,
       effective_model_label: chat.mode === 'agent'
-        ? agentMeta.agent_model_label
+        ? getModelDisplayLabel(chat.model_external_id ?? null) ?? agentMeta.agent_model_label
         : getModelDisplayLabel(chat.model_external_id ?? null),
       model_external_id: chat.model_external_id ?? null,
       access: normalizeChatAccess(chat.access),
@@ -7850,13 +7852,9 @@ export async function updateChat(chatId: string, userId: string, input: {
   }
 
   const ensuredShareToken = await ensureChatShareToken(existing.id, existing.share_token);
-  const nextModelExternalId = nextMode === 'agent'
-    ? null
-    : (
-      input.model_external_id === undefined
-        ? existing.model_external_id
-        : (input.model_external_id ?? null)
-    );
+  const nextModelExternalId = input.model_external_id === undefined
+    ? existing.model_external_id
+    : (input.model_external_id ?? null);
   const nextSystemPrompt = input.system_prompt === undefined ? existing.system_prompt : (input.system_prompt ?? null);
 
   let toolAgentId = existingToolSettings.tool_agent_id;
@@ -7897,6 +7895,19 @@ export async function updateChat(chatId: string, userId: string, input: {
     .where(eq(chatConversations.id, chatId))
     .returning();
 
+  if (nextMode === 'agent') {
+    await db.update(chatProjectDeployments)
+      .set({
+        linked_agent_id: nextAgentId ?? null,
+        model_external_id: nextModelExternalId,
+        updated_at: new Date(),
+      })
+      .where(and(
+        eq(chatProjectDeployments.conversation_id, chat.id),
+        eq(chatProjectDeployments.user_id, userId),
+      ));
+  }
+
   const [countRow] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(chatConversationMessages)
@@ -7906,7 +7917,7 @@ export async function updateChat(chatId: string, userId: string, input: {
     ? await getAgentChatMeta(chat.agent_id ?? null)
     : null;
   const effectiveModelLabel = chat.mode === 'agent'
-    ? (agentMeta?.agent_model_label ?? null)
+    ? getModelDisplayLabel(chat.model_external_id ?? null) ?? (agentMeta?.agent_model_label ?? null)
     : getModelDisplayLabel(chat.model_external_id ?? null);
 
   return {
@@ -8330,7 +8341,7 @@ export async function sendChatMessage(
         messages: historyForModel
           .filter((m) => m.role === 'user' || m.role === 'assistant')
           .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
-        model_external_id: null,
+        model_external_id: chat.model_external_id ?? null,
       }, {
         sync_to_chats: true,
         sync_conversation_id: chatId,
