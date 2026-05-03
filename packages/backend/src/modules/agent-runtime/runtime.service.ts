@@ -624,6 +624,7 @@ interface StartRunOptions {
   sync_to_chats?: boolean;
   on_event?: (event: string, payload: Record<string, unknown>) => void;
   strict_preview_edit?: StrictPreviewEditOptions | null;
+  disable_landing_detection?: boolean;
   charge_usage?: boolean;
   deployment_id?: string | null;
   sync_conversation_id?: string | null;
@@ -3290,6 +3291,7 @@ export async function startRun(
     .find((msg) => msg.role === 'user' && msg.content.trim().length > 0)
     ?.content
     .trim() ?? '';
+  const landingDetectionEnabled = options.disable_landing_detection !== true;
 
   // 1. Load agent + version + tools
   const [agent] = await db.select().from(agents).where(eq(agents.id, agentId)).limit(1);
@@ -3412,7 +3414,7 @@ export async function startRun(
   // 5. Build messages
   const messages: ChatMessage[] = [];
   const systemParts: string[] = [];
-  const previewOnlyLandingRequest = looksLikeLandingPreviewOnlyRequest(latestUserMessage) && !strictPreviewEdit;
+  const previewOnlyLandingRequest = landingDetectionEnabled && looksLikeLandingPreviewOnlyRequest(latestUserMessage) && !strictPreviewEdit;
   const landingReferenceContext = previewOnlyLandingRequest
     ? await buildLandingReferenceContextFromUrls(latestUserMessage)
     : null;
@@ -3427,7 +3429,7 @@ ${runtimeConfig.chat_intro.trim()}`);
     systemParts.push(`Краткое описание агента:
 ${agent.description.trim()}`);
   }
-  if (looksLikeLandingBuildRequest(latestUserMessage) && !strictPreviewEdit) {
+  if (landingDetectionEnabled && looksLikeLandingBuildRequest(latestUserMessage) && !strictPreviewEdit) {
     systemParts.push(buildLandingResponseDisciplineInstruction(latestUserMessage));
   }
   if (landingReferenceContext) {
@@ -3462,7 +3464,7 @@ ${agent.description.trim()}`);
     previewOnlyLandingRequest,
   );
   const reasoningConfig = resolveOpenRouterReasoningConfig(modelId);
-  const landingBuildRequest = looksLikeLandingBuildRequest(latestUserMessage) && !strictPreviewEdit;
+  const landingBuildRequest = landingDetectionEnabled && looksLikeLandingBuildRequest(latestUserMessage) && !strictPreviewEdit;
   const responseMaxTokens = resolveAgentResponseMaxTokens(
     runtimeConfig.max_tokens,
     modelId,
@@ -3783,7 +3785,7 @@ ${agent.description.trim()}`);
   const attemptLandingPreviewRepair = async (
     currentOutput: string,
   ): Promise<{ content: string; codingReport: CodingReport } | null> => {
-    if (!looksLikeLandingBuildRequest(latestUserMessage) || strictPreviewEdit) {
+    if (!landingDetectionEnabled || !looksLikeLandingBuildRequest(latestUserMessage) || strictPreviewEdit) {
       return null;
     }
 
@@ -4125,7 +4127,7 @@ ${agent.description.trim()}`);
         }
       }
 
-      const requiresLandingPreview = looksLikeLandingBuildRequest(latestUserMessage) && !strictPreviewEdit;
+      const requiresLandingPreview = landingDetectionEnabled && looksLikeLandingBuildRequest(latestUserMessage) && !strictPreviewEdit;
       if (
         runStatus === 'completed'
         && requiresLandingPreview

@@ -1607,6 +1607,7 @@ export async function runLinkedAgentForProjectDeployment(
     model_external_id: deployment.model_external_id ?? null,
   }, {
     deployment_id: deployment.id,
+    disable_landing_detection: true,
     sync_to_chats: false,
     charge_usage: true,
   });
