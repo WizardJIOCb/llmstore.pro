@@ -732,6 +732,14 @@ async function getDeploymentRunInsights(
       latency_ms: agentRuns.latency_ms,
       started_at: agentRuns.started_at,
       completed_at: agentRuns.completed_at,
+      user_input: sql<string | null>`(
+        select ${agentRunMessages.content_text}
+        from ${agentRunMessages}
+        where ${agentRunMessages.run_id} = ${agentRuns.id}
+          and ${agentRunMessages.role} = 'user'
+        order by ${agentRunMessages.created_at} desc
+        limit 1
+      )`,
       assistant_output: sql<string | null>`(
         select ${agentRunMessages.content_text}
         from ${agentRunMessages}
@@ -768,7 +776,7 @@ async function getDeploymentRunInsights(
     recent_runs: recentRows.map((row) => ({
       id: row.id,
       status: row.status,
-      input_summary: summarizeDeploymentRunInput(row.input_summary),
+      input_summary: summarizeDeploymentRunInput(row.user_input ?? row.input_summary),
       output_summary: isUnhelpfulDeploymentAgentOutput(row.output_summary)
         ? summarizeDeploymentRunText(row.assistant_output)
         : (row.output_summary ?? null),
