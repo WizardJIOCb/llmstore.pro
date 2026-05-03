@@ -148,6 +148,11 @@ async function getLatestAssistantRunMessage(runId: string): Promise<string | nul
   return row?.content_text?.trim() || null;
 }
 
+function summarizeDeploymentRunText(value: string | null | undefined): string | null {
+  const text = value?.trim() ?? '';
+  return text ? text.slice(0, 200) : null;
+}
+
 const deploymentRuntimes = new Map<string, DeploymentRuntime>();
 const deploymentStartLocks = new Map<string, Promise<void>>();
 
@@ -701,6 +706,14 @@ async function getDeploymentRunInsights(
       latency_ms: agentRuns.latency_ms,
       started_at: agentRuns.started_at,
       completed_at: agentRuns.completed_at,
+      assistant_output: sql<string | null>`(
+        select ${agentRunMessages.content_text}
+        from ${agentRunMessages}
+        where ${agentRunMessages.run_id} = ${agentRuns.id}
+          and ${agentRunMessages.role} = 'assistant'
+        order by ${agentRunMessages.created_at} desc
+        limit 1
+      )`,
       model_external_id: usageLedger.model_external_id,
       total_tokens: sql<number>`coalesce(${usageLedger.total_tokens}, 0)::int`,
       estimated_cost_usd: sql<string>`coalesce(${usageLedger.estimated_cost}::numeric, 0)`,
@@ -730,7 +743,9 @@ async function getDeploymentRunInsights(
       id: row.id,
       status: row.status,
       input_summary: row.input_summary ?? null,
-      output_summary: row.output_summary ?? null,
+      output_summary: isUnhelpfulDeploymentAgentOutput(row.output_summary)
+        ? summarizeDeploymentRunText(row.assistant_output)
+        : (row.output_summary ?? null),
       error_message: row.error_message ?? null,
       latency_ms: row.latency_ms ?? null,
       started_at: toIsoString(row.started_at) ?? new Date(0).toISOString(),
@@ -1567,9 +1582,19 @@ export async function runLinkedAgentForProjectDeployment(
   }
 
   const latestAssistantText = await getLatestAssistantRunMessage(result.run_id);
-  const outputText = isUnhelpfulDeploymentAgentOutput(result.output)
+  const resultOutputUnhelpful = isUnhelpfulDeploymentAgentOutput(result.output);
+  const outputText = resultOutputUnhelpful
     ? (latestAssistantText ?? result.output ?? '')
     : (result.output ?? latestAssistantText ?? '');
+
+  if (resultOutputUnhelpful && latestAssistantText) {
+    await db.update(agentRuns)
+      .set({
+        final_output: latestAssistantText,
+        output_summary: summarizeDeploymentRunText(latestAssistantText),
+      })
+      .where(eq(agentRuns.id, result.run_id));
+  }
 
   return {
     text: outputText,

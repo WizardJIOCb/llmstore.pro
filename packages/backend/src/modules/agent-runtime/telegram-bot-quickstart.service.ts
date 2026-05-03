@@ -629,8 +629,16 @@ def chunk_text(text, limit=3800):
     return chunks
 
 
+def preview_log_text(text, limit=180):
+    preview = " ".join((text or "").split())
+    if len(preview) > limit:
+        return preview[: max(0, limit - 3)] + "..."
+    return preview
+
+
 def send_telegram_message(chat_id, text):
-    for chunk in chunk_text(text):
+    chunks = chunk_text(text)
+    for chunk in chunks:
         send_telegram_api(
             "sendMessage",
             {
@@ -639,6 +647,7 @@ def send_telegram_message(chat_id, text):
                 "disable_web_page_preview": True,
             },
         )
+    logging.info("Telegram reply sent: chat_id=%s chunks=%s chars=%s", chat_id, len(chunks), len(text or ""))
 
 
 def call_llmstore_agent(message):
@@ -765,24 +774,42 @@ def handle_command(chat_id, text):
 
 
 def process_update(update):
+    update_id = update.get("update_id") if isinstance(update, dict) else None
     message = update.get("message") or update.get("edited_message") or {}
     chat = message.get("chat") or {}
     chat_id = chat.get("id")
+    message_id = message.get("message_id")
     text = message.get("text") or message.get("caption") or ""
 
     if chat_id is None:
-        logging.info("Telegram update has no chat id")
+        logging.info("Telegram update has no chat id: update_id=%s", update_id)
         return
+    logging.info(
+        "Telegram update received: update_id=%s chat_id=%s message_id=%s text=%s",
+        update_id,
+        chat_id,
+        message_id,
+        preview_log_text(text),
+    )
     if not text.strip():
+        logging.info("Telegram update has no text: update_id=%s chat_id=%s", update_id, chat_id)
         send_telegram_message(chat_id, "Пришлите текстовое сообщение.")
         return
 
     try:
         if handle_command(chat_id, text):
+            logging.info(
+                "Telegram local command handled: update_id=%s chat_id=%s command=%s",
+                update_id,
+                chat_id,
+                command_name(text),
+            )
             return
         send_chat_action(chat_id)
         agent_message = build_agent_message(chat_id, text, message)
+        logging.info("Calling linked LLMStore agent: update_id=%s chat_id=%s", update_id, chat_id)
         reply = call_llmstore_agent(agent_message)
+        logging.info("Linked LLMStore agent replied: update_id=%s chat_id=%s chars=%s", update_id, chat_id, len(reply or ""))
         send_telegram_message(chat_id, reply)
     except Exception:
         logging.exception("Failed to process Telegram update")
@@ -799,6 +826,8 @@ def polling_loop():
     while True:
         try:
             updates = get_telegram_updates(offset)
+            if updates:
+                logging.info("Telegram polling received updates: count=%s", len(updates))
             for update in updates:
                 update_id = update.get("update_id") if isinstance(update, dict) else None
                 if isinstance(update_id, int):
@@ -853,9 +882,11 @@ class Handler(BaseHTTPRequestHandler):
 
         update_id = update.get("update_id")
         if not try_mark_update(update_id):
+            logging.info("Telegram duplicate update skipped: update_id=%s", update_id)
             self.send_json(200, {"ok": True, "duplicate": True})
             return
 
+        logging.info("Telegram webhook update accepted: update_id=%s", update_id)
         threading.Thread(target=process_update, args=(update,), daemon=True).start()
         self.send_json(200, {"ok": True})
 
