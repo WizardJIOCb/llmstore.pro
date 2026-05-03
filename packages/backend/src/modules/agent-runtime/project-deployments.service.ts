@@ -11,7 +11,7 @@ import { UPLOADS_DIR } from '../../config/upload.js';
 import { users } from '../../db/schema/auth.js';
 import { agents, agentVersions } from '../../db/schema/agents.js';
 import { usageLedger } from '../../db/schema/analytics.js';
-import { agentRuns, chatConversations, chatConversationMessages, chatProjectDeployments } from '../../db/schema/runtime.js';
+import { agentRunMessages, agentRuns, chatConversations, chatConversationMessages, chatProjectDeployments } from '../../db/schema/runtime.js';
 import { AppError, NotFoundError } from '../../middleware/error-handler.js';
 import { logger } from '../../lib/logger.js';
 import { getUsdToRubRate } from '../../lib/app-settings.js';
@@ -124,6 +124,28 @@ export interface DeploymentControlInput extends DeploymentUpsertInput {
 
 interface DeploymentAgentRunInput {
   message: string;
+}
+
+function isUnhelpfulDeploymentAgentOutput(value: string | null | undefined): boolean {
+  const text = value?.trim() ?? '';
+  if (!text) return true;
+  if (/^```(?:json)?\s*```$/i.test(text)) return true;
+  if (/^<dev-report>[\s\S]*<\/dev-report>\s*$/i.test(text)) return true;
+  return false;
+}
+
+async function getLatestAssistantRunMessage(runId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ content_text: agentRunMessages.content_text })
+    .from(agentRunMessages)
+    .where(and(
+      eq(agentRunMessages.run_id, runId),
+      eq(agentRunMessages.role, 'assistant'),
+    ))
+    .orderBy(desc(agentRunMessages.created_at))
+    .limit(1);
+
+  return row?.content_text?.trim() || null;
 }
 
 const deploymentRuntimes = new Map<string, DeploymentRuntime>();
@@ -1544,8 +1566,13 @@ export async function runLinkedAgentForProjectDeployment(
     throw new AppError(502, 'DEPLOYMENT_AGENT_FAILED', result.error_message ?? 'Связанный агент не смог обработать запрос');
   }
 
+  const latestAssistantText = await getLatestAssistantRunMessage(result.run_id);
+  const outputText = isUnhelpfulDeploymentAgentOutput(result.output)
+    ? (latestAssistantText ?? result.output ?? '')
+    : (result.output ?? latestAssistantText ?? '');
+
   return {
-    text: result.output || '',
+    text: outputText,
     run_id: result.run_id,
     usage: result.usage ? (result.usage as unknown as Record<string, unknown>) : null,
   };
