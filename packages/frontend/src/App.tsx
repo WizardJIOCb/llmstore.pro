@@ -33,6 +33,7 @@ import { SavedStacksPage } from './pages/builder/SavedStacksPage';
 import { SavedStackDetailPage } from './pages/builder/SavedStackDetailPage';
 import { AgentBuilderPage } from './pages/builder/AgentBuilderPage';
 import { AgentEditorPage } from './pages/builder/AgentEditorPage';
+import { TelegramBotQuickstartPage } from './pages/builder/TelegramBotQuickstartPage';
 import { AgentPlaygroundPage } from './pages/playground/AgentPlaygroundPage';
 import { AgentsDashboardPage } from './pages/dashboard/AgentsDashboardPage';
 import { RunsDashboardPage } from './pages/dashboard/RunsDashboardPage';
@@ -122,6 +123,11 @@ export function App() {
         <Route path="/builder/agent" element={
           <ProtectedRoute>
             <AgentBuilderPage />
+          </ProtectedRoute>
+        } />
+        <Route path="/builder/telegram-bot" element={
+          <ProtectedRoute>
+            <TelegramBotQuickstartPage />
           </ProtectedRoute>
         } />
         <Route path="/builder/agent/:id" element={

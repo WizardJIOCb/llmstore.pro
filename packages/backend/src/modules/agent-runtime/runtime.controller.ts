@@ -2,6 +2,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { randomUUID } from 'crypto';
 import * as runtimeService from './runtime.service.js';
 import * as projectDeploymentsService from './project-deployments.service.js';
+import * as telegramBotQuickstartService from './telegram-bot-quickstart.service.js';
 import { AppError } from '../../middleware/error-handler.js';
 
 const PREVIEW_CSP = [
@@ -274,6 +275,18 @@ export async function createChat(req: Request, res: Response, next: NextFunction
   try {
     const chat = await runtimeService.createChat(req.session.userId!, req.body, req.session.userRole);
     res.status(201).json({ data: chat });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function createTelegramBotQuickstart(req: Request, res: Response, next: NextFunction) {
+  try {
+    const result = await telegramBotQuickstartService.createTelegramBotQuickstart(
+      req.session.userId!,
+      req.body,
+    );
+    res.status(201).json({ data: result });
   } catch (err) {
     next(err);
   }

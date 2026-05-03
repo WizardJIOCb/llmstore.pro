@@ -3,6 +3,7 @@ import axios from 'axios';
 const PROTECTED_ROUTE_PREFIXES = [
   '/my/agents',
   '/builder/agent',
+  '/builder/telegram-bot',
   '/playground/agent',
   '/profile',
   '/dashboard',

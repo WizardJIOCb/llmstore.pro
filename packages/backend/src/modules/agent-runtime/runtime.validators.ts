@@ -23,6 +23,18 @@ const createChatSchema = z.object({
   access_identifiers: z.array(z.string().min(1).max(255)).max(200).optional(),
 });
 
+const telegramBotQuickstartSchema = z.object({
+  preset: z.enum(['dtf_news', 'web_news', 'product_tracker', 'memory', 'support']),
+  bot_name: z.string().min(1).max(120).optional(),
+  telegram_bot_token: z.string().min(20).max(200).regex(
+    /^\d{5,20}:[A-Za-z0-9_-]{20,}$/,
+    'Проверьте токен от BotFather',
+  ),
+  prompt: z.string().max(6000).optional().nullable(),
+  source_url: z.string().max(1000).optional().nullable(),
+  timezone: z.string().max(80).optional().nullable(),
+});
+
 const updateChatSchema = z.object({
   title: z.string().min(1).max(500).optional(),
   note: z.string().max(300).optional().nullable(),
@@ -88,6 +100,7 @@ const setGalleryReactionSchema = z.object({
 });
 
 export const validateCreateChat = validate(createChatSchema, 'body');
+export const validateTelegramBotQuickstart = validate(telegramBotQuickstartSchema, 'body');
 export const validateUpdateChat = validate(updateChatSchema, 'body');
 export const validateSendChatMessage = validate(sendMessageSchema, 'body');
 export const validateUpdateMessagePreview = validate(updateMessagePreviewSchema, 'body');

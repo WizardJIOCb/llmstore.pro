@@ -36,6 +36,7 @@ const navItems = [
   { label: 'Планы', href: '/milestones' },
   { label: 'Галерея', href: '/gallery' },
   { label: 'Чаты', href: '/chats' },
+  { label: 'Telegram', href: '/builder/telegram-bot', requiresAuth: true },
   { label: 'Агенты', href: '/my/agents', requiresAuth: true },
 ];
 
@@ -216,6 +217,7 @@ export function AppLayout() {
     if (href === '/tools') return location.pathname === '/tools' || location.pathname.startsWith('/tools/');
     if (href === '/gallery') return location.pathname === '/gallery' || location.pathname.startsWith('/gallery/');
     if (href === '/chats') return location.pathname.startsWith('/chats');
+    if (href === '/builder/telegram-bot') return location.pathname.startsWith('/builder/telegram-bot');
     if (href === '/my/agents') {
       return (
         location.pathname.startsWith('/my/agents')

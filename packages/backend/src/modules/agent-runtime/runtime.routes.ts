@@ -15,6 +15,7 @@ import {
   validateControlProjectDeployment,
   validateProjectDeploymentAgentRun,
   validateCloneChat,
+  validateTelegramBotQuickstart,
 } from './runtime.validators.js';
 
 const router = Router();
@@ -41,6 +42,7 @@ router.all('/project-deployments/:token/webhook*', controller.proxyProjectDeploy
 router.post('/project-deployments/:token/agent-run', validateProjectDeploymentAgentRun, controller.runLinkedAgentForProjectDeployment);
 router.get('/chats', requireAuth, controller.listChats);
 router.get('/chats/agents', requireAuth, controller.listChatAgents);
+router.post('/telegram-bot-quickstart', requireAuth, validateTelegramBotQuickstart, controller.createTelegramBotQuickstart);
 router.post('/chats', requireAuth, validateCreateChat, controller.createChat);
 router.post('/chats/import', requireAuth, chatBundleUpload.single('file'), controller.importChatBundle);
 router.get('/chats/:chatId/export', requireAuth, controller.exportChatBundle);
