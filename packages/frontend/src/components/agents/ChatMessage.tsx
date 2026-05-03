@@ -3131,27 +3131,6 @@ export function ChatMessage({
                             </Button>
                             <Button
                               type="button"
-                              variant={projectDeployment.status === 'running' ? 'outline' : 'primary'}
-                              size="sm"
-                              className="gap-1.5"
-                              onClick={() => {
-                                if (projectDeployment.status === 'running') {
-                                  void stopProjectDeployment();
-                                  return;
-                                }
-                                void startProjectDeployment();
-                              }}
-                              disabled={projectDeploymentBusy}
-                            >
-                              {projectDeployment.status === 'running'
-                                ? <Square className="h-4 w-4" aria-hidden="true" />
-                                : <Play className="h-4 w-4" aria-hidden="true" />}
-                              {projectDeployment.status === 'running'
-                                ? (projectStoppingDeployment ? 'Останавливаю...' : 'Остановить')
-                                : (projectStartingDeployment ? 'Запускаю...' : 'Запустить')}
-                            </Button>
-                            <Button
-                              type="button"
                               variant="outline"
                               size="sm"
                               className="gap-1.5"
