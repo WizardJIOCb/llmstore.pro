@@ -6,9 +6,11 @@ import { useChangePassword, useCreateAliceLinkCode, useCreateTelegramLinkCode, u
 import { useRunList } from '../../hooks/useAgents';
 import { useCreateChat } from '../../hooks/useChats';
 import { useTopUpStatus } from '../../hooks/usePayments';
+import { useAppSettings } from '../../hooks/useAppSettings';
 import { authApi } from '../../lib/api/auth';
 import { chatsApi, type ChatListItem } from '../../lib/api/chats';
 import { getOAuthLinkUrl } from '../../lib/api/profile';
+import { BalanceTopUpPanel } from '../../components/billing/BalanceTopUpPanel';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
@@ -180,6 +182,7 @@ export function ProfilePage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { data: profile, isLoading, error } = useProfile();
+  const { data: appSettings } = useAppSettings();
   const updateMutation = useUpdateProfile();
   const changePasswordMutation = useChangePassword();
   const createAliceLinkCodeMutation = useCreateAliceLinkCode();
@@ -634,9 +637,10 @@ export function ProfilePage() {
           <p className="mt-2 text-xs text-muted-foreground">
             Курс: $1 = {formatRub(usdToRubRate, { minimumFractionDigits: 0, maximumFractionDigits: 4 })}.
           </p>
-          <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <BalanceTopUpPanel settings={appSettings} />
+          {false && <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             Мы в процессе подключения платежей. Возможность пополнения баланса скоро появится.
-          </div>
+          </div>}
         </CardContent>
       </Card>
 
