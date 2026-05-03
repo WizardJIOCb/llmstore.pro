@@ -797,6 +797,7 @@ async function installTelegramWebhookForDeployment(
     body: JSON.stringify({
       url: buildTelegramWebhookUrl(row.public_token),
       drop_pending_updates: true,
+      allowed_updates: ['message'],
       ...(secretToken ? { secret_token: secretToken } : {}),
     }),
   });
@@ -824,6 +825,10 @@ async function installTelegramWebhookForDeploymentIfConfigured(
   userId: string,
   envVars: Record<string, string>,
 ): Promise<boolean> {
+  if (envVars.TELEGRAM_DELIVERY_MODE?.trim().toLowerCase() === 'polling') {
+    return false;
+  }
+
   if (!envVars.TELEGRAM_BOT_TOKEN?.trim()) {
     return false;
   }
