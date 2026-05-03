@@ -3350,7 +3350,7 @@ export async function startRun(
     chat_intro?: string;
   };
   const strictPreviewEdit = options.strict_preview_edit ?? null;
-  const modelId = normalizeOpenRouterModelId(
+  let modelId = normalizeOpenRouterModelId(
     input.model_external_id ?? runtimeConfig.model_external_id ?? DEFAULT_MODEL,
   );
   const maxIterations = runtimeConfig.max_iterations ?? DEFAULT_MAX_ITERATIONS;
@@ -3500,20 +3500,21 @@ ${agent.description.trim()}`);
       parameters: t.input_schema,
     },
   }));
-  const llmTimeoutMs = resolveAgentOpenRouterTimeoutMs(modelId, toolParams.length);
-  const providerPreferences = resolveOpenRouterProviderPreferences(
+  let llmTimeoutMs = resolveAgentOpenRouterTimeoutMs(modelId, toolParams.length);
+  let providerPreferences = resolveOpenRouterProviderPreferences(
     modelId,
     toolParams.length,
     previewOnlyLandingRequest,
   );
-  const reasoningConfig = resolveOpenRouterReasoningConfig(modelId);
+  let reasoningConfig = resolveOpenRouterReasoningConfig(modelId);
   const landingBuildRequest = landingDetectionEnabled && looksLikeLandingBuildRequest(latestUserMessage) && !strictPreviewEdit;
-  const responseMaxTokens = resolveAgentResponseMaxTokens(
+  let responseMaxTokens = resolveAgentResponseMaxTokens(
     runtimeConfig.max_tokens,
     modelId,
     toolParams.length,
     landingBuildRequest,
   );
+  const attemptedRuntimeModelIds = new Set<string>([modelId]);
 
   logger.info({
     runId: run.id,
@@ -3615,6 +3616,72 @@ ${agent.description.trim()}`);
       ...payload,
       ...(await getUsageEventPayload()),
     });
+  };
+  const refreshModelRuntimeSettings = () => {
+    llmTimeoutMs = resolveAgentOpenRouterTimeoutMs(modelId, toolParams.length);
+    providerPreferences = resolveOpenRouterProviderPreferences(
+      modelId,
+      toolParams.length,
+      previewOnlyLandingRequest,
+    );
+    reasoningConfig = resolveOpenRouterReasoningConfig(modelId);
+    responseMaxTokens = resolveAgentResponseMaxTokens(
+      runtimeConfig.max_tokens,
+      modelId,
+      toolParams.length,
+      landingBuildRequest,
+    );
+  };
+  const requestRuntimeCompletion = async (
+    params: Omit<ChatCompletionParams, 'model'>,
+    source: string,
+  ) => {
+    const buildParams = (): ChatCompletionParams => ({
+      ...params,
+      model: modelId,
+      max_tokens: params.max_tokens ?? responseMaxTokens,
+      reasoning: params.reasoning ?? reasoningConfig,
+      provider: params.provider ?? providerPreferences,
+    });
+
+    try {
+      return await openRouterClient.chatCompletion(buildParams(), {
+        timeoutMs: llmTimeoutMs,
+      });
+    } catch (error) {
+      if (!shouldTryOpenRouterRuntimeFallback(error)) {
+        throw error;
+      }
+
+      const fallbackModel = resolveOpenRouterRuntimeFallbackModel(modelId, attemptedRuntimeModelIds);
+      if (!fallbackModel) {
+        throw error;
+      }
+
+      const previousModelId = modelId;
+      attemptedRuntimeModelIds.add(fallbackModel);
+      modelId = fallbackModel;
+      refreshModelRuntimeSettings();
+      logger.warn({
+        runId: run.id,
+        source,
+        previousModelId,
+        fallbackModel,
+        err: error,
+      }, 'Retrying OpenRouter runtime request with fallback model');
+      await emitRunEvent('chat.run.status', {
+        run_id: run.id,
+        status: 'model_fallback',
+        label: 'Переключаю модель',
+        detail: `Модель ${previousModelId} не ответила через OpenRouter, повторяю запрос через ${fallbackModel}.`,
+        previous_model: previousModelId,
+        model: fallbackModel,
+      });
+
+      return openRouterClient.chatCompletion(buildParams(), {
+        timeoutMs: llmTimeoutMs,
+      });
+    }
   };
   const chargeAccumulatedUsage = async (force = false) => {
     if (!chargeUsage) return;
@@ -3795,20 +3862,14 @@ ${agent.description.trim()}`);
         ? 'Продолжай строго с места остановки внутри текущего HTML-файла. Не повторяй уже выведенный текст. Не пиши вступлений, пояснений, фраз вроде "продолжаю" и вообще никакого текста вне HTML. Верни только недостающий хвост HTML/CSS/JS. Сначала допиши HTML до закрывающих тегов </body> и </html>, затем закрой markdown fence ```.'
         : 'Продолжай строго с места остановки. Не повторяй уже выведенный текст и выведи только недостающую часть ответа.';
 
-    const continuationResponse = await openRouterClient.chatCompletion({
-      model: modelId,
+    const continuationResponse = await requestRuntimeCompletion({
       messages: [
         ...messages,
         { role: 'assistant', content: currentOutput },
         { role: 'user', content: continuationPrompt },
       ],
       temperature: effectiveTemperature,
-      max_tokens: responseMaxTokens,
-      reasoning: reasoningConfig,
-      provider: providerPreferences,
-    }, {
-      timeoutMs: llmTimeoutMs,
-    });
+    }, 'final_continuation');
 
     if (continuationResponse.usage) {
       recordUsage(continuationResponse.usage, continuationResponse.model || modelId, 'final_continuation');
@@ -3881,8 +3942,7 @@ ${agent.description.trim()}`);
       snippet ? `Предыдущий ответ модели:\n${snippet}` : undefined,
     ].filter(Boolean).join('\n\n');
 
-    const response = await openRouterClient.chatCompletion({
-      model: modelId,
+    const response = await requestRuntimeCompletion({
       messages: [
         ...messages,
         { role: 'assistant', content: currentOutput },
@@ -3890,11 +3950,7 @@ ${agent.description.trim()}`);
       ],
       temperature: Math.min(effectiveTemperature, 0.1),
       max_tokens: Math.min(responseMaxTokens, 9_000),
-      reasoning: reasoningConfig,
-      provider: providerPreferences,
-    }, {
-      timeoutMs: llmTimeoutMs,
-    });
+    }, 'preview_repair');
 
     if (response.usage) {
       recordUsage(response.usage, response.model || modelId, 'preview_repair');
@@ -3955,18 +4011,12 @@ ${agent.description.trim()}`);
           : 'Собираю ответ напрямую без инструментов.',
       });
 
-      const response = await openRouterClient.chatCompletion({
-        model: modelId,
+      const response = await requestRuntimeCompletion({
         messages,
         tools: toolParams.length > 0 ? toolParams : undefined,
         tool_choice: toolParams.length > 0 ? 'auto' : undefined,
         temperature: effectiveTemperature,
-        max_tokens: responseMaxTokens,
-        reasoning: reasoningConfig,
-        provider: providerPreferences,
-      }, {
-        timeoutMs: llmTimeoutMs,
-      });
+      }, 'orchestrator');
 
       // Accumulate usage
       if (response.usage) {
@@ -4791,12 +4841,16 @@ export async function clearChatHistory(agentId: string, userId: string) {
   await db.delete(chatSessions).where(eq(chatSessions.id, session.id));
 }
 
-const DEFAULT_GENERAL_MODEL = 'openai/gpt-4o-mini';
+const DEFAULT_GENERAL_MODEL = 'google/gemini-2.5-flash';
 const CHAT_TOOL_RUNTIME_AGENT_SLUG_PREFIX = 'chat-tool-runtime-';
 const CREATE_CHAT_FILES_TOOL_SLUG = 'create-chat-files';
 const AUTO_ATTACH_CHAT_TOOL_SLUGS = [CREATE_CHAT_FILES_TOOL_SLUG] as const;
 const AUTO_RUN_CHAT_TOOL_SLUGS = [CREATE_CHAT_FILES_TOOL_SLUG] as const;
 const MAX_CHAT_TOOL_IDS = 64;
+const OPENROUTER_CHAT_FALLBACK_MODELS = [
+  DEFAULT_GENERAL_MODEL,
+  'anthropic/claude-haiku-4.5',
+] as const;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const AGENT_OPENROUTER_TIMEOUT_MS = 3 * 60_000;
 const TOOL_AGENT_OPENROUTER_TIMEOUT_MS = 8 * 60_000;
@@ -4835,6 +4889,45 @@ function resolveOpenRouterProviderPreferences(
   }
 
   return undefined;
+}
+
+function stringifyErrorDetails(error: unknown): string {
+  if (!(error instanceof AppError) || !error.details) return '';
+
+  try {
+    return JSON.stringify(error.details);
+  } catch {
+    return '';
+  }
+}
+
+function shouldTryOpenRouterRuntimeFallback(error: unknown): boolean {
+  if (!(error instanceof AppError)) return false;
+  if (error.code !== 'LLM_PROVIDER_ERROR' && error.code !== 'LLM_BAD_REQUEST') return false;
+
+  const haystack = `${error.message} ${stringifyErrorDetails(error)}`.toLowerCase();
+  return [
+    'unsupported_country_region_territory',
+    'country, region, or territory not supported',
+    'provider returned error',
+    'no endpoints found that can handle',
+    'not a valid model id',
+  ].some((needle) => haystack.includes(needle));
+}
+
+function resolveOpenRouterRuntimeFallbackModel(
+  currentModelId: string,
+  triedModelIds: Set<string>,
+): string | null {
+  const normalizedCurrent = normalizeOpenRouterModelId(currentModelId);
+  for (const candidate of OPENROUTER_CHAT_FALLBACK_MODELS) {
+    const normalizedCandidate = normalizeOpenRouterModelId(candidate);
+    if (normalizedCandidate && normalizedCandidate !== normalizedCurrent && !triedModelIds.has(normalizedCandidate)) {
+      return normalizedCandidate;
+    }
+  }
+
+  return null;
 }
 
 function resolveAgentResponseMaxTokens(
@@ -8735,6 +8828,7 @@ export async function sendChatMessage(
   let runId: string | null = null;
   let usagePayload: Record<string, unknown> | null = null;
   let latencyMs: number | null = null;
+  let completedGeneralModel: string | null = null;
   const canUseChatTools = openRouterRequestsEnabled && chat.mode === 'general' && chatToolSettings.tool_ids.length > 0;
 
   if (!openRouterRequestsEnabled) {
@@ -8913,7 +9007,8 @@ export async function sendChatMessage(
         },
       };
     } else {
-      const model = normalizeOpenRouterModelId(chat.model_external_id || DEFAULT_GENERAL_MODEL);
+      let model = normalizeOpenRouterModelId(chat.model_external_id || DEFAULT_GENERAL_MODEL);
+      const attemptedGeneralModelIds = new Set<string>([model]);
       const startedAt = Date.now();
       emitChatEvent('chat.run.started', {
         mode: 'general',
@@ -8924,7 +9019,7 @@ export async function sendChatMessage(
         const userContentForGeneral = imageDataUrls.length > 0
           ? ([{ type: 'text' as const, text: userModelText }, ...imageDataUrls.map((url) => ({ type: 'image_url' as const, image_url: { url } }))])
           : userModelText;
-        const response = await openRouterClient.chatCompletion({
+        const buildGeneralRequest = (): ChatCompletionParams => ({
           model,
           messages: [
             ...historyForModel.slice(0, -1).map((m) => ({ role: m.role, content: m.content })),
@@ -8933,9 +9028,48 @@ export async function sendChatMessage(
           temperature: 0.5,
           max_tokens: 2048,
           reasoning: resolveOpenRouterReasoningConfig(model),
-        }, {
-          timeoutMs: GENERAL_CHAT_OPENROUTER_TIMEOUT_MS,
         });
+        const requestGeneralCompletion = async () => {
+          try {
+            return await openRouterClient.chatCompletion(buildGeneralRequest(), {
+              timeoutMs: GENERAL_CHAT_OPENROUTER_TIMEOUT_MS,
+            });
+          } catch (error) {
+            if (!shouldTryOpenRouterRuntimeFallback(error)) {
+              throw error;
+            }
+
+            const fallbackModel = resolveOpenRouterRuntimeFallbackModel(model, attemptedGeneralModelIds);
+            if (!fallbackModel) {
+              throw error;
+            }
+
+            const previousModel = model;
+            attemptedGeneralModelIds.add(fallbackModel);
+            model = fallbackModel;
+            logger.warn({
+              chatId,
+              userId,
+              previousModel,
+              fallbackModel,
+              err: error,
+            }, 'Retrying general chat request with fallback model');
+            emitChatEvent('chat.run.status', {
+              mode: 'general',
+              status: 'model_fallback',
+              label: 'Переключаю модель',
+              detail: `Модель ${previousModel} не ответила через OpenRouter, повторяю запрос через ${fallbackModel}.`,
+              previous_model: previousModel,
+              model: fallbackModel,
+            });
+
+            return openRouterClient.chatCompletion(buildGeneralRequest(), {
+              timeoutMs: GENERAL_CHAT_OPENROUTER_TIMEOUT_MS,
+            });
+          }
+        };
+        const response = await requestGeneralCompletion();
+        completedGeneralModel = model;
         latencyMs = Date.now() - startedAt;
         const rawAssistant = response.choices?.[0]?.message?.content;
         assistantText = typeof rawAssistant === 'string' ? rawAssistant : '(пустой ответ)';
@@ -8974,7 +9108,7 @@ export async function sendChatMessage(
   );
   const usageModel = typeof usagePayload?.model === 'string'
     ? usagePayload.model
-    : (chat.model_external_id ?? DEFAULT_GENERAL_MODEL);
+    : (completedGeneralModel ?? chat.model_external_id ?? DEFAULT_GENERAL_MODEL);
   const pricingQuote = providerCost > 0
     ? await calculateCustomerChargeForUsage({
       provider_cost_usd: providerCost,
@@ -9025,6 +9159,7 @@ export async function sendChatMessage(
   const nextTitle = isDefaultTitle ? compactTitle(trimmedContent || 'Вложение') : chat.title;
   await db.update(chatConversations).set({
     title: nextTitle,
+    model_external_id: chat.mode === 'general' ? (completedGeneralModel ?? usageModel ?? chat.model_external_id ?? DEFAULT_GENERAL_MODEL) : chat.model_external_id,
     last_message_at: new Date(),
     updated_at: new Date(),
   }).where(eq(chatConversations.id, chatId));
@@ -9055,7 +9190,7 @@ export async function sendChatMessage(
       title: nextTitle,
       mode: chat.mode,
       agent_id: chat.agent_id ?? null,
-      model_external_id: chat.model_external_id ?? null,
+      model_external_id: chat.mode === 'general' ? (completedGeneralModel ?? usageModel ?? chat.model_external_id ?? null) : (chat.model_external_id ?? null),
       share_token: chat.share_token ?? null,
     },
   };

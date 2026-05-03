@@ -122,5 +122,11 @@ export interface OpenRouterError {
     message: string;
     type: string;
     code?: string | number;
+    metadata?: {
+      raw?: string;
+      provider_name?: string;
+      is_byok?: boolean;
+      [key: string]: unknown;
+    };
   };
 }

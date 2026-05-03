@@ -991,11 +991,11 @@ function AuthenticatedChatsPage() {
   const [newChatMode, setNewChatMode] = useState<'general' | 'agent'>('general');
   const [newChatAgentId, setNewChatAgentId] = useState('');
   const [newChatAgentSearch, setNewChatAgentSearch] = useState('');
-  const [newChatModel, setNewChatModel] = useState('openai/gpt-4o-mini');
+  const [newChatModel, setNewChatModel] = useState('google/gemini-2.5-flash');
   const [propertiesTab, setPropertiesTab] = useState<PropertiesTab>('overview');
   const [propertiesModeView, setPropertiesModeView] = useState<PropertiesModeView>('general');
   const [propertiesAgentId, setPropertiesAgentId] = useState('');
-  const [propertiesModel, setPropertiesModel] = useState('openai/gpt-4o-mini');
+  const [propertiesModel, setPropertiesModel] = useState('google/gemini-2.5-flash');
   const [propertiesToolIds, setPropertiesToolIds] = useState<string[]>([]);
   const [propertiesAccess, setPropertiesAccess] = useState<ChatAccess>('public');
   const [propertiesAllowedText, setPropertiesAllowedText] = useState('');
@@ -2235,7 +2235,7 @@ function AuthenticatedChatsPage() {
     setPropertiesModel(
       activeChat.mode === 'agent'
         ? (activeChat.model_external_id ?? '')
-        : (activeChat.model_external_id ?? 'openai/gpt-4o-mini'),
+        : (activeChat.model_external_id ?? 'google/gemini-2.5-flash'),
     );
     setPropertiesToolIds(activeChat.chat_tool_ids ?? activeChat.tool_ids ?? []);
     setPropertiesAccess(activeChat.access ?? 'public');
@@ -2711,7 +2711,7 @@ function AuthenticatedChatsPage() {
       setNewChatMode('general');
       setNewChatAgentId('');
       setNewChatAgentSearch('');
-      setNewChatModel('openai/gpt-4o-mini');
+      setNewChatModel('google/gemini-2.5-flash');
     } catch {
       showLocalError('Не удалось создать чат');
     }
@@ -3019,7 +3019,7 @@ function AuthenticatedChatsPage() {
     setPropertiesModeView(nextValue);
 
     if (nextValue === 'general') {
-      setPropertiesModel((current) => current || 'openai/gpt-4o-mini');
+      setPropertiesModel((current) => current || 'google/gemini-2.5-flash');
       return;
     }
 
@@ -3714,7 +3714,7 @@ function AuthenticatedChatsPage() {
                     {isAdminForeignChat
                       ? `Чужой чат • ${activeChatOwnerLabel}`
                       : activeChat?.mode === 'general'
-                      ? `OpenRouter: ${activeChat?.model_external_id ?? 'openai/gpt-4o-mini'}`
+                      ? `OpenRouter: ${activeChat?.model_external_id ?? 'google/gemini-2.5-flash'}`
                       : activeAgentName
                         ? `Агент: ${activeAgentName}`
                         : 'Чат с агентом'}
@@ -4015,7 +4015,7 @@ function AuthenticatedChatsPage() {
                       </h3>
                       <div className="mt-3 max-w-md">
                         <Select
-                          value={activeChat.model_external_id ?? 'openai/gpt-4o-mini'}
+                          value={activeChat.model_external_id ?? 'google/gemini-2.5-flash'}
                           options={generalModelOptions}
                           onChange={(e) => updateActiveGeneralModel(e.target.value)}
                           disabled={updateChatMutation.isPending || isAdminForeignChat}

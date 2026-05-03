@@ -14,6 +14,70 @@ const DEFAULT_TIMEOUT = 60_000;
 const MAX_TIMEOUT = 15 * 60_000;
 const NO_ENDPOINTS_FOR_PARAMETERS_MESSAGE = 'No endpoints found that can handle the requested parameters';
 
+function parseProviderRawError(raw?: string): Record<string, unknown> | null {
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : null;
+  } catch {
+    return null;
+  }
+}
+
+function readProviderErrorField(parsed: Record<string, unknown> | null, field: string): string | number | null {
+  const providerError = parsed?.error;
+  if (!providerError || typeof providerError !== 'object') return null;
+  const value = (providerError as Record<string, unknown>)[field];
+  return typeof value === 'string' || typeof value === 'number' ? value : null;
+}
+
+function resolveOpenRouterErrorInfo(
+  orError: OpenRouterError | undefined,
+  fallbackMessage: string,
+  status: number,
+): { message: string; details: Record<string, unknown> } {
+  const metadata = orError?.error?.metadata;
+  const providerRaw = typeof metadata?.raw === 'string' ? metadata.raw : undefined;
+  const parsedProviderRaw = parseProviderRawError(providerRaw);
+  const providerMessage = readProviderErrorField(parsedProviderRaw, 'message');
+  const providerCode = readProviderErrorField(parsedProviderRaw, 'code');
+  const providerType = readProviderErrorField(parsedProviderRaw, 'type');
+  const baseMessage = orError?.error?.message || fallbackMessage;
+  const message = baseMessage === 'Provider returned error' && typeof providerMessage === 'string'
+    ? `${baseMessage}: ${providerMessage}`
+    : baseMessage;
+
+  return {
+    message,
+    details: {
+      openrouter_status: status,
+      openrouter_code: orError?.error?.code,
+      openrouter_type: orError?.error?.type,
+      provider_name: metadata?.provider_name,
+      provider_is_byok: metadata?.is_byok,
+      provider_error_code: providerCode,
+      provider_error_type: providerType,
+      provider_error_message: providerMessage,
+      provider_raw: providerRaw,
+    },
+  };
+}
+
+function throwOpenRouterAppError(status: number, message: string, details: Record<string, unknown>): never {
+  if (status === 429) {
+    throw new AppError(429, 'RATE_LIMITED', `OpenRouter rate limit: ${message}`, details);
+  }
+  if (status === 402) {
+    throw new AppError(402, 'INSUFFICIENT_CREDITS', `OpenRouter credits exhausted: ${message}`, details);
+  }
+  if (status === 400) {
+    throw new AppError(400, 'LLM_BAD_REQUEST', `OpenRouter bad request: ${message}`, details);
+  }
+
+  throw new AppError(502, 'LLM_PROVIDER_ERROR', `OpenRouter error: ${message}`, details);
+}
+
 function normalizeTimeoutMs(timeoutMs?: number): number {
   if (!Number.isFinite(timeoutMs) || (timeoutMs ?? 0) <= 0) {
     return DEFAULT_TIMEOUT;
@@ -82,10 +146,10 @@ export class OpenRouterClient {
 
       if (err instanceof AxiosError) {
         const orError = err.response?.data as OpenRouterError | undefined;
-        const message = orError?.error?.message || err.message;
         const status = err.response?.status || 500;
+        const { message, details } = resolveOpenRouterErrorInfo(orError, err.message, status);
 
-        logger.error({ status, message, model: params.model }, 'OpenRouter API error');
+        logger.error({ status, message, model: params.model, details }, 'OpenRouter API error');
 
         if (
           params.provider
@@ -111,36 +175,26 @@ export class OpenRouterClient {
 
             if (retryErr instanceof AxiosError) {
               const retryOrError = retryErr.response?.data as OpenRouterError | undefined;
-              const retryMessage = retryOrError?.error?.message || retryErr.message;
               const retryStatus = retryErr.response?.status || 500;
-              logger.error({ status: retryStatus, message: retryMessage, model: params.model }, 'OpenRouter retry API error');
-              if (retryStatus === 429) {
-                throw new AppError(429, 'RATE_LIMITED', `OpenRouter rate limit: ${retryMessage}`);
-              }
-              if (retryStatus === 402) {
-                throw new AppError(402, 'INSUFFICIENT_CREDITS', `OpenRouter credits exhausted: ${retryMessage}`);
-              }
-              if (retryStatus === 400) {
-                throw new AppError(400, 'LLM_BAD_REQUEST', `OpenRouter bad request: ${retryMessage}`);
-              }
-              throw new AppError(502, 'LLM_PROVIDER_ERROR', `OpenRouter error: ${retryMessage}`);
+              const { message: retryMessage, details: retryDetails } = resolveOpenRouterErrorInfo(
+                retryOrError,
+                retryErr.message,
+                retryStatus,
+              );
+              logger.error({
+                status: retryStatus,
+                message: retryMessage,
+                model: params.model,
+                details: retryDetails,
+              }, 'OpenRouter retry API error');
+              throwOpenRouterAppError(retryStatus, retryMessage, retryDetails);
             }
 
             throw retryErr;
           }
         }
 
-        if (status === 429) {
-          throw new AppError(429, 'RATE_LIMITED', `OpenRouter rate limit: ${message}`);
-        }
-        if (status === 402) {
-          throw new AppError(402, 'INSUFFICIENT_CREDITS', `OpenRouter credits exhausted: ${message}`);
-        }
-        if (status === 400) {
-          throw new AppError(400, 'LLM_BAD_REQUEST', `OpenRouter bad request: ${message}`);
-        }
-
-        throw new AppError(502, 'LLM_PROVIDER_ERROR', `OpenRouter error: ${message}`);
+        throwOpenRouterAppError(status, message, details);
       }
       throw err;
     } finally {
