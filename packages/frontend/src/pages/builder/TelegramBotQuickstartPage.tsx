@@ -60,7 +60,7 @@ const presets: PresetView[] = [
     id: 'product_tracker',
     title: 'Учет товаров',
     subtitle: 'Товары, остатки, закупки и быстрые заметки.',
-    example: 'Добавь: кофе | 12 пачек | полка A2',
+    example: 'Добавь 12 пачек кофе на полку A2',
     promptLabel: 'Как вести учет',
     promptPlaceholder: 'Например: предупреждай, если остаток меньше 3, группируй товары по полкам.',
     icon: PackageCheck,
