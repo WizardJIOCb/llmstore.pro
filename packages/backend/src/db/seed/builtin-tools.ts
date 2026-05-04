@@ -249,7 +249,7 @@ const builtinTools = [
     name: 'Create Chat Files',
     slug: 'create-chat-files',
     tool_type: 'mock_tool' as const,
-    description: 'Creates downloadable files for the current chat response. Use it when the user asks for a file, export, report, dataset, code file, CSV, JSON, HTML, markdown, or similar artifact.',
+    description: 'Creates downloadable files for the current chat response. Use it when the user asks for a file, export, report, dataset, code file, spreadsheet, CSV, XLSX, XLS, JSON, HTML, markdown, or similar artifact.',
     input_schema: {
       type: 'object',
       properties: {
@@ -262,7 +262,7 @@ const builtinTools = [
             properties: {
               name: {
                 type: 'string',
-                description: 'Download filename, for example report.md or data.csv.',
+                description: 'Download filename, for example report.md, data.csv, report.xlsx, or legacy-report.xls.',
               },
               mime_type: {
                 type: 'string',
@@ -270,7 +270,7 @@ const builtinTools = [
               },
               content: {
                 type: 'string',
-                description: 'UTF-8 file content.',
+                description: 'UTF-8 file content. For .xlsx/.xls, provide table data as CSV, HTML table, markdown table, JSON array of objects, or JSON rows; the tool converts it to an Excel workbook.',
               },
               content_base64: {
                 type: 'string',

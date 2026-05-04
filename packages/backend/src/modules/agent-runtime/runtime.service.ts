@@ -3478,7 +3478,8 @@ ${agent.description.trim()}`);
     systemParts.push([
       'File artifact instruction.',
       `When the user asks you to prepare a downloadable file, call ${CREATE_CHAT_FILES_TOOL_SLUG}.`,
-      'Use the tool for reports, markdown, CSV, JSON, HTML, code files, exports, datasets, and similar artifacts.',
+      'Use the tool for reports, spreadsheets, XLSX, XLS, markdown, CSV, JSON, HTML, code files, exports, datasets, and similar artifacts.',
+      'For .xlsx/.xls files, pass table data in content as CSV, an HTML table, a markdown table, a JSON array of objects, or JSON rows; the tool will convert it to an Excel workbook.',
       'If the user asks for a file but omits details, choose a sensible default format and fields instead of asking follow-up questions.',
       'After the tool succeeds, mention the created files briefly; the chat UI will show download cards automatically.',
     ].join('\n'));
@@ -4170,7 +4171,8 @@ ${agent.description.trim()}`);
       `Call ${CREATE_CHAT_FILES_TOOL_SLUG} now.`,
       'Use the conversation and tool results above as source material.',
       'If exact formatting is missing, choose a practical default.',
-      'For a periodic table request, create a CSV file with useful columns such as atomic_number, symbol, name, group, period, category, atomic_mass, phase, summary when possible.',
+      'For spreadsheet requests, prefer .xlsx; if the user explicitly asked for .xls, create .xls. Put table data in content as CSV, an HTML table, a markdown table, a JSON array of objects, or JSON rows.',
+      'For a periodic table request, create a spreadsheet with useful columns such as atomic_number, symbol, name, group, period, category, atomic_mass, phase, summary when possible.',
       'Do not ask follow-up questions in this pass.',
     ].join('\n');
 
@@ -5053,7 +5055,8 @@ function resolveOpenRouterRuntimeFallbackModel(
 function looksLikeChatFileArtifactRequest(value: string): boolean {
   const normalized = value.toLowerCase();
   return [
-    /\b(csv|json|html|markdown|md|txt|xml|sql|xlsx?)\b/i,
+    /\b(csv|json|html|markdown|md|txt|xml|sql|xlsx?|excel)\b/i,
+    /эксел/i,
     /файл/i,
     /скача/i,
     /экспорт/i,
