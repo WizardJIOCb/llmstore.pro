@@ -610,10 +610,12 @@ async function resolveContentBuffer(file: ChatFileInputItem, ext: string): Promi
     if (ext === '.xlsx' && hasPrefix(rawBuffer, XLSX_ZIP_SIGNATURE)) return rawBuffer;
     if (ext === '.xls' && hasPrefix(rawBuffer, XLS_BINARY_SIGNATURE)) return rawBuffer;
     if (!isMostlyUtf8Text(rawBuffer)) return rawBuffer;
-    return buildExcelBuffer(ext, rawBuffer.toString('utf8'));
+    const textContent = rawBuffer.toString('utf8');
+    return textContent.trim() ? buildExcelBuffer(ext, textContent) : Buffer.alloc(0);
   }
 
-  return buildExcelBuffer(ext, typeof file.content === 'string' ? file.content : '');
+  const textContent = typeof file.content === 'string' ? file.content : '';
+  return textContent.trim() ? buildExcelBuffer(ext, textContent) : Buffer.alloc(0);
 }
 
 function buildTextPreview(buffer: Buffer, kind: CreatedChatFileArtifact['kind']): string | undefined {

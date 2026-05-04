@@ -4437,6 +4437,12 @@ ${agent.description.trim()}`);
     await maybeForceChatFileCreation();
   }
 
+  if (runStatus === 'completed' && !finalOutput.trim() && pendingGeneratedFiles.length > 0) {
+    finalOutput = 'Файл подготовлен.';
+    rawTerminalAssistantOutput = finalOutput;
+    gotTerminalAssistantMessage = true;
+  }
+
   if (runStatus === 'completed' && !finalOutput.trim()) {
     runStatus = 'failed';
     errorMessage = gotTerminalAssistantMessage
