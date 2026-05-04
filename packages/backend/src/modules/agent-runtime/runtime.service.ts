@@ -107,6 +107,7 @@ interface GeneratedChatFileArtifact {
   mime_type: string;
   size: number;
   kind: 'image' | 'text' | 'file';
+  sha256?: string;
   text_preview?: string;
   tool_call_id?: string | null;
 }
@@ -6391,6 +6392,9 @@ function extractGeneratedFilesFromToolResult(
         ? row.kind
         : (isImageMime(mimeType) ? 'image' : (isTextMime(mimeType) ? 'text' : 'file'));
       const size = typeof row.size === 'number' && Number.isFinite(row.size) ? Math.max(0, Math.floor(row.size)) : 0;
+      const sha256 = typeof row.sha256 === 'string' && /^[a-f0-9]{64}$/i.test(row.sha256.trim())
+        ? row.sha256.trim().toLowerCase()
+        : undefined;
       if (!storageFilename || !originalName || size <= 0) return null;
       return {
         storage_filename: storageFilename,
@@ -6398,6 +6402,7 @@ function extractGeneratedFilesFromToolResult(
         mime_type: mimeType,
         size,
         kind,
+        sha256,
         text_preview: typeof row.text_preview === 'string' && row.text_preview.trim()
           ? row.text_preview.trim().slice(0, 400)
           : undefined,
@@ -6405,6 +6410,18 @@ function extractGeneratedFilesFromToolResult(
       };
     })
     .filter((item): item is GeneratedChatFileArtifact => Boolean(item));
+}
+
+function buildGeneratedFileArtifactDedupeKey(file: GeneratedChatFileArtifact): string {
+  const contentKey = file.sha256
+    ? `sha:${file.sha256}`
+    : `preview:${file.text_preview ?? ''}`;
+  return [
+    file.original_name.trim().toLowerCase(),
+    file.mime_type.trim().toLowerCase(),
+    String(file.size),
+    contentKey,
+  ].join('\u0000');
 }
 
 async function persistGeneratedFilesForMessage(input: {
@@ -6417,14 +6434,19 @@ async function persistGeneratedFilesForMessage(input: {
   if (input.files.length === 0) return [];
 
   const verifiedFiles: GeneratedChatFileArtifact[] = [];
+  const seenFileKeys = new Set<string>();
   for (const file of input.files) {
     try {
       const fileStats = await stat(safeGeneratedFilePath(file.storage_filename));
       if (!fileStats.isFile()) continue;
-      verifiedFiles.push({
+      const verifiedFile = {
         ...file,
         size: fileStats.size,
-      });
+      };
+      const dedupeKey = buildGeneratedFileArtifactDedupeKey(verifiedFile);
+      if (seenFileKeys.has(dedupeKey)) continue;
+      seenFileKeys.add(dedupeKey);
+      verifiedFiles.push(verifiedFile);
     } catch {
     }
   }
