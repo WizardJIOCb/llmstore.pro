@@ -4174,43 +4174,68 @@ ${agent.description.trim()}`);
     ].join('\n');
 
     try {
-      const response = await requestRuntimeCompletion({
-        messages: [
-          ...messages,
-          { role: 'user', content: prompt },
-        ],
-        tools: [fileToolParam],
-        tool_choice: { type: 'function', function: { name: CREATE_CHAT_FILES_TOOL_SLUG } },
-        temperature: Math.min(effectiveTemperature, 0.1),
-        max_tokens: Math.max(responseMaxTokens, 8_000),
-      }, 'file_artifact_forced');
+      for (let attempt = 0; attempt <= OPENROUTER_CHAT_FALLBACK_MODELS.length; attempt += 1) {
+        const beforeCount = pendingGeneratedFiles.length;
+        const response = await requestRuntimeCompletion({
+          messages: [
+            ...messages,
+            { role: 'user', content: prompt },
+          ],
+          tools: [fileToolParam],
+          tool_choice: { type: 'function', function: { name: CREATE_CHAT_FILES_TOOL_SLUG } },
+          temperature: Math.min(effectiveTemperature, 0.1),
+          max_tokens: Math.max(responseMaxTokens, 8_000),
+        }, 'file_artifact_forced');
 
-      if (response.usage) {
-        recordUsage(response.usage, response.model || modelId, 'file_artifact_forced');
-        await chargeAccumulatedUsage();
-      }
-
-      const beforeCount = pendingGeneratedFiles.length;
-      const choice = requireFirstChoice(response, 'LLM returned no choices during forced file creation');
-      const forcedMessage = choice.message;
-      if (forcedMessage.tool_calls?.length) {
-        await executeAssistantToolCalls(forcedMessage, 'forced_file');
-      } else {
-        const forcedText = extractAssistantTextFromMessage(forcedMessage);
-        if (forcedText && !finalOutput.trim()) {
-          finalOutput = forcedText.trim();
-          rawTerminalAssistantOutput = finalOutput;
-          gotTerminalAssistantMessage = true;
+        if (response.usage) {
+          recordUsage(response.usage, response.model || modelId, 'file_artifact_forced');
+          await chargeAccumulatedUsage();
         }
-      }
 
-      if (pendingGeneratedFiles.length > beforeCount) {
-        if (!finalOutput.trim()) {
-          finalOutput = 'Файл подготовлен.';
-          rawTerminalAssistantOutput = finalOutput;
-          gotTerminalAssistantMessage = true;
+        const choice = requireFirstChoice(response, 'LLM returned no choices during forced file creation');
+        const forcedMessage = choice.message;
+        if (forcedMessage.tool_calls?.length) {
+          await executeAssistantToolCalls(forcedMessage, 'forced_file');
+        } else {
+          const forcedText = extractAssistantTextFromMessage(forcedMessage);
+          if (forcedText && !finalOutput.trim()) {
+            finalOutput = forcedText.trim();
+            rawTerminalAssistantOutput = finalOutput;
+            gotTerminalAssistantMessage = true;
+          }
         }
-        return true;
+
+        if (pendingGeneratedFiles.length > beforeCount) {
+          if (!finalOutput.trim()) {
+            finalOutput = 'Файл подготовлен.';
+            rawTerminalAssistantOutput = finalOutput;
+            gotTerminalAssistantMessage = true;
+          }
+          return true;
+        }
+
+        const fallbackModel = resolveOpenRouterRuntimeFallbackModel(modelId, attemptedRuntimeModelIds);
+        if (!fallbackModel) break;
+
+        const previousModelId = modelId;
+        attemptedRuntimeModelIds.add(fallbackModel);
+        modelId = fallbackModel;
+        refreshModelRuntimeSettings();
+        logger.warn({
+          runId: run.id,
+          previousModelId,
+          fallbackModel,
+          finishReason: choice.finish_reason,
+          forcedMessage,
+        }, 'Forced file creation returned no file, retrying with fallback model');
+        await emitRunEvent('chat.run.status', {
+          run_id: run.id,
+          status: 'model_fallback',
+          label: 'Переключаю модель для создания файла',
+          detail: `Модель ${previousModelId} не создала файл, повторяю файловый шаг через ${fallbackModel}.`,
+          previous_model: previousModelId,
+          model: fallbackModel,
+        });
       }
     } catch (err) {
       logger.warn({ runId: run.id, err }, 'Forced chat file creation failed');
