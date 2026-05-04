@@ -696,6 +696,19 @@ interface ToolTrace {
   error?: string;
 }
 
+function isEmptyCreateChatFilesTrace(trace: ToolTrace): boolean {
+  return (
+    trace.tool_name === CREATE_CHAT_FILES_TOOL_SLUG
+    && trace.status === 'error'
+    && trace.error === 'At least one file is required'
+    && Object.keys(trace.input ?? {}).length === 0
+  );
+}
+
+function getUserVisibleToolTraces(traces: ToolTrace[]): ToolTrace[] {
+  return traces.filter((trace) => !isEmptyCreateChatFilesTrace(trace));
+}
+
 interface PendingRunProgressEvent {
   event: string;
   run_id: string;
@@ -3480,6 +3493,7 @@ ${agent.description.trim()}`);
       `When the user asks you to prepare a downloadable file, call ${CREATE_CHAT_FILES_TOOL_SLUG}.`,
       'Use the tool for reports, spreadsheets, XLSX, XLS, markdown, CSV, JSON, HTML, code files, exports, datasets, and similar artifacts.',
       'For .xlsx/.xls files, pass table data in content as CSV, an HTML table, a markdown table, a JSON array of objects, or JSON rows; the tool will convert it to an Excel workbook.',
+      `Never call ${CREATE_CHAT_FILES_TOOL_SLUG} with empty arguments. The files array is required, and every generated file must include content or content_base64.`,
       'If the user asks for a file but omits details, choose a sensible default format and fields instead of asking follow-up questions.',
       'After the tool succeeds, mention the created files briefly; the chat UI will show download cards automatically.',
     ].join('\n'));
@@ -3797,6 +3811,7 @@ ${agent.description.trim()}`);
       nextContent = `${nextContent.trim()}\n\n[Ответ всё ещё был обрезан по лимиту длины. Можно попросить продолжить или сузить задачу.]`;
     }
 
+    const visibleToolTraces = getUserVisibleToolTraces(toolTraces);
     const usagePayload = totalUsage.total_tokens > 0
       ? {
         ...totalUsage,
@@ -3805,13 +3820,13 @@ ${agent.description.trim()}`);
         model: modelId,
         usd_to_rub_rate: await getUsdToRubRate(),
         by_model: getUsageBreakdownPayload(),
-        tool_traces: toolTraces,
+        tool_traces: visibleToolTraces,
         coding_report: nextCodingReport,
       }
       : (
-        toolTraces.length > 0 || nextCodingReport
+        visibleToolTraces.length > 0 || nextCodingReport
           ? {
-            tool_traces: toolTraces,
+            tool_traces: visibleToolTraces,
             coding_report: nextCodingReport,
           }
           : null
@@ -4173,6 +4188,7 @@ ${agent.description.trim()}`);
       'If exact formatting is missing, choose a practical default.',
       'For spreadsheet requests, prefer .xlsx; if the user explicitly asked for .xls, create .xls. Put table data in content as CSV, an HTML table, a markdown table, a JSON array of objects, or JSON rows.',
       'For a periodic table request, create a spreadsheet with useful columns such as atomic_number, symbol, name, group, period, category, atomic_mass, phase, summary when possible.',
+      `Never call ${CREATE_CHAT_FILES_TOOL_SLUG} with empty arguments. The files array is required, and every generated file must include content or content_base64.`,
       'Do not ask follow-up questions in this pass.',
     ].join('\n');
 
@@ -4530,6 +4546,7 @@ ${agent.description.trim()}`);
   }).where(eq(agentRuns.id, run.id));
 
   if (syncToChats && syncedConversationId) {
+    const visibleToolTraces = getUserVisibleToolTraces(toolTraces);
     const usagePayload = totalUsage.total_tokens > 0
       ? {
         ...totalUsage,
@@ -4538,13 +4555,13 @@ ${agent.description.trim()}`);
         model: modelId,
         usd_to_rub_rate: usdToRubRate,
         by_model: usageBreakdownPayload,
-        tool_traces: toolTraces,
+        tool_traces: visibleToolTraces,
         coding_report: codingReport,
       }
       : (
-        toolTraces.length > 0 || codingReport
+        visibleToolTraces.length > 0 || codingReport
           ? {
-            tool_traces: toolTraces,
+            tool_traces: visibleToolTraces,
             coding_report: codingReport,
           }
           : null
@@ -4622,7 +4639,7 @@ ${agent.description.trim()}`);
     run_id: run.id,
     status: runStatus,
     output: finalOutput,
-    tool_traces: toolTraces,
+    tool_traces: getUserVisibleToolTraces(toolTraces),
     usage: totalUsage.total_tokens > 0
       ? {
         ...totalUsage,
