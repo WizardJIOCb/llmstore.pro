@@ -726,6 +726,20 @@ export const chatsApi = {
       .post<{ data: ChatWorkspaceFolder }>(`/chat-projects/${projectId}/folders`, payload ?? {})
       .then((r) => r.data.data),
 
+  updateProjectFolder: (
+    projectId: string,
+    folderId: string,
+    payload: { title?: string; parent_folder_id?: string | null; sort_order?: number },
+  ) =>
+    apiClient
+      .patch<{ data: ChatWorkspaceFolder }>(`/chat-projects/${projectId}/folders/${folderId}`, payload)
+      .then((r) => r.data.data),
+
+  deleteProjectFolder: (projectId: string, folderId: string) =>
+    apiClient
+      .delete<{ data: { ok: true } }>(`/chat-projects/${projectId}/folders/${folderId}`)
+      .then((r) => r.data.data),
+
   listProjectFiles: (projectId: string, path = '') =>
     apiClient
       .get<{ data: ChatWorkspaceFileList }>(`/chat-projects/${projectId}/files`, { params: { path } })

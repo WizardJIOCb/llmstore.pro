@@ -8,6 +8,7 @@ import {
   validateCreateChatWorkspaceFolder,
   validateCreateChatWorkspaceProject,
   validateUpdateChatWorkspaceProject,
+  validateUpdateChatWorkspaceFolder,
   validateUpdateChat,
   validateSaveChatWorkspaceFile,
   validateSendChatMessage,
@@ -50,6 +51,8 @@ router.post('/chat-projects', requireAuth, validateCreateChatWorkspaceProject, c
 router.patch('/chat-projects/:projectId', requireAuth, validateUpdateChatWorkspaceProject, controller.updateChatWorkspaceProject);
 router.delete('/chat-projects/:projectId', requireAuth, controller.deleteChatWorkspaceProject);
 router.post('/chat-projects/:projectId/folders', requireAuth, validateCreateChatWorkspaceFolder, controller.createChatWorkspaceFolder);
+router.patch('/chat-projects/:projectId/folders/:folderId', requireAuth, validateUpdateChatWorkspaceFolder, controller.updateChatWorkspaceFolder);
+router.delete('/chat-projects/:projectId/folders/:folderId', requireAuth, controller.deleteChatWorkspaceFolder);
 router.get('/chat-projects/:projectId/files', requireAuth, controller.listChatWorkspaceFiles);
 router.get('/chat-projects/:projectId/files/content', requireAuth, controller.getChatWorkspaceFile);
 router.put('/chat-projects/:projectId/files/content', requireAuth, validateSaveChatWorkspaceFile, controller.saveChatWorkspaceFile);

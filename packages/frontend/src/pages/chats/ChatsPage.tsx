@@ -7,6 +7,8 @@ import {
   ArrowRightLeft,
   Bookmark,
   Bot,
+  ChevronDown,
+  ChevronRight,
   Copy,
   Download,
   Folder,
@@ -45,6 +47,7 @@ import {
   useCreateChatProjectFolder,
   useCreateChatProject,
   useDeleteChatProject,
+  useDeleteChatProjectFolder,
   useDeleteChat,
   useDeleteChatMessage,
   useTruncateChatFromMessage,
@@ -55,6 +58,7 @@ import {
   useShareChatById,
   useUpdateChat,
   useUpdateChatProject,
+  useUpdateChatProjectFolder,
   useImportChatBundle,
 } from '../../hooks/useChats';
 import { useBuiltinTools, useUpdateAgent } from '../../hooks/useAgents';
@@ -77,6 +81,7 @@ import type {
   ChatMode,
   ChatPendingRunState,
   ChatReasoningEffort,
+  ChatWorkspaceFolder,
   ChatWorkspaceProject,
   CodingReport,
   ProjectDeployment,
@@ -723,6 +728,7 @@ function formatChatPreview(preview: string | null): string | null {
 type MenuItem =
   | { kind: 'chat'; id: string }
   | { kind: 'project'; id: string }
+  | { kind: 'project-folder'; id: string }
   | { kind: 'active-chat-actions' }
   | null;
 
@@ -1196,6 +1202,8 @@ function AuthenticatedChatsPage() {
   const createChatMutation = useCreateChat();
   const createChatProjectMutation = useCreateChatProject();
   const createChatProjectFolderMutation = useCreateChatProjectFolder();
+  const updateChatProjectFolderMutation = useUpdateChatProjectFolder();
+  const deleteChatProjectFolderMutation = useDeleteChatProjectFolder();
   const updateChatProjectMutation = useUpdateChatProject();
   const deleteChatProjectMutation = useDeleteChatProject();
   const cloneChatMutation = useCloneChat();
@@ -1240,7 +1248,9 @@ function AuthenticatedChatsPage() {
   const [newProjectDescription, setNewProjectDescription] = useState('');
   const [newChatReasoningEffort, setNewChatReasoningEffort] = useState<ChatReasoningEffort>('auto');
   const [expandedProjectIds, setExpandedProjectIds] = useState<string[]>([]);
+  const [expandedProjectFolderIds, setExpandedProjectFolderIds] = useState<string[]>([]);
   const [draggedChatId, setDraggedChatId] = useState<string | null>(null);
+  const [draggedFolderId, setDraggedFolderId] = useState<string | null>(null);
   const [dragOverProjectTarget, setDragOverProjectTarget] = useState<string | null>(null);
   const [propertiesTab, setPropertiesTab] = useState<PropertiesTab>('overview');
   const [propertiesModeView, setPropertiesModeView] = useState<PropertiesModeView>('general');
@@ -3367,7 +3377,7 @@ function AuthenticatedChatsPage() {
     }
   };
 
-  const createChatInProject = async (project: ChatWorkspaceProject) => {
+  const createChatInProject = async (project: ChatWorkspaceProject, folderId: string | null = null) => {
     setLocalError(null);
     setOpenMenu(null);
     try {
@@ -3377,22 +3387,29 @@ function AuthenticatedChatsPage() {
         model_external_id: newChatModel,
         reasoning_effort: newChatReasoningEffort,
         project_id: project.id,
+        project_folder_id: folderId,
       });
       setExpandedProjectIds((prev) => (prev.includes(project.id) ? prev : [project.id, ...prev]));
+      if (folderId) {
+        setExpandedProjectFolderIds((prev) => (prev.includes(folderId) ? prev : [folderId, ...prev]));
+      }
       setActiveChatId(created.id);
     } catch (error) {
       showLocalError(getApiErrorMessage(error) ?? 'Не удалось создать чат проекта');
     }
   };
 
-  const createFolderInProject = async (project: ChatWorkspaceProject) => {
+  const createFolderInProject = async (project: ChatWorkspaceProject, parentFolderId: string | null = null) => {
     const title = window.prompt('Название папки проекта', 'Новая папка')?.trim();
     if (!title) return;
     setLocalError(null);
     setOpenMenu(null);
     try {
-      await createChatProjectFolderMutation.mutateAsync({ projectId: project.id, title });
+      const folder = await createChatProjectFolderMutation.mutateAsync({ projectId: project.id, title, parentFolderId });
       setExpandedProjectIds((prev) => (prev.includes(project.id) ? prev : [project.id, ...prev]));
+      if (parentFolderId) {
+        setExpandedProjectFolderIds((prev) => (prev.includes(parentFolderId) ? prev : [parentFolderId, folder.id, ...prev]));
+      }
       showLocalWarning(`Папка «${title}» создана в проекте ${project.title}`);
     } catch (error) {
       showLocalError(getApiErrorMessage(error) ?? 'Не удалось создать папку проекта');
@@ -3443,10 +3460,65 @@ function AuthenticatedChatsPage() {
     }
   };
 
+  const renameProjectFolder = async (project: ChatWorkspaceProject, folder: ChatWorkspaceFolder) => {
+    const next = window.prompt('Новое имя папки', folder.title);
+    if (!next) return;
+    const title = next.trim();
+    if (!title) return;
+    setLocalError(null);
+    setOpenMenu(null);
+    try {
+      await updateChatProjectFolderMutation.mutateAsync({ projectId: project.id, folderId: folder.id, title });
+    } catch (error) {
+      showLocalError(getApiErrorMessage(error) ?? 'Не удалось переименовать папку');
+    }
+  };
+
+  const deleteProjectFolder = async (project: ChatWorkspaceProject, folder: ChatWorkspaceFolder) => {
+    const confirmed = window.confirm(`Удалить папку «${folder.title}»? Чаты из неё вернутся в корень проекта.`);
+    if (!confirmed) return;
+    setLocalError(null);
+    setOpenMenu(null);
+    try {
+      await deleteChatProjectFolderMutation.mutateAsync({ projectId: project.id, folderId: folder.id });
+      setExpandedProjectFolderIds((prev) => prev.filter((id) => id !== folder.id));
+    } catch (error) {
+      showLocalError(getApiErrorMessage(error) ?? 'Не удалось удалить папку');
+    }
+  };
+
+  const copyProjectFolderPath = async (project: ChatWorkspaceProject, folder: ChatWorkspaceFolder) => {
+    setLocalError(null);
+    const pathParts: string[] = [folder.title];
+    let parentId = folder.parent_folder_id;
+    while (parentId) {
+      const parent = project.folders.find((item) => item.id === parentId);
+      if (!parent) break;
+      pathParts.unshift(parent.title);
+      parentId = parent.parent_folder_id;
+    }
+    try {
+      await navigator.clipboard.writeText(`${project.root_path}/${pathParts.join('/')}`);
+      setShareToastVisible(true);
+      if (shareToastTimerRef.current) clearTimeout(shareToastTimerRef.current);
+      shareToastTimerRef.current = setTimeout(() => setShareToastVisible(false), 2000);
+    } catch {
+      showLocalError('Не удалось скопировать путь папки');
+    } finally {
+      setOpenMenu(null);
+    }
+  };
+
   const readDraggedChatId = (event: { dataTransfer: DataTransfer }): string | null => {
     const fromData = event.dataTransfer.getData('application/x-llmstore-chat-id')
-      || event.dataTransfer.getData('text/plain');
+      || (draggedChatId ? event.dataTransfer.getData('text/plain') : '');
     return fromData || draggedChatId;
+  };
+
+  const readDraggedFolderId = (event: { dataTransfer: DataTransfer }): string | null => {
+    const fromData = event.dataTransfer.getData('application/x-llmstore-folder-id')
+      || (draggedFolderId ? event.dataTransfer.getData('text/plain') : '');
+    return fromData || draggedFolderId;
   };
 
   const moveChatToProjectTarget = async (
@@ -3466,17 +3538,54 @@ function AuthenticatedChatsPage() {
         project_folder_id: folderId,
       });
       setExpandedProjectIds((prev) => (prev.includes(project.id) ? prev : [project.id, ...prev]));
+      if (folderId) {
+        setExpandedProjectFolderIds((prev) => (prev.includes(folderId) ? prev : [folderId, ...prev]));
+      }
     } catch (error) {
       showLocalError(getApiErrorMessage(error) ?? 'Не удалось перенести чат');
+    }
+  };
+
+  const moveFolderToProjectTarget = async (
+    folderId: string,
+    project: ChatWorkspaceProject,
+    parentFolderId: string | null,
+  ) => {
+    const folder = project.folders.find((item) => item.id === folderId);
+    if (!folder || folder.parent_folder_id === parentFolderId || folder.id === parentFolderId) return;
+
+    setLocalError(null);
+    try {
+      await updateChatProjectFolderMutation.mutateAsync({
+        projectId: project.id,
+        folderId,
+        parent_folder_id: parentFolderId,
+      });
+      setExpandedProjectIds((prev) => (prev.includes(project.id) ? prev : [project.id, ...prev]));
+      if (parentFolderId) {
+        setExpandedProjectFolderIds((prev) => (prev.includes(parentFolderId) ? prev : [parentFolderId, ...prev]));
+      }
+    } catch (error) {
+      showLocalError(getApiErrorMessage(error) ?? 'Не удалось перенести папку');
     }
   };
 
   const handleChatDragStart = (event: { dataTransfer: DataTransfer }, chat: ChatListItem) => {
     if (chat.is_admin_view) return;
     setDraggedChatId(chat.id);
+    setDraggedFolderId(null);
     event.dataTransfer.effectAllowed = 'move';
     event.dataTransfer.setData('application/x-llmstore-chat-id', chat.id);
     event.dataTransfer.setData('text/plain', chat.id);
+  };
+
+  const handleFolderDragStart = (event: { stopPropagation: () => void; dataTransfer: DataTransfer }, folder: ChatWorkspaceFolder) => {
+    event.stopPropagation();
+    setDraggedFolderId(folder.id);
+    setDraggedChatId(null);
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('application/x-llmstore-folder-id', folder.id);
+    event.dataTransfer.setData('text/plain', folder.id);
   };
 
   const handleProjectDrop = async (
@@ -3487,17 +3596,24 @@ function AuthenticatedChatsPage() {
     event.preventDefault();
     event.stopPropagation();
     const chatId = readDraggedChatId(event);
+    const folderDragId = readDraggedFolderId(event);
     setDraggedChatId(null);
+    setDraggedFolderId(null);
     setDragOverProjectTarget(null);
-    if (!chatId) return;
-    await moveChatToProjectTarget(chatId, project, folderId);
+    if (chatId) {
+      await moveChatToProjectTarget(chatId, project, folderId);
+      return;
+    }
+    if (folderDragId) {
+      await moveFolderToProjectTarget(folderDragId, project, folderId);
+    }
   };
 
   const handleProjectDragOver = (
     event: { preventDefault: () => void; dataTransfer: DataTransfer },
     targetKey: string,
   ) => {
-    if (!draggedChatId) return;
+    if (!draggedChatId && !draggedFolderId) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
     setDragOverProjectTarget(targetKey);
@@ -4481,12 +4597,158 @@ function AuthenticatedChatsPage() {
     const rootProjectChats = chatsInProject.filter((chat) => !chat.project_folder_id);
     const isExpanded = expandedProjectIds.includes(project.id) || chatsInProject.some((chat) => chat.id === activeChatId);
     const rootDropKey = `${project.id}:root`;
+    const foldersByParent = new Map<string, ChatWorkspaceFolder[]>();
+    for (const folder of project.folders) {
+      const parentKey = folder.parent_folder_id ?? 'root';
+      const list = foldersByParent.get(parentKey) ?? [];
+      list.push(folder);
+      foldersByParent.set(parentKey, list);
+    }
+    for (const folders of foldersByParent.values()) {
+      folders.sort((left, right) => {
+        const orderDiff = left.sort_order - right.sort_order;
+        if (orderDiff !== 0) return orderDiff;
+        return left.title.localeCompare(right.title, 'ru');
+      });
+    }
+    const folderHasActiveChat = (folderId: string): boolean => {
+      if (chatsInProject.some((chat) => chat.project_folder_id === folderId && chat.id === activeChatId)) {
+        return true;
+      }
+      return (foldersByParent.get(folderId) ?? []).some((child) => folderHasActiveChat(child.id));
+    };
     const toggle = () => {
       setExpandedProjectIds((prev) => (
         prev.includes(project.id)
           ? prev.filter((id) => id !== project.id)
           : [...prev, project.id]
       ));
+    };
+    const renderFolder = (folder: ChatWorkspaceFolder, depth = 0) => {
+      const folderDropKey = `${project.id}:folder:${folder.id}`;
+      const childFolders = foldersByParent.get(folder.id) ?? [];
+      const folderChats = chatsInProject.filter((chat) => chat.project_folder_id === folder.id);
+      const isFolderExpanded = expandedProjectFolderIds.includes(folder.id) || folderHasActiveChat(folder.id);
+      const canDropHere = draggedFolderId !== folder.id;
+
+      return (
+        <div key={folder.id} className="space-y-1" style={{ paddingLeft: depth > 0 ? 10 : 0 }}>
+          <div
+            className={cn(
+              'group relative flex items-center gap-1 rounded-md pr-8 text-xs text-muted-foreground transition-colors hover:bg-accent/60',
+              dragOverProjectTarget === folderDropKey && canDropHere && 'bg-sky-50 text-sky-700 ring-2 ring-sky-300',
+            )}
+            draggable
+            onDragStart={(event) => handleFolderDragStart(event, folder)}
+            onDragEnd={() => {
+              setDraggedFolderId(null);
+              setDragOverProjectTarget(null);
+            }}
+            onDragOver={(event) => {
+              if (!canDropHere) return;
+              handleProjectDragOver(event, folderDropKey);
+            }}
+            onDragLeave={() => setDragOverProjectTarget((prev) => (prev === folderDropKey ? null : prev))}
+            onDrop={(event) => {
+              if (!canDropHere) return;
+              void handleProjectDrop(event, project, folder.id);
+            }}
+            title="Кликните, чтобы свернуть/раскрыть. Перетащите чат или папку сюда, чтобы положить внутрь."
+          >
+            <button
+              type="button"
+              className="flex min-w-0 flex-1 items-center gap-1 rounded-md px-1.5 py-1.5 text-left"
+              onClick={() => {
+                setExpandedProjectFolderIds((prev) => (
+                  prev.includes(folder.id)
+                    ? prev.filter((id) => id !== folder.id)
+                    : [...prev, folder.id]
+                ));
+              }}
+            >
+              <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-slate-400">
+                {isFolderExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+              </span>
+              <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-amber-500">
+                {isFolderExpanded ? <FolderOpen className="h-3.5 w-3.5" /> : <Folder className="h-3.5 w-3.5" />}
+              </span>
+              <span className="truncate">{folder.title}</span>
+              {(folderChats.length > 0 || childFolders.length > 0) && (
+                <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
+                  {folderChats.length + childFolders.length}
+                </span>
+              )}
+            </button>
+            <div className="absolute right-1 top-0.5" ref={openMenu?.kind === 'project-folder' && openMenu.id === folder.id ? menuRef : null}>
+              <button
+                type="button"
+                className="h-6 w-6 rounded-md text-muted-foreground opacity-70 hover:bg-accent hover:text-foreground group-hover:opacity-100"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setOpenMenu((prev) => (prev?.kind === 'project-folder' && prev.id === folder.id ? null : { kind: 'project-folder', id: folder.id }));
+                }}
+                aria-label="Действия папки"
+              >
+                ...
+              </button>
+              {openMenu?.kind === 'project-folder' && openMenu.id === folder.id && (
+                <div className="absolute right-0 top-7 z-20 min-w-[220px] rounded-md border bg-white p-1 shadow-lg">
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+                    onClick={() => void createChatInProject(project, folder.id)}
+                    disabled={createChatMutation.isPending}
+                  >
+                    {getChatActionIcon('new_chat')}
+                    <span>Новый чат</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+                    onClick={() => void createFolderInProject(project, folder.id)}
+                    disabled={createChatProjectFolderMutation.isPending}
+                  >
+                    {getChatActionIcon('folder')}
+                    <span>Новая папка</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+                    onClick={() => void renameProjectFolder(project, folder)}
+                    disabled={updateChatProjectFolderMutation.isPending}
+                  >
+                    {getChatActionIcon('rename')}
+                    <span>Переименовать</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+                    onClick={() => void copyProjectFolderPath(project, folder)}
+                  >
+                    {getChatActionIcon('copy_link')}
+                    <span>Скопировать путь</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+                    onClick={() => void deleteProjectFolder(project, folder)}
+                    disabled={deleteChatProjectFolderMutation.isPending}
+                  >
+                    {getChatActionIcon('delete')}
+                    <span>Удалить папку</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+          {isFolderExpanded && (
+            <div className="space-y-1 pl-3">
+              {childFolders.map((child) => renderFolder(child, depth + 1))}
+              {folderChats.map(renderChatRow)}
+            </div>
+          )}
+        </div>
+      );
     };
 
     return (
@@ -4577,36 +4839,7 @@ function AuthenticatedChatsPage() {
         </div>
         {isExpanded && (
           <div className="space-y-1 border-l border-slate-200 pl-3">
-            {project.folders.map((folder) => {
-              const folderDropKey = `${project.id}:folder:${folder.id}`;
-              const folderChats = chatsInProject.filter((chat) => chat.project_folder_id === folder.id);
-
-              return (
-                <div key={folder.id} className="space-y-1">
-                  <div
-                    className={cn(
-                      'flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground transition-colors',
-                      dragOverProjectTarget === folderDropKey && 'bg-sky-50 text-sky-700 ring-2 ring-sky-300',
-                    )}
-                    onDragOver={(event) => handleProjectDragOver(event, folderDropKey)}
-                    onDragLeave={() => setDragOverProjectTarget((prev) => (prev === folderDropKey ? null : prev))}
-                    onDrop={(event) => void handleProjectDrop(event, project, folder.id)}
-                    title="Перетащите чат сюда, чтобы положить его в папку"
-                  >
-                    <Folder className="h-3.5 w-3.5 shrink-0 text-amber-500" />
-                    <span className="truncate">{folder.title}</span>
-                    {folderChats.length > 0 && (
-                      <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">{folderChats.length}</span>
-                    )}
-                  </div>
-                  {folderChats.length > 0 && (
-                    <div className="space-y-1 pl-3">
-                      {folderChats.map(renderChatRow)}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+            {(foldersByParent.get('root') ?? []).map((folder) => renderFolder(folder))}
             {rootProjectChats.map(renderChatRow)}
             {chatsInProject.length === 0 && (
               <p className="px-2 py-2 text-xs text-muted-foreground">В проекте пока нет чатов.</p>

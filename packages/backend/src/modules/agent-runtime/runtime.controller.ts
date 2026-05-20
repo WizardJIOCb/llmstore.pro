@@ -237,6 +237,41 @@ export async function createChatWorkspaceFolder(req: Request<{ projectId: string
   }
 }
 
+export async function updateChatWorkspaceFolder(
+  req: Request<{ projectId: string; folderId: string }>,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const folder = await runtimeService.updateChatWorkspaceFolder(
+      req.session.userId!,
+      req.params.projectId,
+      req.params.folderId,
+      req.body,
+    );
+    res.json({ data: folder });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function deleteChatWorkspaceFolder(
+  req: Request<{ projectId: string; folderId: string }>,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const result = await runtimeService.deleteChatWorkspaceFolder(
+      req.session.userId!,
+      req.params.projectId,
+      req.params.folderId,
+    );
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function listChatWorkspaceFiles(req: Request<{ projectId: string }>, res: Response, next: NextFunction) {
   try {
     const result = await runtimeService.listChatWorkspaceFiles(

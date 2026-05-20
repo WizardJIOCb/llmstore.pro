@@ -8766,6 +8766,113 @@ export async function createChatWorkspaceFolder(userId: string, projectId: strin
   };
 }
 
+async function ensureWorkspaceFolderForUser(userId: string, projectId: string, folderId: string) {
+  const [folder] = await db
+    .select()
+    .from(chatWorkspaceFolders)
+    .where(and(
+      eq(chatWorkspaceFolders.id, folderId),
+      eq(chatWorkspaceFolders.project_id, projectId),
+      eq(chatWorkspaceFolders.user_id, userId),
+    ))
+    .limit(1);
+
+  if (!folder) {
+    throw new NotFoundError('Папка проекта не найдена');
+  }
+
+  return folder;
+}
+
+async function ensureFolderCanMoveToParent(userId: string, projectId: string, folderId: string, parentFolderId: string | null) {
+  if (!parentFolderId) return;
+  if (parentFolderId === folderId) {
+    throw new AppError(400, 'FOLDER_PARENT_CYCLE', 'Папку нельзя перенести внутрь самой себя');
+  }
+
+  await validateWorkspaceFolderForProject(projectId, parentFolderId, userId);
+  const folders = await db
+    .select({
+      id: chatWorkspaceFolders.id,
+      parent_folder_id: chatWorkspaceFolders.parent_folder_id,
+    })
+    .from(chatWorkspaceFolders)
+    .where(and(
+      eq(chatWorkspaceFolders.project_id, projectId),
+      eq(chatWorkspaceFolders.user_id, userId),
+    ));
+
+  const parentMap = new Map(folders.map((folder) => [folder.id, folder.parent_folder_id ?? null]));
+  let cursor: string | null = parentFolderId;
+  while (cursor) {
+    if (cursor === folderId) {
+      throw new AppError(400, 'FOLDER_PARENT_CYCLE', 'Папку нельзя перенести внутрь своей вложенной папки');
+    }
+    cursor = parentMap.get(cursor) ?? null;
+  }
+}
+
+export async function updateChatWorkspaceFolder(userId: string, projectId: string, folderId: string, input: {
+  title?: string;
+  parent_folder_id?: string | null;
+  sort_order?: number;
+}): Promise<ChatWorkspaceFolderItem> {
+  await getWorkspaceProjectForUser(projectId, userId);
+  const existing = await ensureWorkspaceFolderForUser(userId, projectId, folderId);
+  const nextParentFolderId = input.parent_folder_id === undefined
+    ? (existing.parent_folder_id ?? null)
+    : (input.parent_folder_id ?? null);
+  await ensureFolderCanMoveToParent(userId, projectId, folderId, nextParentFolderId);
+
+  const now = new Date();
+  const [folder] = await db.update(chatWorkspaceFolders)
+    .set({
+      title: input.title === undefined ? existing.title : (input.title.trim() || existing.title).slice(0, 255),
+      parent_folder_id: nextParentFolderId,
+      sort_order: input.sort_order === undefined ? existing.sort_order : Math.max(0, Math.round(input.sort_order)),
+      updated_at: now,
+    })
+    .where(and(
+      eq(chatWorkspaceFolders.id, folderId),
+      eq(chatWorkspaceFolders.project_id, projectId),
+      eq(chatWorkspaceFolders.user_id, userId),
+    ))
+    .returning();
+
+  await db.update(chatWorkspaceProjects)
+    .set({ last_activity_at: now, updated_at: now })
+    .where(and(eq(chatWorkspaceProjects.id, projectId), eq(chatWorkspaceProjects.user_id, userId)));
+
+  return {
+    id: folder.id,
+    project_id: folder.project_id,
+    parent_folder_id: folder.parent_folder_id ?? null,
+    title: folder.title,
+    sort_order: folder.sort_order,
+    created_at: toIso(folder.created_at),
+    updated_at: toIso(folder.updated_at),
+  };
+}
+
+export async function deleteChatWorkspaceFolder(userId: string, projectId: string, folderId: string): Promise<{ ok: true }> {
+  await getWorkspaceProjectForUser(projectId, userId);
+  await ensureWorkspaceFolderForUser(userId, projectId, folderId);
+
+  await db.delete(chatWorkspaceFolders)
+    .where(and(
+      eq(chatWorkspaceFolders.id, folderId),
+      eq(chatWorkspaceFolders.project_id, projectId),
+      eq(chatWorkspaceFolders.user_id, userId),
+    ));
+
+  const now = new Date();
+  await db.update(chatWorkspaceProjects)
+    .set({ last_activity_at: now, updated_at: now })
+    .where(and(eq(chatWorkspaceProjects.id, projectId), eq(chatWorkspaceProjects.user_id, userId)));
+
+  return { ok: true };
+}
+
 export async function listChatWorkspaceFiles(userId: string, projectId: string, relativePath?: string | null): Promise<{
   project: ChatWorkspaceProjectItem;
   path: string;

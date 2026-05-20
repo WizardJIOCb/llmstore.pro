@@ -167,6 +167,34 @@ export function useCreateChatProjectFolder() {
   });
 }
 
+export function useUpdateChatProjectFolder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ projectId, folderId, ...payload }: {
+      projectId: string;
+      folderId: string;
+      title?: string;
+      parent_folder_id?: string | null;
+      sort_order?: number;
+    }) => chatsApi.updateProjectFolder(projectId, folderId, payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['chat-projects'] });
+    },
+  });
+}
+
+export function useDeleteChatProjectFolder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ projectId, folderId }: { projectId: string; folderId: string }) =>
+      chatsApi.deleteProjectFolder(projectId, folderId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['chat-projects'] });
+      qc.invalidateQueries({ queryKey: ['chats'] });
+    },
+  });
+}
+
 export function useDeleteChatProject() {
   const qc = useQueryClient();
   return useMutation({

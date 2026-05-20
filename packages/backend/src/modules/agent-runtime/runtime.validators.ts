@@ -45,6 +45,12 @@ const createChatWorkspaceFolderSchema = z.object({
   parent_folder_id: z.string().uuid().optional().nullable(),
 });
 
+const updateChatWorkspaceFolderSchema = z.object({
+  title: z.string().min(1).max(255).optional(),
+  parent_folder_id: z.string().uuid().optional().nullable(),
+  sort_order: z.number().int().min(0).max(1_000_000_000).optional(),
+});
+
 const saveChatWorkspaceFileSchema = z.object({
   path: z.string().min(1).max(1000),
   content: z.string().max(1_000_000),
@@ -142,6 +148,7 @@ export const validateCreateChat = validate(createChatSchema, 'body');
 export const validateCreateChatWorkspaceProject = validate(createChatWorkspaceProjectSchema, 'body');
 export const validateUpdateChatWorkspaceProject = validate(updateChatWorkspaceProjectSchema, 'body');
 export const validateCreateChatWorkspaceFolder = validate(createChatWorkspaceFolderSchema, 'body');
+export const validateUpdateChatWorkspaceFolder = validate(updateChatWorkspaceFolderSchema, 'body');
 export const validateSaveChatWorkspaceFile = validate(saveChatWorkspaceFileSchema, 'body');
 export const validateTelegramBotQuickstart = validate(telegramBotQuickstartSchema, 'body');
 export const validateUpdateChat = validate(updateChatSchema, 'body');
