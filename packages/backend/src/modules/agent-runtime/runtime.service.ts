@@ -5993,6 +5993,41 @@ function resolveChatCommandModelOption(modelCode: string): ChatCommandModelOptio
   return CHAT_COMMAND_MODEL_OPTIONS.find((model) => normalizeOpenRouterModelId(model.value) === normalized) ?? null;
 }
 
+function truncateChatCommandContent(value: string | null | undefined, limit = 3000): string {
+  const normalized = value?.replace(/\r\n/g, '\n').trim() ?? '';
+  if (!normalized) return '';
+  if (normalized.length <= limit) return normalized;
+  return `${normalized.slice(0, limit).trimEnd()}\n\n...[обрезано ${normalized.length - limit} симв.]`;
+}
+
+function formatChatCommandContentBlock(
+  title: string,
+  content: string | null | undefined,
+  limit = 3000,
+): string {
+  const truncated = truncateChatCommandContent(content, limit);
+  if (!truncated) {
+    return `### ${title}\n\n_пусто_`;
+  }
+
+  return [
+    `### ${title}`,
+    '',
+    `~${estimateContextTokens(content)} ток., ${(content ?? '').trim().length} симв.`,
+    '',
+    '```text',
+    truncated.replace(/```/g, '`\u200b``'),
+    '```',
+  ].join('\n');
+}
+
+function parseChatContextHistoryLimit(args: string[]): number {
+  const raw = args[0];
+  const parsed = raw ? Number(raw) : 10;
+  if (!Number.isFinite(parsed)) return 10;
+  return Math.min(30, Math.max(1, Math.round(parsed)));
+}
+
 function buildChatSettingsJson(
   existing: Record<string, unknown> | null | undefined,
   overrides: {
@@ -6130,6 +6165,7 @@ async function buildChatSlashCommandResponse(
       '- `/model <code>` — установить модель чата, например `/model deepseek/deepseek-v4-flash:free`.',
       '- `/models` — список доступных кодов моделей.',
       '- `/context` — карта контекста: промпты, инструменты, блоки, история.',
+      '- `/context-help` — команды для детального просмотра контекста.',
       '- `/settings` — быстрый снимок настроек чата.',
       '',
       'Команды не отправляются в модель и не списывают баланс.',
@@ -6238,6 +6274,125 @@ async function buildChatSlashCommandResponse(
       '',
       '**История**',
       `- Сообщений в чате: ${messages.length}`,
+      '',
+      '**Подробнее**',
+      '- `/context-prompts` — текст промптов.',
+      '- `/context-blocks` — редактируемые блоки контекста.',
+      '- `/context-tools` — подключённые инструменты и описания.',
+      '- `/context-history 10` — последние N сообщений.',
+      '- `/context-raw` — компактная raw-сборка того, что добавляется вокруг истории.',
+    ].join('\n') };
+  }
+
+  if (command === '/context-help' || command === '/context-commands') {
+    return { content: [
+      '**Команды контекста**',
+      '',
+      '- `/context` — общий обзор и оценка токенов.',
+      '- `/context-prompts` — системный промпт чата, системный промпт агента и developer prompt.',
+      '- `/context-blocks` — бриф, факты, бренд, правила ответа и память чата.',
+      '- `/context-tools` — эффективный список инструментов, которые доступны в этом чате.',
+      '- `/context-history [N]` — последние N сообщений с превью содержимого, по умолчанию 10, максимум 30.',
+      '- `/context-raw` — компактная raw-сборка служебного контекста без полной истории.',
+    ].join('\n') };
+  }
+
+  if (command === '/context-prompts') {
+    return { content: [
+      '**Промпты в контексте**',
+      '',
+      formatChatCommandContentBlock('Системный промпт чата', chat.system_prompt, 5000),
+      '',
+      formatChatCommandContentBlock('Системный промпт агента', agentMeta.agent_system_prompt, 8000),
+      '',
+      formatChatCommandContentBlock('Developer prompt агента', agentMeta.agent_developer_prompt, 5000),
+    ].join('\n') };
+  }
+
+  if (command === '/context-blocks') {
+    return { content: [
+      '**Редактируемые контекстные блоки**',
+      '',
+      ...CHAT_CONTEXT_BLOCKS.flatMap((block) => ([
+        formatChatCommandContentBlock(block.title, contextBlocks[block.key], block.key === 'facts' ? 8000 : 5000),
+        '',
+      ])),
+      'Редактируются в свойствах чата во вкладке `Контекст`.',
+    ].join('\n') };
+  }
+
+  if (command === '/context-tools') {
+    const toolLines = effectiveTools.map((tool, index) => [
+      `### ${index + 1}. ${tool.name}`,
+      '',
+      `- slug: \`${tool.slug}\``,
+      `- type: ${tool.tool_type}`,
+      `- builtin: ${tool.is_builtin ? 'да' : 'нет'}`,
+      `- оценка: ~${estimateContextTokens(tool.name) + estimateContextTokens(tool.slug) + estimateContextTokens(tool.description) + 120} ток.`,
+      '',
+      truncateChatCommandContent(tool.description, 1600) || '_описания нет_',
+    ].join('\n'));
+
+    return { content: [
+      '**Инструменты в контексте**',
+      '',
+      `Всего: ${effectiveTools.length}`,
+      '',
+      effectiveTools.length > 0 ? toolLines.join('\n\n') : '_Инструменты не подключены._',
+    ].join('\n') };
+  }
+
+  if (command === '/context-history' || command === '/context-messages') {
+    const limit = parseChatContextHistoryLimit(args);
+    const recentMessages = messages.slice(-limit);
+    const totalTokens = recentMessages.reduce((sum, message) => sum + estimateContextTokens(message.content), 0);
+    const lines = recentMessages.map((message, index) => {
+      const roleLabel = message.role === 'user' ? 'User' : 'Assistant';
+      const createdAt = message.created_at ? new Date(message.created_at).toLocaleString('ru-RU') : 'без даты';
+      return [
+        `### ${messages.length - recentMessages.length + index + 1}. ${roleLabel} · ${createdAt}`,
+        '',
+        `~${estimateContextTokens(message.content)} ток., ${message.content.trim().length} симв.`,
+        '',
+        '```text',
+        truncateChatCommandContent(message.content, 1800).replace(/```/g, '`\u200b``') || '_пусто_',
+        '```',
+      ].join('\n');
+    });
+
+    return { content: [
+      `**История контекста: последние ${recentMessages.length} из ${messages.length}**`,
+      '',
+      `Оценка выбранного фрагмента: ~${totalTokens} ток.`,
+      '',
+      lines.length > 0 ? lines.join('\n\n') : '_История пуста._',
+    ].join('\n') };
+  }
+
+  if (command === '/context-raw') {
+    const modelEnvironmentContext = buildModelEnvironmentContext();
+    const toolSummaryText = effectiveTools.length > 0
+      ? effectiveTools.map((tool) => `- ${tool.name} (${tool.slug}): ${tool.description ?? 'без описания'}`).join('\n')
+      : '';
+    const rawParts = [
+      chat.system_prompt ? `# Системный промпт чата\n${chat.system_prompt}` : '',
+      agentMeta.agent_system_prompt ? `# Системный промпт агента\n${agentMeta.agent_system_prompt}` : '',
+      agentMeta.agent_developer_prompt ? `# Developer prompt агента\n${agentMeta.agent_developer_prompt}` : '',
+      contextBlocksText ? `# Контекстные блоки\n${contextBlocksText}` : '',
+      toolSummaryText ? `# Инструменты\n${toolSummaryText}` : '',
+      `# Окружение модели\n${modelEnvironmentContext}`,
+    ].filter(Boolean);
+
+    return { content: [
+      '**Raw-контекст без полной истории**',
+      '',
+      `Оценка этих блоков: ~${rawParts.reduce((sum, part) => sum + estimateContextTokens(part), 0)} ток.`,
+      '',
+      '```text',
+      truncateChatCommandContent(rawParts.join('\n\n'), 12000).replace(/```/g, '`\u200b``'),
+      '```',
+      '',
+      'Полную историю смотрите через `/context-history 20`.',
     ].join('\n') };
   }
 
