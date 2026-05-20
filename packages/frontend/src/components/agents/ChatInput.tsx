@@ -126,12 +126,19 @@ export function ChatInput({
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  const focusComposer = () => {
+    const focus = () => textareaRef.current?.focus();
+    requestAnimationFrame(focus);
+    window.setTimeout(focus, 0);
+  };
+
   const handleSubmit = async () => {
     const trimmed = value.trim();
     if ((!trimmed && files.length === 0) || disabled) return;
 
     await onSend(trimmed, files);
     resetComposer();
+    focusComposer();
   };
 
   const handleKeyDown = async (event: KeyboardEvent<HTMLTextAreaElement>) => {
