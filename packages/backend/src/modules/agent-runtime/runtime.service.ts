@@ -2882,10 +2882,12 @@ function normalizeAssistantChatPayload(
       ].slice(0, 12),
     };
 
-    if (recoveredPreview.cleanText) {
+    if (recoveredPreview.cleanText && !isDiscardablePreviewWrapperText(recoveredPreview.cleanText)) {
       normalizedContent = recoveredPreview.cleanText;
     } else if (codingReport.summary?.trim()) {
       normalizedContent = codingReport.summary.trim();
+    } else if (recoveredPreview.preview.title?.trim()) {
+      normalizedContent = `Preview подготовлен: ${recoveredPreview.preview.title.trim()}.`;
     } else {
       normalizedContent = recoveredPreview.incomplete
         ? 'Лендинг частично восстановлен из markdown-ответа. Preview доступен, но HTML выглядит незавершённым.'
@@ -2903,6 +2905,38 @@ function normalizeAssistantChatPayload(
       : usage,
     codingReport,
   };
+}
+
+function isUsableHtmlPreviewText(value: unknown): boolean {
+  if (typeof value !== 'string') return false;
+  const html = value.trim();
+  return html.length >= 80 && /<(?:html|body|section|main|style|script|div)\b/i.test(html);
+}
+
+function isDiscardablePreviewWrapperText(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed || !trimmed.startsWith('{')) return false;
+
+  try {
+    const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+    const keys = Object.keys(parsed);
+    if (keys.length === 0) return true;
+    if (keys.some((key) => !['preview', 'coding_report'].includes(key))) return false;
+
+    const preview = parsed.preview && typeof parsed.preview === 'object'
+      ? parsed.preview as Record<string, unknown>
+      : (
+        parsed.coding_report && typeof parsed.coding_report === 'object'
+          ? (parsed.coding_report as Record<string, unknown>).preview
+          : null
+      );
+    if (!preview || typeof preview !== 'object') return false;
+
+    const previewRecord = preview as Record<string, unknown>;
+    return !isUsableHtmlPreviewText(previewRecord.html);
+  } catch {
+    return false;
+  }
 }
 
 function encodeCodingReport(report: CodingReport): string {
