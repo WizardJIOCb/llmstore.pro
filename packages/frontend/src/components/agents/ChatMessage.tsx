@@ -2874,6 +2874,7 @@ export function ChatMessage({
                 ol: ({ children }) => <ol className="list-decimal pl-5 my-1 space-y-1">{children}</ol>,
                 ul: ({ children }) => <ul className="list-disc pl-5 my-1 space-y-1">{children}</ul>,
                 p: ({ children }) => <p className="my-1.5 first:mt-0 last:mb-0">{children}</p>,
+                hr: () => <hr className="mt-5 mb-4 border-0 border-t border-slate-200" />,
                 strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
                 table: ({ children }) => (
                   <div className="my-3 max-w-full overflow-x-auto rounded-md border border-slate-200 bg-white shadow-sm">
