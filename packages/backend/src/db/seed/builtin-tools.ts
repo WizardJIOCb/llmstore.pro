@@ -270,11 +270,13 @@ const builtinTools = [
               },
               content: {
                 type: 'string',
-                description: 'UTF-8 file content. For .xlsx/.xls, provide table data as CSV, HTML table, markdown table, JSON array of objects, or JSON rows; the tool converts it to an Excel workbook.',
+                minLength: 1,
+                description: 'Required unless content_base64 is provided. Non-empty UTF-8 file content. For .xlsx/.xls, provide table data as CSV, HTML table, markdown table, JSON array of objects, or JSON rows; the tool converts it to an Excel workbook.',
               },
               content_base64: {
                 type: 'string',
-                description: 'Optional base64 content for binary files.',
+                minLength: 1,
+                description: 'Required unless content is provided. Non-empty base64 content for binary files.',
               },
             },
             required: ['name'],

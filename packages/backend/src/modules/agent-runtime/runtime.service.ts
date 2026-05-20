@@ -4039,6 +4039,47 @@ ${agent.description.trim()}`);
       }
 
       const toolDef = tools.find(t => t.slug === toolSlug);
+      const normalizedFileInput = toolSlug === CREATE_CHAT_FILES_TOOL_SLUG
+        ? normalizeCreateChatFilesRuntimeInput(toolInput, {
+          fallbackHtml: codingReport?.preview?.type === 'html' ? codingReport.preview.html : null,
+          fallbackText: rawTerminalAssistantOutput || finalOutput,
+        })
+        : { input: toolInput, error: null, repaired: false };
+      toolInput = normalizedFileInput.input;
+
+      if (normalizedFileInput.error) {
+        const errMsg = normalizedFileInput.error;
+        messages.push({
+          role: 'tool',
+          content: JSON.stringify({
+            error: errMsg,
+            instruction: `Call ${CREATE_CHAT_FILES_TOOL_SLUG} again with non-empty content or content_base64 for every file.`,
+          }),
+          tool_call_id: toolCall.id,
+        });
+        toolTraces.push({
+          tool_call_id: toolCall.id,
+          tool_name: toolSlug,
+          input: toolInput,
+          output: null,
+          status: 'error',
+          duration_ms: 0,
+          error: errMsg,
+        });
+        await emitRunEvent('chat.run.tool.finished', {
+          run_id: run.id,
+          tool_call_id: toolCall.id,
+          tool_name: toolSlug,
+          input: toolInput,
+          output: { error: errMsg },
+          status: 'error',
+          duration_ms: 0,
+          error: errMsg,
+          label: `Инструмент ${toolSlug} отклонён до запуска`,
+          detail: 'Файловый tool-call пришёл без содержимого файла, попросил модель пересобрать вызов с реальным content.',
+        });
+        continue;
+      }
 
       const [tcRecord] = await db.insert(agentRunToolCalls).values({
         run_id: run.id,
@@ -4054,7 +4095,9 @@ ${agent.description.trim()}`);
         tool_name: toolSlug,
         input: toolInput,
         label: `Запущен инструмент ${toolSlug}`,
-        detail: `${detailLabel}: ${toolIndex + 1} из ${toolCalls.length}`,
+        detail: normalizedFileInput.repaired
+          ? `${detailLabel}: ${toolIndex + 1} из ${toolCalls.length}. Пустой файловый payload восстановлен из уже собранного ответа.`
+          : `${detailLabel}: ${toolIndex + 1} из ${toolCalls.length}`,
       });
 
       let trace: ToolTrace;
@@ -4997,6 +5040,117 @@ const CREATE_CHAT_FILES_TOOL_SLUG = 'create-chat-files';
 const AUTO_ATTACH_CHAT_TOOL_SLUGS = [CREATE_CHAT_FILES_TOOL_SLUG] as const;
 const AUTO_RUN_CHAT_TOOL_SLUGS = [CREATE_CHAT_FILES_TOOL_SLUG] as const;
 const MAX_CHAT_TOOL_IDS = 64;
+
+function hasNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function createSafeToolInputPreview(input: Record<string, unknown>, reason: string): Record<string, unknown> {
+  const files = Array.isArray(input.files)
+    ? input.files.map((item, index) => {
+      const file = item && typeof item === 'object' ? item as Record<string, unknown> : {};
+      return {
+        name: hasNonEmptyString(file.name) ? file.name.trim().slice(0, 180) : `file-${index + 1}.txt`,
+        rejected: reason,
+      };
+    })
+    : [];
+
+  return {
+    files,
+    rejected: true,
+    reason,
+  };
+}
+
+function chooseFallbackChatFileContent(
+  originalName: string,
+  fallbackHtml: string | null | undefined,
+  fallbackText: string | null | undefined,
+): string | null {
+  const ext = path.extname(originalName).toLowerCase();
+  if ((ext === '.html' || ext === '.htm') && fallbackHtml?.trim()) {
+    return fallbackHtml.trim();
+  }
+
+  if ((ext === '.html' || ext === '.htm') && fallbackText?.trim()) {
+    const trimmed = fallbackText.trim();
+    return /<!doctype html|<html[\s>]|<body[\s>]|<main[\s>]|<section[\s>]/i.test(trimmed)
+      ? trimmed
+      : null;
+  }
+
+  if (fallbackText?.trim()) {
+    return fallbackText.trim();
+  }
+
+  if (fallbackHtml?.trim()) {
+    return fallbackHtml.trim();
+  }
+
+  return null;
+}
+
+function normalizeCreateChatFilesRuntimeInput(
+  input: Record<string, unknown>,
+  fallback: {
+    fallbackHtml?: string | null;
+    fallbackText?: string | null;
+  },
+): { input: Record<string, unknown>; error: string | null; repaired: boolean } {
+  const rawFiles = Array.isArray(input.files) ? input.files : [];
+  if (rawFiles.length === 0) {
+    const reason = 'create-chat-files requires at least one file with non-empty content or content_base64.';
+    return { input: createSafeToolInputPreview(input, reason), error: reason, repaired: false };
+  }
+
+  let repaired = false;
+  const normalizedFiles = rawFiles.map((item, index) => {
+    if (!item || typeof item !== 'object') return item;
+    const file = item as Record<string, unknown>;
+    if (hasNonEmptyString(file.content) || hasNonEmptyString(file.content_base64)) {
+      return file;
+    }
+
+    const originalName = hasNonEmptyString(file.name) ? file.name.trim() : `file-${index + 1}.txt`;
+    const fallbackContent = chooseFallbackChatFileContent(
+      originalName,
+      fallback.fallbackHtml,
+      fallback.fallbackText,
+    );
+    if (!fallbackContent) return file;
+
+    repaired = true;
+    const rest = { ...file };
+    delete rest.content_base64;
+    return {
+      ...rest,
+      name: originalName,
+      content: fallbackContent,
+    };
+  });
+
+  const missingContent = normalizedFiles.some((item) => {
+    if (!item || typeof item !== 'object') return true;
+    const file = item as Record<string, unknown>;
+    return !hasNonEmptyString(file.content) && !hasNonEmptyString(file.content_base64);
+  });
+
+  if (missingContent) {
+    const reason = 'create-chat-files received a file without non-empty content or content_base64.';
+    return { input: createSafeToolInputPreview(input, reason), error: reason, repaired: false };
+  }
+
+  return {
+    input: {
+      ...input,
+      files: normalizedFiles,
+    },
+    error: null,
+    repaired,
+  };
+}
+
 const OPENROUTER_CHAT_FALLBACK_MODELS = [
   DEFAULT_GENERAL_MODEL,
   'anthropic/claude-haiku-4.5',
