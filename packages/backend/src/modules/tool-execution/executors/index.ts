@@ -10,6 +10,13 @@ import { executeJsonTransform } from './json-transform.executor.js';
 import { executeLlmOrchestratorWorker } from './llm-orchestrator-worker.executor.js';
 import { executeTemplateRenderer } from './template-renderer.executor.js';
 import { executeChatFileCreate } from './chat-file-create.executor.js';
+import {
+  executeWorkspaceDeleteFile,
+  executeWorkspaceEditFile,
+  executeWorkspaceListFiles,
+  executeWorkspaceReadFile,
+  executeWorkspaceWriteFile,
+} from './workspace-files.executor.js';
 import type { ToolExecutionResult } from '../types.js';
 
 type ToolExecutorOutput = {
@@ -80,6 +87,26 @@ executorRegistry.set('template-renderer', async (input) => {
 
 executorRegistry.set('create-chat-files', async (input, config) => {
   return { payload: await executeChatFileCreate(input, config) };
+});
+
+executorRegistry.set('workspace-list-files', async (input, config) => {
+  return { payload: await executeWorkspaceListFiles(input, config) };
+});
+
+executorRegistry.set('workspace-read-file', async (input, config) => {
+  return { payload: await executeWorkspaceReadFile(input, config) };
+});
+
+executorRegistry.set('workspace-write-file', async (input, config) => {
+  return { payload: await executeWorkspaceWriteFile(input, config) };
+});
+
+executorRegistry.set('workspace-edit-file', async (input, config) => {
+  return { payload: await executeWorkspaceEditFile(input, config) };
+});
+
+executorRegistry.set('workspace-delete-file', async (input, config) => {
+  return { payload: await executeWorkspaceDeleteFile(input, config) };
 });
 
 executorRegistry.set('llm-orchestrator-worker', async (input, config) => {

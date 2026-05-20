@@ -3627,6 +3627,7 @@ export async function startRun(
     : (runtimeConfig.temperature ?? 0.3);
   let syncedConversationId: string | null = null;
   let syncedConversationProjectId: string | null = null;
+  let syncedConversationWorkspaceRoot: string | null = null;
 
   if (syncToChats) {
     if (options.sync_conversation_id) {
@@ -3672,7 +3673,11 @@ export async function startRun(
       });
     }
 
-    const autoRunTools = await getActiveToolDefinitionRowsBySlugs(AUTO_RUN_CHAT_TOOL_SLUGS);
+    const autoRunToolSlugs = [
+      ...AUTO_RUN_CHAT_TOOL_SLUGS,
+      ...(syncedConversationProjectId ? PROJECT_WORKSPACE_TOOL_SLUGS : []),
+    ] as const;
+    const autoRunTools = await getActiveToolDefinitionRowsBySlugs(autoRunToolSlugs);
     if (autoRunTools.length > 0) {
       const toolsById = new Map(tools.map((tool) => [tool.id, tool]));
       for (const tool of autoRunTools) {
@@ -3681,6 +3686,11 @@ export async function startRun(
         }
       }
       tools = [...toolsById.values()];
+    }
+
+    if (syncedConversationProjectId) {
+      const project = await getWorkspaceProjectForUser(syncedConversationProjectId, userId);
+      syncedConversationWorkspaceRoot = project.root_path;
     }
   }
 
@@ -3758,6 +3768,15 @@ ${input.system_context.trim()}`);
       `Never call ${CREATE_CHAT_FILES_TOOL_SLUG} with empty arguments. The files array is required, and every generated file must include content or content_base64.`,
       'If the user asks for a file but omits details, choose a sensible default format and fields instead of asking follow-up questions.',
       'After the tool succeeds, mention the created files briefly; the chat UI will show download cards automatically.',
+    ].join('\n'));
+  }
+  if (tools.some((tool) => WORKSPACE_TOOL_SLUG_SET.has(tool.slug))) {
+    systemParts.push([
+      'Project workspace file tools.',
+      'You can inspect and edit real files in the current project workspace.',
+      'Use workspace-list-files to discover paths, workspace-read-file before editing existing files, workspace-edit-file for exact replacements, and workspace-write-file with mode append for simple additions.',
+      'Prefer workspace-edit-file or workspace-write-file for project file changes. Do not use create-chat-files when the user asks to modify a project workspace file.',
+      'Never claim a workspace file was changed unless a workspace tool call succeeded.',
     ].join('\n'));
   }
   systemParts.push(buildModelEnvironmentContext());
@@ -4377,6 +4396,14 @@ ${input.system_context.trim()}`);
             storage_dir: CHAT_GENERATED_FILES_DIR,
             chat_id: syncedConversationId,
             run_id: run.id,
+          }
+          : WORKSPACE_TOOL_SLUG_SET.has(toolSlug)
+          ? {
+            ...(toolDef?.config_json ?? {}),
+            workspace_root: syncedConversationWorkspaceRoot,
+            chat_id: syncedConversationId,
+            project_id: syncedConversationProjectId,
+            user_id: userId,
           }
           : (toolDef?.config_json ?? undefined);
         const execResult = await executeTool(toolSlug, toolInput, toolConfig);
@@ -5321,6 +5348,14 @@ const DEFAULT_GENERAL_MODEL = 'google/gemini-2.5-flash';
 const CHAT_TOOL_RUNTIME_AGENT_SLUG_PREFIX = 'chat-tool-runtime-';
 const CREATE_CHAT_FILES_TOOL_SLUG = 'create-chat-files';
 const AUTO_ATTACH_CHAT_TOOL_SLUGS = [CREATE_CHAT_FILES_TOOL_SLUG] as const;
+const PROJECT_WORKSPACE_TOOL_SLUGS = [
+  'workspace-list-files',
+  'workspace-read-file',
+  'workspace-write-file',
+  'workspace-edit-file',
+  'workspace-delete-file',
+] as const;
+const WORKSPACE_TOOL_SLUG_SET = new Set<string>(PROJECT_WORKSPACE_TOOL_SLUGS);
 const AUTO_RUN_CHAT_TOOL_SLUGS = [CREATE_CHAT_FILES_TOOL_SLUG] as const;
 const MAX_CHAT_TOOL_IDS = 64;
 
@@ -6542,7 +6577,7 @@ async function buildChatSlashCommandResponse(
     getConversationMessages(chat.id),
     getActiveToolSummariesByIds(chatToolSettings.tool_ids),
     getActiveAgentToolSummaries(chat.agent_id ?? null),
-    getAutoAttachChatToolSummaries(),
+    getAutoAttachChatToolSummaries(chat),
   ]);
   const effectiveTools = mergeToolSummaries(agentTools, chatTools, chat.mode === 'agent' ? autoChatTools : []);
   const modelId = normalizeOpenRouterModelId(chat.model_external_id ?? agentMeta.agent_model_external_id ?? DEFAULT_GENERAL_MODEL);
@@ -6583,6 +6618,7 @@ async function buildChatSlashCommandResponse(
       '- `/context-set brief <текст>` — заменить редактируемый блок контекста.',
       '- `/prompt-set chat <текст>` — заменить системный промпт этого чата.',
       '- `/file <path> <текст>` — создать или перезаписать файл в workspace проекта, например `/file Документация/qqq.txt Привет`.',
+      '- `/append-file <path> <текст>` — добавить текст в существующий файл workspace проекта.',
       '- `/settings` — быстрый снимок настроек чата.',
       '',
       'Команды не отправляются в модель и не списывают баланс.',
@@ -7019,10 +7055,14 @@ async function getActiveToolDefinitionRowsBySlugs(
     .filter((row): row is typeof toolDefinitions.$inferSelect => Boolean(row));
 }
 
-async function getAutoAttachChatToolSummaries(): Promise<ChatToolSummary[]> {
-  const rows = await getActiveToolDefinitionRowsBySlugs(AUTO_ATTACH_CHAT_TOOL_SLUGS);
-  if (rows.length !== AUTO_ATTACH_CHAT_TOOL_SLUGS.length) {
-    logger.warn({ slugs: AUTO_ATTACH_CHAT_TOOL_SLUGS }, 'One or more auto chat tools are unavailable');
+async function getAutoAttachChatToolSummaries(chat?: Pick<ChatConversationRow, 'project_id'> | null): Promise<ChatToolSummary[]> {
+  const slugs = [
+    ...AUTO_ATTACH_CHAT_TOOL_SLUGS,
+    ...(chat?.project_id ? PROJECT_WORKSPACE_TOOL_SLUGS : []),
+  ] as const;
+  const rows = await getActiveToolDefinitionRowsBySlugs(slugs);
+  if (rows.length !== slugs.length) {
+    logger.warn({ slugs }, 'One or more auto chat tools are unavailable');
   }
   return rows.map((row) => ({
     id: row.id,
@@ -7035,9 +7075,9 @@ async function getAutoAttachChatToolSummaries(): Promise<ChatToolSummary[]> {
   }));
 }
 
-async function mergeAutoChatToolIds(toolIds: string[]): Promise<string[]> {
+async function mergeAutoChatToolIds(toolIds: string[], chat?: Pick<ChatConversationRow, 'project_id'> | null): Promise<string[]> {
   const normalizedToolIds = normalizeChatToolIds(toolIds);
-  const autoTools = await getAutoAttachChatToolSummaries();
+  const autoTools = await getAutoAttachChatToolSummaries(chat);
   return normalizeChatToolIds([
     ...normalizedToolIds,
     ...autoTools.map((tool) => tool.id),
@@ -7050,7 +7090,7 @@ async function ensureAutoChatToolsForConversation(
   if (chat.mode !== 'general') return chat;
 
   const existingToolSettings = extractChatToolSettings(chat.settings_json);
-  const nextToolIds = await mergeAutoChatToolIds(existingToolSettings.tool_ids);
+  const nextToolIds = await mergeAutoChatToolIds(existingToolSettings.tool_ids, chat);
   if (
     nextToolIds.length === existingToolSettings.tool_ids.length
     && nextToolIds.every((toolId, index) => toolId === existingToolSettings.tool_ids[index])
@@ -10948,7 +10988,11 @@ export async function sendChatMessage(
     throw new AppError(400, 'VALIDATION_ERROR', 'Message cannot be empty');
   }
   const isSlashCommand = trimmedContent.startsWith('/') && (attachmentsInput ?? []).length === 0;
+  const rawSlashCommand = isSlashCommand ? (trimmedContent.split(/\s+/, 1)[0] ?? '').toLowerCase() : '';
+  const isWorkspaceFileSlashCommand = PROJECT_WORKSPACE_WRITE_COMMANDS.has(rawSlashCommand)
+    || PROJECT_WORKSPACE_APPEND_COMMANDS.has(rawSlashCommand);
   const workspaceWriteIntent = (attachmentsInput ?? []).length === 0
+    && isWorkspaceFileSlashCommand
     ? extractProjectWorkspaceWriteIntent(trimmedContent)
     : null;
   const openRouterRuntime = await resolveOpenRouterClientForUser(userId);

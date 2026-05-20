@@ -312,6 +312,147 @@ const builtinTools = [
     is_active: true,
   },
   {
+    name: 'Workspace List Files',
+    slug: 'workspace-list-files',
+    tool_type: 'mock_tool' as const,
+    description: 'Lists files and directories in the current project workspace. Use before reading or editing when you need to discover paths.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Workspace directory path. Empty string means project root.', default: '' },
+        max_items: { type: 'number', description: 'Maximum items to return, up to 200.', default: 200 },
+      },
+    },
+    output_schema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string' },
+        items: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              name: { type: 'string' },
+              path: { type: 'string' },
+              type: { type: 'string', enum: ['file', 'directory'] },
+              size: { type: ['number', 'null'] },
+              updated_at: { type: ['string', 'null'] },
+            },
+          },
+        },
+        truncated: { type: 'boolean' },
+      },
+    },
+    config_json: { max_read_bytes: 512 * 1024, max_write_bytes: 1024 * 1024 },
+    is_builtin: true,
+    is_active: true,
+  },
+  {
+    name: 'Workspace Read File',
+    slug: 'workspace-read-file',
+    tool_type: 'mock_tool' as const,
+    description: 'Reads a UTF-8 text file from the current project workspace. Always read a file before editing it unless the user gave exact full content.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Workspace file path, for example README.md or src/App.tsx.' },
+      },
+      required: ['path'],
+    },
+    output_schema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string' },
+        content: { type: 'string' },
+        size: { type: 'number' },
+        updated_at: { type: 'string' },
+      },
+    },
+    config_json: { max_read_bytes: 512 * 1024, max_write_bytes: 1024 * 1024 },
+    is_builtin: true,
+    is_active: true,
+  },
+  {
+    name: 'Workspace Write File',
+    slug: 'workspace-write-file',
+    tool_type: 'mock_tool' as const,
+    description: 'Creates, overwrites, or appends to a UTF-8 text file in the current project workspace. Use mode append for simple additions.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Workspace file path.' },
+        content: { type: 'string', minLength: 1, description: 'Non-empty UTF-8 file content.' },
+        mode: { type: 'string', enum: ['overwrite', 'append'], default: 'overwrite' },
+      },
+      required: ['path', 'content'],
+    },
+    output_schema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string' },
+        mode: { type: 'string' },
+        size: { type: 'number' },
+        updated_at: { type: 'string' },
+      },
+    },
+    config_json: { max_read_bytes: 512 * 1024, max_write_bytes: 1024 * 1024 },
+    is_builtin: true,
+    is_active: true,
+  },
+  {
+    name: 'Workspace Edit File',
+    slug: 'workspace-edit-file',
+    tool_type: 'mock_tool' as const,
+    description: 'Edits an existing workspace text file by exact string replacement. Read the file first, then provide exact search text and replacement.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Workspace file path.' },
+        search: { type: 'string', minLength: 1, description: 'Exact text to find.' },
+        replace: { type: 'string', description: 'Replacement text.' },
+        replace_all: { type: 'boolean', default: false, description: 'Replace all matches instead of just the first one.' },
+      },
+      required: ['path', 'search', 'replace'],
+    },
+    output_schema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string' },
+        replacements: { type: 'number' },
+        available_matches: { type: 'number' },
+        size: { type: 'number' },
+        updated_at: { type: 'string' },
+      },
+    },
+    config_json: { max_read_bytes: 512 * 1024, max_write_bytes: 1024 * 1024 },
+    is_builtin: true,
+    is_active: true,
+  },
+  {
+    name: 'Workspace Delete File',
+    slug: 'workspace-delete-file',
+    tool_type: 'mock_tool' as const,
+    description: 'Deletes one file from the current project workspace. Use only when the user explicitly asks to delete a file.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Workspace file path to delete.' },
+      },
+      required: ['path'],
+    },
+    output_schema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string' },
+        deleted: { type: 'boolean' },
+        size: { type: 'number' },
+      },
+    },
+    config_json: { max_read_bytes: 512 * 1024, max_write_bytes: 1024 * 1024 },
+    is_builtin: true,
+    is_active: true,
+  },
+  {
     name: 'DTF Latest Feed',
     slug: 'dtf-latest-feed',
     tool_type: 'http_request' as const,
