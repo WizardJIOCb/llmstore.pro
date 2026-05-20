@@ -5649,6 +5649,7 @@ interface ChatSlashCommandResult {
 
 interface ProjectWorkspaceWriteIntent {
   source: 'slash' | 'natural';
+  action: 'write' | 'append';
   path: string | null;
   content: string | null;
   targetFolderName?: string | null;
@@ -6383,6 +6384,7 @@ async function getActiveToolSummariesByIds(toolIds: string[]): Promise<ChatToolS
 }
 
 const PROJECT_WORKSPACE_WRITE_COMMANDS = new Set(['/file', '/write-file', '/project-file', '/save-file']);
+const PROJECT_WORKSPACE_APPEND_COMMANDS = new Set(['/append-file', '/file-append']);
 
 function stripWrappingQuotes(value: string): string {
   const trimmed = value.trim();
@@ -6431,15 +6433,17 @@ function extractProjectWorkspaceWriteIntent(message: string): ProjectWorkspaceWr
 
   const rawCommand = trimmed.split(/\s+/, 1)[0] ?? '';
   const command = rawCommand.toLowerCase();
-  if (PROJECT_WORKSPACE_WRITE_COMMANDS.has(command)) {
+  if (PROJECT_WORKSPACE_WRITE_COMMANDS.has(command) || PROJECT_WORKSPACE_APPEND_COMMANDS.has(command)) {
+    const action: ProjectWorkspaceWriteIntent['action'] = PROJECT_WORKSPACE_APPEND_COMMANDS.has(command) ? 'append' : 'write';
     const rest = trimmed.slice(rawCommand.length).trim();
     const pathMatch = rest.match(/^(`[^`]+`|"[^"]+"|'[^']+'|«[^»]+»|“[^”]+”|\S+)/);
     if (!pathMatch) {
       return {
         source: 'slash',
+        action,
         path: null,
         content: null,
-        error: 'Укажите путь и текст файла: `/file notes/hello.txt Привет`.',
+        error: 'Укажите путь и текст файла: `/file notes/hello.txt Привет` или `/append-file notes/hello.txt Ещё строка`.',
       };
     }
 
@@ -6448,16 +6452,24 @@ function extractProjectWorkspaceWriteIntent(message: string): ProjectWorkspaceWr
     if (!content) {
       return {
         source: 'slash',
+        action,
         path: filePath,
         content: null,
         error: 'Укажите непустой текст файла после пути.',
       };
     }
 
-    return { source: 'slash', path: filePath, content };
+    return { source: 'slash', action, path: filePath, content };
   }
 
   const lower = trimmed.toLowerCase();
+  const mentionsFileAppend = (
+    lower.includes('добавь в файл')
+    || lower.includes('добавить в файл')
+    || lower.includes('допиши в файл')
+    || lower.includes('дописать в файл')
+    || lower.includes('append to file')
+  );
   const mentionsFileWrite = (
     lower.includes('создай файл')
     || lower.includes('создать файл')
@@ -6466,7 +6478,8 @@ function extractProjectWorkspaceWriteIntent(message: string): ProjectWorkspaceWr
     || lower.includes('create file')
     || lower.includes('write file')
   );
-  if (!mentionsFileWrite) return null;
+  if (!mentionsFileWrite && !mentionsFileAppend) return null;
+  const action: ProjectWorkspaceWriteIntent['action'] = mentionsFileAppend ? 'append' : 'write';
 
   const quotedPathMatch = trimmed.match(/файл(?:\s+в\s+проекте)?\s+["'`«“]([^"'`«»“”]+?\.[A-Za-z0-9]{1,16})["'`»”]/i);
   const loosePathMatch = quotedPathMatch
@@ -6476,9 +6489,10 @@ function extractProjectWorkspaceWriteIntent(message: string): ProjectWorkspaceWr
   if (!filePath) {
     return {
       source: 'natural',
+      action,
       path: null,
       content: null,
-      error: 'Понял, что нужно создать файл, но не вижу путь. Например: `Создай файл в проекте notes/hello.txt и напиши там "Привет"`.',
+      error: 'Понял, что нужно изменить файл, но не вижу путь. Например: `Добавь в файл README.md текст "Привет"`.',
     };
   }
 
@@ -6490,6 +6504,7 @@ function extractProjectWorkspaceWriteIntent(message: string): ProjectWorkspaceWr
   if (!content) {
     return {
       source: 'natural',
+      action,
       path: filePath,
       content: null,
       targetFolderName: extractWorkspaceTargetFolderName(trimmed),
@@ -6499,6 +6514,7 @@ function extractProjectWorkspaceWriteIntent(message: string): ProjectWorkspaceWr
 
   return {
     source: 'natural',
+    action,
     path: filePath,
     content: stripWrappingQuotes(content),
     targetFolderName: extractWorkspaceTargetFolderName(trimmed),
@@ -11044,17 +11060,28 @@ export async function sendChatMessage(
           const folderPath = await resolveWorkspaceFolderPathFromTitle(chat.project_id, userId, workspaceWriteIntent.targetFolderName);
           workspacePath = normalizeWorkspaceRelativePath(`${folderPath}/${workspacePath}`);
         }
+        let nextFileContent = workspaceWriteIntent.content;
+        if (workspaceWriteIntent.action === 'append') {
+          const currentFile = await getChatWorkspaceFile(userId, chat.project_id, workspacePath).catch((err) => {
+            if (err instanceof NotFoundError) return null;
+            throw err;
+          });
+          if (currentFile?.content) {
+            const separator = currentFile.content.endsWith('\n') ? '' : '\n';
+            nextFileContent = `${currentFile.content}${separator}${workspaceWriteIntent.content}`;
+          }
+        }
         savedFile = await saveChatWorkspaceFile(userId, chat.project_id, {
           path: workspacePath,
-          content: workspaceWriteIntent.content,
+          content: nextFileContent,
         });
         assistantContent = [
-          '**Файл проекта сохранён**',
+          workspaceWriteIntent.action === 'append' ? '**Файл проекта обновлён**' : '**Файл проекта сохранён**',
           '',
           `- Путь: \`${savedFile.path}\``,
           `- Размер: ${formatWorkspaceByteSize(savedFile.size)}`,
           '',
-          'Содержимое:',
+          workspaceWriteIntent.action === 'append' ? 'Добавлено:' : 'Содержимое:',
           '```text',
           workspaceWriteIntent.content,
           '```',
@@ -11074,7 +11101,8 @@ export async function sendChatMessage(
         command_name: workspaceWriteIntent.source === 'slash'
           ? (trimmedContent.split(/\s+/)[0]?.toLowerCase() ?? '')
           : undefined,
-        workspace_action: 'write_file',
+        workspace_action: workspaceWriteIntent.action === 'append' ? 'append_file' : 'write_file',
+        workspace_write_mode: workspaceWriteIntent.action,
         workspace_project_id: chat.project_id ?? null,
         workspace_path: savedFile?.path ?? workspaceWriteIntent.path ?? null,
         workspace_size: savedFile?.size ?? null,
