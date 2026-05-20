@@ -1240,6 +1240,8 @@ function AuthenticatedChatsPage() {
   const [newProjectDescription, setNewProjectDescription] = useState('');
   const [newChatReasoningEffort, setNewChatReasoningEffort] = useState<ChatReasoningEffort>('auto');
   const [expandedProjectIds, setExpandedProjectIds] = useState<string[]>([]);
+  const [draggedChatId, setDraggedChatId] = useState<string | null>(null);
+  const [dragOverProjectTarget, setDragOverProjectTarget] = useState<string | null>(null);
   const [propertiesTab, setPropertiesTab] = useState<PropertiesTab>('overview');
   const [propertiesModeView, setPropertiesModeView] = useState<PropertiesModeView>('general');
   const [propertiesAgentId, setPropertiesAgentId] = useState('');
@@ -2642,6 +2644,13 @@ function AuthenticatedChatsPage() {
     }
     return map;
   }, [projectChats]);
+  const chatById = useMemo(() => {
+    const map = new Map<string, ChatListItem>();
+    for (const chat of chats ?? []) {
+      map.set(chat.id, chat);
+    }
+    return map;
+  }, [chats]);
   const isMobileChatOpen = !isDesktop && Boolean(activeChatId);
 
   const modeOptions = useMemo(
@@ -3434,6 +3443,66 @@ function AuthenticatedChatsPage() {
     }
   };
 
+  const readDraggedChatId = (event: { dataTransfer: DataTransfer }): string | null => {
+    const fromData = event.dataTransfer.getData('application/x-llmstore-chat-id')
+      || event.dataTransfer.getData('text/plain');
+    return fromData || draggedChatId;
+  };
+
+  const moveChatToProjectTarget = async (
+    chatId: string,
+    project: ChatWorkspaceProject,
+    folderId: string | null,
+  ) => {
+    const chat = chatById.get(chatId);
+    if (!chat || chat.is_admin_view) return;
+    if (chat.project_id === project.id && (chat.project_folder_id ?? null) === folderId) return;
+
+    setLocalError(null);
+    try {
+      await updateChatMutation.mutateAsync({
+        chatId,
+        project_id: project.id,
+        project_folder_id: folderId,
+      });
+      setExpandedProjectIds((prev) => (prev.includes(project.id) ? prev : [project.id, ...prev]));
+    } catch (error) {
+      showLocalError(getApiErrorMessage(error) ?? 'Не удалось перенести чат');
+    }
+  };
+
+  const handleChatDragStart = (event: { dataTransfer: DataTransfer }, chat: ChatListItem) => {
+    if (chat.is_admin_view) return;
+    setDraggedChatId(chat.id);
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('application/x-llmstore-chat-id', chat.id);
+    event.dataTransfer.setData('text/plain', chat.id);
+  };
+
+  const handleProjectDrop = async (
+    event: { preventDefault: () => void; stopPropagation: () => void; dataTransfer: DataTransfer },
+    project: ChatWorkspaceProject,
+    folderId: string | null,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const chatId = readDraggedChatId(event);
+    setDraggedChatId(null);
+    setDragOverProjectTarget(null);
+    if (!chatId) return;
+    await moveChatToProjectTarget(chatId, project, folderId);
+  };
+
+  const handleProjectDragOver = (
+    event: { preventDefault: () => void; dataTransfer: DataTransfer },
+    targetKey: string,
+  ) => {
+    if (!draggedChatId) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    setDragOverProjectTarget(targetKey);
+  };
+
   const renameChat = async (chat: ChatListItem) => {
     const next = window.prompt('Новое имя чата', chat.title);
     if (!next) return;
@@ -4209,6 +4278,12 @@ function AuthenticatedChatsPage() {
         e.preventDefault();
         setOpenMenu({ kind: 'chat', id: chat.id });
       }}
+      draggable={!chat.is_admin_view}
+      onDragStart={(event) => handleChatDragStart(event, chat)}
+      onDragEnd={() => {
+        setDraggedChatId(null);
+        setDragOverProjectTarget(null);
+      }}
     >
       {(() => {
         const livePendingRun = isPendingRunLive(chat.pending_run ?? null)
@@ -4403,7 +4478,9 @@ function AuthenticatedChatsPage() {
 
   const renderProjectSection = (project: ChatWorkspaceProject) => {
     const chatsInProject = projectChatsByProjectId.get(project.id) ?? [];
+    const rootProjectChats = chatsInProject.filter((chat) => !chat.project_folder_id);
     const isExpanded = expandedProjectIds.includes(project.id) || chatsInProject.some((chat) => chat.id === activeChatId);
+    const rootDropKey = `${project.id}:root`;
     const toggle = () => {
       setExpandedProjectIds((prev) => (
         prev.includes(project.id)
@@ -4417,7 +4494,13 @@ function AuthenticatedChatsPage() {
         <button
           type="button"
           onClick={toggle}
-          className="flex w-full items-center gap-2 rounded-md px-2 py-2 pr-9 text-left transition-colors hover:bg-accent/60"
+          onDragOver={(event) => handleProjectDragOver(event, rootDropKey)}
+          onDragLeave={() => setDragOverProjectTarget((prev) => (prev === rootDropKey ? null : prev))}
+          onDrop={(event) => void handleProjectDrop(event, project, null)}
+          className={cn(
+            'flex w-full items-center gap-2 rounded-md px-2 py-2 pr-9 text-left transition-colors hover:bg-accent/60',
+            dragOverProjectTarget === rootDropKey && 'bg-sky-50 ring-2 ring-sky-300',
+          )}
           title={project.root_path}
         >
           <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center text-amber-500">
@@ -4494,15 +4577,38 @@ function AuthenticatedChatsPage() {
         </div>
         {isExpanded && (
           <div className="space-y-1 border-l border-slate-200 pl-3">
-            {project.folders.map((folder) => (
-              <div key={folder.id} className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground">
-                <Folder className="h-3.5 w-3.5 shrink-0 text-amber-500" />
-                <span className="truncate">{folder.title}</span>
-              </div>
-            ))}
-            {chatsInProject.length > 0 ? (
-              chatsInProject.map(renderChatRow)
-            ) : (
+            {project.folders.map((folder) => {
+              const folderDropKey = `${project.id}:folder:${folder.id}`;
+              const folderChats = chatsInProject.filter((chat) => chat.project_folder_id === folder.id);
+
+              return (
+                <div key={folder.id} className="space-y-1">
+                  <div
+                    className={cn(
+                      'flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground transition-colors',
+                      dragOverProjectTarget === folderDropKey && 'bg-sky-50 text-sky-700 ring-2 ring-sky-300',
+                    )}
+                    onDragOver={(event) => handleProjectDragOver(event, folderDropKey)}
+                    onDragLeave={() => setDragOverProjectTarget((prev) => (prev === folderDropKey ? null : prev))}
+                    onDrop={(event) => void handleProjectDrop(event, project, folder.id)}
+                    title="Перетащите чат сюда, чтобы положить его в папку"
+                  >
+                    <Folder className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                    <span className="truncate">{folder.title}</span>
+                    {folderChats.length > 0 && (
+                      <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">{folderChats.length}</span>
+                    )}
+                  </div>
+                  {folderChats.length > 0 && (
+                    <div className="space-y-1 pl-3">
+                      {folderChats.map(renderChatRow)}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {rootProjectChats.map(renderChatRow)}
+            {chatsInProject.length === 0 && (
               <p className="px-2 py-2 text-xs text-muted-foreground">В проекте пока нет чатов.</p>
             )}
           </div>
