@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { KeyboardEvent } from 'react';
+import type { ClipboardEvent, KeyboardEvent } from 'react';
 import { CircleHelp } from 'lucide-react';
 import { Button } from '../ui/Button';
 
@@ -21,6 +21,52 @@ const DESKTOP_MAX_TEXTAREA_HEIGHT = 220;
 const DESKTOP_MIN_TEXTAREA_HEIGHT = 88;
 const MOBILE_MAX_TEXTAREA_HEIGHT = 72;
 const MOBILE_MIN_TEXTAREA_HEIGHT = 24;
+const MAX_ATTACHMENTS = 8;
+
+function getExtensionFromMimeType(mimeType: string): string {
+  switch (mimeType.toLowerCase()) {
+    case 'image/jpeg':
+    case 'image/jpg':
+      return 'jpg';
+    case 'image/webp':
+      return 'webp';
+    case 'image/gif':
+      return 'gif';
+    case 'image/svg+xml':
+      return 'svg';
+    case 'image/png':
+    default:
+      return 'png';
+  }
+}
+
+function normalizePastedImageFile(file: File, index: number): File {
+  const safeName = file.name?.trim();
+  if (safeName && safeName !== 'image.png' && safeName !== 'image.jpeg') return file;
+
+  const extension = getExtensionFromMimeType(file.type || 'image/png');
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  return new File([file], `pasted-image-${timestamp}-${index + 1}.${extension}`, {
+    type: file.type || `image/${extension}`,
+    lastModified: file.lastModified || Date.now(),
+  });
+}
+
+function extractClipboardImageFiles(event: ClipboardEvent<HTMLTextAreaElement>): File[] {
+  const items = Array.from(event.clipboardData?.items ?? []);
+  const itemFiles = items
+    .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => Boolean(file));
+
+  if (itemFiles.length > 0) {
+    return itemFiles.map(normalizePastedImageFile);
+  }
+
+  return Array.from(event.clipboardData?.files ?? [])
+    .filter((file) => file.type.startsWith('image/'))
+    .map(normalizePastedImageFile);
+}
 
 export function ChatInput({
   onSend,
@@ -95,6 +141,16 @@ export function ChatInput({
     }
   };
 
+  const handlePaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    if (!allowAttachments || disabled) return;
+
+    const pastedImages = extractClipboardImageFiles(event);
+    if (pastedImages.length === 0) return;
+
+    event.preventDefault();
+    setFiles((prev) => [...prev, ...pastedImages].slice(0, MAX_ATTACHMENTS));
+  };
+
   return (
     <div className="space-y-3">
       {files.length > 0 && (
@@ -128,7 +184,7 @@ export function ChatInput({
           onChange={(event) => {
             const nextFiles = Array.from(event.target.files ?? []);
             if (nextFiles.length === 0) return;
-            setFiles((prev) => [...prev, ...nextFiles].slice(0, 8));
+            setFiles((prev) => [...prev, ...nextFiles].slice(0, MAX_ATTACHMENTS));
           }}
         />
       )}
@@ -140,6 +196,7 @@ export function ChatInput({
             value={value}
             onChange={(event) => setValue(event.target.value)}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             placeholder={placeholder}
             disabled={disabled}
             rows={isMobile ? 1 : 3}
