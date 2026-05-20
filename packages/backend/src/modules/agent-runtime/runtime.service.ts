@@ -5639,6 +5639,7 @@ interface ProjectWorkspaceWriteIntent {
   source: 'slash' | 'natural';
   path: string | null;
   content: string | null;
+  targetFolderName?: string | null;
   error?: string;
 }
 
@@ -6403,6 +6404,15 @@ function extractFirstQuotedText(value: string): string | null {
   return null;
 }
 
+function extractWorkspaceTargetFolderName(value: string): string | null {
+  const quoted = value.match(/в\s+папк[еу]\s+["'`«“]([^"'`«»“”]+)["'`»”]/i);
+  if (quoted?.[1]) return quoted[1].trim();
+
+  const unquoted = value.match(/в\s+папк[еу]\s+(.+?)(?:\s+(?:и|напиши|с\s+текстом|текст(?:ом)?|content)\b|$)/i);
+  const folderName = unquoted?.[1]?.trim() ?? '';
+  return folderName ? stripWrappingQuotes(folderName) : null;
+}
+
 function extractProjectWorkspaceWriteIntent(message: string): ProjectWorkspaceWriteIntent | null {
   const trimmed = message.trim();
   if (!trimmed) return null;
@@ -6470,11 +6480,17 @@ function extractProjectWorkspaceWriteIntent(message: string): ProjectWorkspaceWr
       source: 'natural',
       path: filePath,
       content: null,
+      targetFolderName: extractWorkspaceTargetFolderName(trimmed),
       error: 'Не вижу текст файла. Добавьте его в кавычках или после слов “напиши там”.',
     };
   }
 
-  return { source: 'natural', path: filePath, content: stripWrappingQuotes(content) };
+  return {
+    source: 'natural',
+    path: filePath,
+    content: stripWrappingQuotes(content),
+    targetFolderName: extractWorkspaceTargetFolderName(trimmed),
+  };
 }
 
 function formatWorkspaceByteSize(size: number): string {
@@ -6538,7 +6554,7 @@ async function buildChatSlashCommandResponse(
       '- `/context-help` — команды для детального просмотра контекста.',
       '- `/context-set brief <текст>` — заменить редактируемый блок контекста.',
       '- `/prompt-set chat <текст>` — заменить системный промпт этого чата.',
-      '- `/file <path> <текст>` — создать или перезаписать файл в workspace проекта.',
+      '- `/file <path> <текст>` — создать или перезаписать файл в workspace проекта, например `/file Документация/qqq.txt Привет`.',
       '- `/settings` — быстрый снимок настроек чата.',
       '',
       'Команды не отправляются в модель и не списывают баланс.',
@@ -8664,6 +8680,39 @@ async function getWorkspaceProjectForUser(projectId: string, userId: string) {
   }
 
   return project;
+}
+
+function workspaceFolderSegmentFromTitle(title: string): string {
+  return (title.trim().replace(/[\\/]+/g, '-').replace(/\s+/g, ' ') || 'folder').slice(0, 120);
+}
+
+async function resolveWorkspaceFolderPathFromTitle(projectId: string, userId: string, folderName: string): Promise<string> {
+  const requested = folderName.trim().toLowerCase();
+  if (!requested) return '';
+
+  const folders = await db
+    .select()
+    .from(chatWorkspaceFolders)
+    .where(and(
+      eq(chatWorkspaceFolders.project_id, projectId),
+      eq(chatWorkspaceFolders.user_id, userId),
+    ));
+  const byId = new Map(folders.map((folder) => [folder.id, folder]));
+  const matched = folders.find((folder) => folder.title.trim().toLowerCase() === requested);
+  if (!matched) {
+    return normalizeWorkspaceRelativePath(workspaceFolderSegmentFromTitle(folderName));
+  }
+
+  const segments: string[] = [];
+  const visited = new Set<string>();
+  let current: typeof matched | undefined = matched;
+  while (current && !visited.has(current.id)) {
+    visited.add(current.id);
+    segments.unshift(workspaceFolderSegmentFromTitle(current.title));
+    current = current.parent_folder_id ? byId.get(current.parent_folder_id) : undefined;
+  }
+
+  return normalizeWorkspaceRelativePath(segments.join('/'));
 }
 
 async function validateWorkspaceFolderForProject(projectId: string, folderId: string | null | undefined, userId: string) {
@@ -10928,8 +10977,13 @@ export async function sendChatMessage(
       assistantContent = 'Не получилось разобрать путь или текст файла. Попробуйте формат: `/file notes/hello.txt Привет`.';
     } else {
       try {
+        let workspacePath = workspaceWriteIntent.path;
+        if (workspaceWriteIntent.targetFolderName && !workspacePath.includes('/')) {
+          const folderPath = await resolveWorkspaceFolderPathFromTitle(chat.project_id, userId, workspaceWriteIntent.targetFolderName);
+          workspacePath = normalizeWorkspaceRelativePath(`${folderPath}/${workspacePath}`);
+        }
         savedFile = await saveChatWorkspaceFile(userId, chat.project_id, {
-          path: workspaceWriteIntent.path,
+          path: workspacePath,
           content: workspaceWriteIntent.content,
         });
         assistantContent = [

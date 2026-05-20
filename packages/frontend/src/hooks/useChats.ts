@@ -80,6 +80,15 @@ export function usePublicAgentChats(agentId: string, enabled = true) {
   });
 }
 
+export function useChatProjectFiles(projectId: string | undefined, path = '', enabled = true) {
+  return useQuery({
+    queryKey: ['chat-project-files', projectId, path],
+    queryFn: () => chatsApi.listProjectFiles(projectId!, path),
+    enabled: enabled && Boolean(projectId),
+    staleTime: 10_000,
+  });
+}
+
 export function usePublicModelChats(modelExternalId: string, enabled = true) {
   return useQuery({
     queryKey: ['public-model-chats', modelExternalId],
@@ -316,6 +325,7 @@ export function useSendChatMessage() {
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['chats'] });
       qc.invalidateQueries({ queryKey: ['chats', vars.chatId] });
+      qc.invalidateQueries({ queryKey: ['chat-project-files'] });
       qc.invalidateQueries({ queryKey: ['profile'] });
     },
   });

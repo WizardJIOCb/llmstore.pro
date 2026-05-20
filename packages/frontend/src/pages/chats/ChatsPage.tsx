@@ -11,6 +11,7 @@ import {
   ChevronRight,
   Copy,
   Download,
+  FileText,
   Folder,
   FolderOpen,
   Globe,
@@ -39,6 +40,7 @@ import { Spinner } from '../../components/ui/Spinner';
 import {
   useChat,
   useChatAgents,
+  useChatProjectFiles,
   useChatProjects,
   useChatStats,
   useChatsList,
@@ -82,6 +84,7 @@ import type {
   ChatPendingRunState,
   ChatReasoningEffort,
   ChatWorkspaceFolder,
+  ChatWorkspaceFileItem,
   ChatWorkspaceProject,
   CodingReport,
   ProjectDeployment,
@@ -132,6 +135,132 @@ const CHAT_LIST_SCROLL_STORAGE_KEY = 'llmstore.chat-list-scroll-top';
 const GUEST_CHAT_DRAFT_STORAGE_KEY = 'llmstore.guest-chat-draft';
 const CHAT_UPLOAD_MAX_FILE_MB = 10;
 const CHAT_UPLOAD_MAX_FILE_BYTES = CHAT_UPLOAD_MAX_FILE_MB * 1024 * 1024;
+
+function formatWorkspaceFileSize(size: number | null): string {
+  if (size === null) return '';
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(size < 10 * 1024 ? 1 : 0)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function ProjectWorkspaceFilesTree({
+  projectId,
+  enabled,
+}: {
+  projectId: string;
+  enabled: boolean;
+}) {
+  const [expandedPaths, setExpandedPaths] = useState<string[]>([]);
+  const { data, isLoading } = useChatProjectFiles(projectId, '', enabled);
+  const items = data?.items ?? [];
+
+  const togglePath = (path: string) => {
+    setExpandedPaths((prev) => (
+      prev.includes(path)
+        ? prev.filter((item) => item !== path)
+        : [...prev, path]
+    ));
+  };
+
+  return (
+    <div className="mt-1 space-y-1 rounded-md bg-slate-50/70 px-1.5 py-1.5">
+      <div className="flex items-center gap-1.5 px-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <FileText className="h-3.5 w-3.5" />
+        <span>Файлы workspace</span>
+      </div>
+      {isLoading && <div className="px-1 py-1 text-xs text-muted-foreground">Загружаю файлы...</div>}
+      {!isLoading && items.length === 0 && <div className="px-1 py-1 text-xs text-muted-foreground">Файлов пока нет.</div>}
+      {items.map((item) => (
+        item.type === 'directory'
+          ? (
+            <ProjectWorkspaceDirectory
+              key={item.path}
+              projectId={projectId}
+              item={item}
+              depth={0}
+              expandedPaths={expandedPaths}
+              onToggle={togglePath}
+            />
+          )
+          : <ProjectWorkspaceFileRow key={item.path} item={item} depth={0} />
+      ))}
+    </div>
+  );
+}
+
+function ProjectWorkspaceDirectory({
+  projectId,
+  item,
+  depth,
+  expandedPaths,
+  onToggle,
+}: {
+  projectId: string;
+  item: ChatWorkspaceFileItem;
+  depth: number;
+  expandedPaths: string[];
+  onToggle: (path: string) => void;
+}) {
+  const isExpanded = expandedPaths.includes(item.path);
+  const { data, isLoading } = useChatProjectFiles(projectId, item.path, isExpanded);
+  const children = data?.items ?? [];
+
+  return (
+    <div className="space-y-1">
+      <button
+        type="button"
+        className="flex w-full items-center gap-1 rounded px-1 py-1 text-left text-xs text-muted-foreground hover:bg-white"
+        style={{ paddingLeft: depth * 10 + 4 }}
+        onClick={() => onToggle(item.path)}
+        title={item.path}
+      >
+        <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-slate-400">
+          {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+        </span>
+        <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-amber-500">
+          {isExpanded ? <FolderOpen className="h-3.5 w-3.5" /> : <Folder className="h-3.5 w-3.5" />}
+        </span>
+        <span className="truncate">{item.name}</span>
+      </button>
+      {isExpanded && (
+        <div className="space-y-1">
+          {isLoading && <div className="px-2 py-1 text-xs text-muted-foreground">Загружаю...</div>}
+          {!isLoading && children.map((child) => (
+            child.type === 'directory'
+              ? (
+                <ProjectWorkspaceDirectory
+                  key={child.path}
+                  projectId={projectId}
+                  item={child}
+                  depth={depth + 1}
+                  expandedPaths={expandedPaths}
+                  onToggle={onToggle}
+                />
+              )
+              : <ProjectWorkspaceFileRow key={child.path} item={child} depth={depth + 1} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProjectWorkspaceFileRow({ item, depth }: { item: ChatWorkspaceFileItem; depth: number }) {
+  return (
+    <div
+      className="flex items-center gap-1 rounded px-1 py-1 text-xs text-muted-foreground hover:bg-white"
+      style={{ paddingLeft: depth * 10 + 24 }}
+      title={item.path}
+    >
+      <FileText className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+      <span className="min-w-0 flex-1 truncate">{item.name}</span>
+      {item.size !== null && (
+        <span className="shrink-0 text-[10px] text-muted-foreground">{formatWorkspaceFileSize(item.size)}</span>
+      )}
+    </div>
+  );
+}
+
 const CHAT_CONTEXT_BLOCK_FIELDS: Array<{
   key: keyof ChatContextBlocks;
   title: string;
@@ -4852,6 +4981,7 @@ function AuthenticatedChatsPage() {
         </div>
         {isExpanded && (
           <div className="space-y-1 border-l border-slate-200 pl-3">
+            <ProjectWorkspaceFilesTree projectId={project.id} enabled={isExpanded} />
             {(foldersByParent.get('root') ?? []).map((folder) => renderFolder(folder))}
             {rootProjectChats.map(renderChatRow)}
             {chatsInProject.length === 0 && (
