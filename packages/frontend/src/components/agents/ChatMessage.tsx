@@ -88,6 +88,10 @@ function formatFileSize(size: number): string {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function isImageFile(file: { kind?: string; mime_type?: string | null }): boolean {
+  return file.kind === 'image' || Boolean(file.mime_type?.toLowerCase().startsWith('image/'));
+}
+
 function buildFixProjectPrompt(project: CodingReportProject, result: ProjectRunResult): string {
   const lines = [
     'Исправь ошибку в последнем runnable project bundle.',
@@ -3541,27 +3545,53 @@ export function ChatMessage({
                 <span className="text-xs text-muted-foreground">{generatedFiles.length}</span>
               </div>
               <div className="space-y-2">
-                {generatedFiles.map((file) => (
-                  <a
-                    key={file.id}
-                    href={file.url}
-                    download={file.original_name || undefined}
-                    className="flex min-w-0 items-center justify-between gap-3 rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-sm transition-colors hover:border-primary/40 hover:bg-muted/40"
-                  >
-                    <span className="min-w-0">
-                      <span className="block truncate font-medium text-slate-900">
-                        {file.original_name || file.id}
-                      </span>
-                      <span className="mt-0.5 block text-xs text-muted-foreground">
-                        {file.mime_type || file.kind} · {formatFileSize(file.size)}
-                      </span>
-                    </span>
-                    <span className="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-primary">
-                      <Download className="h-4 w-4" aria-hidden="true" />
-                      Скачать
-                    </span>
-                  </a>
-                ))}
+                {generatedFiles.map((file) => {
+                  const fileTitle = file.original_name || file.id;
+                  const fileIsImage = isImageFile(file);
+
+                  return (
+                    <div
+                      key={file.id}
+                      className="overflow-hidden rounded-md border border-border/60 bg-muted/20 text-sm transition-colors hover:border-primary/40 hover:bg-muted/40"
+                    >
+                      {fileIsImage && (
+                        <button
+                          type="button"
+                          className="block w-full bg-slate-950/5"
+                          onClick={() => {
+                            setPreviewUrl(file.url);
+                            setPreviewAlt(fileTitle);
+                          }}
+                        >
+                          <img
+                            src={file.url}
+                            alt={fileTitle}
+                            className="max-h-[420px] w-full cursor-zoom-in object-contain"
+                            loading="lazy"
+                          />
+                        </button>
+                      )}
+                      <a
+                        href={file.url}
+                        download={file.original_name || undefined}
+                        className="flex min-w-0 items-center justify-between gap-3 px-3 py-2"
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate font-medium text-slate-900">
+                            {fileTitle}
+                          </span>
+                          <span className="mt-0.5 block text-xs text-muted-foreground">
+                            {file.mime_type || file.kind} · {formatFileSize(file.size)}
+                          </span>
+                        </span>
+                        <span className="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-primary">
+                          <Download className="h-4 w-4" aria-hidden="true" />
+                          Скачать
+                        </span>
+                      </a>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
