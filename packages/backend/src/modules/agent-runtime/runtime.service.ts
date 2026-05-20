@@ -55,6 +55,7 @@ import {
 
 const DEFAULT_MODEL = 'google/gemini-2.0-flash-001';
 const DEFAULT_VISION_CHAT_MODEL = 'google/gemini-2.5-flash';
+const DEFAULT_IMAGE_GENERATION_MODEL = 'google/gemini-2.5-flash-image';
 const DEFAULT_MAX_ITERATIONS = 4;
 const CHAT_UPLOADS_DIR = path.join(UPLOADS_DIR, 'chat');
 const PROJECT_RUN_TIMEOUT_MS = 20_000;
@@ -1683,6 +1684,83 @@ function safeAttachmentPath(filename: string): string {
 
 function safeGeneratedFilePath(filename: string): string {
   return path.join(CHAT_GENERATED_FILES_DIR, path.basename(filename));
+}
+
+function detectImageGenerationIntent(value: string): boolean {
+  const text = value.trim().toLowerCase();
+  if (!text) return false;
+
+  return [
+    /сгенерир(?:уй|овать|овать\s+мне)?\s+(?:картинк|изображен|фото|рисунок|арт|иллюстрац)/i,
+    /созда(?:й|ть)\s+(?:картинк|изображен|фото|рисунок|арт|иллюстрац)/i,
+    /нарису(?:й|й\s+мне|йте)\s+/i,
+    /сдела(?:й|ть)\s+(?:картинк|изображен|фото|рисунок|арт|иллюстрац)/i,
+    /generate\s+(?:an?\s+)?(?:image|picture|photo|illustration|art)/i,
+    /create\s+(?:an?\s+)?(?:image|picture|photo|illustration|art)/i,
+    /draw\s+(?:an?\s+)?/i,
+  ].some((pattern) => pattern.test(text));
+}
+
+function resolveImageGenerationAspectRatio(value: string): string | undefined {
+  const text = value.toLowerCase();
+  if (/\b(16\s*[:xх]\s*9|wide|widescreen|горизонтал|широк)/i.test(text)) return '16:9';
+  if (/\b(9\s*[:xх]\s*16|vertical|story|stories|reels|вертикал)/i.test(text)) return '9:16';
+  if (/\b(4\s*[:xх]\s*3)\b/i.test(text)) return '4:3';
+  if (/\b(3\s*[:xх]\s*4)\b/i.test(text)) return '3:4';
+  if (/\b(3\s*[:xх]\s*2)\b/i.test(text)) return '3:2';
+  if (/\b(2\s*[:xх]\s*3)\b/i.test(text)) return '2:3';
+  if (/\b(1\s*[:xх]\s*1|square|квадрат)/i.test(text)) return '1:1';
+  return undefined;
+}
+
+function extractOpenRouterGeneratedImageUrls(message: ChatMessage | undefined): string[] {
+  if (!message || !Array.isArray(message.images)) return [];
+
+  return message.images
+    .map((image) => image.image_url?.url ?? image.imageUrl?.url ?? '')
+    .filter((url) => /^data:image\/[a-z0-9.+-]+;base64,/i.test(url));
+}
+
+function decodeGeneratedImageDataUrl(dataUrl: string): { mimeType: string; buffer: Buffer; extension: string } | null {
+  const match = dataUrl.match(/^data:(image\/[a-z0-9.+-]+);base64,([a-z0-9+/=\r\n]+)$/i);
+  if (!match) return null;
+
+  const mimeType = match[1].toLowerCase();
+  const base64 = match[2].replace(/\s+/g, '');
+  const buffer = Buffer.from(base64, 'base64');
+  if (buffer.length === 0) return null;
+
+  const extension = mimeType.includes('jpeg') || mimeType.includes('jpg')
+    ? '.jpg'
+    : mimeType.includes('webp')
+      ? '.webp'
+      : mimeType.includes('gif')
+        ? '.gif'
+        : '.png';
+
+  return { mimeType, buffer, extension };
+}
+
+async function materializeGeneratedImagesFromDataUrls(dataUrls: string[]): Promise<GeneratedChatFileArtifact[]> {
+  const files: GeneratedChatFileArtifact[] = [];
+
+  for (const [index, dataUrl] of dataUrls.entries()) {
+    const decoded = decodeGeneratedImageDataUrl(dataUrl);
+    if (!decoded) continue;
+
+    const storageFilename = `${uuidv4()}${decoded.extension}`;
+    await writeFile(safeGeneratedFilePath(storageFilename), decoded.buffer);
+    files.push({
+      storage_filename: storageFilename,
+      original_name: `generated-image-${index + 1}${decoded.extension}`,
+      mime_type: decoded.mimeType,
+      size: decoded.buffer.length,
+      kind: 'image',
+      tool_call_id: null,
+    });
+  }
+
+  return files;
 }
 
 function clampText(value: unknown, max = 4000): string | undefined {
@@ -9267,10 +9345,13 @@ export async function sendChatMessage(
   let latencyMs: number | null = null;
   let completedGeneralModel: string | null = null;
   let generalChatModelToPersist: string | null = null;
+  let assistantGeneratedImageArtifacts: GeneratedChatFileArtifact[] = [];
+  const wantsImageGeneration = detectImageGenerationIntent(trimmedContent);
   const canUseChatTools = openRouterRequestsEnabled
     && chat.mode === 'general'
     && chatToolSettings.tool_ids.length > 0
-    && imageDataUrls.length === 0;
+    && imageDataUrls.length === 0
+    && !wantsImageGeneration;
 
   if (!openRouterRequestsEnabled) {
     latencyMs = 0;
@@ -9450,8 +9531,12 @@ export async function sendChatMessage(
       };
     } else {
       const requestedModel = normalizeOpenRouterModelId(chat.model_external_id || DEFAULT_GENERAL_MODEL);
-      let model = requestedModel;
-      const switchedToVisionModel = imageDataUrls.length > 0 && !isVisionModel(model);
+      let model = wantsImageGeneration ? DEFAULT_IMAGE_GENERATION_MODEL : requestedModel;
+      const switchedToImageGenerationModel = wantsImageGeneration && model !== requestedModel;
+      if (switchedToImageGenerationModel) {
+        generalChatModelToPersist = requestedModel;
+      }
+      const switchedToVisionModel = !wantsImageGeneration && imageDataUrls.length > 0 && !isVisionModel(model);
       if (switchedToVisionModel) {
         model = DEFAULT_VISION_CHAT_MODEL;
         generalChatModelToPersist = requestedModel;
@@ -9461,12 +9546,24 @@ export async function sendChatMessage(
       emitChatEvent('chat.run.started', {
         mode: 'general',
         model,
-        label: 'Отправляю запрос в OpenRouter',
-        detail: switchedToVisionModel
+        label: wantsImageGeneration ? 'Генерирую изображение через OpenRouter' : 'Отправляю запрос в OpenRouter',
+        detail: switchedToImageGenerationModel
+          ? `Для генерации изображения использую модель ${model}. После ответа чат останется на ${requestedModel}.`
+          : switchedToVisionModel
           ? `В сообщении есть изображение, поэтому вместо ${requestedModel} использую vision-модель ${model}.`
           : undefined,
-        previous_model: switchedToVisionModel ? requestedModel : undefined,
+        previous_model: switchedToImageGenerationModel || switchedToVisionModel ? requestedModel : undefined,
       });
+      if (switchedToImageGenerationModel) {
+        emitChatEvent('chat.run.status', {
+          mode: 'general',
+          status: 'image_model_selected',
+          label: 'Переключаю на image-модель',
+          detail: `Для этого ответа использую ${model}, выбранная модель чата останется ${requestedModel}.`,
+          previous_model: requestedModel,
+          model,
+        });
+      }
       if (switchedToVisionModel) {
         emitChatEvent('chat.run.status', {
           mode: 'general',
@@ -9487,6 +9584,13 @@ export async function sendChatMessage(
             ...historyForModel.slice(0, -1).map((m) => ({ role: m.role, content: m.content })),
             { role: 'user', content: userContentForGeneral },
           ],
+          modalities: wantsImageGeneration ? ['image', 'text'] : undefined,
+          image_config: wantsImageGeneration
+            ? {
+              aspect_ratio: resolveImageGenerationAspectRatio(trimmedContent) ?? '1:1',
+              image_size: '1K',
+            }
+            : undefined,
           temperature: 0.5,
           max_tokens: 2048,
           reasoning: resolveOpenRouterReasoningConfig(model),
@@ -9498,6 +9602,9 @@ export async function sendChatMessage(
               timeoutMs: GENERAL_CHAT_OPENROUTER_TIMEOUT_MS,
             });
           } catch (error) {
+            if (wantsImageGeneration) {
+              throw error;
+            }
             if (!shouldTryOpenRouterRuntimeFallback(error, model)) {
               throw error;
             }
@@ -9534,8 +9641,13 @@ export async function sendChatMessage(
         const response = await requestGeneralCompletion();
         completedGeneralModel = model;
         latencyMs = Date.now() - startedAt;
-        const rawAssistant = response.choices?.[0]?.message?.content;
-        assistantText = typeof rawAssistant === 'string' ? rawAssistant : '(пустой ответ)';
+        const assistantMessage = response.choices?.[0]?.message;
+        const rawAssistant = assistantMessage?.content;
+        const generatedImageUrls = extractOpenRouterGeneratedImageUrls(assistantMessage);
+        assistantGeneratedImageArtifacts = await materializeGeneratedImagesFromDataUrls(generatedImageUrls);
+        assistantText = typeof rawAssistant === 'string' && rawAssistant.trim()
+          ? rawAssistant
+          : (assistantGeneratedImageArtifacts.length > 0 ? 'Изображение сгенерировано.' : '(пустой ответ)');
         if (response.usage) {
           usagePayload = attachUsdToRubRate(
             estimateGeneralChatCost(model, response.usage) as unknown as Record<string, unknown>,
@@ -9546,7 +9658,8 @@ export async function sendChatMessage(
           mode: 'general',
           model,
           latency_ms: latencyMs,
-          label: 'OpenRouter вернул ответ',
+          generated_images: assistantGeneratedImageArtifacts.length,
+          label: wantsImageGeneration ? 'OpenRouter сгенерировал изображение' : 'OpenRouter вернул ответ',
         });
       } catch (err) {
         emitChatEvent('chat.run.failed', {
@@ -9563,6 +9676,12 @@ export async function sendChatMessage(
   const normalizedAssistant = normalizeAssistantChatPayload(assistantText, usagePayload);
   assistantText = normalizedAssistant.content || assistantText;
   usagePayload = attachUsdToRubRate(normalizedAssistant.usage, usdToRubRate);
+  if (completedGeneralModel) {
+    usagePayload = {
+      ...(usagePayload ?? {}),
+      model: typeof usagePayload?.model === 'string' ? usagePayload.model : completedGeneralModel,
+    };
+  }
 
   const providerCost = Number(
     typeof usagePayload?.estimated_cost === 'string'
@@ -9618,6 +9737,22 @@ export async function sendChatMessage(
     usage_json: usagePayload ?? null,
     latency_ms: latencyMs ?? null,
   }).returning();
+  let assistantGeneratedFiles: ChatGeneratedFileMeta[] = [];
+  if (assistantGeneratedImageArtifacts.length > 0) {
+    assistantGeneratedFiles = await persistGeneratedFilesForMessage({
+      conversationId: chatId,
+      messageId: assistantRow.id,
+      userId,
+      runId,
+      files: assistantGeneratedImageArtifacts,
+    });
+    usagePayload = attachGeneratedFilesToUsage(usagePayload, assistantGeneratedFiles);
+    if (usagePayload) {
+      await db.update(chatConversationMessages)
+        .set({ usage_json: usagePayload })
+        .where(eq(chatConversationMessages.id, assistantRow.id));
+    }
+  }
   const isDefaultTitle = chat.title === 'Новый чат';
   const nextTitle = isDefaultTitle ? compactTitle(trimmedContent || 'Вложение') : chat.title;
   await db.update(chatConversations).set({
@@ -9645,7 +9780,8 @@ export async function sendChatMessage(
       role: 'assistant' as const,
       content: assistantRow.content_text,
       run_id: assistantRow.run_id ?? null,
-      usage: (assistantRow.usage_json as Record<string, unknown> | null) ?? null,
+      usage: usagePayload ?? ((assistantRow.usage_json as Record<string, unknown> | null) ?? null),
+      generated_files: assistantGeneratedFiles,
       project_run_count: assistantRow.project_run_count ?? 0,
       latency_ms: assistantRow.latency_ms ?? null,
       created_at: toIso(assistantRow.created_at),

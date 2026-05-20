@@ -12,6 +12,11 @@ export interface ChatMessage {
   name?: string;
   tool_calls?: ToolCall[];
   tool_call_id?: string;
+  images?: Array<{
+    type?: 'image_url';
+    image_url?: { url?: string };
+    imageUrl?: { url?: string };
+  }>;
 }
 
 export interface ToolCall {
@@ -35,6 +40,12 @@ export interface ToolDefinitionParam {
 export interface ChatCompletionParams {
   model: string;
   messages: ChatMessage[];
+  modalities?: Array<'text' | 'image'>;
+  image_config?: {
+    aspect_ratio?: string;
+    image_size?: string;
+    [key: string]: unknown;
+  };
   tools?: ToolDefinitionParam[];
   tool_choice?: 'auto' | 'none' | { type: 'function'; function: { name: string } };
   reasoning?: {

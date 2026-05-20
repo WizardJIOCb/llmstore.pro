@@ -56,6 +56,12 @@ export const MODEL_PRICING: Record<string, { input: number; output: number }> = 
   'qwen3-coder-next': { input: 0.12, output: 0.75 },
   'mistralai/codestral-2508': { input: 0.30, output: 0.90 },
   'codestral-2508': { input: 0.30, output: 0.90 },
+  'google/gemini-2.5-flash-image': { input: 0.30, output: 2.50 },
+  'google/gemini-3.1-flash-image-preview': { input: 0.50, output: 3.00 },
+  'google/gemini-3-pro-image-preview': { input: 2.00, output: 12.00 },
+  'openai/gpt-5-image-mini': { input: 2.50, output: 2.00 },
+  'openai/gpt-5-image': { input: 10.00, output: 10.00 },
+  'openai/gpt-5.4-image-2': { input: 8.00, output: 15.00 },
 };
 
 export const MODEL_LABELS: Record<string, string> = {
@@ -97,6 +103,12 @@ export const MODEL_LABELS: Record<string, string> = {
   'qwen3-coder-next': 'Qwen3 Coder Next',
   'mistralai/codestral-2508': 'Codestral 2508',
   'codestral-2508': 'Codestral 2508',
+  'google/gemini-2.5-flash-image': 'Gemini 2.5 Flash Image',
+  'google/gemini-3.1-flash-image-preview': 'Gemini 3.1 Flash Image Preview',
+  'google/gemini-3-pro-image-preview': 'Gemini 3 Pro Image Preview',
+  'openai/gpt-5-image-mini': 'GPT-5 Image Mini',
+  'openai/gpt-5-image': 'GPT-5 Image',
+  'openai/gpt-5.4-image-2': 'GPT-5.4 Image 2',
 };
 
 export const CODING_MODEL_IDS = new Set([
