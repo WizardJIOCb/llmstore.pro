@@ -108,6 +108,8 @@ const EMPTY_MESSAGES: ChatMessageType[] = [];
 const LAST_CHAT_SELECTION_STORAGE_KEY = 'llmstore.last-chat-selection';
 const CHAT_LIST_SCROLL_STORAGE_KEY = 'llmstore.chat-list-scroll-top';
 const GUEST_CHAT_DRAFT_STORAGE_KEY = 'llmstore.guest-chat-draft';
+const CHAT_UPLOAD_MAX_FILE_MB = 10;
+const CHAT_UPLOAD_MAX_FILE_BYTES = CHAT_UPLOAD_MAX_FILE_MB * 1024 * 1024;
 
 interface GuestChatDraft {
   id: string;
@@ -647,6 +649,29 @@ function getApiErrorCode(err: unknown): string | undefined {
 function getApiErrorMessage(err: unknown): string | undefined {
   const maybe = err as { response?: { data?: { error?: { message?: string } } } };
   return maybe?.response?.data?.error?.message;
+}
+
+function formatFileSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 МБ';
+  const mb = bytes / (1024 * 1024);
+  if (mb >= 1) return `${mb.toFixed(mb >= 10 ? 0 : 1).replace('.', ',')} МБ`;
+  const kb = bytes / 1024;
+  return `${Math.max(1, Math.round(kb))} КБ`;
+}
+
+function getUploadLimitError(files: File[]): string | null {
+  const oversized = files.find((file) => file.size > CHAT_UPLOAD_MAX_FILE_BYTES);
+  if (!oversized) return null;
+  return `Файл "${oversized.name}" весит ${formatFileSize(oversized.size)}. Максимальный размер файла для загрузки в чат: ${CHAT_UPLOAD_MAX_FILE_MB} МБ.`;
+}
+
+function getUploadErrorMessage(err: unknown): string | null {
+  const status = getApiErrorStatus(err);
+  const code = getApiErrorCode(err);
+  if (status === 413 || code === 'FILE_TOO_LARGE') {
+    return `Размер загружаемого файла превышает лимит ${CHAT_UPLOAD_MAX_FILE_MB} МБ.`;
+  }
+  return getApiErrorMessage(err) ?? null;
 }
 
 function downloadChatBundle(filename: string, payload: unknown) {
@@ -3327,6 +3352,11 @@ function AuthenticatedChatsPage() {
 
     const { chatId, content } = input;
     const files = [...(input.files ?? [])];
+    const uploadLimitError = getUploadLimitError(files);
+    if (uploadLimitError) {
+      showLocalError(uploadLimitError);
+      return;
+    }
     const optimisticAttachments = files.map((file) => ({
       filename: file.name,
       original_name: file.name,
@@ -3475,7 +3505,7 @@ function AuthenticatedChatsPage() {
       setOptimisticPendingMessage((prev) => (prev?.chatId === chatId ? null : prev));
       setAssistantResponseSlot((prev) => (prev?.chatId === chatId ? null : prev));
       markChatRuntimeIdle(chatId);
-      showLocalError(err instanceof Error ? err.message : 'Не удалось отправить сообщение');
+      showLocalError(getUploadErrorMessage(err) ?? (err instanceof Error ? err.message : 'Не удалось отправить сообщение'));
     }
   }
 

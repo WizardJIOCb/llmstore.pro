@@ -2,6 +2,11 @@ import type { Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import { logger } from '../lib/logger.js';
 
+const CHAT_UPLOAD_MAX_FILE_MB = 10;
+const DEFAULT_UPLOAD_MAX_FILE_MB = 5;
+const CHAT_UPLOAD_MAX_FILES = 8;
+const DEFAULT_UPLOAD_MAX_FILES = 10;
+
 export class AppError extends Error {
   constructor(
     public statusCode: number,
@@ -40,13 +45,25 @@ export function errorHandler(err: Error, req: Request, res: Response, _next: Nex
 
   if (err instanceof multer.MulterError) {
     const isChatUpload = req.path.includes('/chats/uploads');
-    const message = err.code === 'LIMIT_FILE_SIZE'
-      ? (isChatUpload
-        ? 'Файл слишком большой (максимум 10 МБ)'
-        : 'Файл слишком большой (максимум 5 МБ)')
-      : err.code === 'LIMIT_FILE_COUNT'
-        ? 'Слишком много файлов (максимум 10)'
-        : 'Ошибка загрузки файла';
+    const maxFileMb = isChatUpload ? CHAT_UPLOAD_MAX_FILE_MB : DEFAULT_UPLOAD_MAX_FILE_MB;
+    const maxFiles = isChatUpload ? CHAT_UPLOAD_MAX_FILES : DEFAULT_UPLOAD_MAX_FILES;
+
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      res.status(413).json({
+        error: {
+          code: 'FILE_TOO_LARGE',
+          message: `Размер загружаемого файла превышает лимит ${maxFileMb} МБ`,
+          details: {
+            max_file_size_mb: maxFileMb,
+          },
+        },
+      });
+      return;
+    }
+
+    const message = err.code === 'LIMIT_FILE_COUNT'
+      ? `Слишком много файлов (максимум ${maxFiles})`
+      : 'Ошибка загрузки файла';
 
     res.status(400).json({
       error: {
