@@ -5635,6 +5635,13 @@ interface ChatSlashCommandResult {
   next_reasoning_effort?: ChatReasoningEffort | null;
 }
 
+interface ProjectWorkspaceWriteIntent {
+  source: 'slash' | 'natural';
+  path: string | null;
+  content: string | null;
+  error?: string;
+}
+
 interface ChatConversationRow {
   id: string;
   user_id: string;
@@ -6362,6 +6369,120 @@ async function getActiveToolSummariesByIds(toolIds: string[]): Promise<ChatToolS
   return orderedTools;
 }
 
+const PROJECT_WORKSPACE_WRITE_COMMANDS = new Set(['/file', '/write-file', '/project-file', '/save-file']);
+
+function stripWrappingQuotes(value: string): string {
+  const trimmed = value.trim();
+  const pairs: Array<[string, string]> = [
+    ['"', '"'],
+    ["'", "'"],
+    ['`', '`'],
+    ['«', '»'],
+    ['“', '”'],
+  ];
+  for (const [left, right] of pairs) {
+    if (trimmed.startsWith(left) && trimmed.endsWith(right) && trimmed.length >= left.length + right.length) {
+      return trimmed.slice(left.length, -right.length).trim();
+    }
+  }
+  return trimmed;
+}
+
+function extractFirstQuotedText(value: string): string | null {
+  const quotePatterns = [
+    /"([^"]*)"/,
+    /'([^']*)'/,
+    /`([^`]*)`/,
+    /«([^»]*)»/,
+    /“([^”]*)”/,
+  ];
+  for (const pattern of quotePatterns) {
+    const match = value.match(pattern);
+    if (match) return (match[1] ?? '').trim();
+  }
+  return null;
+}
+
+function extractProjectWorkspaceWriteIntent(message: string): ProjectWorkspaceWriteIntent | null {
+  const trimmed = message.trim();
+  if (!trimmed) return null;
+
+  const rawCommand = trimmed.split(/\s+/, 1)[0] ?? '';
+  const command = rawCommand.toLowerCase();
+  if (PROJECT_WORKSPACE_WRITE_COMMANDS.has(command)) {
+    const rest = trimmed.slice(rawCommand.length).trim();
+    const pathMatch = rest.match(/^(`[^`]+`|"[^"]+"|'[^']+'|«[^»]+»|“[^”]+”|\S+)/);
+    if (!pathMatch) {
+      return {
+        source: 'slash',
+        path: null,
+        content: null,
+        error: 'Укажите путь и текст файла: `/file notes/hello.txt Привет`.',
+      };
+    }
+
+    const filePath = stripWrappingQuotes(pathMatch[1] ?? '');
+    const content = stripWrappingQuotes(rest.slice(pathMatch[0].length).trim());
+    if (!content) {
+      return {
+        source: 'slash',
+        path: filePath,
+        content: null,
+        error: 'Укажите непустой текст файла после пути.',
+      };
+    }
+
+    return { source: 'slash', path: filePath, content };
+  }
+
+  const lower = trimmed.toLowerCase();
+  const mentionsFileWrite = (
+    lower.includes('создай файл')
+    || lower.includes('создать файл')
+    || lower.includes('сохрани файл')
+    || lower.includes('запиши файл')
+    || lower.includes('create file')
+    || lower.includes('write file')
+  );
+  if (!mentionsFileWrite) return null;
+
+  const quotedPathMatch = trimmed.match(/файл(?:\s+в\s+проекте)?\s+["'`«“]([^"'`«»“”]+?\.[A-Za-z0-9]{1,16})["'`»”]/i);
+  const loosePathMatch = quotedPathMatch
+    ? null
+    : trimmed.match(/\b([A-Za-zА-Яа-я0-9._/-]+?\.[A-Za-z0-9]{1,16})\b/);
+  const filePath = (quotedPathMatch?.[1] ?? loosePathMatch?.[1] ?? '').trim();
+  if (!filePath) {
+    return {
+      source: 'natural',
+      path: null,
+      content: null,
+      error: 'Понял, что нужно создать файл, но не вижу путь. Например: `Создай файл в проекте notes/hello.txt и напиши там "Привет"`.',
+    };
+  }
+
+  const pathIndex = trimmed.indexOf(filePath);
+  const afterPath = pathIndex >= 0 ? trimmed.slice(pathIndex + filePath.length) : trimmed;
+  const quotedContent = extractFirstQuotedText(afterPath);
+  const contentMarkerMatch = afterPath.match(/(?:напиши(?:\s+там)?|с\s+текстом|текст(?:ом)?|content)\s*:?\s*([\s\S]+)$/i);
+  const content = (quotedContent ?? contentMarkerMatch?.[1] ?? '').trim();
+  if (!content) {
+    return {
+      source: 'natural',
+      path: filePath,
+      content: null,
+      error: 'Не вижу текст файла. Добавьте его в кавычках или после слов “напиши там”.',
+    };
+  }
+
+  return { source: 'natural', path: filePath, content: stripWrappingQuotes(content) };
+}
+
+function formatWorkspaceByteSize(size: number): string {
+  if (size < 1024) return `${size} байт`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(size < 10 * 1024 ? 1 : 0)} КБ`;
+  return `${(size / (1024 * 1024)).toFixed(1)} МБ`;
+}
+
 async function buildChatSlashCommandResponse(
   chat: ChatConversationRow,
   commandText: string,
@@ -6417,6 +6538,7 @@ async function buildChatSlashCommandResponse(
       '- `/context-help` — команды для детального просмотра контекста.',
       '- `/context-set brief <текст>` — заменить редактируемый блок контекста.',
       '- `/prompt-set chat <текст>` — заменить системный промпт этого чата.',
+      '- `/file <path> <текст>` — создать или перезаписать файл в workspace проекта.',
       '- `/settings` — быстрый снимок настроек чата.',
       '',
       'Команды не отправляются в модель и не списывают баланс.',
@@ -10699,9 +10821,12 @@ export async function sendChatMessage(
     throw new AppError(400, 'VALIDATION_ERROR', 'Message cannot be empty');
   }
   const isSlashCommand = trimmedContent.startsWith('/') && (attachmentsInput ?? []).length === 0;
+  const workspaceWriteIntent = (attachmentsInput ?? []).length === 0
+    ? extractProjectWorkspaceWriteIntent(trimmedContent)
+    : null;
   const openRouterRuntime = await resolveOpenRouterClientForUser(userId);
   const usesUserOpenRouterKey = openRouterRuntime.source === 'user';
-  if (openRouterRequestsEnabled && !isSlashCommand && !usesUserOpenRouterKey) {
+  if (openRouterRequestsEnabled && !isSlashCommand && !workspaceWriteIntent && !usesUserOpenRouterKey) {
     await ensureSufficientBalance(userId);
   }
 
@@ -10786,6 +10911,97 @@ export async function sendChatMessage(
       ? 'Сообщение принято, подготавливаю вложения'
       : 'Сообщение принято, запускаю обработку',
   });
+
+  if (workspaceWriteIntent) {
+    let assistantContent: string;
+    let savedFile: { path: string; size: number; updated_at: string } | null = null;
+
+    if (workspaceWriteIntent.error) {
+      assistantContent = workspaceWriteIntent.error;
+    } else if (!chat.project_id) {
+      assistantContent = [
+        'Этот чат не привязан к проекту, поэтому я не могу записать файл в workspace.',
+        '',
+        'Создайте чат внутри проекта или перенесите этот чат в проект, затем повторите команду.',
+      ].join('\n');
+    } else if (!workspaceWriteIntent.path || workspaceWriteIntent.content === null) {
+      assistantContent = 'Не получилось разобрать путь или текст файла. Попробуйте формат: `/file notes/hello.txt Привет`.';
+    } else {
+      try {
+        savedFile = await saveChatWorkspaceFile(userId, chat.project_id, {
+          path: workspaceWriteIntent.path,
+          content: workspaceWriteIntent.content,
+        });
+        assistantContent = [
+          '**Файл проекта сохранён**',
+          '',
+          `- Путь: \`${savedFile.path}\``,
+          `- Размер: ${formatWorkspaceByteSize(savedFile.size)}`,
+          '',
+          'Содержимое:',
+          '```text',
+          workspaceWriteIntent.content,
+          '```',
+        ].join('\n');
+      } catch (err) {
+        if (!(err instanceof AppError)) throw err;
+        assistantContent = err.message || 'Не получилось сохранить файл проекта.';
+      }
+    }
+
+    const [assistantRow] = await db.insert(chatConversationMessages).values({
+      conversation_id: chatId,
+      role: 'assistant',
+      content_text: assistantContent,
+      usage_json: {
+        command: workspaceWriteIntent.source === 'slash',
+        command_name: workspaceWriteIntent.source === 'slash'
+          ? (trimmedContent.split(/\s+/)[0]?.toLowerCase() ?? '')
+          : undefined,
+        workspace_action: 'write_file',
+        workspace_project_id: chat.project_id ?? null,
+        workspace_path: savedFile?.path ?? workspaceWriteIntent.path ?? null,
+        workspace_size: savedFile?.size ?? null,
+        estimated_cost: '0',
+        charged_cost: '0',
+        usd_to_rub_rate: usdToRubRate,
+      },
+      latency_ms: 0,
+    }).returning();
+    const isDefaultTitle = chat.title === 'Новый чат';
+    const nextTitle = isDefaultTitle ? compactTitle(trimmedContent) : chat.title;
+    await db.update(chatConversations).set({
+      title: nextTitle,
+      last_message_at: new Date(),
+      updated_at: new Date(),
+    }).where(eq(chatConversations.id, chatId));
+    emitChatEvent('chat.message.completed', {
+      mode: chat.mode,
+      label: savedFile ? 'Файл проекта сохранён' : 'Команда выполнена',
+      charged_cost: 0,
+      model_external_id: chat.model_external_id ?? null,
+    });
+
+    return {
+      processing: false,
+      pending_run: null,
+      user_message: persistedUserMessage,
+      assistant_message: {
+        ...toConversationMessage(assistantRow, usdToRubRate),
+        generated_files: [],
+      },
+      chat: {
+        id: chat.id,
+        title: nextTitle,
+        mode: chat.mode,
+        agent_id: chat.agent_id ?? null,
+        model_external_id: chat.model_external_id ?? null,
+        system_prompt: chat.system_prompt ?? null,
+        settings_json: chat.settings_json ?? null,
+        share_token: chat.share_token ?? null,
+      },
+    };
+  }
 
   const slashCommandResponse = isSlashCommand && attachmentMetas.length === 0
     ? await buildChatSlashCommandResponse(chat, trimmedContent)
