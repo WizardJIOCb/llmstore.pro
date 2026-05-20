@@ -3615,6 +3615,11 @@ function AuthenticatedChatsPage() {
 
     const { chatId, content } = input;
     const files = [...(input.files ?? [])];
+    const chatDetailsQueryKey = [
+      'chats',
+      chatId,
+      isAdminRequestedChat && chatId === activeAdminViewChatId ? 'admin-view' : 'default-view',
+    ] as const;
     const uploadLimitError = getUploadLimitError(files);
     if (uploadLimitError) {
       showLocalError(uploadLimitError);
@@ -3643,7 +3648,7 @@ function AuthenticatedChatsPage() {
       created_at: new Date().toISOString(),
     };
     const removeOptimisticMessageFromCache = () => {
-      queryClient.setQueryData<ChatDetails>(['chats', chatId], (prev) => (
+      queryClient.setQueryData<ChatDetails>(chatDetailsQueryKey, (prev) => (
         prev
           ? {
             ...prev,
@@ -3657,7 +3662,7 @@ function AuthenticatedChatsPage() {
       objectUrls: optimisticAttachments.map((file) => file.url),
       message: optimisticMessage,
     });
-    queryClient.setQueryData<ChatDetails>(['chats', chatId], (prev) => {
+    queryClient.setQueryData<ChatDetails>(chatDetailsQueryKey, (prev) => {
       if (!prev) return prev;
       if (prev.messages.some((message) => message.id === optimisticMessage.id)) return prev;
       return {
@@ -3701,7 +3706,7 @@ function AuthenticatedChatsPage() {
       animatedMessageIdsRef.current.add(result.user_message.id);
       messageVisualKeyByIdRef.current.set(result.user_message.id, optimisticVisualKey);
 
-      queryClient.setQueryData<ChatDetails>(['chats', chatId], (prev) => {
+      queryClient.setQueryData<ChatDetails>(chatDetailsQueryKey, (prev) => {
         if (!prev) return prev;
 
         const nextMessages = prev.messages.filter((message) => (
