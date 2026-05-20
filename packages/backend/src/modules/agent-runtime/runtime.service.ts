@@ -634,6 +634,7 @@ interface StartRunInput {
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
   variables?: Record<string, string>;
   model_external_id?: string | null;
+  system_context?: string | null;
 }
 
 interface StrictPreviewEditOptions {
@@ -3633,6 +3634,10 @@ ${runtimeConfig.chat_intro.trim()}`);
     systemParts.push(`Краткое описание агента:
 ${agent.description.trim()}`);
   }
+  if (typeof input.system_context === 'string' && input.system_context.trim().length > 0) {
+    systemParts.push(`Локальный контекст чата:
+${input.system_context.trim()}`);
+  }
   if (landingDetectionEnabled && looksLikeLandingBuildRequest(latestUserMessage) && !strictPreviewEdit) {
     systemParts.push(buildLandingResponseDisciplineInstruction(latestUserMessage));
   }
@@ -5465,6 +5470,18 @@ function resolveAgentResponseMaxTokens(
 
 type ChatMode = 'general' | 'agent';
 
+type ChatContextBlockKey = 'brief' | 'facts' | 'brand' | 'response_rules' | 'memory';
+
+const CHAT_CONTEXT_BLOCKS: Array<{ key: ChatContextBlockKey; title: string; description: string; maxChars: number }> = [
+  { key: 'brief', title: 'Бриф', description: 'Цель, аудитория, оффер и задача чата.', maxChars: 6000 },
+  { key: 'facts', title: 'Факты', description: 'Проверенные факты, контакты, цены, ссылки и ограничения.', maxChars: 12000 },
+  { key: 'brand', title: 'Бренд', description: 'Tone of voice, визуальный стиль, цвета и запреты бренда.', maxChars: 6000 },
+  { key: 'response_rules', title: 'Правила ответа', description: 'Формат, структура и обязательные требования к ответам.', maxChars: 6000 },
+  { key: 'memory', title: 'Память чата', description: 'Постоянные предпочтения и заметки по этому чату.', maxChars: 6000 },
+];
+
+type ChatContextBlocks = Partial<Record<ChatContextBlockKey, string>>;
+
 interface ChatConversationRow {
   id: string;
   user_id: string;
@@ -5895,6 +5912,42 @@ function normalizeContextWindowOverride(value: unknown): number | null {
   return rounded;
 }
 
+function normalizeChatContextBlocks(value: unknown): ChatContextBlocks {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const source = value as Record<string, unknown>;
+  const blocks: ChatContextBlocks = {};
+
+  for (const block of CHAT_CONTEXT_BLOCKS) {
+    const raw = source[block.key];
+    if (typeof raw !== 'string') continue;
+    const normalized = raw.replace(/\r\n/g, '\n').trim().slice(0, block.maxChars);
+    if (normalized) {
+      blocks[block.key] = normalized;
+    }
+  }
+
+  return blocks;
+}
+
+function buildChatContextBlocksText(settings: Record<string, unknown> | null | undefined): string {
+  const blocks = normalizeChatContextBlocks(settings?.context_blocks);
+  const parts = CHAT_CONTEXT_BLOCKS
+    .map((block) => {
+      const content = blocks[block.key]?.trim();
+      return content ? `### ${block.title}\n${content}` : '';
+    })
+    .filter(Boolean);
+
+  return parts.length > 0
+    ? `Дополнительный контекст чата, заданный пользователем:\n\n${parts.join('\n\n')}`
+    : '';
+}
+
+function estimateContextTokens(value: string | null | undefined): number {
+  if (!value) return 0;
+  return Math.ceil(value.length / 4);
+}
+
 function buildChatSettingsJson(
   existing: Record<string, unknown> | null | undefined,
   overrides: {
@@ -5902,6 +5955,7 @@ function buildChatSettingsJson(
     tool_agent_id?: string | null;
     note?: string | null;
     context_window_tokens?: number | null;
+    context_blocks?: ChatContextBlocks | null;
   },
 ): Record<string, unknown> | null {
   const base = (existing && typeof existing === 'object' && !Array.isArray(existing))
@@ -5938,6 +5992,15 @@ function buildChatSettingsJson(
     }
   }
 
+  if (overrides.context_blocks !== undefined) {
+    const blocks = normalizeChatContextBlocks(overrides.context_blocks);
+    if (Object.keys(blocks).length > 0) {
+      base.context_blocks = blocks;
+    } else {
+      delete base.context_blocks;
+    }
+  }
+
   return Object.keys(base).length > 0 ? base : null;
 }
 
@@ -5971,6 +6034,130 @@ async function getActiveToolSummariesByIds(toolIds: string[]): Promise<ChatToolS
   }
 
   return orderedTools;
+}
+
+async function buildChatSlashCommandResponse(
+  chat: ChatConversationRow,
+  commandText: string,
+): Promise<string | null> {
+  const command = commandText.trim().split(/\s+/)[0]?.toLowerCase();
+  if (!command?.startsWith('/')) return null;
+
+  const agentMeta = await getAgentChatMeta(chat.agent_id ?? null);
+  const chatToolSettings = extractChatToolSettings(chat.settings_json);
+  const [messages, chatTools, agentTools, autoChatTools] = await Promise.all([
+    getConversationMessages(chat.id),
+    getActiveToolSummariesByIds(chatToolSettings.tool_ids),
+    getActiveAgentToolSummaries(chat.agent_id ?? null),
+    getAutoAttachChatToolSummaries(),
+  ]);
+  const effectiveTools = mergeToolSummaries(agentTools, chatTools, chat.mode === 'agent' ? autoChatTools : []);
+  const modelId = normalizeOpenRouterModelId(chat.model_external_id ?? agentMeta.agent_model_external_id ?? DEFAULT_GENERAL_MODEL);
+  const modelLabel = getModelDisplayLabel(modelId) ?? modelId;
+  const contextBlocks = normalizeChatContextBlocks(chat.settings_json?.context_blocks);
+  const contextBlocksText = buildChatContextBlocksText(chat.settings_json);
+  const contextTokens = estimateContextTokens(chat.system_prompt)
+    + estimateContextTokens(agentMeta.agent_system_prompt)
+    + estimateContextTokens(agentMeta.agent_developer_prompt)
+    + estimateContextTokens(contextBlocksText)
+    + effectiveTools.reduce((sum, tool) => (
+      sum
+      + estimateContextTokens(tool.name)
+      + estimateContextTokens(tool.slug)
+      + estimateContextTokens(tool.description)
+      + 120
+    ), 0)
+    + messages.reduce((sum, message) => sum + estimateContextTokens(message.content), 0);
+  const blockLines = CHAT_CONTEXT_BLOCKS.map((block) => {
+    const blockContent = contextBlocks[block.key];
+    return blockContent
+      ? `- **${block.title}**: ~${estimateContextTokens(blockContent)} ток., ${blockContent.length} симв.`
+      : `- **${block.title}**: пусто`;
+  }).join('\n');
+
+  if (command === '/help' || command === '/commands') {
+    return [
+      'Доступные команды чата:',
+      '',
+      '- `/status` — режим, агент, инструменты, сообщения и deployment.',
+      '- `/model` — текущая модель и откуда она взялась.',
+      '- `/context` — карта контекста: промпты, инструменты, блоки, история.',
+      '- `/settings` — быстрый снимок настроек чата.',
+      '',
+      'Команды не отправляются в модель и не списывают баланс.',
+    ].join('\n');
+  }
+
+  if (command === '/status') {
+    const deployments = await getChatProjectDeploymentSummaries(chat.id, chat.user_id);
+    return [
+      '**Статус чата**',
+      '',
+      `- Режим: ${chat.mode === 'agent' ? 'Агент' : 'Общение'}`,
+      `- Агент: ${agentMeta.agent_name ?? '—'}`,
+      `- Модель: ${modelLabel}`,
+      `- Сообщений: ${messages.length}`,
+      `- Инструментов доступно: ${effectiveTools.length}`,
+      `- Контекстные блоки: ${Object.keys(contextBlocks).length}/${CHAT_CONTEXT_BLOCKS.length}`,
+      `- Project deployments: ${deployments.length}`,
+      deployments.length > 0
+        ? deployments.map((deployment) => `  - ${deployment.title}: ${deployment.status}`).join('\n')
+        : '',
+    ].filter(Boolean).join('\n');
+  }
+
+  if (command === '/model') {
+    return [
+      '**Модель чата**',
+      '',
+      `- Используется: ${modelLabel}`,
+      `- model id: \`${modelId}\``,
+      `- Модель выбрана в чате: ${chat.model_external_id ? `\`${chat.model_external_id}\`` : 'нет'}`,
+      `- Модель агента по умолчанию: ${agentMeta.agent_model_external_id ? `\`${agentMeta.agent_model_external_id}\`` : 'нет'}`,
+    ].join('\n');
+  }
+
+  if (command === '/context') {
+    return [
+      '**Контекст чата**',
+      '',
+      `Примерная оценка сейчас: ~${contextTokens} токенов.`,
+      '',
+      '**Промпты**',
+      `- Системный промпт чата: ~${estimateContextTokens(chat.system_prompt)} ток.`,
+      `- Системный промпт агента: ~${estimateContextTokens(agentMeta.agent_system_prompt)} ток.`,
+      `- Developer prompt агента: ~${estimateContextTokens(agentMeta.agent_developer_prompt)} ток.`,
+      '',
+      '**Контекстные блоки**',
+      blockLines,
+      '',
+      '**Инструменты**',
+      effectiveTools.length > 0
+        ? effectiveTools.map((tool) => `- ${tool.name} (\`${tool.slug}\`)`).join('\n')
+        : '- нет',
+      '',
+      '**История**',
+      `- Сообщений в чате: ${messages.length}`,
+    ].join('\n');
+  }
+
+  if (command === '/settings') {
+    return [
+      '**Настройки чата**',
+      '',
+      `- Access: ${chat.access}`,
+      `- Pinned: ${chat.pinned_at ? 'да' : 'нет'}`,
+      `- Tool ids: ${chatToolSettings.tool_ids.length ? chatToolSettings.tool_ids.join(', ') : 'нет'}`,
+      `- Context override: ${normalizeContextWindowOverride(chat.settings_json?.context_window_tokens) ?? 'авто'}`,
+      `- Note: ${extractChatNote(chat.settings_json) ?? '—'}`,
+    ].join('\n');
+  }
+
+  return [
+    `Неизвестная команда: \`${command}\`.`,
+    '',
+    'Напишите `/help`, чтобы посмотреть доступные команды.',
+  ].join('\n');
 }
 
 async function getActiveToolDefinitionRowsBySlugs(
@@ -8923,6 +9110,7 @@ export async function updateChat(chatId: string, userId: string, input: {
   model_external_id?: string | null;
   system_prompt?: string | null;
   context_window_tokens?: number | null;
+  context_blocks?: ChatContextBlocks | null;
   tool_ids?: string[];
   access?: ChatAccess;
   access_identifiers?: string[];
@@ -9000,6 +9188,7 @@ export async function updateChat(chatId: string, userId: string, input: {
         tool_agent_id: toolAgentId,
         note: input.note,
         context_window_tokens: input.context_window_tokens,
+        context_blocks: input.context_blocks,
       }),
       updated_at: new Date(),
     })
@@ -9304,9 +9493,6 @@ export async function sendChatMessage(
   const openRouterDisabledMessage = openRouterRequestsEnabled
     ? null
     : await getOpenRouterDisabledMessage();
-  if (openRouterRequestsEnabled) {
-    await ensureSufficientBalance(userId);
-  }
   const usdToRubRate = await getUsdToRubRate();
   const emitChatEvent = (event: string, payload: Record<string, unknown>) => {
     publishChatEvent(chatId, userId, event, payload);
@@ -9317,6 +9503,10 @@ export async function sendChatMessage(
   const trimmedContent = content.trim();
   if (!trimmedContent && (attachmentsInput ?? []).length === 0) {
     throw new AppError(400, 'VALIDATION_ERROR', 'Message cannot be empty');
+  }
+  const isSlashCommand = trimmedContent.startsWith('/') && (attachmentsInput ?? []).length === 0;
+  if (openRouterRequestsEnabled && !isSlashCommand) {
+    await ensureSufficientBalance(userId);
   }
 
   const attachments = (attachmentsInput ?? []).slice(0, 8);
@@ -9401,6 +9591,56 @@ export async function sendChatMessage(
       : 'Сообщение принято, запускаю обработку',
   });
 
+  const slashCommandResponse = isSlashCommand && attachmentMetas.length === 0
+    ? await buildChatSlashCommandResponse(chat, trimmedContent)
+    : null;
+  if (slashCommandResponse) {
+    const commandUsage = {
+      command: true,
+      command_name: trimmedContent.split(/\s+/)[0]?.toLowerCase() ?? '',
+      estimated_cost: '0',
+      charged_cost: '0',
+      usd_to_rub_rate: usdToRubRate,
+    };
+    const [assistantRow] = await db.insert(chatConversationMessages).values({
+      conversation_id: chatId,
+      role: 'assistant',
+      content_text: slashCommandResponse,
+      usage_json: commandUsage,
+      latency_ms: 0,
+    }).returning();
+    const isDefaultTitle = chat.title === 'Новый чат';
+    const nextTitle = isDefaultTitle ? compactTitle(trimmedContent) : chat.title;
+    await db.update(chatConversations).set({
+      title: nextTitle,
+      last_message_at: new Date(),
+      updated_at: new Date(),
+    }).where(eq(chatConversations.id, chatId));
+    emitChatEvent('chat.message.completed', {
+      mode: chat.mode,
+      label: 'Команда выполнена',
+      charged_cost: 0,
+    });
+
+    return {
+      processing: false,
+      pending_run: null,
+      user_message: persistedUserMessage,
+      assistant_message: {
+        ...toConversationMessage(assistantRow, usdToRubRate),
+        generated_files: [],
+      },
+      chat: {
+        id: chat.id,
+        title: nextTitle,
+        mode: chat.mode,
+        agent_id: chat.agent_id ?? null,
+        model_external_id: chat.model_external_id ?? null,
+        share_token: chat.share_token ?? null,
+      },
+    };
+  }
+
   let assistantText = '';
   let runId: string | null = null;
   let usagePayload: Record<string, unknown> | null = null;
@@ -9437,6 +9677,8 @@ export async function sendChatMessage(
       : '';
     const userModelText = `${trimmedContent}${attachmentContext}${previewContext}`.trim();
     const modelEnvironmentContext = buildModelEnvironmentContext();
+    const chatContextBlocksText = buildChatContextBlocksText(chat.settings_json);
+    const chatRunSystemContext = [chat.system_prompt, chatContextBlocksText].filter(Boolean).join('\n\n');
     const isDefaultTitle = chat.title === 'Новый чат';
     const nextTitle = isDefaultTitle ? compactTitle(trimmedContent || 'Вложение') : chat.title;
 
@@ -9445,6 +9687,7 @@ export async function sendChatMessage(
     const historyForModel = [
       ...(chat.system_prompt ? [{ role: 'system' as const, content: chat.system_prompt }] : []),
       { role: 'system' as const, content: modelEnvironmentContext },
+      ...(chatContextBlocksText ? [{ role: 'system' as const, content: chatContextBlocksText }] : []),
       ...previousMessages.map((m) => ({ role: m.role, content: m.content })),
       { role: 'user' as const, content: userModelText },
     ];
@@ -9466,6 +9709,7 @@ export async function sendChatMessage(
           .filter((m) => m.role === 'user' || m.role === 'assistant')
           .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
         model_external_id: chat.model_external_id ?? null,
+        system_context: chatRunSystemContext || null,
       }, {
         sync_to_chats: true,
         sync_conversation_id: chatId,
@@ -9547,6 +9791,7 @@ export async function sendChatMessage(
           .filter((m) => m.role === 'user' || m.role === 'assistant')
           .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
         model_external_id: chat.model_external_id ?? DEFAULT_GENERAL_MODEL,
+        system_context: chatRunSystemContext || null,
       }, {
         sync_to_chats: true,
         sync_conversation_id: chatId,

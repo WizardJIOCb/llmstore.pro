@@ -63,6 +63,7 @@ import type {
   ChatAccess,
   ChatAgentOption,
   ChatAttachment,
+  ChatContextBlocks,
   ChatDetails,
   ChatListItem,
   ChatMessage as ChatMessageType,
@@ -114,6 +115,49 @@ const CHAT_LIST_SCROLL_STORAGE_KEY = 'llmstore.chat-list-scroll-top';
 const GUEST_CHAT_DRAFT_STORAGE_KEY = 'llmstore.guest-chat-draft';
 const CHAT_UPLOAD_MAX_FILE_MB = 10;
 const CHAT_UPLOAD_MAX_FILE_BYTES = CHAT_UPLOAD_MAX_FILE_MB * 1024 * 1024;
+const CHAT_CONTEXT_BLOCK_FIELDS: Array<{
+  key: keyof ChatContextBlocks;
+  title: string;
+  description: string;
+  maxLength: number;
+  placeholder: string;
+}> = [
+  {
+    key: 'brief',
+    title: 'Бриф',
+    description: 'Цель, аудитория, оффер и текущая задача чата.',
+    maxLength: 6000,
+    placeholder: 'Например: делаем лендинг для игры NECROTOWN, цель — собрать регистрации на закрытый тест.',
+  },
+  {
+    key: 'facts',
+    title: 'Факты',
+    description: 'Проверенные данные, контакты, цены, ссылки, ограничения и источники.',
+    maxLength: 12000,
+    placeholder: 'Факты, которые модель должна считать надежными и не выдумывать заново.',
+  },
+  {
+    key: 'brand',
+    title: 'Бренд',
+    description: 'Tone of voice, визуальный стиль, цвета, запреты и обязательные формулировки.',
+    maxLength: 6000,
+    placeholder: 'Стиль: мрачный sci-fi, без мультяшности, короткие сильные заголовки.',
+  },
+  {
+    key: 'response_rules',
+    title: 'Правила ответа',
+    description: 'Формат, структура, язык, уровень детализации и обязательные требования.',
+    maxLength: 6000,
+    placeholder: 'Отвечай по-русски, сначала давай короткий вывод, затем детали. Для кода показывай измененные файлы.',
+  },
+  {
+    key: 'memory',
+    title: 'Память чата',
+    description: 'Постоянные предпочтения и заметки, которые должны жить между сообщениями.',
+    maxLength: 6000,
+    placeholder: 'Пользователь предпочитает плотные интерфейсы, без лендинговой воды и лишних вопросов.',
+  },
+];
 
 interface GuestChatDraft {
   id: string;
@@ -262,6 +306,33 @@ function readContextWindowOverride(settings: Record<string, unknown> | null | un
   const rounded = Math.round(value);
   if (rounded < MIN_CONTEXT_WINDOW_TOKENS || rounded > MAX_UNKNOWN_CONTEXT_WINDOW_TOKENS) return null;
   return rounded;
+}
+
+function readChatContextBlocks(settings: Record<string, unknown> | null | undefined): ChatContextBlocks {
+  const value = settings?.context_blocks;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const source = value as Record<string, unknown>;
+  const blocks: ChatContextBlocks = {};
+  for (const field of CHAT_CONTEXT_BLOCK_FIELDS) {
+    const raw = source[field.key];
+    if (typeof raw !== 'string') continue;
+    const normalized = raw.replace(/\r\n/g, '\n').trim().slice(0, field.maxLength);
+    if (normalized) {
+      blocks[field.key] = normalized;
+    }
+  }
+  return blocks;
+}
+
+function normalizeChatContextBlocks(blocks: ChatContextBlocks): ChatContextBlocks | null {
+  const normalized: ChatContextBlocks = {};
+  for (const field of CHAT_CONTEXT_BLOCK_FIELDS) {
+    const value = blocks[field.key]?.replace(/\r\n/g, '\n').trim().slice(0, field.maxLength);
+    if (value) {
+      normalized[field.key] = value;
+    }
+  }
+  return Object.keys(normalized).length > 0 ? normalized : null;
 }
 
 function estimateTextTokens(value: string | null | undefined): number {
@@ -1142,6 +1213,7 @@ function AuthenticatedChatsPage() {
   const [propertiesAgentSystemPrompt, setPropertiesAgentSystemPrompt] = useState('');
   const [propertiesStarterPromptsText, setPropertiesStarterPromptsText] = useState('');
   const [propertiesContextWindowText, setPropertiesContextWindowText] = useState('');
+  const [propertiesContextBlocks, setPropertiesContextBlocks] = useState<ChatContextBlocks>({});
   const [propertiesSaving, setPropertiesSaving] = useState(false);
   const [propertiesError, setPropertiesError] = useState<string | null>(null);
   const [streamEvents, setStreamEvents] = useState<LiveChatEvent[]>([]);
@@ -2377,6 +2449,7 @@ function AuthenticatedChatsPage() {
     setPropertiesAgentSystemPrompt(activeChat.agent_system_prompt ?? '');
     setPropertiesStarterPromptsText((activeChat.agent_starter_prompts ?? []).join('\n'));
     setPropertiesContextWindowText(readContextWindowOverride(activeChat.settings_json)?.toString() ?? '');
+    setPropertiesContextBlocks(readChatContextBlocks(activeChat.settings_json));
   }, [isPropertiesOpen, activeChat, agents]);
 
   useEffect(() => {
@@ -2741,6 +2814,17 @@ function AuthenticatedChatsPage() {
       title: 'Developer prompt агента',
       detail: 'Дополнительные правила агента, если они есть в версии агента.',
       content: activeChat.agent_developer_prompt,
+    });
+
+    const contextBlocks = readChatContextBlocks(activeChat.settings_json);
+    CHAT_CONTEXT_BLOCK_FIELDS.forEach((field) => {
+      pushText({
+        id: `context-block-${field.key}`,
+        kind: 'Контекстный блок',
+        title: field.title,
+        detail: field.description,
+        content: contextBlocks[field.key],
+      });
     });
 
     (activeChat.effective_tools ?? activeChat.tools ?? []).forEach((tool, index) => {
@@ -3366,6 +3450,7 @@ function AuthenticatedChatsPage() {
         model_external_id: isPropertiesAgentMode ? (propertiesModel.trim() || null) : propertiesModel,
         system_prompt: propertiesChatSystemPrompt.trim() || null,
         context_window_tokens: contextWindowOverride,
+        context_blocks: normalizeChatContextBlocks(propertiesContextBlocks),
         tool_ids: propertiesToolIds,
         access: propertiesAccess,
         access_identifiers: accessIdentifiers,
@@ -5918,6 +6003,53 @@ function AuthenticatedChatsPage() {
 
               {propertiesTab === 'context' && (
                 <div className="space-y-4">
+                  <div className="rounded-2xl border bg-muted/10 p-4 space-y-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium">Редактируемый контекст</p>
+                        <p className="text-xs text-muted-foreground">
+                          Эти блоки добавляются в системный контекст перед историей сообщений. Удобно хранить бриф, факты, бренд и правила ответа.
+                        </p>
+                      </div>
+                      <Badge variant="outline">
+                        {CHAT_CONTEXT_BLOCK_FIELDS.filter((field) => propertiesContextBlocks[field.key]?.trim()).length}/{CHAT_CONTEXT_BLOCK_FIELDS.length}
+                      </Badge>
+                    </div>
+                    <div className="grid gap-3 lg:grid-cols-2">
+                      {CHAT_CONTEXT_BLOCK_FIELDS.map((field) => {
+                        const value = propertiesContextBlocks[field.key] ?? '';
+                        return (
+                          <div key={field.key} className={cn('space-y-2', field.key === 'facts' ? 'lg:col-span-2' : '')}>
+                            <div className="flex flex-wrap items-start justify-between gap-2">
+                              <div className="space-y-1">
+                                <p className="text-sm font-medium">{field.title}</p>
+                                <p className="text-xs leading-5 text-muted-foreground">{field.description}</p>
+                              </div>
+                              <span className="shrink-0 text-xs text-muted-foreground">
+                                {value.length}/{field.maxLength}
+                              </span>
+                            </div>
+                            <textarea
+                              value={value}
+                              onChange={(e) => {
+                                const nextValue = e.target.value.slice(0, field.maxLength);
+                                setPropertiesContextBlocks((prev) => ({
+                                  ...prev,
+                                  [field.key]: nextValue,
+                                }));
+                              }}
+                              className="min-h-32 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm leading-6 outline-none focus:border-input"
+                              placeholder={field.placeholder}
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Сохраняется общей кнопкой «Сохранить» внизу окна. Быстро посмотреть итоговую карту можно командой <code>/context</code> прямо в чате.
+                    </p>
+                  </div>
+
                   <div className="rounded-2xl border bg-muted/10 p-4">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="space-y-1">

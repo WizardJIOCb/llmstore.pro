@@ -242,6 +242,14 @@ export interface ChatGeneratedFile {
   created_at?: string;
 }
 
+export interface ChatContextBlocks {
+  brief?: string;
+  facts?: string;
+  brand?: string;
+  response_rules?: string;
+  memory?: string;
+}
+
 export interface ChatToolDefinition {
   id: string;
   name: string;
@@ -607,6 +615,7 @@ export const chatsApi = {
       model_external_id?: string | null;
       system_prompt?: string | null;
       context_window_tokens?: number | null;
+      context_blocks?: ChatContextBlocks | null;
       tool_ids?: string[];
       access?: ChatAccess;
       access_identifiers?: string[];

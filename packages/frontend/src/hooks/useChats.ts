@@ -3,6 +3,7 @@ import {
   chatsApi,
   type ChatAccess,
   type ChatAttachment,
+  type ChatContextBlocks,
   type GalleryTextChatSort,
   type ChatListItem,
   type ChatMode,
@@ -124,6 +125,7 @@ export function useUpdateChat() {
       model_external_id?: string | null;
       system_prompt?: string | null;
       context_window_tokens?: number | null;
+      context_blocks?: ChatContextBlocks | null;
       tool_ids?: string[];
       access?: ChatAccess;
       access_identifiers?: string[];
