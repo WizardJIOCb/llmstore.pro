@@ -15,6 +15,7 @@ import {
   MessageCircle,
   PencilLine,
   Pin,
+  Radio,
   Settings2,
   Share2,
   Trash2,
@@ -1227,17 +1228,10 @@ function AuthenticatedChatsPage() {
       ids.add(assistantResponseSlot.chatId);
     }
 
-    for (const chat of chats ?? []) {
-      if (chat.has_active_deployment) {
-        ids.add(chat.id);
-      }
-    }
-
     return ids;
   }, [
     assistantResponseSlot?.actualMessageId,
     assistantResponseSlot?.chatId,
-    chats,
     optimisticPendingMessage?.chatId,
     runtimeActiveChatIds,
   ]);
@@ -3706,6 +3700,7 @@ function AuthenticatedChatsPage() {
             : null);
         const rowHasLiveRun = Boolean(livePendingRun) || activeRuntimeChatIds.has(chat.id);
         const rowHasPartialRun = Boolean(livePendingRun?.is_partial);
+        const rowHasActiveDeployment = Boolean(chat.has_active_deployment);
         const previewText = livePendingRun
           ? `${livePendingRun.label}. Чат ещё не завершён.`
           : (formatChatPreview(chat.last_message_preview) || (chat.mode === 'general' ? 'Общение' : 'Чат с ботом'));
@@ -3713,6 +3708,15 @@ function AuthenticatedChatsPage() {
           <>
       <button type="button" onClick={() => setActiveChatId(chat.id)} className="w-full pr-8 text-left">
         <div className="flex items-center gap-1 pr-2">
+          {rowHasActiveDeployment && (
+            <span
+              className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-emerald-300 bg-emerald-50 text-emerald-600 shadow-[0_0_0_3px_rgba(34,197,94,0.08)]"
+              aria-label="Webhook/deployment работает"
+              title="Webhook/deployment работает"
+            >
+              <Radio className="h-2.5 w-2.5" aria-hidden="true" />
+            </span>
+          )}
           {rowHasLiveRun && (
             <span
               className={cn(
