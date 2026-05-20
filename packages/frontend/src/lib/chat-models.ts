@@ -161,3 +161,60 @@ export const GENERAL_CHAT_MODELS: GeneralModelOption[] = [
     pricing_output_usd_per_million: 15.00,
   },
 ];
+
+export const MIN_CONTEXT_WINDOW_TOKENS = 8_192;
+export const DEFAULT_UNKNOWN_CONTEXT_WINDOW_TOKENS = 128_000;
+export const MAX_UNKNOWN_CONTEXT_WINDOW_TOKENS = 2_000_000;
+
+const GENERAL_CHAT_MODELS_BY_ID = new Map(
+  GENERAL_CHAT_MODELS.map((model) => [model.value.toLowerCase(), model]),
+);
+
+export function formatContextWindow(tokens: number): string {
+  if (tokens >= 950_000 && tokens < 1_100_000) {
+    return '1M';
+  }
+
+  if (tokens >= 1_000_000) {
+    const millions = tokens / 1_000_000;
+    return `${Number.isInteger(millions) ? millions.toFixed(0) : millions.toFixed(1).replace(/0+$/, '').replace(/\.$/, '')}M`;
+  }
+
+  if (tokens >= 1_000) {
+    const thousands = tokens / 1_000;
+    return `${Number.isInteger(thousands) ? thousands.toFixed(0) : thousands.toFixed(0)}K`;
+  }
+
+  return tokens.toLocaleString('ru-RU');
+}
+
+export function getGeneralModelOption(modelId: string | null | undefined): GeneralModelOption | null {
+  const normalized = modelId?.trim().toLowerCase();
+  if (!normalized) return null;
+  return GENERAL_CHAT_MODELS_BY_ID.get(normalized) ?? null;
+}
+
+export function getGeneralModelContextWindow(modelId: string | null | undefined): number | null {
+  return getGeneralModelOption(modelId)?.context_window_tokens ?? null;
+}
+
+export function getContextWindowBounds(modelId: string | null | undefined): {
+  min: number;
+  max: number;
+  recommended: number | null;
+} {
+  const recommended = getGeneralModelContextWindow(modelId);
+  if (!recommended) {
+    return {
+      min: MIN_CONTEXT_WINDOW_TOKENS,
+      max: MAX_UNKNOWN_CONTEXT_WINDOW_TOKENS,
+      recommended: null,
+    };
+  }
+
+  return {
+    min: Math.min(MIN_CONTEXT_WINDOW_TOKENS, recommended),
+    max: Math.max(MIN_CONTEXT_WINDOW_TOKENS, recommended),
+    recommended,
+  };
+}

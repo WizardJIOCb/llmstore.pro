@@ -43,6 +43,7 @@ const updateChatSchema = z.object({
   model_external_id: z.string().min(1).max(255).optional().nullable(),
   system_prompt: z.string().max(8000).optional().nullable(),
   tool_ids: z.array(z.string().uuid()).max(64).optional(),
+  context_window_tokens: z.number().int().min(8192).max(2_000_000).optional().nullable(),
   access: z.enum(['public', 'private', 'restricted']).optional(),
   access_identifiers: z.array(z.string().min(1).max(255)).max(200).optional(),
   pin_to_top: z.boolean().optional(),

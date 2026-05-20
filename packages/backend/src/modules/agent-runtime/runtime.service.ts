@@ -5566,9 +5566,23 @@ function extractChatNote(settings: Record<string, unknown> | null | undefined): 
   return normalizeChatNote(settings.note);
 }
 
+function normalizeContextWindowOverride(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return null;
+  const rounded = Math.round(parsed);
+  if (rounded < 8192 || rounded > 2_000_000) return null;
+  return rounded;
+}
+
 function buildChatSettingsJson(
   existing: Record<string, unknown> | null | undefined,
-  overrides: { tool_ids?: string[]; tool_agent_id?: string | null; note?: string | null },
+  overrides: {
+    tool_ids?: string[];
+    tool_agent_id?: string | null;
+    note?: string | null;
+    context_window_tokens?: number | null;
+  },
 ): Record<string, unknown> | null {
   const base = (existing && typeof existing === 'object' && !Array.isArray(existing))
     ? { ...existing }
@@ -5592,6 +5606,15 @@ function buildChatSettingsJson(
       base.note = normalizedNote;
     } else {
       delete base.note;
+    }
+  }
+
+  if (overrides.context_window_tokens !== undefined) {
+    const normalizedContextWindow = normalizeContextWindowOverride(overrides.context_window_tokens);
+    if (normalizedContextWindow) {
+      base.context_window_tokens = normalizedContextWindow;
+    } else {
+      delete base.context_window_tokens;
     }
   }
 
@@ -7803,6 +7826,7 @@ export async function createChat(userId: string, input: {
   model_external_id?: string | null;
   system_prompt?: string | null;
   tool_ids?: string[];
+  context_window_tokens?: number | null;
   access?: ChatAccess;
   access_identifiers?: string[];
 }, userRole?: string) {
@@ -8562,6 +8586,7 @@ export async function updateChat(chatId: string, userId: string, input: {
   agent_id?: string | null;
   model_external_id?: string | null;
   system_prompt?: string | null;
+  context_window_tokens?: number | null;
   tool_ids?: string[];
   access?: ChatAccess;
   access_identifiers?: string[];
@@ -8638,6 +8663,7 @@ export async function updateChat(chatId: string, userId: string, input: {
         tool_ids: nextToolIds,
         tool_agent_id: toolAgentId,
         note: input.note,
+        context_window_tokens: input.context_window_tokens,
       }),
       updated_at: new Date(),
     })

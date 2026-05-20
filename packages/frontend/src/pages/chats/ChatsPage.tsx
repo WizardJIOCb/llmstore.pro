@@ -70,7 +70,17 @@ import type {
   PublishedLanding,
   ToolTrace,
 } from '../../lib/api/chats';
-import { GENERAL_CHAT_MODELS, type GeneralModelOption } from '../../lib/chat-models';
+import {
+  DEFAULT_UNKNOWN_CONTEXT_WINDOW_TOKENS,
+  GENERAL_CHAT_MODELS,
+  MAX_UNKNOWN_CONTEXT_WINDOW_TOKENS,
+  MIN_CONTEXT_WINDOW_TOKENS,
+  formatContextWindow,
+  getContextWindowBounds,
+  getGeneralModelContextWindow,
+  getGeneralModelOption,
+  type GeneralModelOption,
+} from '../../lib/chat-models';
 import { cn, formatRub, formatUsd } from '../../lib/utils';
 import { TopUpHelp } from '../../components/billing/TopUpHelp';
 
@@ -230,6 +240,35 @@ function readNumberSetting(config: Record<string, unknown> | null | undefined, k
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
+function readContextWindowOverride(settings: Record<string, unknown> | null | undefined): number | null {
+  const value = settings?.context_window_tokens;
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  const rounded = Math.round(value);
+  if (rounded < MIN_CONTEXT_WINDOW_TOKENS || rounded > MAX_UNKNOWN_CONTEXT_WINDOW_TOKENS) return null;
+  return rounded;
+}
+
+function estimateTextTokens(value: string | null | undefined): number {
+  if (!value) return 0;
+  return Math.ceil(value.length / 4);
+}
+
+function parseContextWindowInput(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const normalized = trimmed.replace(/\s+/g, '').replace(/,/g, '.');
+  const match = normalized.match(/^(\d+(?:\.\d+)?)([kKmM])?$/);
+  if (!match) return Number.NaN;
+  const parsed = Number(match[1]);
+  if (!Number.isFinite(parsed)) return Number.NaN;
+  const multiplier = match[2]?.toLowerCase() === 'm'
+    ? 1_000_000
+    : match[2]?.toLowerCase() === 'k'
+      ? 1_000
+      : 1;
+  return Math.round(parsed * multiplier);
+}
+
 function formatTelegramUsername(username: string | null | undefined): string | null {
   if (!username?.trim()) return null;
   const normalized = username.trim().replace(/^@+/, '');
@@ -270,13 +309,17 @@ function getChatListMeta(chat: ChatListItem): string {
 
   if (chat.mode === 'agent') {
     const parts = ['Агент'];
-    if (chat.effective_model_label?.trim()) parts.push(chat.effective_model_label.trim());
+    const modelLabel = formatModelLabelWithContext(
+      chat.model_external_id ?? chat.agent_model_external_id,
+      chat.effective_model_label,
+    );
+    if (modelLabel) parts.push(modelLabel);
     if (chat.agent_name?.trim()) parts.push(chat.agent_name.trim());
     return parts.join(' • ');
   }
 
   if (chat.effective_model_label?.trim()) {
-    return `Общение • ${chat.effective_model_label.trim()}`;
+    return `Общение • ${formatModelLabelWithContext(chat.model_external_id, chat.effective_model_label)}`;
   }
 
   return 'Общение';
@@ -333,24 +376,6 @@ function formatGeneralModelPricing(model: GeneralModelOption): string {
   return `${formatUsdCompact(model.pricing_input_usd_per_million)} in / ${formatUsdCompact(model.pricing_output_usd_per_million)} out за 1M`;
 }
 
-function formatContextWindow(tokens: number): string {
-  if (tokens >= 950_000 && tokens < 1_100_000) {
-    return '1M';
-  }
-
-  if (tokens >= 1_000_000) {
-    const millions = tokens / 1_000_000;
-    return `${Number.isInteger(millions) ? millions.toFixed(0) : millions.toFixed(1).replace(/0+$/, '').replace(/\.$/, '')}M`;
-  }
-
-  if (tokens >= 1_000) {
-    const thousands = tokens / 1_000;
-    return `${Number.isInteger(thousands) ? thousands.toFixed(0) : thousands.toFixed(0)}K`;
-  }
-
-  return tokens.toLocaleString('ru-RU');
-}
-
 function formatGeneralModelContext(model: GeneralModelOption): string {
   return `context: ${formatContextWindow(model.context_window_tokens)}`;
 }
@@ -359,8 +384,17 @@ function formatGeneralModelMeta(model: GeneralModelOption): string {
   return `${formatGeneralModelContext(model)} • ${formatGeneralModelPricing(model)}`;
 }
 
+function formatModelLabelWithContext(modelId: string | null | undefined, fallbackLabel?: string | null): string {
+  const cleanModelId = modelId?.trim();
+  const cleanFallback = fallbackLabel?.trim();
+  const label = cleanFallback || cleanModelId || '';
+  if (!label) return '';
+  const contextTokens = getGeneralModelContextWindow(cleanModelId);
+  return contextTokens ? `${label} • context: ${formatContextWindow(contextTokens)}` : label;
+}
+
 function buildAgentMetaLabel(agent: ChatAgentOption): string {
-  return agent.model_external_id?.trim() || '';
+  return formatModelLabelWithContext(agent.model_external_id, agent.model_label);
 }
 
 function isLandingAgentOption(agent: ChatAgentOption): boolean {
@@ -1033,6 +1067,7 @@ function AuthenticatedChatsPage() {
   const [propertiesChatSystemPrompt, setPropertiesChatSystemPrompt] = useState('');
   const [propertiesAgentSystemPrompt, setPropertiesAgentSystemPrompt] = useState('');
   const [propertiesStarterPromptsText, setPropertiesStarterPromptsText] = useState('');
+  const [propertiesContextWindowText, setPropertiesContextWindowText] = useState('');
   const [propertiesSaving, setPropertiesSaving] = useState(false);
   const [propertiesError, setPropertiesError] = useState<string | null>(null);
   const [streamEvents, setStreamEvents] = useState<LiveChatEvent[]>([]);
@@ -2274,6 +2309,7 @@ function AuthenticatedChatsPage() {
     setPropertiesChatSystemPrompt(activeChat.system_prompt ?? '');
     setPropertiesAgentSystemPrompt(activeChat.agent_system_prompt ?? '');
     setPropertiesStarterPromptsText((activeChat.agent_starter_prompts ?? []).join('\n'));
+    setPropertiesContextWindowText(readContextWindowOverride(activeChat.settings_json)?.toString() ?? '');
   }, [isPropertiesOpen, activeChat, agents]);
 
   useEffect(() => {
@@ -2404,6 +2440,19 @@ function AuthenticatedChatsPage() {
     () => GENERAL_MODELS.find((model) => model.value === propertiesModel) ?? null,
     [propertiesModel],
   );
+  const propertiesEffectiveModelId = (
+    propertiesModel.trim()
+    || propertiesSelectedAgent?.model_external_id
+    || activeChat?.agent_model_external_id
+    || activeChat?.model_external_id
+    || 'google/gemini-2.5-flash'
+  );
+  const propertiesContextBounds = getContextWindowBounds(propertiesEffectiveModelId);
+  const propertiesAutoContextTokens = propertiesContextBounds.recommended ?? DEFAULT_UNKNOWN_CONTEXT_WINDOW_TOKENS;
+  const parsedPropertiesContextWindow = parseContextWindowInput(propertiesContextWindowText);
+  const propertiesContextPreviewTokens = typeof parsedPropertiesContextWindow === 'number' && Number.isFinite(parsedPropertiesContextWindow)
+    ? parsedPropertiesContextWindow
+    : propertiesAutoContextTokens;
   const canEditPropertiesAgent = Boolean(
     isPropertiesAgentMode
       && propertiesSelectedAgent?.is_owner
@@ -2532,6 +2581,61 @@ function AuthenticatedChatsPage() {
     activeChatData?.chat.agent_starter_prompts
     ?? activeAgentListMeta?.starter_prompts
     ?? [];
+  const activeEffectiveModelId = useMemo(() => {
+    if (!activeChat) return null;
+    if (activeChat.model_external_id?.trim()) return activeChat.model_external_id.trim();
+    if (activeChat.agent_model_external_id?.trim()) return activeChat.agent_model_external_id.trim();
+    if (activeAgentListMeta?.model_external_id?.trim()) return activeAgentListMeta.model_external_id.trim();
+    return activeChat.mode === 'general' ? 'google/gemini-2.5-flash' : null;
+  }, [activeAgentListMeta?.model_external_id, activeChat]);
+  const activeContextOverrideTokens = readContextWindowOverride(activeChat?.settings_json);
+  const activeContextWindowTokens = activeContextOverrideTokens
+    ?? getGeneralModelContextWindow(activeEffectiveModelId)
+    ?? DEFAULT_UNKNOWN_CONTEXT_WINDOW_TOKENS;
+  const activeOutputReserveTokens = Math.min(
+    activeContextWindowTokens,
+    Math.max(0, Math.round(
+      readNumberSetting(activeChat?.agent_runtime_config, 'max_tokens')
+      ?? (activeChat?.mode === 'agent' ? 12_000 : 2_048),
+    )),
+  );
+  const activeContextInputTokens = useMemo(() => {
+    if (!activeChat) return 0;
+    const messageTokens = displayedMessages.reduce((sum, message) => sum + estimateTextTokens(message.content), 0);
+    const promptTokens = estimateTextTokens(activeChat.system_prompt)
+      + estimateTextTokens(activeChat.agent_system_prompt)
+      + estimateTextTokens(activeChat.agent_developer_prompt);
+    const toolTokens = (activeChat.effective_tools ?? activeChat.tools ?? []).reduce((sum, tool) => (
+      sum
+      + estimateTextTokens(tool.name)
+      + estimateTextTokens(tool.slug)
+      + estimateTextTokens(tool.description)
+      + 120
+    ), 0);
+    return messageTokens + promptTokens + toolTokens;
+  }, [
+    activeChat,
+    displayedMessages,
+  ]);
+  const activeContextUsedTokens = Math.min(activeContextInputTokens, activeContextWindowTokens);
+  const activeContextRemainingTokens = Math.max(
+    0,
+    activeContextWindowTokens - activeContextUsedTokens - activeOutputReserveTokens,
+  );
+  const activeContextLoadPercent = activeContextWindowTokens > 0
+    ? Math.min(100, Math.round(((activeContextUsedTokens + activeOutputReserveTokens) / activeContextWindowTokens) * 100))
+    : 0;
+  const activeContextBarClass = activeContextLoadPercent >= 90
+    ? 'bg-rose-500'
+    : activeContextLoadPercent >= 70
+      ? 'bg-amber-500'
+      : 'bg-emerald-500';
+  const activeContextShortLabel = `context: ${formatContextWindow(activeContextWindowTokens)}`;
+  const activeModelDisplayLabel = useMemo(() => {
+    if (!activeEffectiveModelId) return 'AI';
+    const modelOption = getGeneralModelOption(activeEffectiveModelId);
+    return `${modelOption?.label ?? activeEffectiveModelId} • context: ${formatContextWindow(activeContextWindowTokens)}`;
+  }, [activeContextWindowTokens, activeEffectiveModelId]);
   const canShowQuickPrompts = activeChat?.mode === 'agent' && activeStarterPrompts.length > 0;
   const hasAvailableBalance = profile ? Number(profile.balance_usd) > 0 : true;
   const isSubmittingMessage = sendMessageMutation.isPending || uploadFilesMutation.isPending || isAwaitingLateReply;
@@ -2548,10 +2652,17 @@ function AuthenticatedChatsPage() {
 
   const getAssistantAuthorLabel = (message: ChatMessageType) => {
     const usageModel = getUsageModel(message.usage);
-    if (usageModel) return usageModel;
+    if (usageModel) {
+      const contextTokens = usageModel === activeEffectiveModelId
+        ? activeContextWindowTokens
+        : getGeneralModelContextWindow(usageModel);
+      return contextTokens
+        ? `${usageModel} • context: ${formatContextWindow(contextTokens)}`
+        : usageModel;
+    }
 
-    if (activeChat?.model_external_id?.trim()) {
-      return activeChat.model_external_id.trim();
+    if (activeEffectiveModelId) {
+      return `${activeEffectiveModelId} • context: ${formatContextWindow(activeContextWindowTokens)}`;
     }
 
     return 'AI';
@@ -2985,6 +3096,20 @@ function AuthenticatedChatsPage() {
       setPropertiesError('Для ограниченного доступа укажите хотя бы один email или @логин');
       return;
     }
+    const contextWindowOverride = parseContextWindowInput(propertiesContextWindowText);
+    if (typeof contextWindowOverride === 'number' && !Number.isFinite(contextWindowOverride)) {
+      setPropertiesError('Размер контекста должен быть числом, например 128000, 128K или 1M');
+      return;
+    }
+    if (
+      contextWindowOverride !== null
+      && (contextWindowOverride < propertiesContextBounds.min || contextWindowOverride > propertiesContextBounds.max)
+    ) {
+      setPropertiesError(
+        `Для этой модели контекст можно указать от ${formatContextWindow(propertiesContextBounds.min)} до ${formatContextWindow(propertiesContextBounds.max)}.`,
+      );
+      return;
+    }
     setPropertiesSaving(true);
     try {
       if (canEditPropertiesAgent && propertiesAgentId) {
@@ -3007,6 +3132,7 @@ function AuthenticatedChatsPage() {
         agent_id: isPropertiesAgentMode ? propertiesAgentId : null,
         model_external_id: isPropertiesAgentMode ? (propertiesModel.trim() || null) : propertiesModel,
         system_prompt: propertiesChatSystemPrompt.trim() || null,
+        context_window_tokens: contextWindowOverride,
         tool_ids: propertiesToolIds,
         access: propertiesAccess,
         access_identifiers: accessIdentifiers,
@@ -3740,15 +3866,33 @@ function AuthenticatedChatsPage() {
                       </Badge>
                     </div>
                   ) : null}
-                  <p className="truncate text-[11px] leading-4 text-muted-foreground">
-                    {isAdminForeignChat
-                      ? `Чужой чат • ${activeChatOwnerLabel}`
-                      : activeChat?.mode === 'general'
-                      ? `OpenRouter: ${activeChat?.model_external_id ?? 'google/gemini-2.5-flash'}`
-                      : activeAgentName
-                        ? `Агент: ${activeAgentName}`
-                        : 'Чат с агентом'}
-                  </p>
+                  <div className="space-y-1">
+                    <p className="truncate text-[11px] leading-4 text-muted-foreground">
+                      {isAdminForeignChat
+                        ? `Чужой чат • ${activeChatOwnerLabel}`
+                        : activeChat?.mode === 'general'
+                        ? `OpenRouter: ${activeModelDisplayLabel}`
+                        : activeAgentName
+                          ? `Агент: ${activeAgentName} • ${activeModelDisplayLabel}`
+                          : `Чат с агентом • ${activeModelDisplayLabel}`}
+                    </p>
+                    {activeChat ? (
+                      <div className="max-w-xl space-y-1">
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] leading-4 text-muted-foreground">
+                          <span>{activeContextShortLabel}</span>
+                          <span>использовано ~{formatContextWindow(activeContextUsedTokens)}</span>
+                          <span>резерв ответа ~{formatContextWindow(activeOutputReserveTokens)}</span>
+                          <span>осталось ~{formatContextWindow(activeContextRemainingTokens)}</span>
+                        </div>
+                        <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+                          <div
+                            className={cn('h-full rounded-full transition-all', activeContextBarClass)}
+                            style={{ width: `${activeContextLoadPercent}%` }}
+                          />
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
                 {activeChat && !isAdminForeignChat && (
                   <div className="relative md:hidden" ref={openMenu?.kind === 'active-chat-actions' ? menuRef : null}>
@@ -4009,6 +4153,9 @@ function AuthenticatedChatsPage() {
                   <div className="mx-auto max-w-3xl rounded-xl border bg-muted/20 p-5 space-y-4">
                     <div>
                       <h3 className="text-base font-semibold">{activeAgentName ?? 'Агент'}</h3>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {activeModelDisplayLabel}
+                      </p>
                       {activeAgentPricing ? (
                         <p className="mt-1 text-xs text-muted-foreground">{activeAgentPricing}</p>
                       ) : null}
@@ -4041,7 +4188,7 @@ function AuthenticatedChatsPage() {
                   <div className="mx-auto max-w-3xl rounded-xl border bg-muted/20 p-5 space-y-4">
                     <div>
                       <h3 className="text-base font-semibold">
-                        {activeGeneralModel?.label ?? activeChat.model_external_id ?? 'OpenRouter'}
+                        {activeGeneralModel?.label ?? activeChat.model_external_id ?? 'OpenRouter'} • {activeContextShortLabel}
                       </h3>
                       <div className="mt-3 max-w-md">
                         <Select
@@ -4576,6 +4723,7 @@ function AuthenticatedChatsPage() {
                       </p>
                       {visibleNewChatAgents.map((agent) => {
                         const isSelected = newChatAgentId === agent.id;
+                        const agentMeta = buildAgentMetaLabel(agent);
 
                         return (
                           <button
@@ -4608,6 +4756,9 @@ function AuthenticatedChatsPage() {
                             {agent.chat_description && (
                               <p className="mt-1 text-xs leading-5 text-muted-foreground">{agent.chat_description}</p>
                             )}
+                            {agentMeta ? (
+                              <p className="mt-1 break-all text-xs text-muted-foreground">{agentMeta}</p>
+                            ) : null}
                             {formatAgentPricing(agent) && (
                               <p className="mt-1 text-xs text-muted-foreground">{formatAgentPricing(agent)}</p>
                             )}
@@ -4976,7 +5127,7 @@ function AuthenticatedChatsPage() {
                       />
                       <p className="text-xs text-muted-foreground">
                         {propertiesSelectedAgent
-                          ? `Сейчас выбран: ${propertiesSelectedAgent.model_label ?? propertiesSelectedAgent.name}${formatAgentPricing(propertiesSelectedAgent) ? ` • ${formatAgentPricing(propertiesSelectedAgent)}` : ''}`
+                          ? `Сейчас выбран: ${propertiesSelectedAgent.name} • ${buildAgentMetaLabel(propertiesSelectedAgent)}${formatAgentPricing(propertiesSelectedAgent) ? ` • ${formatAgentPricing(propertiesSelectedAgent)}` : ''}`
                           : 'Выберите агента ниже. Лендинги, coding-модели и остальные агенты разнесены по вкладкам.'}
                       </p>
                     </div>
@@ -5001,7 +5152,10 @@ function AuthenticatedChatsPage() {
                         >
                           <p className="text-sm font-medium text-foreground">По умолчанию агента</p>
                           <p className="mt-1 break-all text-xs text-muted-foreground">
-                            {activeChat.agent_model_external_id ?? propertiesSelectedAgent?.model_external_id ?? 'Модель указана в агенте'}
+                            {formatModelLabelWithContext(
+                              activeChat.agent_model_external_id ?? propertiesSelectedAgent?.model_external_id,
+                              propertiesSelectedAgent?.model_label,
+                            ) || 'Модель указана в агенте'}
                           </p>
                           <p className="mt-1 text-xs leading-5 text-muted-foreground">
                             Удобно, если модель должна меняться вместе с выбранным агентом.
@@ -5188,6 +5342,44 @@ function AuthenticatedChatsPage() {
                     </div>
                   </div>
                 )}
+
+                <div className="rounded-xl border bg-background/80 p-4 space-y-3">
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium">Контекстное окно</p>
+                    <p className="text-xs text-muted-foreground">
+                      Авто: context: {formatContextWindow(propertiesAutoContextTokens)} для {formatModelLabelWithContext(propertiesEffectiveModelId)}.
+                      Можно вручную уменьшить лимит, если провайдер фактически режет контекст.
+                    </p>
+                  </div>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                    <label className="min-w-0 flex-1 space-y-1">
+                      <span className="text-xs font-medium text-muted-foreground">Override, токены</span>
+                      <Input
+                        value={propertiesContextWindowText}
+                        onChange={(e) => setPropertiesContextWindowText(e.target.value)}
+                        placeholder={`Авто (${formatContextWindow(propertiesAutoContextTokens)})`}
+                        inputMode="numeric"
+                      />
+                    </label>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setPropertiesContextWindowText('')}
+                    >
+                      Авто
+                    </Button>
+                  </div>
+                  <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                    <span>Диапазон: {formatContextWindow(propertiesContextBounds.min)} - {formatContextWindow(propertiesContextBounds.max)}</span>
+                    <span>Будет: context: {formatContextWindow(propertiesContextPreviewTokens)}</span>
+                    {readContextWindowOverride(activeChat.settings_json) ? (
+                      <span>Сейчас override: {formatContextWindow(readContextWindowOverride(activeChat.settings_json) ?? 0)}</span>
+                    ) : (
+                      <span>Сейчас авто</span>
+                    )}
+                  </div>
+                </div>
 
                   </>
                 )}
@@ -5529,7 +5721,7 @@ function AuthenticatedChatsPage() {
                           <tbody>
                             {activeChatStats.by_model.map((row) => (
                               <tr key={row.model} className="border-t">
-                                <td className="px-3 py-2">{row.model}</td>
+                                <td className="px-3 py-2">{formatModelLabelWithContext(row.model)}</td>
                                 <td className="px-3 py-2">{formatInt(row.messages)}</td>
                                 <td className="px-3 py-2">{formatInt(row.total_tokens)}</td>
                                 <td className="px-3 py-2">{formatMoney(row.usd_cost, 'USD')}</td>

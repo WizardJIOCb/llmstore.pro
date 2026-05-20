@@ -123,6 +123,7 @@ export function useUpdateChat() {
       agent_id?: string | null;
       model_external_id?: string | null;
       system_prompt?: string | null;
+      context_window_tokens?: number | null;
       tool_ids?: string[];
       access?: ChatAccess;
       access_identifiers?: string[];
