@@ -3626,14 +3626,16 @@ export async function startRun(
     ? Math.min(runtimeConfig.temperature ?? 0.3, 0.05)
     : (runtimeConfig.temperature ?? 0.3);
   let syncedConversationId: string | null = null;
+  let syncedConversationProjectId: string | null = null;
 
   if (syncToChats) {
     if (options.sync_conversation_id) {
       const existingConversation = await getConversationForUser(options.sync_conversation_id, userId);
       syncedConversationId = existingConversation.id;
+      syncedConversationProjectId = existingConversation.project_id ?? null;
     } else {
       const [existingConversation] = await db
-        .select({ id: chatConversations.id })
+        .select({ id: chatConversations.id, project_id: chatConversations.project_id })
         .from(chatConversations)
         .where(
           and(
@@ -3647,6 +3649,7 @@ export async function startRun(
 
       if (existingConversation) {
         syncedConversationId = existingConversation.id;
+        syncedConversationProjectId = existingConversation.project_id ?? null;
       } else {
         const [createdConversation] = await db.insert(chatConversations).values({
           user_id: userId,
@@ -3655,8 +3658,9 @@ export async function startRun(
           title: (options.sync_chat_title?.trim() || latestUserMessage || 'Новый чат').slice(0, 500),
           model_external_id: modelId,
           last_message_at: new Date(),
-        }).returning({ id: chatConversations.id });
+        }).returning({ id: chatConversations.id, project_id: chatConversations.project_id });
         syncedConversationId = createdConversation.id;
+        syncedConversationProjectId = createdConversation.project_id ?? null;
       }
     }
 
@@ -4918,10 +4922,18 @@ ${input.system_context.trim()}`);
         runId: run.id,
         files: pendingGeneratedFiles,
       });
+      const workspaceFiles = await syncGeneratedFilesToWorkspace({
+        userId,
+        projectId: syncedConversationProjectId,
+        files: pendingGeneratedFiles,
+      });
       if (generatedFiles.length > 0) {
         await db.update(chatConversationMessages)
           .set({
-            usage_json: attachGeneratedFilesToUsage(usagePayload as Record<string, unknown> | null, generatedFiles),
+            usage_json: {
+              ...(attachGeneratedFilesToUsage(usagePayload as Record<string, unknown> | null, generatedFiles) ?? {}),
+              ...(workspaceFiles.length > 0 ? { workspace_files: workspaceFiles } : {}),
+            },
           })
           .where(eq(chatConversationMessages.id, syncedAssistantMessageId));
       }
@@ -7869,6 +7881,56 @@ async function persistGeneratedFilesForMessage(input: {
   ).returning();
 
   return inserted.map((row) => toGeneratedFileMeta(row));
+}
+
+async function syncGeneratedFilesToWorkspace(input: {
+  userId: string;
+  projectId: string | null;
+  files: GeneratedChatFileArtifact[];
+}): Promise<Array<{ path: string; size: number; updated_at: string }>> {
+  if (!input.projectId || input.files.length === 0) return [];
+  const project = await getWorkspaceProjectForUser(input.projectId, input.userId);
+  const syncedFiles: Array<{ path: string; size: number; updated_at: string }> = [];
+  const seenPaths = new Set<string>();
+
+  for (const file of input.files) {
+    try {
+      const sourcePath = safeGeneratedFilePath(file.storage_filename);
+      const fileStats = await stat(sourcePath);
+      if (!fileStats.isFile()) continue;
+
+      const workspacePath = normalizeWorkspaceRelativePath(file.original_name || file.storage_filename);
+      if (!workspacePath || seenPaths.has(workspacePath)) continue;
+      seenPaths.add(workspacePath);
+
+      const buffer = await readFile(sourcePath);
+      const targetPath = safeWorkspacePath(project.root_path, workspacePath);
+      await mkdir(path.dirname(targetPath), { recursive: true });
+      await writeFile(targetPath, buffer);
+      const targetStats = await stat(targetPath);
+      syncedFiles.push({
+        path: workspacePath,
+        size: targetStats.size,
+        updated_at: targetStats.mtime.toISOString(),
+      });
+    } catch (err) {
+      logger.warn({
+        projectId: input.projectId,
+        userId: input.userId,
+        file: file.original_name,
+        err,
+      }, 'Failed to sync generated chat file to workspace');
+    }
+  }
+
+  if (syncedFiles.length > 0) {
+    const now = new Date();
+    await db.update(chatWorkspaceProjects)
+      .set({ last_activity_at: now, updated_at: now })
+      .where(and(eq(chatWorkspaceProjects.id, project.id), eq(chatWorkspaceProjects.user_id, input.userId)));
+  }
+
+  return syncedFiles;
 }
 
 async function loadGeneratedFilesForMessages(

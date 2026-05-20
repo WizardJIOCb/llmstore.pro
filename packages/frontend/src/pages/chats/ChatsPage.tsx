@@ -23,6 +23,7 @@ import {
   PencilLine,
   Pin,
   Radio,
+  RefreshCw,
   Save,
   Settings2,
   Share2,
@@ -2244,6 +2245,7 @@ function AuthenticatedChatsPage() {
             ) {
               void queryClient.invalidateQueries({ queryKey: ['chats', safeActiveChatId] });
               void queryClient.invalidateQueries({ queryKey: ['chats'] });
+              void queryClient.invalidateQueries({ queryKey: ['chat-project-files'] });
               void queryClient.invalidateQueries({ queryKey: ['profile'] });
             }
           }
@@ -3784,6 +3786,22 @@ function AuthenticatedChatsPage() {
       setWorkspaceFileError(getApiErrorMessage(error) ?? 'Не удалось сохранить файл workspace');
     } finally {
       setWorkspaceFileSaving(false);
+    }
+  };
+
+  const refreshActiveWorkspaceFile = async () => {
+    if (!activeWorkspaceFile) return;
+    setWorkspaceFileLoading(true);
+    setWorkspaceFileError(null);
+    try {
+      const file = await chatsApi.getProjectFile(activeWorkspaceFile.projectId, activeWorkspaceFile.path);
+      setWorkspaceFileContent(file.content);
+      setWorkspaceFileOriginalContent(file.content);
+      void queryClient.invalidateQueries({ queryKey: ['chat-project-files', activeWorkspaceFile.projectId] });
+    } catch (error) {
+      setWorkspaceFileError(getApiErrorMessage(error) ?? 'Не удалось обновить файл workspace');
+    } finally {
+      setWorkspaceFileLoading(false);
     }
   };
 
@@ -5561,6 +5579,16 @@ function AuthenticatedChatsPage() {
                   >
                     <Save className="h-3.5 w-3.5" />
                     {workspaceFileSaving ? 'Сохраняю...' : 'Сохранить'}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void refreshActiveWorkspaceFile()}
+                    disabled={workspaceFileLoading || workspaceFileSaving}
+                  >
+                    <RefreshCw className={cn('h-3.5 w-3.5', workspaceFileLoading && 'animate-spin')} />
+                    Обновить
                   </Button>
                   <Button
                     type="button"
