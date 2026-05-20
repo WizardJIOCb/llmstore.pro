@@ -269,6 +269,35 @@ function parseContextWindowInput(value: string): number | null {
   return Math.round(parsed * multiplier);
 }
 
+function readLiveUsageNumber(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  return Math.max(0, Math.round(value));
+}
+
+function getLiveUsageSnapshot(events: LiveChatEvent[]): {
+  prompt_tokens: number | null;
+  completion_tokens: number | null;
+  total_tokens: number | null;
+} | null {
+  let promptTokens: number | null = null;
+  let completionTokens: number | null = null;
+  let totalTokens: number | null = null;
+
+  for (const event of events) {
+    promptTokens = Math.max(promptTokens ?? 0, readLiveUsageNumber(event.prompt_tokens) ?? 0);
+    completionTokens = Math.max(completionTokens ?? 0, readLiveUsageNumber(event.completion_tokens) ?? 0);
+    totalTokens = Math.max(totalTokens ?? 0, readLiveUsageNumber(event.total_tokens) ?? 0);
+  }
+
+  if (!promptTokens && !completionTokens && !totalTokens) return null;
+
+  return {
+    prompt_tokens: promptTokens || null,
+    completion_tokens: completionTokens || null,
+    total_tokens: totalTokens || (promptTokens || completionTokens ? (promptTokens ?? 0) + (completionTokens ?? 0) : null),
+  };
+}
+
 function formatTelegramUsername(username: string | null | undefined): string | null {
   if (!username?.trim()) return null;
   const normalized = username.trim().replace(/^@+/, '');
@@ -2617,7 +2646,21 @@ function AuthenticatedChatsPage() {
     activeChat,
     displayedMessages,
   ]);
-  const activeContextUsedTokens = Math.min(activeContextInputTokens, activeContextWindowTokens);
+  const activeLiveUsage = useMemo(
+    () => getLiveUsageSnapshot(streamEvents),
+    [streamEvents],
+  );
+  const isActiveRunLive = Boolean(
+    assistantResponseSlotForActiveChat
+    || (activeChat?.pending_run && isPendingRunLive(activeChat.pending_run))
+    || runtimeActiveChatIds.includes(activeChat?.id ?? ''),
+  );
+  const activeLiveTotalTokens = isActiveRunLive ? (activeLiveUsage?.total_tokens ?? null) : null;
+  const activeLiveGeneratedTokens = isActiveRunLive ? (activeLiveUsage?.completion_tokens ?? null) : null;
+  const activeContextUsedTokens = Math.min(
+    Math.max(activeContextInputTokens, activeLiveTotalTokens ?? 0),
+    activeContextWindowTokens,
+  );
   const activeContextRemainingTokens = Math.max(
     0,
     activeContextWindowTokens - activeContextUsedTokens - activeOutputReserveTokens,
@@ -2630,6 +2673,9 @@ function AuthenticatedChatsPage() {
     : activeContextLoadPercent >= 70
       ? 'bg-amber-500'
       : 'bg-emerald-500';
+  const activeContextUsedLabel = activeLiveTotalTokens && activeLiveTotalTokens >= activeContextInputTokens
+    ? `использовано сейчас ~${formatContextWindow(activeContextUsedTokens)}`
+    : `использовано ~${formatContextWindow(activeContextUsedTokens)}`;
   const activeContextShortLabel = `context: ${formatContextWindow(activeContextWindowTokens)}`;
   const activeModelDisplayLabel = useMemo(() => {
     if (!activeEffectiveModelId) return 'AI';
@@ -3880,7 +3926,10 @@ function AuthenticatedChatsPage() {
                       <div className="max-w-xl space-y-1">
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] leading-4 text-muted-foreground">
                           <span>{activeContextShortLabel}</span>
-                          <span>использовано ~{formatContextWindow(activeContextUsedTokens)}</span>
+                          <span>{activeContextUsedLabel}</span>
+                          {activeLiveGeneratedTokens ? (
+                            <span className="text-sky-700">сгенерировано сейчас ~{formatContextWindow(activeLiveGeneratedTokens)}</span>
+                          ) : null}
                           <span>резерв ответа ~{formatContextWindow(activeOutputReserveTokens)}</span>
                           <span>осталось ~{formatContextWindow(activeContextRemainingTokens)}</span>
                         </div>

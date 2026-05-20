@@ -4301,6 +4301,12 @@ ${agent.description.trim()}`);
       if (response.usage) {
         recordUsage(response.usage, response.model || modelId, 'orchestrator');
         await chargeAccumulatedUsage();
+        await emitRunEvent('chat.run.status', {
+          run_id: run.id,
+          status: 'model_response_received',
+          label: 'Ответ модели получен',
+          detail: `Модель вернула ${response.usage.completion_tokens} токенов ответа, обновляю бюджет контекста.`,
+        });
       }
 
       const choice = requireFirstChoice(response, 'LLM returned no choices');
