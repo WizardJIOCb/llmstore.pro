@@ -1274,6 +1274,7 @@ function AuthenticatedChatsPage() {
   const liveAutoScrollPinnedRef = useRef(true);
   const initializedAnimatedChatIdsRef = useRef<Set<string>>(new Set());
   const animatedMessageIdsRef = useRef<Set<string>>(new Set());
+  const assistantSlotDelayTokenRef = useRef(0);
   const lateReplyRecoveryAttemptedRef = useRef<Set<string>>(new Set());
   const chatRowRefs = useRef(new Map<string, HTMLDivElement>());
   const messageNodeRefs = useRef(new Map<string, HTMLDivElement>());
@@ -3613,6 +3614,7 @@ function AuthenticatedChatsPage() {
       showLocalError(uploadLimitError);
       return;
     }
+    const isSlashCommand = content.trim().startsWith('/') && files.length === 0;
     const optimisticAttachments = files.map((file) => ({
       filename: file.name,
       original_name: file.name,
@@ -3667,12 +3669,17 @@ function AuthenticatedChatsPage() {
       actualMessageId: null,
     };
     if (assistantSlotDelayTimerRef.current) clearTimeout(assistantSlotDelayTimerRef.current);
-    assistantSlotDelayTimerRef.current = setTimeout(() => {
-      setAssistantResponseSlot((prev) => (
-        prev && prev.chatId !== chatId ? prev : nextAssistantSlot
-      ));
-      assistantSlotDelayTimerRef.current = null;
-    }, ASSISTANT_SLOT_AFTER_USER_DELAY_MS);
+    assistantSlotDelayTokenRef.current += 1;
+    const assistantSlotDelayToken = assistantSlotDelayTokenRef.current;
+    if (!isSlashCommand) {
+      assistantSlotDelayTimerRef.current = setTimeout(() => {
+        if (assistantSlotDelayTokenRef.current !== assistantSlotDelayToken) return;
+        setAssistantResponseSlot((prev) => (
+          prev && prev.chatId !== chatId ? prev : nextAssistantSlot
+        ));
+        assistantSlotDelayTimerRef.current = null;
+      }, ASSISTANT_SLOT_AFTER_USER_DELAY_MS);
+    }
     markChatRuntimeActive(chatId);
 
     try {
@@ -3682,6 +3689,7 @@ function AuthenticatedChatsPage() {
         clearTimeout(assistantSlotDelayTimerRef.current);
         assistantSlotDelayTimerRef.current = null;
       }
+      assistantSlotDelayTokenRef.current += 1;
       const optimisticVisualKey = optimisticMessage.id;
       animatedMessageIdsRef.current.add(result.user_message.id);
       messageVisualKeyByIdRef.current.set(result.user_message.id, optimisticVisualKey);
@@ -3730,9 +3738,11 @@ function AuthenticatedChatsPage() {
 
       const assistantMessage = result.assistant_message;
       setAssistantResponseSlot((prev) => (
-        prev && prev.chatId === chatId
-          ? { ...prev, actualMessageId: assistantMessage.id }
+        prev && prev.chatId !== chatId
+          ? prev
           : prev
+          ? { ...prev, actualMessageId: assistantMessage.id }
+          : null
       ));
       setOptimisticPendingMessage((prev) => (prev?.chatId === chatId ? null : prev));
       markChatRuntimeIdle(chatId);
@@ -3741,6 +3751,7 @@ function AuthenticatedChatsPage() {
         clearTimeout(assistantSlotDelayTimerRef.current);
         assistantSlotDelayTimerRef.current = null;
       }
+      assistantSlotDelayTokenRef.current += 1;
       const code = getApiErrorCode(err);
       const status = getApiErrorStatus(err);
       if (code === 'INSUFFICIENT_BALANCE') {
