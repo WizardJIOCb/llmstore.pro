@@ -795,6 +795,12 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
+function waitForNextFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => resolve());
+  });
+}
+
 function getScrollDistanceFromBottom(container: HTMLElement): number {
   return Math.max(
     0,
@@ -3683,6 +3689,7 @@ function AuthenticatedChatsPage() {
     markChatRuntimeActive(chatId);
 
     try {
+      await waitForNextFrame();
       const attachments = files.length > 0 ? await uploadFilesMutation.mutateAsync(files) : [];
       const result = await sendMessageMutation.mutateAsync({ chatId, content, attachments });
       if (assistantSlotDelayTimerRef.current) {
