@@ -5509,6 +5509,8 @@ type ChatCommandModelOption = typeof CHAT_COMMAND_MODEL_OPTIONS[number];
 interface ChatSlashCommandResult {
   content: string;
   next_model_external_id?: string | null;
+  next_system_prompt?: string | null;
+  next_context_blocks?: ChatContextBlocks | null;
 }
 
 interface ChatConversationRow {
@@ -6028,6 +6030,79 @@ function parseChatContextHistoryLimit(args: string[]): number {
   return Math.min(30, Math.max(1, Math.round(parsed)));
 }
 
+function resolveChatContextBlockKey(value: string | undefined): ChatContextBlockKey | null {
+  const normalized = value?.trim().toLowerCase().replace(/_/g, '-') ?? '';
+  switch (normalized) {
+    case 'brief':
+    case 'бриф':
+      return 'brief';
+    case 'facts':
+    case 'fact':
+    case 'факты':
+    case 'факт':
+      return 'facts';
+    case 'brand':
+    case 'бренд':
+      return 'brand';
+    case 'rules':
+    case 'rule':
+    case 'response-rules':
+    case 'правила':
+    case 'правила-ответа':
+      return 'response_rules';
+    case 'memory':
+    case 'память':
+      return 'memory';
+    default:
+      return null;
+  }
+}
+
+function getChatContextBlockByKey(key: ChatContextBlockKey): typeof CHAT_CONTEXT_BLOCKS[number] {
+  return CHAT_CONTEXT_BLOCKS.find((block) => block.key === key) ?? CHAT_CONTEXT_BLOCKS[0];
+}
+
+function buildContextEditHelp(): string {
+  return [
+    '**Редактирование контекста командами**',
+    '',
+    '**Контекстные блоки**',
+    '- `/context-set brief <текст>` — заменить бриф.',
+    '- `/context-add facts <текст>` — дописать факты в конец блока.',
+    '- `/context-clear memory` — очистить один блок.',
+    '- `/context-clear all` — очистить все редактируемые блоки.',
+    '',
+    '**Коды блоков**',
+    CHAT_CONTEXT_BLOCKS
+      .map((block) => `- \`${block.key}\` — ${block.title}, лимит ${block.maxChars} симв.`)
+      .join('\n'),
+    '',
+    '**Промпт чата**',
+    '- `/prompt-set chat <текст>` — заменить системный промпт этого чата.',
+    '- `/context-prompt-set <текст>` — короткий alias для системного промпта чата.',
+    '- `/prompt-clear chat` — очистить системный промпт этого чата.',
+    '',
+    'Системный и developer prompt агента через команды только просматриваются: `/context-prompts`.',
+  ].join('\n');
+}
+
+function buildContextBlockEditResponse(
+  actionTitle: string,
+  blockKey: ChatContextBlockKey,
+  content: string | null | undefined,
+): string {
+  const block = getChatContextBlockByKey(blockKey);
+  const normalizedContent = content?.trim() ?? '';
+  return [
+    `**${actionTitle}**`,
+    '',
+    `- Блок: ${block.title} (\`${block.key}\`)`,
+    `- Размер: ~${estimateContextTokens(normalizedContent)} ток., ${normalizedContent.length}/${block.maxChars} симв.`,
+    '',
+    'Посмотреть блоки: `/context-blocks`.',
+  ].join('\n');
+}
+
 function buildChatSettingsJson(
   existing: Record<string, unknown> | null | undefined,
   overrides: {
@@ -6123,6 +6198,7 @@ async function buildChatSlashCommandResponse(
   const [rawCommand = '', ...args] = commandText.trim().split(/\s+/);
   const command = rawCommand.toLowerCase();
   if (!command?.startsWith('/')) return null;
+  const commandBody = commandText.trim().slice(rawCommand.length).trim();
 
   const agentMeta = await getAgentChatMeta(chat.agent_id ?? null);
   const chatToolSettings = extractChatToolSettings(chat.settings_json);
@@ -6166,6 +6242,8 @@ async function buildChatSlashCommandResponse(
       '- `/models` — список доступных кодов моделей.',
       '- `/context` — карта контекста: промпты, инструменты, блоки, история.',
       '- `/context-help` — команды для детального просмотра контекста.',
+      '- `/context-set brief <текст>` — заменить редактируемый блок контекста.',
+      '- `/prompt-set chat <текст>` — заменить системный промпт этого чата.',
       '- `/settings` — быстрый снимок настроек чата.',
       '',
       'Команды не отправляются в модель и не списывают баланс.',
@@ -6281,6 +6359,7 @@ async function buildChatSlashCommandResponse(
       '- `/context-tools` — подключённые инструменты и описания.',
       '- `/context-history 10` — последние N сообщений.',
       '- `/context-raw` — компактная raw-сборка того, что добавляется вокруг истории.',
+      '- `/context-edit` — как редактировать блоки и промпт чата командами.',
     ].join('\n') };
   }
 
@@ -6294,7 +6373,12 @@ async function buildChatSlashCommandResponse(
       '- `/context-tools` — эффективный список инструментов, которые доступны в этом чате.',
       '- `/context-history [N]` — последние N сообщений с превью содержимого, по умолчанию 10, максимум 30.',
       '- `/context-raw` — компактная raw-сборка служебного контекста без полной истории.',
+      '- `/context-edit` — команды для изменения контекстных блоков и системного промпта чата.',
     ].join('\n') };
+  }
+
+  if (command === '/context-edit' || command === '/prompt-help' || command === '/context-write') {
+    return { content: buildContextEditHelp() };
   }
 
   if (command === '/context-prompts') {
@@ -6317,8 +6401,131 @@ async function buildChatSlashCommandResponse(
         formatChatCommandContentBlock(block.title, contextBlocks[block.key], block.key === 'facts' ? 8000 : 5000),
         '',
       ])),
-      'Редактируются в свойствах чата во вкладке `Контекст`.',
+      'Редактируются в свойствах чата во вкладке `Контекст` или командами `/context-set`, `/context-add`, `/context-clear`.',
     ].join('\n') };
+  }
+
+  if (command === '/context-set') {
+    const [rawBlock = ''] = commandBody.split(/\s+/);
+    const blockKey = resolveChatContextBlockKey(rawBlock);
+    const nextText = commandBody.slice(rawBlock.length).trim();
+    if (!blockKey || !nextText) {
+      return { content: buildContextEditHelp() };
+    }
+
+    const block = getChatContextBlockByKey(blockKey);
+    const nextBlocks: ChatContextBlocks = {
+      ...contextBlocks,
+      [blockKey]: nextText.replace(/\r\n/g, '\n').trim().slice(0, block.maxChars),
+    };
+    return {
+      content: buildContextBlockEditResponse('Контекстный блок обновлён', blockKey, nextBlocks[blockKey]),
+      next_context_blocks: nextBlocks,
+    };
+  }
+
+  if (command === '/context-add' || command === '/context-append') {
+    const [rawBlock = ''] = commandBody.split(/\s+/);
+    const blockKey = resolveChatContextBlockKey(rawBlock);
+    const appendText = commandBody.slice(rawBlock.length).trim();
+    if (!blockKey || !appendText) {
+      return { content: buildContextEditHelp() };
+    }
+
+    const block = getChatContextBlockByKey(blockKey);
+    const existing = contextBlocks[blockKey]?.trim() ?? '';
+    const nextContent = [existing, appendText.replace(/\r\n/g, '\n').trim()]
+      .filter(Boolean)
+      .join('\n\n')
+      .slice(0, block.maxChars);
+    const nextBlocks: ChatContextBlocks = {
+      ...contextBlocks,
+      [blockKey]: nextContent,
+    };
+    return {
+      content: buildContextBlockEditResponse('Контекстный блок дополнен', blockKey, nextBlocks[blockKey]),
+      next_context_blocks: nextBlocks,
+    };
+  }
+
+  if (command === '/context-clear') {
+    const target = args[0]?.toLowerCase();
+    if (target === 'all' || target === 'все') {
+      return {
+        content: [
+          '**Контекстные блоки очищены**',
+          '',
+          'Все редактируемые блоки этого чата теперь пустые.',
+          '',
+          'Проверить: `/context-blocks`.',
+        ].join('\n'),
+        next_context_blocks: {},
+      };
+    }
+
+    const blockKey = resolveChatContextBlockKey(target);
+    if (!blockKey) {
+      return { content: buildContextEditHelp() };
+    }
+
+    const nextBlocks: ChatContextBlocks = { ...contextBlocks };
+    delete nextBlocks[blockKey];
+    return {
+      content: buildContextBlockEditResponse('Контекстный блок очищен', blockKey, null),
+      next_context_blocks: nextBlocks,
+    };
+  }
+
+  if (command === '/prompt-set' || command === '/context-prompt-set') {
+    const rawScope = args[0]?.toLowerCase();
+    if (command === '/prompt-set' && rawScope && !['chat', 'чат'].includes(rawScope)) {
+      return {
+        content: [
+          '**Этот prompt через команды не меняется**',
+          '',
+          'Командой можно менять только системный промпт конкретного чата:',
+          '',
+          '- `/prompt-set chat <текст>`',
+          '- `/prompt-clear chat`',
+          '',
+          'Агентские prompts смотрите через `/context-prompts` и редактируйте в настройках агента.',
+        ].join('\n'),
+      };
+    }
+    const promptText = command === '/prompt-set' && ['chat', 'чат'].includes(rawScope ?? '')
+      ? commandBody.slice(args[0]?.length ?? 0).trim()
+      : commandBody;
+    const nextPrompt = promptText.replace(/\r\n/g, '\n').trim().slice(0, 12000);
+    if (!nextPrompt) {
+      return { content: buildContextEditHelp() };
+    }
+
+    return {
+      content: [
+        '**Системный промпт чата обновлён**',
+        '',
+        `- Размер: ~${estimateContextTokens(nextPrompt)} ток., ${nextPrompt.length}/12000 симв.`,
+        '',
+        'Посмотреть промпты: `/context-prompts`.',
+      ].join('\n'),
+      next_system_prompt: nextPrompt,
+    };
+  }
+
+  if (command === '/prompt-clear' || command === '/context-prompt-clear') {
+    const rawScope = args[0]?.toLowerCase();
+    if (command === '/prompt-clear' && rawScope && !['chat', 'чат'].includes(rawScope)) {
+      return { content: buildContextEditHelp() };
+    }
+
+    return {
+      content: [
+        '**Системный промпт чата очищен**',
+        '',
+        'Агентские prompts не изменялись. Проверить: `/context-prompts`.',
+      ].join('\n'),
+      next_system_prompt: null,
+    };
   }
 
   if (command === '/context-tools') {
@@ -9851,9 +10058,17 @@ export async function sendChatMessage(
     : null;
   if (slashCommandResponse) {
     const hasModelUpdate = Object.prototype.hasOwnProperty.call(slashCommandResponse, 'next_model_external_id');
+    const hasSystemPromptUpdate = Object.prototype.hasOwnProperty.call(slashCommandResponse, 'next_system_prompt');
+    const hasContextBlocksUpdate = Object.prototype.hasOwnProperty.call(slashCommandResponse, 'next_context_blocks');
     const nextCommandModelExternalId = hasModelUpdate
       ? (slashCommandResponse.next_model_external_id ?? null)
       : (chat.model_external_id ?? null);
+    const nextCommandSystemPrompt = hasSystemPromptUpdate
+      ? (slashCommandResponse.next_system_prompt ?? null)
+      : (chat.system_prompt ?? null);
+    const nextCommandSettingsJson = hasContextBlocksUpdate
+      ? buildChatSettingsJson(chat.settings_json, { context_blocks: slashCommandResponse.next_context_blocks ?? null })
+      : (chat.settings_json ?? null);
     const commandUsage = {
       command: true,
       command_name: trimmedContent.split(/\s+/)[0]?.toLowerCase() ?? '',
@@ -9861,6 +10076,8 @@ export async function sendChatMessage(
       charged_cost: '0',
       usd_to_rub_rate: usdToRubRate,
       model_updated: hasModelUpdate,
+      system_prompt_updated: hasSystemPromptUpdate,
+      context_blocks_updated: hasContextBlocksUpdate,
       next_model_external_id: hasModelUpdate ? nextCommandModelExternalId : undefined,
     };
     const [assistantRow] = await db.insert(chatConversationMessages).values({
@@ -9875,6 +10092,8 @@ export async function sendChatMessage(
     await db.update(chatConversations).set({
       title: nextTitle,
       ...(hasModelUpdate ? { model_external_id: nextCommandModelExternalId } : {}),
+      ...(hasSystemPromptUpdate ? { system_prompt: nextCommandSystemPrompt } : {}),
+      ...(hasContextBlocksUpdate ? { settings_json: nextCommandSettingsJson } : {}),
       last_message_at: new Date(),
       updated_at: new Date(),
     }).where(eq(chatConversations.id, chatId));
@@ -9910,6 +10129,8 @@ export async function sendChatMessage(
         mode: chat.mode,
         agent_id: chat.agent_id ?? null,
         model_external_id: nextCommandModelExternalId,
+        system_prompt: nextCommandSystemPrompt,
+        settings_json: nextCommandSettingsJson,
         share_token: chat.share_token ?? null,
       },
     };
