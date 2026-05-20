@@ -2642,6 +2642,19 @@ function AuthenticatedChatsPage() {
     if (activeAgentListMeta?.model_external_id?.trim()) return activeAgentListMeta.model_external_id.trim();
     return activeChat.mode === 'general' ? 'google/gemini-2.5-flash' : null;
   }, [activeAgentListMeta?.model_external_id, activeChat]);
+  const activePropertiesModelLabel = useMemo(() => {
+    if (!activeChat) return '—';
+    const label = formatModelLabelWithContext(
+      activeEffectiveModelId ?? activeChat.model_external_id ?? activeChat.agent_model_external_id,
+      activeChat.effective_model_label ?? activeChat.agent_model_label ?? activeAgentListMeta?.model_label ?? activeGeneralModel?.label,
+    );
+    return label || '—';
+  }, [
+    activeAgentListMeta?.model_label,
+    activeChat,
+    activeEffectiveModelId,
+    activeGeneralModel?.label,
+  ]);
   const activeContextOverrideTokens = readContextWindowOverride(activeChat?.settings_json);
   const activeContextWindowTokens = activeContextOverrideTokens
     ?? getGeneralModelContextWindow(activeEffectiveModelId)
@@ -5007,7 +5020,11 @@ function AuthenticatedChatsPage() {
               <Button variant="ghost" size="sm" onClick={closePropertiesDialog}>Закрыть</Button>
             </div>
             <div className="p-5 space-y-5 max-h-[70vh] overflow-y-auto">
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+                <div className="rounded-xl border bg-muted/10 p-3 space-y-1">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Текущая модель</p>
+                  <p className="break-words text-sm font-medium">{activePropertiesModelLabel}</p>
+                </div>
                 <div className="rounded-xl border bg-muted/10 p-3 space-y-1">
                   <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Текущий режим</p>
                   <p className="text-sm font-medium">{activeChat.mode === 'general' ? 'Общение' : 'Агент'}</p>
