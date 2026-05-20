@@ -2871,6 +2871,38 @@ export function ChatMessage({
                 ul: ({ children }) => <ul className="list-disc pl-5 my-1 space-y-1">{children}</ul>,
                 p: ({ children }) => <p className="my-1.5 first:mt-0 last:mb-0">{children}</p>,
                 strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+                table: ({ children }) => (
+                  <div className="my-3 max-w-full overflow-x-auto rounded-md border border-slate-200 bg-white shadow-sm">
+                    <table className="min-w-[720px] w-full border-collapse text-left text-[13px] leading-5 text-slate-700">
+                      {children}
+                    </table>
+                  </div>
+                ),
+                thead: ({ children }) => (
+                  <thead className="bg-slate-50 text-slate-950">
+                    {children}
+                  </thead>
+                ),
+                tbody: ({ children }) => (
+                  <tbody className="divide-y divide-slate-100">
+                    {children}
+                  </tbody>
+                ),
+                tr: ({ children }) => (
+                  <tr className="transition-colors hover:bg-slate-50/80">
+                    {children}
+                  </tr>
+                ),
+                th: ({ children }) => (
+                  <th className="sticky top-0 z-[1] border-b border-slate-200 bg-slate-50 px-3 py-2.5 text-left align-top text-xs font-semibold text-slate-900">
+                    {children}
+                  </th>
+                ),
+                td: ({ children }) => (
+                  <td className="max-w-[520px] px-3 py-2.5 align-top text-slate-700 [overflow-wrap:anywhere]">
+                    {children}
+                  </td>
+                ),
                 pre: ({ children }) => <>{children}</>,
                 code: ({ className, children }: ComponentPropsWithoutRef<'code'> & { inline?: boolean }) => {
                   const codeValue = String(children ?? '').replace(/\n$/, '');
