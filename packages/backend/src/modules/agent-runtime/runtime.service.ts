@@ -48,11 +48,13 @@ import {
   getModelDisplayLabel,
   getModelPricingInfo,
   isCodingModel,
+  isVisionModel,
   normalizeModelLookupKey,
   normalizeOpenRouterModelId,
 } from '../../lib/model-pricing.js';
 
 const DEFAULT_MODEL = 'google/gemini-2.0-flash-001';
+const DEFAULT_VISION_CHAT_MODEL = 'google/gemini-2.5-flash';
 const DEFAULT_MAX_ITERATIONS = 4;
 const CHAT_UPLOADS_DIR = path.join(UPLOADS_DIR, 'chat');
 const PROJECT_RUN_TIMEOUT_MS = 20_000;
@@ -9264,7 +9266,10 @@ export async function sendChatMessage(
   let usagePayload: Record<string, unknown> | null = null;
   let latencyMs: number | null = null;
   let completedGeneralModel: string | null = null;
-  const canUseChatTools = openRouterRequestsEnabled && chat.mode === 'general' && chatToolSettings.tool_ids.length > 0;
+  const canUseChatTools = openRouterRequestsEnabled
+    && chat.mode === 'general'
+    && chatToolSettings.tool_ids.length > 0
+    && imageDataUrls.length === 0;
 
   if (!openRouterRequestsEnabled) {
     latencyMs = 0;
@@ -9443,14 +9448,33 @@ export async function sendChatMessage(
         },
       };
     } else {
-      let model = normalizeOpenRouterModelId(chat.model_external_id || DEFAULT_GENERAL_MODEL);
-      const attemptedGeneralModelIds = new Set<string>([model]);
+      const requestedModel = normalizeOpenRouterModelId(chat.model_external_id || DEFAULT_GENERAL_MODEL);
+      let model = requestedModel;
+      const switchedToVisionModel = imageDataUrls.length > 0 && !isVisionModel(model);
+      if (switchedToVisionModel) {
+        model = DEFAULT_VISION_CHAT_MODEL;
+      }
+      const attemptedGeneralModelIds = new Set<string>([requestedModel, model]);
       const startedAt = Date.now();
       emitChatEvent('chat.run.started', {
         mode: 'general',
         model,
         label: 'Отправляю запрос в OpenRouter',
+        detail: switchedToVisionModel
+          ? `В сообщении есть изображение, поэтому вместо ${requestedModel} использую vision-модель ${model}.`
+          : undefined,
+        previous_model: switchedToVisionModel ? requestedModel : undefined,
       });
+      if (switchedToVisionModel) {
+        emitChatEvent('chat.run.status', {
+          mode: 'general',
+          status: 'vision_model_selected',
+          label: 'Переключаю на vision-модель',
+          detail: `Модель ${requestedModel} не умеет читать изображения. Для этого ответа использую ${model}.`,
+          previous_model: requestedModel,
+          model,
+        });
+      }
       try {
         const userContentForGeneral = imageDataUrls.length > 0
           ? ([{ type: 'text' as const, text: userModelText }, ...imageDataUrls.map((url) => ({ type: 'image_url' as const, image_url: { url } }))])

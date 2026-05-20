@@ -128,6 +128,27 @@ export const CODING_MODEL_IDS = new Set([
   'codestral-2508',
 ]);
 
+export const VISION_MODEL_IDS = new Set([
+  'google/gemini-2.0-flash-001',
+  'gemini-2.0-flash-001',
+  'google/gemini-2.0-flash-lite-001',
+  'gemini-2.0-flash-lite-001',
+  'google/gemini-2.5-flash',
+  'gemini-2.5-flash',
+  'google/gemini-2.5-pro',
+  'gemini-2.5-pro',
+  'openai/gpt-4o',
+  'gpt-4o',
+  'openai/gpt-4o-mini',
+  'gpt-4o-mini',
+  'anthropic/claude-haiku-4.5',
+  'claude-haiku-4.5',
+  'anthropic/claude-sonnet-4.6',
+  'claude-sonnet-4.6',
+  'anthropic/claude-opus-4.6',
+  'claude-opus-4.6',
+]);
+
 function normalizeRawModelId(modelId?: string | null): string {
   return modelId?.trim().toLowerCase() ?? '';
 }
@@ -180,6 +201,11 @@ export function getModelDisplayLabel(modelId?: string | null): string | null {
 export function isCodingModel(modelId?: string | null): boolean {
   const normalized = normalizeModelLookupKey(modelId);
   return normalized ? CODING_MODEL_IDS.has(normalized) : false;
+}
+
+export function isVisionModel(modelId?: string | null): boolean {
+  const normalized = normalizeModelLookupKey(modelId);
+  return normalized ? VISION_MODEL_IDS.has(normalized) : false;
 }
 
 export function estimateCost(model: string, promptTokens: number, completionTokens: number): string {
