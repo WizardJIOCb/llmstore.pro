@@ -3666,7 +3666,7 @@ ${agent.description.trim()}`);
         timeoutMs: llmTimeoutMs,
       });
     } catch (error) {
-      if (!shouldTryOpenRouterRuntimeFallback(error)) {
+      if (!shouldTryOpenRouterRuntimeFallback(error, modelId)) {
         throw error;
       }
 
@@ -5065,9 +5065,15 @@ function stringifyErrorDetails(error: unknown): string {
   }
 }
 
-function shouldTryOpenRouterRuntimeFallback(error: unknown): boolean {
+function isKnownFreeOpenRouterModel(modelId?: string | null): boolean {
+  const pricing = getModelPricingInfo(modelId);
+  return pricing?.input === 0 && pricing.output === 0;
+}
+
+function shouldTryOpenRouterRuntimeFallback(error: unknown, currentModelId?: string | null): boolean {
   if (!(error instanceof AppError)) return false;
   if (error.code === 'EMPTY_RESPONSE') return true;
+  if (error.code === 'RATE_LIMITED' && isKnownFreeOpenRouterModel(currentModelId)) return true;
   if (error.code !== 'LLM_PROVIDER_ERROR' && error.code !== 'LLM_BAD_REQUEST') return false;
 
   const haystack = `${error.message} ${stringifyErrorDetails(error)}`.toLowerCase();
@@ -9246,7 +9252,7 @@ export async function sendChatMessage(
               timeoutMs: GENERAL_CHAT_OPENROUTER_TIMEOUT_MS,
             });
           } catch (error) {
-            if (!shouldTryOpenRouterRuntimeFallback(error)) {
+            if (!shouldTryOpenRouterRuntimeFallback(error, model)) {
               throw error;
             }
 
