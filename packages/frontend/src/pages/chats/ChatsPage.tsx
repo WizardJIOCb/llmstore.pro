@@ -110,6 +110,7 @@ const TIMEOUT_REPLY_RECOVERY_ATTEMPT_MS = 4_000;
 const DIALOG_CLOSE_ANIMATION_MS = 200;
 const ASSISTANT_SLOT_AFTER_USER_DELAY_MS = 120;
 const LIVE_AUTO_SCROLL_THRESHOLD_PX = 50;
+const SHOW_SCROLL_TO_BOTTOM_THRESHOLD_PX = 96;
 const EMPTY_MESSAGES: ChatMessageType[] = [];
 const LAST_CHAT_SELECTION_STORAGE_KEY = 'llmstore.last-chat-selection';
 const CHAT_LIST_SCROLL_STORAGE_KEY = 'llmstore.chat-list-scroll-top';
@@ -1249,6 +1250,7 @@ function AuthenticatedChatsPage() {
     actualMessageId: string | null;
   } | null>(null);
   const [enteringMessageIds, setEnteringMessageIds] = useState<string[]>([]);
+  const [showScrollToBottomButton, setShowScrollToBottomButton] = useState(false);
   const [publishedLandingByMessageId, setPublishedLandingByMessageId] = useState<Record<string, PublishedLanding | null>>({});
   const [landingActionMessageIds, setLandingActionMessageIds] = useState<string[]>([]);
   const guestDraftDispatchRef = useRef<string | null>(null);
@@ -1278,6 +1280,7 @@ function AuthenticatedChatsPage() {
   const previousMessageCountRef = useRef(0);
   const previousStreamEventsCountRef = useRef(0);
   const liveAutoScrollPinnedRef = useRef(true);
+  const scrollToBottomInProgressRef = useRef(false);
   const initializedAnimatedChatIdsRef = useRef<Set<string>>(new Set());
   const animatedMessageIdsRef = useRef<Set<string>>(new Set());
   const assistantSlotDelayTokenRef = useRef(0);
@@ -1309,6 +1312,47 @@ function AuthenticatedChatsPage() {
     window.requestAnimationFrame(step);
     window.setTimeout(apply, 90);
     window.setTimeout(apply, 180);
+  };
+  const scrollMessagesToBottom = () => {
+    const container = messagesScrollRef.current;
+    if (!container || typeof window === 'undefined') return;
+
+    liveAutoScrollPinnedRef.current = true;
+    scrollToBottomInProgressRef.current = true;
+    setShowScrollToBottomButton(false);
+
+    if (scrollAnimationFrameRef.current) {
+      cancelAnimationFrame(scrollAnimationFrameRef.current);
+      scrollAnimationFrameRef.current = null;
+    }
+
+    const startTop = container.scrollTop;
+    const targetTop = Math.max(0, container.scrollHeight - container.clientHeight);
+    if (Math.abs(targetTop - startTop) < 2) {
+      container.scrollTop = targetTop;
+      scrollToBottomInProgressRef.current = false;
+      return;
+    }
+
+    const startTime = performance.now();
+    const duration = 220;
+
+    const step = (now: number) => {
+      const progress = Math.min((now - startTime) / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      container.scrollTop = startTop + ((targetTop - startTop) * eased);
+
+      if (progress < 1) {
+        scrollAnimationFrameRef.current = requestAnimationFrame(step);
+        return;
+      }
+
+      container.scrollTop = targetTop;
+      scrollToBottomInProgressRef.current = false;
+      scrollAnimationFrameRef.current = null;
+    };
+
+    scrollAnimationFrameRef.current = requestAnimationFrame(step);
   };
   const markChatRuntimeActive = (chatId: string) => {
     setRuntimeActiveChatIds((prev) => (prev.includes(chatId) ? prev : [...prev, chatId]));
@@ -2083,10 +2127,15 @@ function AuthenticatedChatsPage() {
     if (!container) return;
 
     const syncPinnedState = () => {
-      const isPinned = getScrollDistanceFromBottom(container) <= LIVE_AUTO_SCROLL_THRESHOLD_PX;
+      const distanceFromBottom = getScrollDistanceFromBottom(container);
+      const isPinned = distanceFromBottom <= LIVE_AUTO_SCROLL_THRESHOLD_PX;
       liveAutoScrollPinnedRef.current = isPinned;
+      setShowScrollToBottomButton(distanceFromBottom > SHOW_SCROLL_TO_BOTTOM_THRESHOLD_PX);
+      if (isPinned) {
+        scrollToBottomInProgressRef.current = false;
+      }
 
-      if (!isPinned && scrollAnimationFrameRef.current) {
+      if (!isPinned && scrollAnimationFrameRef.current && !scrollToBottomInProgressRef.current) {
         cancelAnimationFrame(scrollAnimationFrameRef.current);
         scrollAnimationFrameRef.current = null;
       }
@@ -2099,6 +2148,22 @@ function AuthenticatedChatsPage() {
       container.removeEventListener('scroll', syncPinnedState);
     };
   }, [activeChat?.id]);
+
+  useEffect(() => {
+    if (!activeChat?.id) {
+      setShowScrollToBottomButton(false);
+      return;
+    }
+
+    const container = messagesScrollRef.current;
+    if (!container) return;
+    setShowScrollToBottomButton(getScrollDistanceFromBottom(container) > SHOW_SCROLL_TO_BOTTOM_THRESHOLD_PX);
+  }, [
+    activeChat?.id,
+    displayedMessages.length,
+    assistantResponseSlotForActiveChat?.visualKey,
+    streamEvents.length,
+  ]);
 
   useEffect(() => {
     if (!openMenu) return;
@@ -4541,7 +4606,8 @@ function AuthenticatedChatsPage() {
                 'route-transition__content animate-[fadeIn_160ms_ease-out] flex min-h-0 flex-1 flex-col',
               )}
             >
-              <div ref={messagesScrollRef} className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4 pt-2 pb-4 md:py-4">
+              <div className="relative min-h-0 flex-1">
+                <div ref={messagesScrollRef} className="h-full min-w-0 overflow-y-auto overflow-x-hidden px-4 pt-2 pb-4 md:py-4">
                 <div ref={messagesContentRef} className="space-y-4">
             {isAdminForeignChat && (
               <div className="mx-auto max-w-3xl rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
@@ -4941,6 +5007,18 @@ function AuthenticatedChatsPage() {
               </div>
             )}
             </div>
+                {activeChat && showScrollToBottomButton && (
+                  <button
+                    type="button"
+                    className="absolute bottom-4 right-4 z-20 flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white/95 text-slate-700 shadow-[0_16px_36px_-18px_rgba(15,23,42,0.65)] backdrop-blur transition hover:-translate-y-0.5 hover:border-slate-300 hover:bg-white hover:text-slate-950 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    onClick={scrollMessagesToBottom}
+                    aria-label="Прокрутить чат вниз"
+                    title="Прокрутить вниз"
+                  >
+                    <ArrowDown className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                )}
+              </div>
           </div>
 
           {localError && (
