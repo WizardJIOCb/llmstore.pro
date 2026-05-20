@@ -4,6 +4,7 @@ import {
   type ChatAccess,
   type ChatAttachment,
   type ChatContextBlocks,
+  type ChatReasoningEffort,
   type GalleryTextChatSort,
   type ChatListItem,
   type ChatMode,
@@ -97,6 +98,7 @@ export function useCreateChat() {
       mode?: ChatMode;
       agent_id?: string | null;
       model_external_id?: string | null;
+      reasoning_effort?: ChatReasoningEffort | null;
       system_prompt?: string | null;
       tool_ids?: string[];
       access?: ChatAccess;
@@ -123,6 +125,7 @@ export function useUpdateChat() {
       mode?: ChatMode;
       agent_id?: string | null;
       model_external_id?: string | null;
+      reasoning_effort?: ChatReasoningEffort | null;
       system_prompt?: string | null;
       context_window_tokens?: number | null;
       context_blocks?: ChatContextBlocks | null;

@@ -5,6 +5,8 @@ interface RunMetadataProps {
     total_tokens: number;
     estimated_cost?: string;
     charged_cost?: string;
+    provider_key_source?: string;
+    provider_key_hint?: string;
     model?: string;
     usd_to_rub_rate?: number;
   } | null | undefined;

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import * as controller from './profile.controller.js';
 import { requireAuth } from '../../middleware/auth-guard.js';
-import { validateChangePassword } from './profile.validators.js';
+import { validateChangePassword, validateOpenRouterKey } from './profile.validators.js';
 
 const router = Router();
 
@@ -15,6 +15,8 @@ router.post('/alice/link-code', controller.createAliceLinkCode);
 router.post('/telegram/link-code', controller.createTelegramLinkCode);
 router.put('/', controller.updateProfile);
 router.put('/password', validateChangePassword, controller.changePassword);
+router.put('/provider-keys/openrouter', validateOpenRouterKey, controller.upsertOpenRouterKey);
+router.delete('/provider-keys/openrouter', controller.deleteOpenRouterKey);
 router.delete('/linked-accounts/:provider', controller.unlinkAccount);
 
 export const profileRoutes = router;

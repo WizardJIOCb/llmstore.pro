@@ -9,7 +9,7 @@ import type {
   OpenRouterError,
 } from './types.js';
 
-const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1';
+export const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1';
 const DEFAULT_TIMEOUT = 60_000;
 const MAX_TIMEOUT = 15 * 60_000;
 const NO_ENDPOINTS_FOR_PARAMETERS_MESSAGE = 'No endpoints found that can handle the requested parameters';

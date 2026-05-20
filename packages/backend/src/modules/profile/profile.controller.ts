@@ -38,6 +38,24 @@ export async function changePassword(req: Request, res: Response, next: NextFunc
   }
 }
 
+export async function upsertOpenRouterKey(req: Request, res: Response, next: NextFunction) {
+  try {
+    const result = await profileService.upsertOpenRouterKey(req.session.userId!, req.body);
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function deleteOpenRouterKey(req: Request, res: Response, next: NextFunction) {
+  try {
+    const result = await profileService.deleteOpenRouterKey(req.session.userId!);
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function getProfileLeaderboard(req: Request, res: Response, next: NextFunction) {
   try {
     const sort = String(req.query.sort ?? 'tokens') as ProfileLeaderboardSort;

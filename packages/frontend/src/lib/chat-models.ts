@@ -5,6 +5,7 @@ export interface GeneralModelOption {
   context_window_tokens: number;
   pricing_input_usd_per_million: number;
   pricing_output_usd_per_million: number;
+  supports_reasoning?: boolean;
 }
 
 export const GENERAL_CHAT_MODELS: GeneralModelOption[] = [
@@ -103,6 +104,96 @@ export const GENERAL_CHAT_MODELS: GeneralModelOption[] = [
     context_window_tokens: 400_000,
     pricing_input_usd_per_million: 0.75,
     pricing_output_usd_per_million: 4.50,
+    supports_reasoning: true,
+  },
+  {
+    value: 'openai/gpt-5.5',
+    label: 'GPT-5.5',
+    description: 'Флагманская GPT-модель OpenAI через OpenRouter для сложных чатов, анализа, кода и длинного контекста.',
+    context_window_tokens: 1_050_000,
+    pricing_input_usd_per_million: 5.00,
+    pricing_output_usd_per_million: 30.00,
+    supports_reasoning: true,
+  },
+  {
+    value: 'openai/gpt-5.5-pro',
+    label: 'GPT-5.5 Pro',
+    description: 'Премиальный GPT-вариант OpenAI для самых сложных задач, когда важнее максимум качества, чем цена.',
+    context_window_tokens: 1_050_000,
+    pricing_input_usd_per_million: 30.00,
+    pricing_output_usd_per_million: 180.00,
+    supports_reasoning: true,
+  },
+  {
+    value: 'openai/gpt-5.3-codex',
+    label: 'GPT-5.3 Codex',
+    description: 'Сильная Codex-модель для кода, проектов, агентной разработки и правок файлов через OpenRouter.',
+    context_window_tokens: 400_000,
+    pricing_input_usd_per_million: 1.75,
+    pricing_output_usd_per_million: 14.00,
+    supports_reasoning: true,
+  },
+  {
+    value: 'openai/gpt-5.2-codex',
+    label: 'GPT-5.2 Codex',
+    description: 'Codex-модель OpenAI для разработки, ревью и многошаговых технических задач.',
+    context_window_tokens: 400_000,
+    pricing_input_usd_per_million: 1.75,
+    pricing_output_usd_per_million: 14.00,
+    supports_reasoning: true,
+  },
+  {
+    value: 'openai/gpt-5.1-codex-max',
+    label: 'GPT-5.1 Codex Max',
+    description: 'Codex Max для сложных инженерных задач, лендингов и проектов с несколькими файлами.',
+    context_window_tokens: 400_000,
+    pricing_input_usd_per_million: 1.25,
+    pricing_output_usd_per_million: 10.00,
+    supports_reasoning: true,
+  },
+  {
+    value: 'openai/gpt-chat-latest',
+    label: 'GPT Chat Latest',
+    description: 'OpenAI alias на актуальную стабильную chat-модель, близкую к обычному ChatGPT-опыту.',
+    context_window_tokens: 400_000,
+    pricing_input_usd_per_million: 5.00,
+    pricing_output_usd_per_million: 30.00,
+  },
+  {
+    value: 'google/gemini-3.5-flash',
+    label: 'Gemini 3.5 Flash',
+    description: 'Новая быстрая мультимодальная модель с большим контекстом и сильным coding/reasoning профилем.',
+    context_window_tokens: 1_048_576,
+    pricing_input_usd_per_million: 1.50,
+    pricing_output_usd_per_million: 9.00,
+    supports_reasoning: true,
+  },
+  {
+    value: 'google/gemini-3.1-flash-lite',
+    label: 'Gemini 3.1 Flash Lite',
+    description: 'Дешёвая и быстрая мультимодальная модель для повседневных чатов, изображений и документов.',
+    context_window_tokens: 1_048_576,
+    pricing_input_usd_per_million: 0.25,
+    pricing_output_usd_per_million: 1.50,
+    supports_reasoning: true,
+  },
+  {
+    value: 'x-ai/grok-4.3',
+    label: 'Grok 4.3',
+    description: 'Сильная multimodal/reasoning модель xAI с большим контекстом для агентных и аналитических задач.',
+    context_window_tokens: 1_000_000,
+    pricing_input_usd_per_million: 1.25,
+    pricing_output_usd_per_million: 2.50,
+    supports_reasoning: true,
+  },
+  {
+    value: 'x-ai/grok-build-0.1',
+    label: 'Grok Build 0.1',
+    description: 'Модель xAI для агентной разработки и кодинга, полезна для проектов и многофайловых задач.',
+    context_window_tokens: 256_000,
+    pricing_input_usd_per_million: 1.00,
+    pricing_output_usd_per_million: 2.00,
+    supports_reasoning: true,
   },
   {
     value: 'anthropic/claude-haiku-4.5',
@@ -196,6 +287,10 @@ export function getGeneralModelOption(modelId: string | null | undefined): Gener
 
 export function getGeneralModelContextWindow(modelId: string | null | undefined): number | null {
   return getGeneralModelOption(modelId)?.context_window_tokens ?? null;
+}
+
+export function generalModelSupportsReasoning(modelId: string | null | undefined): boolean {
+  return Boolean(getGeneralModelOption(modelId)?.supports_reasoning);
 }
 
 export function getContextWindowBounds(modelId: string | null | undefined): {

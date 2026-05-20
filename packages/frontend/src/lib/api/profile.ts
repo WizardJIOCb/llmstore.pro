@@ -19,6 +19,26 @@ export const profileApi = {
   changePassword: (data: { current_password?: string; new_password: string }) =>
     apiClient.put<{ data: { success: true; has_password: true } }>('/profile/password', data).then(r => r.data.data),
 
+  upsertOpenRouterKey: (data: { api_key: string; label?: string | null }) =>
+    apiClient.put<{
+      data: {
+        configured: boolean;
+        key_hint: string | null;
+        label: string | null;
+        updated_at: string | null;
+      };
+    }>('/profile/provider-keys/openrouter', data).then(r => r.data.data),
+
+  deleteOpenRouterKey: () =>
+    apiClient.delete<{
+      data: {
+        configured: boolean;
+        key_hint: string | null;
+        label: string | null;
+        updated_at: string | null;
+      };
+    }>('/profile/provider-keys/openrouter').then(r => r.data.data),
+
   createAliceLinkCode: () =>
     apiClient.post<{ data: AliceLinkCodeDto }>('/profile/alice/link-code').then((r) => r.data.data),
 

@@ -7,3 +7,10 @@ const changePasswordSchema = z.object({
 });
 
 export const validateChangePassword = validate(changePasswordSchema, 'body');
+
+const openRouterKeySchema = z.object({
+  api_key: z.string().trim().min(20).max(500),
+  label: z.string().trim().max(120).optional().nullable(),
+});
+
+export const validateOpenRouterKey = validate(openRouterKeySchema, 'body');

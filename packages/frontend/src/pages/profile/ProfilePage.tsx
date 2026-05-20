@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import type { AliceProfileLinkDto, ProfileLeaderboardEntry, ProfileLeaderboardSort } from '@llmstore/shared/types';
 import { useChangePassword, useCreateAliceLinkCode, useCreateTelegramLinkCode, useProfile, useProfileLeaderboard, useUnlinkAccount, useUpdateProfile } from '../../hooks/useProfile';
@@ -10,7 +10,7 @@ import { useTopUpStatus } from '../../hooks/usePayments';
 import { useAppSettings } from '../../hooks/useAppSettings';
 import { authApi } from '../../lib/api/auth';
 import { chatsApi, type ChatListItem } from '../../lib/api/chats';
-import { getOAuthLinkUrl } from '../../lib/api/profile';
+import { getOAuthLinkUrl, profileApi } from '../../lib/api/profile';
 import { BalanceTopUpPanel } from '../../components/billing/BalanceTopUpPanel';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -212,9 +212,29 @@ export function ProfilePage() {
   const [leaderboardPage, setLeaderboardPage] = useState(1);
   const [usageChatError, setUsageChatError] = useState<string | null>(null);
   const [pendingUsageAgentId, setPendingUsageAgentId] = useState<string | null>(null);
+  const [openRouterKey, setOpenRouterKey] = useState('');
+  const [openRouterKeyLabel, setOpenRouterKeyLabel] = useState('');
+  const [openRouterKeyMessage, setOpenRouterKeyMessage] = useState<string | null>(null);
   const tokenLeaderboardQuery = useProfileLeaderboard('tokens', true, 1, 1);
   const leaderboardQuery = useProfileLeaderboard(leaderboardSort, isLeaderboardOpen, leaderboardPage, LEADERBOARD_PAGE_SIZE);
   const runsQuery = useRunList();
+  const saveOpenRouterKeyMutation = useMutation({
+    mutationFn: (data: { api_key: string; label?: string | null }) => profileApi.upsertOpenRouterKey(data),
+    onSuccess: () => {
+      setOpenRouterKey('');
+      setOpenRouterKeyMessage('OpenRouter key saved. Chats will use your OpenRouter account first.');
+      queryClient.invalidateQueries({ queryKey: ['profile'] });
+    },
+  });
+  const deleteOpenRouterKeyMutation = useMutation({
+    mutationFn: () => profileApi.deleteOpenRouterKey(),
+    onSuccess: () => {
+      setOpenRouterKey('');
+      setOpenRouterKeyLabel('');
+      setOpenRouterKeyMessage('OpenRouter key removed. Chats will use the system key again.');
+      queryClient.invalidateQueries({ queryKey: ['profile'] });
+    },
+  });
 
   useEffect(() => {
     const oauth = searchParams.get('oauth');
@@ -396,6 +416,26 @@ export function ProfilePage() {
     } finally {
       setPendingUsageAgentId(null);
     }
+  };
+
+  const handleSaveOpenRouterKey = () => {
+    const apiKey = openRouterKey.trim();
+    if (!apiKey) {
+      setOpenRouterKeyMessage('Paste an OpenRouter API key first.');
+      return;
+    }
+    setOpenRouterKeyMessage(null);
+    saveOpenRouterKeyMutation.mutate({
+      api_key: apiKey,
+      label: openRouterKeyLabel.trim() || null,
+    });
+  };
+
+  const handleDeleteOpenRouterKey = () => {
+    if (!profile?.provider_keys.openrouter.configured) return;
+    if (!confirm('Remove saved OpenRouter API key from this account?')) return;
+    setOpenRouterKeyMessage(null);
+    deleteOpenRouterKeyMutation.mutate();
   };
 
   const historyItems = useMemo(() => {
@@ -650,6 +690,78 @@ export function ProfilePage() {
             Курс: $1 = {formatRub(usdToRubRate, { minimumFractionDigits: 0, maximumFractionDigits: 4 })}.
           </p>
           <BalanceTopUpPanel settings={appSettings} />
+          <div className="mt-4 space-y-4 rounded-lg border bg-muted/30 p-4">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="font-medium">OpenRouter BYOK</p>
+                <Badge variant={profile.provider_keys.openrouter.configured ? 'success' : 'outline'}>
+                  {profile.provider_keys.openrouter.configured ? 'ключ подключён' : 'ключ не подключён'}
+                </Badge>
+                {profile.provider_keys.openrouter.key_hint ? (
+                  <span className="font-mono text-xs text-muted-foreground">{profile.provider_keys.openrouter.key_hint}</span>
+                ) : null}
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Если ключ сохранён, запросы OpenRouter в чатах идут через ваш OpenRouter аккаунт, а баланс LLMStore.pro за такие ответы не списывается.
+              </p>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-[1fr_220px]">
+              <div>
+                <label className="text-sm font-medium">OpenRouter API key</label>
+                <Input
+                  type="password"
+                  value={openRouterKey}
+                  onChange={(event) => {
+                    setOpenRouterKey(event.target.value);
+                    setOpenRouterKeyMessage(null);
+                  }}
+                  placeholder="sk-or-..."
+                  autoComplete="off"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">Label</label>
+                <Input
+                  value={openRouterKeyLabel}
+                  onChange={(event) => setOpenRouterKeyLabel(event.target.value)}
+                  placeholder={profile.provider_keys.openrouter.label ?? 'personal key'}
+                  maxLength={120}
+                />
+              </div>
+            </div>
+
+            {openRouterKeyMessage || saveOpenRouterKeyMutation.error || deleteOpenRouterKeyMutation.error ? (
+              <div className={`rounded-lg border px-4 py-3 text-sm ${
+                saveOpenRouterKeyMutation.error || deleteOpenRouterKeyMutation.error
+                  ? 'border-destructive/30 bg-destructive/5 text-destructive'
+                  : 'border-green-200 bg-green-50 text-green-800'
+              }`}>
+                {openRouterKeyMessage
+                  || (saveOpenRouterKeyMutation.error as any)?.response?.data?.error?.message
+                  || (deleteOpenRouterKeyMutation.error as any)?.response?.data?.error?.message
+                  || 'OpenRouter key error'}
+              </div>
+            ) : null}
+
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                onClick={handleSaveOpenRouterKey}
+                disabled={saveOpenRouterKeyMutation.isPending || deleteOpenRouterKeyMutation.isPending}
+              >
+                {saveOpenRouterKeyMutation.isPending ? 'Проверяю...' : 'Сохранить ключ'}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleDeleteOpenRouterKey}
+                disabled={!profile.provider_keys.openrouter.configured || saveOpenRouterKeyMutation.isPending || deleteOpenRouterKeyMutation.isPending}
+              >
+                {deleteOpenRouterKeyMutation.isPending ? 'Удаляю...' : 'Удалить ключ'}
+              </Button>
+            </div>
+          </div>
           {false && <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             Мы в процессе подключения платежей. Возможность пополнения баланса скоро появится.
           </div>}

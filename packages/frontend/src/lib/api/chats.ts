@@ -2,6 +2,7 @@ import { apiClient } from '../api-client';
 
 export type ChatMode = 'general' | 'agent';
 export type ChatAccess = 'public' | 'private' | 'restricted';
+export type ChatReasoningEffort = 'auto' | 'none' | 'low' | 'medium' | 'high' | 'xhigh';
 export type ChatReactionType = 'heart' | 'thumbs_up' | 'thumbs_down' | 'laugh' | 'smile' | 'meh';
 
 export interface CodingReportChangedFile {
@@ -599,6 +600,7 @@ export const chatsApi = {
     mode?: ChatMode;
     agent_id?: string | null;
     model_external_id?: string | null;
+    reasoning_effort?: ChatReasoningEffort | null;
     system_prompt?: string | null;
     tool_ids?: string[];
     access?: ChatAccess;
@@ -613,6 +615,7 @@ export const chatsApi = {
       mode?: ChatMode;
       agent_id?: string | null;
       model_external_id?: string | null;
+      reasoning_effort?: ChatReasoningEffort | null;
       system_prompt?: string | null;
       context_window_tokens?: number | null;
       context_blocks?: ChatContextBlocks | null;

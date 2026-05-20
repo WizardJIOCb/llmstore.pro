@@ -69,6 +69,7 @@ import type {
   ChatMessage as ChatMessageType,
   ChatMode,
   ChatPendingRunState,
+  ChatReasoningEffort,
   CodingReport,
   ProjectDeployment,
   PublishedLanding,
@@ -83,6 +84,7 @@ import {
   getContextWindowBounds,
   getGeneralModelContextWindow,
   getGeneralModelOption,
+  generalModelSupportsReasoning,
   type GeneralModelOption,
 } from '../../lib/chat-models';
 import { cn, formatRub, formatUsd } from '../../lib/utils';
@@ -308,6 +310,13 @@ function readContextWindowOverride(settings: Record<string, unknown> | null | un
   const rounded = Math.round(value);
   if (rounded < MIN_CONTEXT_WINDOW_TOKENS || rounded > MAX_UNKNOWN_CONTEXT_WINDOW_TOKENS) return null;
   return rounded;
+}
+
+function readReasoningEffort(settings: Record<string, unknown> | null | undefined): ChatReasoningEffort {
+  const value = settings?.reasoning_effort;
+  return value === 'none' || value === 'low' || value === 'medium' || value === 'high' || value === 'xhigh'
+    ? value
+    : 'auto';
 }
 
 function readChatContextBlocks(settings: Record<string, unknown> | null | undefined): ChatContextBlocks {
@@ -1209,10 +1218,12 @@ function AuthenticatedChatsPage() {
   const [newChatAgentId, setNewChatAgentId] = useState('');
   const [newChatAgentSearch, setNewChatAgentSearch] = useState('');
   const [newChatModel, setNewChatModel] = useState('google/gemini-2.5-flash');
+  const [newChatReasoningEffort, setNewChatReasoningEffort] = useState<ChatReasoningEffort>('auto');
   const [propertiesTab, setPropertiesTab] = useState<PropertiesTab>('overview');
   const [propertiesModeView, setPropertiesModeView] = useState<PropertiesModeView>('general');
   const [propertiesAgentId, setPropertiesAgentId] = useState('');
   const [propertiesModel, setPropertiesModel] = useState('google/gemini-2.5-flash');
+  const [propertiesReasoningEffort, setPropertiesReasoningEffort] = useState<ChatReasoningEffort>('auto');
   const [propertiesToolIds, setPropertiesToolIds] = useState<string[]>([]);
   const [propertiesAccess, setPropertiesAccess] = useState<ChatAccess>('public');
   const [propertiesAllowedText, setPropertiesAllowedText] = useState('');
@@ -2521,6 +2532,7 @@ function AuthenticatedChatsPage() {
         ? (activeChat.model_external_id ?? '')
         : (activeChat.model_external_id ?? 'google/gemini-2.5-flash'),
     );
+    setPropertiesReasoningEffort(readReasoningEffort(activeChat.settings_json));
     setPropertiesToolIds(activeChat.chat_tool_ids ?? activeChat.tool_ids ?? []);
     setPropertiesAccess(activeChat.access ?? 'public');
     setPropertiesAllowedText((activeChat.access_identifiers ?? []).join('\n'));
@@ -3240,6 +3252,7 @@ function AuthenticatedChatsPage() {
         title: 'Новый чат',
         agent_id: newChatMode === 'agent' ? newChatAgentId : null,
         model_external_id: newChatMode === 'general' ? newChatModel : null,
+        reasoning_effort: newChatReasoningEffort,
       });
       shouldScrollChatListToTopRef.current = true;
       persistChatListScrollTop(0);
@@ -3249,6 +3262,7 @@ function AuthenticatedChatsPage() {
       setIsCreateDialogClosing(false);
       setNewChatMode('general');
       setNewChatAgentId('');
+      setNewChatReasoningEffort('auto');
       setNewChatAgentSearch('');
       setNewChatModel('google/gemini-2.5-flash');
     } catch {
@@ -3529,6 +3543,7 @@ function AuthenticatedChatsPage() {
         mode: isPropertiesAgentMode ? 'agent' : 'general',
         agent_id: isPropertiesAgentMode ? propertiesAgentId : null,
         model_external_id: isPropertiesAgentMode ? (propertiesModel.trim() || null) : propertiesModel,
+        reasoning_effort: propertiesReasoningEffort,
         system_prompt: propertiesChatSystemPrompt.trim() || null,
         context_window_tokens: contextWindowOverride,
         context_blocks: normalizeChatContextBlocks(propertiesContextBlocks),
@@ -5204,6 +5219,27 @@ function AuthenticatedChatsPage() {
                       );
                     })}
                   </div>
+                  <div className="rounded-xl border bg-background p-3">
+                    <label className="text-sm font-medium">Reasoning effort</label>
+                    <Select
+                      value={newChatReasoningEffort}
+                      onChange={(e) => setNewChatReasoningEffort(e.target.value as ChatReasoningEffort)}
+                      options={[
+                        { value: 'auto', label: 'Auto' },
+                        { value: 'none', label: 'None' },
+                        { value: 'low', label: 'Low' },
+                        { value: 'medium', label: 'Medium' },
+                        { value: 'high', label: 'High' },
+                        { value: 'xhigh', label: 'Extra high' },
+                      ]}
+                      className="mt-2 w-full"
+                    />
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      {generalModelSupportsReasoning(newChatModel)
+                        ? 'Будет передаваться в OpenRouter для моделей с reasoning.'
+                        : 'Для этой модели параметр может игнорироваться провайдером.'}
+                    </p>
+                  </div>
                 </div>
               )}
 
@@ -5858,6 +5894,33 @@ function AuthenticatedChatsPage() {
                     </div>
                   </div>
                 )}
+
+                <div className="rounded-xl border bg-background/80 p-4 space-y-3">
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium">Reasoning effort</p>
+                    <p className="text-xs text-muted-foreground">
+                      Управляет глубиной reasoning для моделей OpenRouter, которые поддерживают параметр `reasoning`.
+                    </p>
+                  </div>
+                  <Select
+                    value={propertiesReasoningEffort}
+                    onChange={(e) => setPropertiesReasoningEffort(e.target.value as ChatReasoningEffort)}
+                    options={[
+                      { value: 'auto', label: 'Auto' },
+                      { value: 'none', label: 'None' },
+                      { value: 'low', label: 'Low' },
+                      { value: 'medium', label: 'Medium' },
+                      { value: 'high', label: 'High' },
+                      { value: 'xhigh', label: 'Extra high' },
+                    ]}
+                    className="w-full"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {generalModelSupportsReasoning(propertiesEffectiveModelId)
+                      ? 'Для этой модели параметр будет отправлен в запрос OpenRouter.'
+                      : 'Если выбранная модель не поддерживает reasoning, провайдер может проигнорировать параметр.'}
+                  </p>
+                </div>
 
                 <div className="rounded-xl border bg-background/80 p-4 space-y-3">
                   <div className="space-y-1">

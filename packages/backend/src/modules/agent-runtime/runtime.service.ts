@@ -25,7 +25,7 @@ import { users } from '../../db/schema/auth.js';
 import { aiModels } from '../../db/schema/models.js';
 import { eq, desc, and, or, sql, asc, inArray } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
-import { openRouterClient } from '../openrouter/index.js';
+import { resolveOpenRouterClientForUser } from '../openrouter/user-keys.js';
 import { executeTool } from '../tool-execution/index.js';
 import { executeHttpRequest } from '../tool-execution/executors/http-request.executor.js';
 import { NotFoundError, AppError, ConflictError } from '../../middleware/error-handler.js';
@@ -634,6 +634,7 @@ interface StartRunInput {
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
   variables?: Record<string, string>;
   model_external_id?: string | null;
+  reasoning_effort?: ChatReasoningEffort | null;
   system_context?: string | null;
 }
 
@@ -846,6 +847,63 @@ function resolveOpenRouterReasoningConfig(modelId?: string | null): ChatCompleti
   }
 
   return undefined;
+}
+
+type ChatReasoningEffort = 'auto' | 'none' | 'low' | 'medium' | 'high' | 'xhigh';
+
+const CHAT_REASONING_EFFORTS = new Set<ChatReasoningEffort>(['auto', 'none', 'low', 'medium', 'high', 'xhigh']);
+const OPENROUTER_REASONING_MODEL_IDS = new Set([
+  'openai/gpt-5.5',
+  'openai/gpt-5.5-pro',
+  'openai/gpt-5.4',
+  'openai/gpt-5.4-mini',
+  'openai/gpt-5.3-codex',
+  'openai/gpt-5.2',
+  'openai/gpt-5.2-codex',
+  'openai/gpt-5.1-codex',
+  'openai/gpt-5.1-codex-max',
+  'openai/gpt-5-codex',
+  'openai/gpt-oss-120b:free',
+  'openai/gpt-oss-20b:free',
+  'google/gemini-3.5-flash',
+  'google/gemini-3.1-flash-lite',
+  'google/gemini-2.5-flash',
+  'google/gemini-2.5-pro',
+  'x-ai/grok-4.3',
+  'x-ai/grok-build-0.1',
+  'moonshotai/kimi-k2.6',
+  'kimi-k2.6',
+  'z-ai/glm-5.1',
+  'openrouter/free',
+  'deepseek/deepseek-v4-flash:free',
+  'qwen/qwen3-coder:free',
+  'minimax/minimax-m2.5:free',
+  'nvidia/nemotron-3-super-120b-a12b:free',
+]);
+
+function normalizeChatReasoningEffort(value: unknown): ChatReasoningEffort | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  return CHAT_REASONING_EFFORTS.has(normalized as ChatReasoningEffort)
+    ? normalized as ChatReasoningEffort
+    : null;
+}
+
+function resolveChatReasoningConfig(
+  modelId?: string | null,
+  effortInput?: unknown,
+): ChatCompletionParams['reasoning'] | undefined {
+  const normalizedModelId = normalizeModelLookupKey(modelId);
+  const explicitEffort = normalizeChatReasoningEffort(effortInput);
+  if (explicitEffort && explicitEffort !== 'auto') {
+    if (!OPENROUTER_REASONING_MODEL_IDS.has(normalizedModelId)) return undefined;
+    if (explicitEffort === 'none') {
+      return { effort: 'none', exclude: true, enabled: false };
+    }
+    return { effort: explicitEffort };
+  }
+
+  return resolveOpenRouterReasoningConfig(modelId);
 }
 
 function extractJsonObjectFromAssistantContent(content: string): Record<string, unknown> | null {
@@ -3475,7 +3533,11 @@ export async function startRun(
   options: StartRunOptions = {},
 ): Promise<RunResult> {
   const startTime = Date.now();
-  await ensureSufficientBalance(userId);
+  const openRouterRuntime = await resolveOpenRouterClientForUser(userId);
+  const usesUserOpenRouterKey = openRouterRuntime.source === 'user';
+  if (!usesUserOpenRouterKey) {
+    await ensureSufficientBalance(userId);
+  }
   const syncToChats = options.sync_to_chats ?? false;
   const chargeUsage = options.charge_usage ?? true;
   const billingUserRole = options.user_role ?? 'user';
@@ -3683,7 +3745,7 @@ ${input.system_context.trim()}`);
     toolParams.length,
     previewOnlyLandingRequest,
   );
-  let reasoningConfig = resolveOpenRouterReasoningConfig(modelId);
+  let reasoningConfig = resolveChatReasoningConfig(modelId, input.reasoning_effort);
   const landingBuildRequest = landingDetectionEnabled && looksLikeLandingBuildRequest(latestUserMessage) && !strictPreviewEdit;
   let responseMaxTokens = resolveAgentResponseMaxTokens(
     runtimeConfig.max_tokens,
@@ -3744,7 +3806,10 @@ ${input.system_context.trim()}`);
   );
   const getUsageBreakdownPayload = () => serializeUsageBreakdown(usageBreakdown);
   const getActualBillingPayload = () => ({
-    charged_cost: chargedCostUsd > 0 ? chargedCostUsd.toFixed(4) : undefined,
+    provider_key_source: openRouterRuntime.source,
+    provider_key_hint: openRouterRuntime.key_hint ?? undefined,
+    byok: usesUserOpenRouterKey || undefined,
+    charged_cost: usesUserOpenRouterKey ? '0.0000' : (chargedCostUsd > 0 ? chargedCostUsd.toFixed(4) : undefined),
     provider_cost: pricedProviderCostUsd > 0 ? pricedProviderCostUsd.toFixed(6) : undefined,
     pricing_margin_usd: chargedCostUsd > 0
       ? (chargedCostUsd - pricedProviderCostUsd).toFixed(6)
@@ -3801,7 +3866,7 @@ ${input.system_context.trim()}`);
       toolParams.length,
       previewOnlyLandingRequest,
     );
-    reasoningConfig = resolveOpenRouterReasoningConfig(modelId);
+    reasoningConfig = resolveChatReasoningConfig(modelId, input.reasoning_effort);
     responseMaxTokens = resolveAgentResponseMaxTokens(
       runtimeConfig.max_tokens,
       modelId,
@@ -3822,7 +3887,7 @@ ${input.system_context.trim()}`);
     });
 
     try {
-      return await openRouterClient.chatCompletion(buildParams(), {
+      return await openRouterRuntime.client.chatCompletion(buildParams(), {
         timeoutMs: llmTimeoutMs,
       });
     } catch (error) {
@@ -3855,7 +3920,7 @@ ${input.system_context.trim()}`);
         model: fallbackModel,
       });
 
-      return openRouterClient.chatCompletion(buildParams(), {
+      return openRouterRuntime.client.chatCompletion(buildParams(), {
         timeoutMs: llmTimeoutMs,
       });
     }
@@ -3865,6 +3930,10 @@ ${input.system_context.trim()}`);
 
     const targetProviderCost = Number(getEstimatedCostTotal());
     if (!Number.isFinite(targetProviderCost) || targetProviderCost <= 0) return;
+    if (usesUserOpenRouterKey) {
+      pricedProviderCostUsd = targetProviderCost;
+      return;
+    }
 
     const providerDeltaUsd = targetProviderCost - pricedProviderCostUsd;
     if (!force && providerDeltaUsd < 0.0001) return;
@@ -4722,6 +4791,9 @@ ${input.system_context.trim()}`);
           run_total_charged_cost: chargedCostUsd.toFixed(4),
           run_total_provider_cost: pricedProviderCostUsd.toFixed(6),
           pricing_margin_usd: (chargedCostUsd - pricedProviderCostUsd).toFixed(6),
+          provider_key_source: openRouterRuntime.source,
+          provider_key_hint: openRouterRuntime.key_hint ?? undefined,
+          byok: usesUserOpenRouterKey || undefined,
         } as Record<string, unknown>,
       }))
       : [{
@@ -4738,6 +4810,9 @@ ${input.system_context.trim()}`);
           run_total_charged_cost: chargedCostUsd.toFixed(4),
           run_total_provider_cost: pricedProviderCostUsd.toFixed(6),
           pricing_margin_usd: (chargedCostUsd - pricedProviderCostUsd).toFixed(6),
+          provider_key_source: openRouterRuntime.source,
+          provider_key_hint: openRouterRuntime.key_hint ?? undefined,
+          byok: usesUserOpenRouterKey || undefined,
         },
       }];
     await db.insert(usageLedger).values(ledgerRows);
@@ -5495,6 +5570,16 @@ const CHAT_COMMAND_MODEL_OPTIONS = [
   { value: 'openrouter/owl-alpha', label: 'Owl Alpha Free', contextWindowTokens: 1_048_756, free: true },
   { value: 'minimax/minimax-m2.5:free', label: 'MiniMax M2.5 Free', contextWindowTokens: 204_800, free: true },
   { value: 'openai/gpt-5.4-mini', label: 'GPT-5.4 Mini', contextWindowTokens: 400_000, free: false },
+  { value: 'openai/gpt-5.5', label: 'GPT-5.5', contextWindowTokens: 1_050_000, free: false },
+  { value: 'openai/gpt-5.5-pro', label: 'GPT-5.5 Pro', contextWindowTokens: 1_050_000, free: false },
+  { value: 'openai/gpt-5.3-codex', label: 'GPT-5.3 Codex', contextWindowTokens: 400_000, free: false },
+  { value: 'openai/gpt-5.2-codex', label: 'GPT-5.2 Codex', contextWindowTokens: 400_000, free: false },
+  { value: 'openai/gpt-5.1-codex-max', label: 'GPT-5.1 Codex Max', contextWindowTokens: 400_000, free: false },
+  { value: 'openai/gpt-chat-latest', label: 'GPT Chat Latest', contextWindowTokens: 400_000, free: false },
+  { value: 'google/gemini-3.5-flash', label: 'Gemini 3.5 Flash', contextWindowTokens: 1_048_576, free: false },
+  { value: 'google/gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite', contextWindowTokens: 1_048_576, free: false },
+  { value: 'x-ai/grok-4.3', label: 'Grok 4.3', contextWindowTokens: 1_000_000, free: false },
+  { value: 'x-ai/grok-build-0.1', label: 'Grok Build 0.1', contextWindowTokens: 256_000, free: false },
   { value: 'anthropic/claude-haiku-4.5', label: 'Claude Haiku 4.5', contextWindowTokens: 200_000, free: false },
   { value: 'google/gemini-2.5-pro', label: 'Gemini 2.5 Pro', contextWindowTokens: 1_048_576, free: false },
   { value: 'moonshotai/kimi-k2.6', label: 'Kimi K2.6', contextWindowTokens: 262_144, free: false },
@@ -5511,6 +5596,7 @@ interface ChatSlashCommandResult {
   next_model_external_id?: string | null;
   next_system_prompt?: string | null;
   next_context_blocks?: ChatContextBlocks | null;
+  next_reasoning_effort?: ChatReasoningEffort | null;
 }
 
 interface ChatConversationRow {
@@ -6111,6 +6197,7 @@ function buildChatSettingsJson(
     note?: string | null;
     context_window_tokens?: number | null;
     context_blocks?: ChatContextBlocks | null;
+    reasoning_effort?: ChatReasoningEffort | null;
   },
 ): Record<string, unknown> | null {
   const base = (existing && typeof existing === 'object' && !Array.isArray(existing))
@@ -6153,6 +6240,15 @@ function buildChatSettingsJson(
       base.context_blocks = blocks;
     } else {
       delete base.context_blocks;
+    }
+  }
+
+  if (overrides.reasoning_effort !== undefined) {
+    const normalizedReasoningEffort = normalizeChatReasoningEffort(overrides.reasoning_effort);
+    if (normalizedReasoningEffort && normalizedReasoningEffort !== 'auto') {
+      base.reasoning_effort = normalizedReasoningEffort;
+    } else {
+      delete base.reasoning_effort;
     }
   }
 
@@ -6240,6 +6336,8 @@ async function buildChatSlashCommandResponse(
       '- `/model` — текущая модель и откуда она взялась.',
       '- `/model <code>` — установить модель чата, например `/model deepseek/deepseek-v4-flash:free`.',
       '- `/models` — список доступных кодов моделей.',
+      '- `/reasoning` — текущий reasoning effort.',
+      '- `/reasoning low|medium|high|xhigh|none|auto` — установить reasoning effort, где модель поддерживает reasoning.',
       '- `/context` — карта контекста: промпты, инструменты, блоки, история.',
       '- `/context-help` — команды для детального просмотра контекста.',
       '- `/context-set brief <текст>` — заменить редактируемый блок контекста.',
@@ -6278,6 +6376,7 @@ async function buildChatSlashCommandResponse(
       `- Режим: ${chat.mode === 'agent' ? 'Агент' : 'Общение'}`,
       `- Агент: ${agentMeta.agent_name ?? '—'}`,
       `- Модель: ${modelLabel}`,
+      `- Reasoning: ${normalizeChatReasoningEffort(chat.settings_json?.reasoning_effort) ?? 'auto'}`,
       `- Сообщений: ${messages.length}`,
       `- Инструментов доступно: ${effectiveTools.length}`,
       `- Контекстные блоки: ${Object.keys(contextBlocks).length}/${CHAT_CONTEXT_BLOCKS.length}`,
@@ -6326,8 +6425,45 @@ async function buildChatSlashCommandResponse(
       `- model id: \`${modelId}\``,
       `- Модель выбрана в чате: ${chat.model_external_id ? `\`${chat.model_external_id}\`` : 'нет'}`,
       `- Модель агента по умолчанию: ${agentMeta.agent_model_external_id ? `\`${agentMeta.agent_model_external_id}\`` : 'нет'}`,
+      `- Reasoning effort: ${normalizeChatReasoningEffort(chat.settings_json?.reasoning_effort) ?? 'auto'}`,
       '',
       'Чтобы сменить модель: `/model <code>`. Список кодов: `/models`.',
+    ].join('\n') };
+  }
+
+  if (command === '/reasoning') {
+    const requestedEffort = args.join(' ').trim().toLowerCase();
+    const currentEffort = normalizeChatReasoningEffort(chat.settings_json?.reasoning_effort) ?? 'auto';
+    if (requestedEffort) {
+      const nextEffort = normalizeChatReasoningEffort(requestedEffort);
+      if (!nextEffort) {
+        return { content: [
+          `Не понял reasoning effort: \`${requestedEffort}\`.`,
+          '',
+          'Доступно: `auto`, `none`, `low`, `medium`, `high`, `xhigh`.',
+        ].join('\n') };
+      }
+
+      return { content: [
+        '**Reasoning effort обновлён**',
+        '',
+        `- Было: ${currentEffort}`,
+        `- Теперь: ${nextEffort}`,
+        nextEffort === 'auto'
+          ? '- В запрос будет уходить авто-настройка модели.'
+          : nextEffort === 'none'
+          ? '- Reasoning будет явно отключён для моделей, которые принимают этот параметр.'
+          : '- Этот параметр будет отправлен в OpenRouter для моделей с поддержкой `reasoning`.',
+      ].join('\n'), next_reasoning_effort: nextEffort };
+    }
+
+    return { content: [
+      '**Reasoning effort**',
+      '',
+      `- Сейчас: ${currentEffort}`,
+      `- Модель: ${modelLabel} (\`${modelId}\`)`,
+      '',
+      'Изменить: `/reasoning low`, `/reasoning medium`, `/reasoning high`, `/reasoning xhigh`, `/reasoning none`, `/reasoning auto`.',
     ].join('\n') };
   }
 
@@ -6611,6 +6747,7 @@ async function buildChatSlashCommandResponse(
       `- Pinned: ${chat.pinned_at ? 'да' : 'нет'}`,
       `- Tool ids: ${chatToolSettings.tool_ids.length ? chatToolSettings.tool_ids.join(', ') : 'нет'}`,
       `- Context override: ${normalizeContextWindowOverride(chat.settings_json?.context_window_tokens) ?? 'авто'}`,
+      `- Reasoning effort: ${normalizeChatReasoningEffort(chat.settings_json?.reasoning_effort) ?? 'auto'}`,
       `- Note: ${extractChatNote(chat.settings_json) ?? '—'}`,
     ].join('\n') };
   }
@@ -8794,6 +8931,7 @@ export async function createChat(userId: string, input: {
   agent_id?: string | null;
   model_external_id?: string | null;
   system_prompt?: string | null;
+  reasoning_effort?: ChatReasoningEffort | null;
   tool_ids?: string[];
   context_window_tokens?: number | null;
   access?: ChatAccess;
@@ -8826,6 +8964,7 @@ export async function createChat(userId: string, input: {
     tool_ids: normalizedToolIds,
     tool_agent_id: null,
     note: input.note ?? null,
+    reasoning_effort: input.reasoning_effort ?? null,
   });
 
   const [chat] = await db.insert(chatConversations).values({
@@ -9571,6 +9710,7 @@ export async function updateChat(chatId: string, userId: string, input: {
   agent_id?: string | null;
   model_external_id?: string | null;
   system_prompt?: string | null;
+  reasoning_effort?: ChatReasoningEffort | null;
   context_window_tokens?: number | null;
   context_blocks?: ChatContextBlocks | null;
   tool_ids?: string[];
@@ -9651,6 +9791,7 @@ export async function updateChat(chatId: string, userId: string, input: {
         note: input.note,
         context_window_tokens: input.context_window_tokens,
         context_blocks: input.context_blocks,
+        reasoning_effort: input.reasoning_effort,
       }),
       updated_at: new Date(),
     })
@@ -9967,7 +10108,9 @@ export async function sendChatMessage(
     throw new AppError(400, 'VALIDATION_ERROR', 'Message cannot be empty');
   }
   const isSlashCommand = trimmedContent.startsWith('/') && (attachmentsInput ?? []).length === 0;
-  if (openRouterRequestsEnabled && !isSlashCommand) {
+  const openRouterRuntime = await resolveOpenRouterClientForUser(userId);
+  const usesUserOpenRouterKey = openRouterRuntime.source === 'user';
+  if (openRouterRequestsEnabled && !isSlashCommand && !usesUserOpenRouterKey) {
     await ensureSufficientBalance(userId);
   }
 
@@ -10060,14 +10203,18 @@ export async function sendChatMessage(
     const hasModelUpdate = Object.prototype.hasOwnProperty.call(slashCommandResponse, 'next_model_external_id');
     const hasSystemPromptUpdate = Object.prototype.hasOwnProperty.call(slashCommandResponse, 'next_system_prompt');
     const hasContextBlocksUpdate = Object.prototype.hasOwnProperty.call(slashCommandResponse, 'next_context_blocks');
+    const hasReasoningUpdate = Object.prototype.hasOwnProperty.call(slashCommandResponse, 'next_reasoning_effort');
     const nextCommandModelExternalId = hasModelUpdate
       ? (slashCommandResponse.next_model_external_id ?? null)
       : (chat.model_external_id ?? null);
     const nextCommandSystemPrompt = hasSystemPromptUpdate
       ? (slashCommandResponse.next_system_prompt ?? null)
       : (chat.system_prompt ?? null);
-    const nextCommandSettingsJson = hasContextBlocksUpdate
-      ? buildChatSettingsJson(chat.settings_json, { context_blocks: slashCommandResponse.next_context_blocks ?? null })
+    const nextCommandSettingsJson = (hasContextBlocksUpdate || hasReasoningUpdate)
+      ? buildChatSettingsJson(chat.settings_json, {
+        ...(hasContextBlocksUpdate ? { context_blocks: slashCommandResponse.next_context_blocks ?? null } : {}),
+        ...(hasReasoningUpdate ? { reasoning_effort: slashCommandResponse.next_reasoning_effort ?? null } : {}),
+      })
       : (chat.settings_json ?? null);
     const commandUsage = {
       command: true,
@@ -10078,7 +10225,9 @@ export async function sendChatMessage(
       model_updated: hasModelUpdate,
       system_prompt_updated: hasSystemPromptUpdate,
       context_blocks_updated: hasContextBlocksUpdate,
+      reasoning_updated: hasReasoningUpdate,
       next_model_external_id: hasModelUpdate ? nextCommandModelExternalId : undefined,
+      next_reasoning_effort: hasReasoningUpdate ? normalizeChatReasoningEffort(slashCommandResponse.next_reasoning_effort) : undefined,
     };
     const [assistantRow] = await db.insert(chatConversationMessages).values({
       conversation_id: chatId,
@@ -10093,7 +10242,7 @@ export async function sendChatMessage(
       title: nextTitle,
       ...(hasModelUpdate ? { model_external_id: nextCommandModelExternalId } : {}),
       ...(hasSystemPromptUpdate ? { system_prompt: nextCommandSystemPrompt } : {}),
-      ...(hasContextBlocksUpdate ? { settings_json: nextCommandSettingsJson } : {}),
+      ...((hasContextBlocksUpdate || hasReasoningUpdate) ? { settings_json: nextCommandSettingsJson } : {}),
       last_message_at: new Date(),
       updated_at: new Date(),
     }).where(eq(chatConversations.id, chatId));
@@ -10144,13 +10293,13 @@ export async function sendChatMessage(
   let generalChatModelToPersist: string | null = null;
   let assistantGeneratedImageArtifacts: GeneratedChatFileArtifact[] = [];
   const wantsImageGeneration = detectImageGenerationIntent(trimmedContent);
-  const canUseChatTools = openRouterRequestsEnabled
+  const canUseChatTools = (openRouterRequestsEnabled || usesUserOpenRouterKey)
     && chat.mode === 'general'
     && chatToolSettings.tool_ids.length > 0
     && imageDataUrls.length === 0
     && !wantsImageGeneration;
 
-  if (!openRouterRequestsEnabled) {
+  if (!openRouterRequestsEnabled && !usesUserOpenRouterKey) {
     latencyMs = 0;
     assistantText = openRouterDisabledMessage || 'В данный момент отправка запросов отключена. В скором времени отправка снова будет доступна.';
     emitChatEvent('chat.run.skipped', {
@@ -10204,6 +10353,7 @@ export async function sendChatMessage(
           .filter((m) => m.role === 'user' || m.role === 'assistant')
           .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
         model_external_id: chat.model_external_id ?? null,
+        reasoning_effort: normalizeChatReasoningEffort(chat.settings_json?.reasoning_effort),
         system_context: chatRunSystemContext || null,
       }, {
         sync_to_chats: true,
@@ -10286,6 +10436,7 @@ export async function sendChatMessage(
           .filter((m) => m.role === 'user' || m.role === 'assistant')
           .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
         model_external_id: chat.model_external_id ?? DEFAULT_GENERAL_MODEL,
+        reasoning_effort: normalizeChatReasoningEffort(chat.settings_json?.reasoning_effort),
         system_context: chatRunSystemContext || null,
       }, {
         sync_to_chats: true,
@@ -10395,12 +10546,12 @@ export async function sendChatMessage(
             : undefined,
           temperature: 0.5,
           max_tokens: 2048,
-          reasoning: resolveOpenRouterReasoningConfig(model),
+          reasoning: resolveChatReasoningConfig(model, chat.settings_json?.reasoning_effort),
           provider: resolveOpenRouterProviderPreferences(model, 0),
         });
         const requestGeneralCompletion = async () => {
           try {
-            return await openRouterClient.chatCompletion(buildGeneralRequest(), {
+            return await openRouterRuntime.client.chatCompletion(buildGeneralRequest(), {
               timeoutMs: GENERAL_CHAT_OPENROUTER_TIMEOUT_MS,
             });
           } catch (error) {
@@ -10435,7 +10586,7 @@ export async function sendChatMessage(
               model: fallbackModel,
             });
 
-            return openRouterClient.chatCompletion(buildGeneralRequest(), {
+            return openRouterRuntime.client.chatCompletion(buildGeneralRequest(), {
               timeoutMs: GENERAL_CHAT_OPENROUTER_TIMEOUT_MS,
             });
           }
@@ -10473,7 +10624,7 @@ export async function sendChatMessage(
             });
 
             try {
-              response = await openRouterClient.chatCompletion(buildGeneralRequest(), {
+              response = await openRouterRuntime.client.chatCompletion(buildGeneralRequest(), {
                 timeoutMs: GENERAL_CHAT_OPENROUTER_TIMEOUT_MS,
               });
               completedGeneralModel = model;
@@ -10551,7 +10702,16 @@ export async function sendChatMessage(
   const usageModel = typeof usagePayload?.model === 'string'
     ? usagePayload.model
     : (completedGeneralModel ?? chat.model_external_id ?? DEFAULT_GENERAL_MODEL);
-  const pricingQuote = providerCost > 0
+  if (usagePayload) {
+    usagePayload = {
+      ...usagePayload,
+      provider_key_source: openRouterRuntime.source,
+      provider_key_hint: openRouterRuntime.key_hint ?? undefined,
+      byok: usesUserOpenRouterKey || undefined,
+      reasoning_effort: normalizeChatReasoningEffort(chat.settings_json?.reasoning_effort) ?? 'auto',
+    };
+  }
+  const pricingQuote = providerCost > 0 && !usesUserOpenRouterKey
     ? await calculateCustomerChargeForUsage({
       provider_cost_usd: providerCost,
       model_external_id: usageModel,
@@ -10559,7 +10719,7 @@ export async function sendChatMessage(
       user_id: userId,
     })
     : null;
-  const chargedCost = pricingQuote?.customer_charge_usd ?? providerCost;
+  const chargedCost = usesUserOpenRouterKey ? 0 : (pricingQuote?.customer_charge_usd ?? providerCost);
   if (usagePayload && pricingQuote) {
     usagePayload = {
       ...usagePayload,
@@ -10579,6 +10739,14 @@ export async function sendChatMessage(
         : `Списание за чат ${chat.title === 'Новый чат' ? compactTitle(trimmedContent || 'Вложение') : chat.title}`,
     })
     : null;
+
+  if (usagePayload && usesUserOpenRouterKey) {
+    usagePayload = {
+      ...usagePayload,
+      provider_cost: providerCost > 0 ? providerCost.toFixed(6) : undefined,
+      charged_cost: '0.0000',
+    };
+  }
 
   if (usagePayload && chargeResult?.charged_amount_usd) {
     usagePayload = {

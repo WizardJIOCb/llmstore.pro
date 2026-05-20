@@ -1,4 +1,4 @@
-﻿import { eq, sql } from 'drizzle-orm';
+﻿import { and, eq, sql } from 'drizzle-orm';
 import { db } from '../../config/database.js';
 import { env } from '../../config/env.js';
 import { desc } from 'drizzle-orm';
@@ -13,6 +13,7 @@ import {
   telegramLinks,
   balanceTransactions,
   emailVerificationTokens,
+  userProviderKeys,
 } from '../../db/schema/index.js';
 import { AppError, ConflictError, NotFoundError } from '../../middleware/error-handler.js';
 import { ROLE_LIMITS } from '@llmstore/shared';
@@ -31,6 +32,9 @@ import type {
   TelegramLinkCodeDto,
 } from '@llmstore/shared/types';
 import { getUsdToRubRate } from '../../lib/app-settings.js';
+import { encryptSecret } from '../../lib/secret-vault.js';
+import { OpenRouterClient } from '../openrouter/client.js';
+import { getUserOpenRouterKeyStatus } from '../openrouter/user-keys.js';
 
 function toFixedAmount(value: number, scale = 4): string {
   return value.toFixed(scale);
@@ -60,6 +64,12 @@ function generateAliceLinkCode(): string {
 
 function generateTelegramLinkCode(): string {
   return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+function buildApiKeyHint(apiKey: string): string {
+  const compact = apiKey.trim();
+  if (compact.length <= 8) return compact;
+  return `${compact.slice(0, 6)}...${compact.slice(-4)}`;
 }
 
 async function getActiveAliceLinkCode(userId: string): Promise<AliceLinkCodeDto | null> {
@@ -185,7 +195,11 @@ async function getBalanceHistory(userId: string): Promise<BalanceHistoryItem[]> 
         cc.title AS chat_title,
         COALESCE(ccm.usage_json->>'model', cc.model_external_id) AS model,
         COALESCE(NULLIF(ccm.usage_json->>'total_tokens', '')::numeric, 0)::text AS total_tokens,
-        COALESCE(NULLIF(ccm.usage_json->>'estimated_cost', '')::numeric, 0)::text AS estimated_cost
+        CASE
+          WHEN ccm.usage_json->>'provider_key_source' = 'user'
+            THEN COALESCE(NULLIF(ccm.usage_json->>'charged_cost', '')::numeric, 0)::text
+          ELSE COALESCE(NULLIF(ccm.usage_json->>'estimated_cost', '')::numeric, 0)::text
+        END AS estimated_cost
       FROM chat_conversation_messages ccm
       INNER JOIN chat_conversations cc ON cc.id = ccm.conversation_id
       WHERE cc.user_id = ${userId}
@@ -206,7 +220,11 @@ async function getBalanceHistory(userId: string): Promise<BalanceHistoryItem[]> 
         COALESCE(a.name, 'Удаленный агент') AS agent_name,
         ul.model_external_id AS model,
         COALESCE(ul.total_tokens, ul.prompt_tokens + ul.completion_tokens, 0) AS total_tokens,
-        COALESCE(ul.estimated_cost, 0)::text AS estimated_cost
+        CASE
+          WHEN ul.raw_usage_json->>'provider_key_source' = 'user'
+            THEN '0'
+          ELSE COALESCE(ul.estimated_cost, 0)::text
+        END AS estimated_cost
       FROM usage_ledger ul
       INNER JOIN agent_runs ar ON ar.id = ul.run_id
       LEFT JOIN agents a ON a.id = ar.agent_id
@@ -513,7 +531,7 @@ export async function getProfile(userId: string): Promise<UserProfile> {
     throw new NotFoundError('Пользователь не найден');
   }
 
-  const [accounts, usage, balanceHistory, pendingVerificationTokens, aliceLinks, aliceSettings, aliceLinkCode, telegramLink, telegramLinkCode] = await Promise.all([
+  const [accounts, usage, balanceHistory, pendingVerificationTokens, aliceLinks, aliceSettings, aliceLinkCode, telegramLink, telegramLinkCode, openRouterKeyStatus] = await Promise.all([
     db.select({
       provider: authAccounts.provider,
       provider_account_id: authAccounts.provider_account_id,
@@ -572,6 +590,7 @@ export async function getProfile(userId: string): Promise<UserProfile> {
       .limit(1)
       .then((rows) => rows[0] ?? null),
     getActiveTelegramLinkCode(userId),
+    getUserOpenRouterKeyStatus(userId),
   ]);
 
   const linked_accounts: LinkedAccount[] = accounts.map((a: {
@@ -658,6 +677,9 @@ export async function getProfile(userId: string): Promise<UserProfile> {
     linked_accounts,
     alice: aliceProfile,
     telegram: telegramProfile,
+    provider_keys: {
+      openrouter: openRouterKeyStatus,
+    },
     usage,
     balance_history: balanceHistory,
     limits,
@@ -818,6 +840,54 @@ export async function changePassword(
   return { success: true, has_password: true };
 }
 
+export async function upsertOpenRouterKey(
+  userId: string,
+  input: { api_key: string; label?: string | null },
+) {
+  const apiKey = input.api_key.trim();
+  if (!apiKey.startsWith('sk-or-')) {
+    throw new AppError(400, 'VALIDATION_ERROR', 'Укажите OpenRouter API key. Он обычно начинается с sk-or-.');
+  }
+
+  const client = new OpenRouterClient(apiKey);
+  const keyInfo = await client.getCurrentKey();
+  const keyHint = buildApiKeyHint(apiKey);
+  const label = input.label?.trim() || keyInfo.data.label || 'OpenRouter BYOK';
+  const encryptedApiKey = encryptSecret(apiKey);
+
+  await db
+    .insert(userProviderKeys)
+    .values({
+      user_id: userId,
+      provider: 'openrouter',
+      encrypted_api_key: encryptedApiKey,
+      key_hint: keyHint,
+      label,
+    })
+    .onConflictDoUpdate({
+      target: [userProviderKeys.user_id, userProviderKeys.provider],
+      set: {
+        encrypted_api_key: encryptedApiKey,
+        key_hint: keyHint,
+        label,
+        updated_at: new Date(),
+      },
+    });
+
+  return getUserOpenRouterKeyStatus(userId);
+}
+
+export async function deleteOpenRouterKey(userId: string) {
+  await db
+    .delete(userProviderKeys)
+    .where(and(
+      eq(userProviderKeys.user_id, userId),
+      eq(userProviderKeys.provider, 'openrouter'),
+    ));
+
+  return getUserOpenRouterKeyStatus(userId);
+}
+
 export async function unlinkAccount(userId: string, provider: string): Promise<void> {
   const [user] = await db
     .select({ password_hash: users.password_hash })
@@ -847,4 +917,3 @@ export async function unlinkAccount(userId: string, provider: string): Promise<v
       sql`${authAccounts.user_id} = ${userId} AND ${authAccounts.provider} = ${provider}`,
     );
 }
-

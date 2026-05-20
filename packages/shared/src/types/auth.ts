@@ -167,6 +167,14 @@ export interface UserProfile extends UserPublic {
   linked_accounts: LinkedAccount[];
   alice: AliceProfileDto | null;
   telegram: TelegramProfileDto | null;
+  provider_keys: {
+    openrouter: {
+      configured: boolean;
+      key_hint: string | null;
+      label: string | null;
+      updated_at: string | null;
+    };
+  };
   usage: UserUsageSummary;
   balance_history: BalanceHistoryItem[];
   limits: UserLimits;
