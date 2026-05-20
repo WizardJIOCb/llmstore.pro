@@ -2684,6 +2684,18 @@ function AuthenticatedChatsPage() {
     activeChat,
     displayedMessages,
   ]);
+  const activeLatestActualContextTokens = useMemo(() => {
+    let latestTokens: number | null = null;
+
+    for (const message of displayedMessages) {
+      if (message.role !== 'assistant') continue;
+      const usage = extractUsage(message.usage);
+      if (!usage) continue;
+      latestTokens = usage.total_tokens || usage.prompt_tokens || latestTokens;
+    }
+
+    return latestTokens;
+  }, [displayedMessages]);
   const activeLiveUsage = useMemo(
     () => getLiveUsageSnapshot(streamEvents),
     [streamEvents],
@@ -2696,7 +2708,7 @@ function AuthenticatedChatsPage() {
   const activeLiveTotalTokens = isActiveRunLive ? (activeLiveUsage?.total_tokens ?? null) : null;
   const activeLiveGeneratedTokens = isActiveRunLive ? (activeLiveUsage?.completion_tokens ?? null) : null;
   const activeContextUsedTokens = Math.min(
-    Math.max(activeContextInputTokens, activeLiveTotalTokens ?? 0),
+    Math.max(activeContextInputTokens, activeLatestActualContextTokens ?? 0, activeLiveTotalTokens ?? 0),
     activeContextWindowTokens,
   );
   const activeContextRemainingTokens = Math.max(
