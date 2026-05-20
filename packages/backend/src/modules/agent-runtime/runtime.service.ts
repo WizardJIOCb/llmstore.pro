@@ -5482,6 +5482,35 @@ const CHAT_CONTEXT_BLOCKS: Array<{ key: ChatContextBlockKey; title: string; desc
 
 type ChatContextBlocks = Partial<Record<ChatContextBlockKey, string>>;
 
+const CHAT_COMMAND_MODEL_OPTIONS = [
+  { value: 'openai/gpt-4o-mini', label: 'GPT-4o Mini', contextWindowTokens: 128_000, free: false },
+  { value: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash', contextWindowTokens: 1_048_576, free: false },
+  { value: 'openrouter/free', label: 'OpenRouter Free Router', contextWindowTokens: 200_000, free: true },
+  { value: 'deepseek/deepseek-v4-flash:free', label: 'DeepSeek V4 Flash Free', contextWindowTokens: 1_048_576, free: true },
+  { value: 'qwen/qwen3-coder:free', label: 'Qwen3 Coder 480B Free', contextWindowTokens: 1_048_576, free: true },
+  { value: 'openai/gpt-oss-120b:free', label: 'GPT-OSS 120B Free', contextWindowTokens: 131_072, free: true },
+  { value: 'meta-llama/llama-3.3-70b-instruct:free', label: 'Llama 3.3 70B Free', contextWindowTokens: 131_072, free: true },
+  { value: 'z-ai/glm-5.1', label: 'GLM 5.1 Free', contextWindowTokens: 202_800, free: true },
+  { value: 'nvidia/nemotron-3-super-120b-a12b:free', label: 'Nemotron 3 Super Free', contextWindowTokens: 1_000_000, free: true },
+  { value: 'openrouter/owl-alpha', label: 'Owl Alpha Free', contextWindowTokens: 1_048_756, free: true },
+  { value: 'minimax/minimax-m2.5:free', label: 'MiniMax M2.5 Free', contextWindowTokens: 204_800, free: true },
+  { value: 'openai/gpt-5.4-mini', label: 'GPT-5.4 Mini', contextWindowTokens: 400_000, free: false },
+  { value: 'anthropic/claude-haiku-4.5', label: 'Claude Haiku 4.5', contextWindowTokens: 200_000, free: false },
+  { value: 'google/gemini-2.5-pro', label: 'Gemini 2.5 Pro', contextWindowTokens: 1_048_576, free: false },
+  { value: 'moonshotai/kimi-k2.6', label: 'Kimi K2.6', contextWindowTokens: 262_144, free: false },
+  { value: 'moonshotai/kimi-k2.5', label: 'Kimi K2.5', contextWindowTokens: 262_144, free: false },
+  { value: 'openai/gpt-4o', label: 'GPT-4o', contextWindowTokens: 128_000, free: false },
+  { value: 'openai/gpt-5.4', label: 'GPT-5.4', contextWindowTokens: 1_050_000, free: false },
+  { value: 'anthropic/claude-sonnet-4.6', label: 'Claude Sonnet 4.6', contextWindowTokens: 1_000_000, free: false },
+] as const;
+
+type ChatCommandModelOption = typeof CHAT_COMMAND_MODEL_OPTIONS[number];
+
+interface ChatSlashCommandResult {
+  content: string;
+  next_model_external_id?: string | null;
+}
+
 interface ChatConversationRow {
   id: string;
   user_id: string;
@@ -5948,6 +5977,22 @@ function estimateContextTokens(value: string | null | undefined): number {
   return Math.ceil(value.length / 4);
 }
 
+function formatChatCommandContextWindow(tokens: number): string {
+  if (tokens >= 950_000 && tokens < 1_100_000) return '1M';
+  if (tokens >= 1_000_000) {
+    const value = tokens / 1_000_000;
+    return `${Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1).replace(/0+$/, '').replace(/\.$/, '')}M`;
+  }
+  if (tokens >= 1000) return `${Math.round(tokens / 1000)}K`;
+  return `${tokens}`;
+}
+
+function resolveChatCommandModelOption(modelCode: string): ChatCommandModelOption | null {
+  const normalized = normalizeOpenRouterModelId(modelCode);
+  if (!normalized) return null;
+  return CHAT_COMMAND_MODEL_OPTIONS.find((model) => normalizeOpenRouterModelId(model.value) === normalized) ?? null;
+}
+
 function buildChatSettingsJson(
   existing: Record<string, unknown> | null | undefined,
   overrides: {
@@ -6039,8 +6084,9 @@ async function getActiveToolSummariesByIds(toolIds: string[]): Promise<ChatToolS
 async function buildChatSlashCommandResponse(
   chat: ChatConversationRow,
   commandText: string,
-): Promise<string | null> {
-  const command = commandText.trim().split(/\s+/)[0]?.toLowerCase();
+): Promise<ChatSlashCommandResult | null> {
+  const [rawCommand = '', ...args] = commandText.trim().split(/\s+/);
+  const command = rawCommand.toLowerCase();
   if (!command?.startsWith('/')) return null;
 
   const agentMeta = await getAgentChatMeta(chat.agent_id ?? null);
@@ -6076,21 +6122,43 @@ async function buildChatSlashCommandResponse(
   }).join('\n');
 
   if (command === '/help' || command === '/commands') {
-    return [
+    return { content: [
       'Доступные команды чата:',
       '',
       '- `/status` — режим, агент, инструменты, сообщения и deployment.',
       '- `/model` — текущая модель и откуда она взялась.',
+      '- `/model <code>` — установить модель чата, например `/model deepseek/deepseek-v4-flash:free`.',
+      '- `/models` — список доступных кодов моделей.',
       '- `/context` — карта контекста: промпты, инструменты, блоки, история.',
       '- `/settings` — быстрый снимок настроек чата.',
       '',
       'Команды не отправляются в модель и не списывают баланс.',
-    ].join('\n');
+    ].join('\n') };
+  }
+
+  if (command === '/models') {
+    const freeModels = CHAT_COMMAND_MODEL_OPTIONS.filter((model) => model.free);
+    const paidModels = CHAT_COMMAND_MODEL_OPTIONS.filter((model) => !model.free);
+    const formatModelLine = (model: ChatCommandModelOption) => (
+      `- \`${model.value}\` — ${model.label}, context: ${formatChatCommandContextWindow(model.contextWindowTokens)}`
+    );
+    return { content: [
+      '**Доступные модели**',
+      '',
+      '**Бесплатные / free**',
+      freeModels.map(formatModelLine).join('\n'),
+      '',
+      '**Платные**',
+      paidModels.map(formatModelLine).join('\n'),
+      '',
+      'Чтобы переключить чат: `/model <code>`.',
+      'Чтобы сбросить override и вернуться к модели по умолчанию: `/model default`.',
+    ].join('\n') };
   }
 
   if (command === '/status') {
     const deployments = await getChatProjectDeploymentSummaries(chat.id, chat.user_id);
-    return [
+    return { content: [
       '**Статус чата**',
       '',
       `- Режим: ${chat.mode === 'agent' ? 'Агент' : 'Общение'}`,
@@ -6103,22 +6171,54 @@ async function buildChatSlashCommandResponse(
       deployments.length > 0
         ? deployments.map((deployment) => `  - ${deployment.title}: ${deployment.status}`).join('\n')
         : '',
-    ].filter(Boolean).join('\n');
+    ].filter(Boolean).join('\n') };
   }
 
   if (command === '/model') {
-    return [
+    const requestedModel = args.join(' ').trim();
+    if (requestedModel) {
+      if (['default', 'auto', 'reset', 'сброс'].includes(requestedModel.toLowerCase())) {
+        return { content: [
+          '**Модель чата обновлена**',
+          '',
+          `- Было: ${modelLabel} (\`${modelId}\`)`,
+          `- Теперь: ${chat.mode === 'agent' ? 'модель агента по умолчанию' : `дефолтная модель чата \`${DEFAULT_GENERAL_MODEL}\``}`,
+        ].join('\n'), next_model_external_id: null };
+      }
+
+      const nextModel = resolveChatCommandModelOption(requestedModel);
+      if (!nextModel) {
+        return { content: [
+          `Не нашёл модель по коду: \`${requestedModel}\`.`,
+          '',
+          'Напишите `/models`, чтобы посмотреть доступные коды.',
+        ].join('\n') };
+      }
+
+      return { content: [
+        '**Модель чата обновлена**',
+        '',
+        `- Было: ${modelLabel} (\`${modelId}\`)`,
+        `- Теперь: ${nextModel.label} (\`${nextModel.value}\`)`,
+        `- Context: ${formatChatCommandContextWindow(nextModel.contextWindowTokens)}`,
+        nextModel.free ? '- Цена: free / $0' : '- Цена: по тарифу OpenRouter',
+      ].join('\n'), next_model_external_id: nextModel.value };
+    }
+
+    return { content: [
       '**Модель чата**',
       '',
       `- Используется: ${modelLabel}`,
       `- model id: \`${modelId}\``,
       `- Модель выбрана в чате: ${chat.model_external_id ? `\`${chat.model_external_id}\`` : 'нет'}`,
       `- Модель агента по умолчанию: ${agentMeta.agent_model_external_id ? `\`${agentMeta.agent_model_external_id}\`` : 'нет'}`,
-    ].join('\n');
+      '',
+      'Чтобы сменить модель: `/model <code>`. Список кодов: `/models`.',
+    ].join('\n') };
   }
 
   if (command === '/context') {
-    return [
+    return { content: [
       '**Контекст чата**',
       '',
       `Примерная оценка сейчас: ~${contextTokens} токенов.`,
@@ -6138,11 +6238,11 @@ async function buildChatSlashCommandResponse(
       '',
       '**История**',
       `- Сообщений в чате: ${messages.length}`,
-    ].join('\n');
+    ].join('\n') };
   }
 
   if (command === '/settings') {
-    return [
+    return { content: [
       '**Настройки чата**',
       '',
       `- Access: ${chat.access}`,
@@ -6150,14 +6250,14 @@ async function buildChatSlashCommandResponse(
       `- Tool ids: ${chatToolSettings.tool_ids.length ? chatToolSettings.tool_ids.join(', ') : 'нет'}`,
       `- Context override: ${normalizeContextWindowOverride(chat.settings_json?.context_window_tokens) ?? 'авто'}`,
       `- Note: ${extractChatNote(chat.settings_json) ?? '—'}`,
-    ].join('\n');
+    ].join('\n') };
   }
 
-  return [
+  return { content: [
     `Неизвестная команда: \`${command}\`.`,
     '',
     'Напишите `/help`, чтобы посмотреть доступные команды.',
-  ].join('\n');
+  ].join('\n') };
 }
 
 async function getActiveToolDefinitionRowsBySlugs(
@@ -9595,17 +9695,23 @@ export async function sendChatMessage(
     ? await buildChatSlashCommandResponse(chat, trimmedContent)
     : null;
   if (slashCommandResponse) {
+    const hasModelUpdate = Object.prototype.hasOwnProperty.call(slashCommandResponse, 'next_model_external_id');
+    const nextCommandModelExternalId = hasModelUpdate
+      ? (slashCommandResponse.next_model_external_id ?? null)
+      : (chat.model_external_id ?? null);
     const commandUsage = {
       command: true,
       command_name: trimmedContent.split(/\s+/)[0]?.toLowerCase() ?? '',
       estimated_cost: '0',
       charged_cost: '0',
       usd_to_rub_rate: usdToRubRate,
+      model_updated: hasModelUpdate,
+      next_model_external_id: hasModelUpdate ? nextCommandModelExternalId : undefined,
     };
     const [assistantRow] = await db.insert(chatConversationMessages).values({
       conversation_id: chatId,
       role: 'assistant',
-      content_text: slashCommandResponse,
+      content_text: slashCommandResponse.content,
       usage_json: commandUsage,
       latency_ms: 0,
     }).returning();
@@ -9613,13 +9719,26 @@ export async function sendChatMessage(
     const nextTitle = isDefaultTitle ? compactTitle(trimmedContent) : chat.title;
     await db.update(chatConversations).set({
       title: nextTitle,
+      ...(hasModelUpdate ? { model_external_id: nextCommandModelExternalId } : {}),
       last_message_at: new Date(),
       updated_at: new Date(),
     }).where(eq(chatConversations.id, chatId));
+    if (hasModelUpdate && chat.mode === 'agent') {
+      await db.update(chatProjectDeployments)
+        .set({
+          model_external_id: nextCommandModelExternalId,
+          updated_at: new Date(),
+        })
+        .where(and(
+          eq(chatProjectDeployments.conversation_id, chat.id),
+          eq(chatProjectDeployments.user_id, userId),
+        ));
+    }
     emitChatEvent('chat.message.completed', {
       mode: chat.mode,
       label: 'Команда выполнена',
       charged_cost: 0,
+      model_external_id: nextCommandModelExternalId,
     });
 
     return {
@@ -9635,7 +9754,7 @@ export async function sendChatMessage(
         title: nextTitle,
         mode: chat.mode,
         agent_id: chat.agent_id ?? null,
-        model_external_id: chat.model_external_id ?? null,
+        model_external_id: nextCommandModelExternalId,
         share_token: chat.share_token ?? null,
       },
     };
