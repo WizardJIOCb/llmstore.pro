@@ -9,6 +9,10 @@ import {
   validateCreateChatWorkspaceProject,
   validateUpdateChatWorkspaceProject,
   validateUpdateChatWorkspaceFolder,
+  validateCopyChatWorkspaceFsEntry,
+  validateCreateChatWorkspaceFsFolder,
+  validateDeleteChatWorkspaceFsEntry,
+  validateMoveChatWorkspaceFsEntry,
   validateUpdateChat,
   validateSaveChatWorkspaceFile,
   validateSendChatMessage,
@@ -56,6 +60,10 @@ router.delete('/chat-projects/:projectId/folders/:folderId', requireAuth, contro
 router.get('/chat-projects/:projectId/files', requireAuth, controller.listChatWorkspaceFiles);
 router.get('/chat-projects/:projectId/files/content', requireAuth, controller.getChatWorkspaceFile);
 router.put('/chat-projects/:projectId/files/content', requireAuth, validateSaveChatWorkspaceFile, controller.saveChatWorkspaceFile);
+router.post('/chat-projects/:projectId/files/folders', requireAuth, validateCreateChatWorkspaceFsFolder, controller.createChatWorkspaceFsFolder);
+router.delete('/chat-projects/:projectId/files', requireAuth, validateDeleteChatWorkspaceFsEntry, controller.deleteChatWorkspaceFsEntry);
+router.post('/chat-projects/:projectId/files/move', requireAuth, validateMoveChatWorkspaceFsEntry, controller.moveChatWorkspaceFsEntry);
+router.post('/chat-projects/:projectId/files/copy', requireAuth, validateCopyChatWorkspaceFsEntry, controller.copyChatWorkspaceFsEntry);
 router.get('/chats/agents', requireAuth, controller.listChatAgents);
 router.post('/telegram-bot-quickstart', requireAuth, validateTelegramBotQuickstart, controller.createTelegramBotQuickstart);
 router.post('/chats', requireAuth, validateCreateChat, controller.createChat);

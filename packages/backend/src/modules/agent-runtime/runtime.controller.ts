@@ -307,6 +307,42 @@ export async function saveChatWorkspaceFile(req: Request<{ projectId: string }>,
   }
 }
 
+export async function createChatWorkspaceFsFolder(req: Request<{ projectId: string }>, res: Response, next: NextFunction) {
+  try {
+    const result = await runtimeService.createChatWorkspaceFsFolder(req.session.userId!, req.params.projectId, req.body);
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function deleteChatWorkspaceFsEntry(req: Request<{ projectId: string }>, res: Response, next: NextFunction) {
+  try {
+    const result = await runtimeService.deleteChatWorkspaceFsEntry(req.session.userId!, req.params.projectId, req.body);
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function moveChatWorkspaceFsEntry(req: Request<{ projectId: string }>, res: Response, next: NextFunction) {
+  try {
+    const result = await runtimeService.moveChatWorkspaceFsEntry(req.session.userId!, req.params.projectId, req.body);
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function copyChatWorkspaceFsEntry(req: Request<{ projectId: string }>, res: Response, next: NextFunction) {
+  try {
+    const result = await runtimeService.copyChatWorkspaceFsEntry(req.session.userId!, req.params.projectId, req.body);
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function listGalleryPreviews(req: Request, res: Response, next: NextFunction) {
   try {
     const limit = typeof req.query.limit === 'string' ? Number(req.query.limit) : undefined;

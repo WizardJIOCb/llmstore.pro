@@ -56,6 +56,24 @@ const saveChatWorkspaceFileSchema = z.object({
   content: z.string().max(1_000_000),
 });
 
+const createChatWorkspaceFsFolderSchema = z.object({
+  path: z.string().min(1).max(1000),
+});
+
+const deleteChatWorkspaceFsEntrySchema = z.object({
+  path: z.string().min(1).max(1000),
+});
+
+const moveChatWorkspaceFsEntrySchema = z.object({
+  source_path: z.string().min(1).max(1000),
+  target_path: z.string().min(1).max(1000),
+});
+
+const copyChatWorkspaceFsEntrySchema = z.object({
+  source_path: z.string().min(1).max(1000),
+  target_path: z.string().min(1).max(1000),
+});
+
 const telegramBotQuickstartSchema = z.object({
   preset: z.enum(['dtf_news', 'web_news', 'product_tracker', 'memory', 'support']),
   bot_name: z.string().min(1).max(120).optional(),
@@ -150,6 +168,10 @@ export const validateUpdateChatWorkspaceProject = validate(updateChatWorkspacePr
 export const validateCreateChatWorkspaceFolder = validate(createChatWorkspaceFolderSchema, 'body');
 export const validateUpdateChatWorkspaceFolder = validate(updateChatWorkspaceFolderSchema, 'body');
 export const validateSaveChatWorkspaceFile = validate(saveChatWorkspaceFileSchema, 'body');
+export const validateCreateChatWorkspaceFsFolder = validate(createChatWorkspaceFsFolderSchema, 'body');
+export const validateDeleteChatWorkspaceFsEntry = validate(deleteChatWorkspaceFsEntrySchema, 'body');
+export const validateMoveChatWorkspaceFsEntry = validate(moveChatWorkspaceFsEntrySchema, 'body');
+export const validateCopyChatWorkspaceFsEntry = validate(copyChatWorkspaceFsEntrySchema, 'body');
 export const validateTelegramBotQuickstart = validate(telegramBotQuickstartSchema, 'body');
 export const validateUpdateChat = validate(updateChatSchema, 'body');
 export const validateSendChatMessage = validate(sendMessageSchema, 'body');

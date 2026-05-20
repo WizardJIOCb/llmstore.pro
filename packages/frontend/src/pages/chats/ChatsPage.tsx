@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from 'react';
+﻿import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode, type RefObject } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
@@ -9,6 +9,7 @@ import {
   Bot,
   ChevronDown,
   ChevronRight,
+  ClipboardPaste,
   Copy,
   Download,
   FileText,
@@ -20,13 +21,16 @@ import {
   Maximize2,
   MessageCircle,
   Minimize2,
+  MoreHorizontal,
   PencilLine,
+  Plus,
   Pin,
   Radio,
   RefreshCw,
   Save,
   Settings2,
   Share2,
+  Scissors,
   Trash2,
   X,
 } from 'lucide-react';
@@ -148,6 +152,73 @@ function formatWorkspaceFileSize(size: number | null): string {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+type WorkspaceEntryType = 'file' | 'directory';
+type WorkspaceMenuTarget =
+  | { kind: 'workspace-root'; projectId: string }
+  | {
+    kind: 'workspace-entry';
+    projectId: string;
+    path: string;
+    entryType: WorkspaceEntryType;
+    name: string;
+    size: number | null;
+    updatedAt: string | null;
+  };
+type WorkspaceClipboardEntry = {
+  projectId: string;
+  path: string;
+  entryType: WorkspaceEntryType;
+  mode: 'copy' | 'cut';
+};
+type WorkspaceDragEntry = {
+  projectId: string;
+  path: string;
+  entryType: WorkspaceEntryType;
+};
+type MenuItem =
+  | { kind: 'chat'; id: string }
+  | { kind: 'project'; id: string }
+  | { kind: 'project-folder'; id: string }
+  | { kind: 'active-chat-actions' }
+  | WorkspaceMenuTarget
+  | null;
+
+function normalizeWorkspaceClientPath(value: string): string {
+  return value
+    .replace(/\\/g, '/')
+    .split('/')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join('/');
+}
+
+function getWorkspaceBaseName(value: string): string {
+  const normalized = normalizeWorkspaceClientPath(value);
+  const parts = normalized.split('/').filter(Boolean);
+  return parts[parts.length - 1] ?? normalized;
+}
+
+function getWorkspaceDirName(value: string): string {
+  const normalized = normalizeWorkspaceClientPath(value);
+  const parts = normalized.split('/').filter(Boolean);
+  parts.pop();
+  return parts.join('/');
+}
+
+function joinWorkspaceClientPath(directoryPath: string, name: string): string {
+  const directory = normalizeWorkspaceClientPath(directoryPath);
+  const entryName = normalizeWorkspaceClientPath(name);
+  if (!directory) return entryName;
+  if (!entryName) return directory;
+  return `${directory}/${entryName}`;
+}
+
+function isWorkspacePathNestedIn(sourcePath: string, targetPath: string): boolean {
+  const source = normalizeWorkspaceClientPath(sourcePath);
+  const target = normalizeWorkspaceClientPath(targetPath);
+  return Boolean(source && (target === source || target.startsWith(`${source}/`)));
+}
+
 function ProjectWorkspaceFilesTree({
   projectId,
   enabled,
@@ -155,6 +226,14 @@ function ProjectWorkspaceFilesTree({
   activePath,
   onToggleCollapsed,
   onOpenFile,
+  openMenu,
+  menuRef,
+  onOpenMenu,
+  renderWorkspaceMenu,
+  draggedWorkspaceEntry,
+  onWorkspaceDragStart,
+  onWorkspaceDragEnd,
+  onWorkspaceDrop,
 }: {
   projectId: string;
   enabled: boolean;
@@ -162,10 +241,21 @@ function ProjectWorkspaceFilesTree({
   activePath: string | null;
   onToggleCollapsed: () => void;
   onOpenFile: (path: string) => void;
+  openMenu: MenuItem;
+  menuRef: RefObject<HTMLDivElement | null>;
+  onOpenMenu: (target: WorkspaceMenuTarget) => void;
+  renderWorkspaceMenu: (target: WorkspaceMenuTarget) => ReactNode;
+  draggedWorkspaceEntry: WorkspaceDragEntry | null;
+  onWorkspaceDragStart: (event: DragEvent<HTMLElement>, item: ChatWorkspaceFileItem) => void;
+  onWorkspaceDragEnd: () => void;
+  onWorkspaceDrop: (targetDirectoryPath: string, event: DragEvent<HTMLElement>) => void;
 }) {
   const [expandedPaths, setExpandedPaths] = useState<string[]>([]);
   const { data, isLoading } = useChatProjectFiles(projectId, '', enabled);
   const items = data?.items ?? [];
+  const rootMenuTarget: WorkspaceMenuTarget = { kind: 'workspace-root', projectId };
+  const rootMenuOpen = openMenu?.kind === 'workspace-root' && openMenu.projectId === projectId;
+  const canDropToRoot = Boolean(draggedWorkspaceEntry && draggedWorkspaceEntry.projectId === projectId);
 
   const togglePath = (path: string) => {
     setExpandedPaths((prev) => (
@@ -176,16 +266,52 @@ function ProjectWorkspaceFilesTree({
   };
 
   return (
-    <div className="mt-1 space-y-1 rounded-md bg-slate-50/70 px-1.5 py-1.5">
-      <button
-        type="button"
-        className="flex w-full items-center gap-1.5 rounded py-1 text-left text-[10px] font-semibold uppercase tracking-wide text-muted-foreground hover:bg-white"
-        onClick={onToggleCollapsed}
-      >
-        {collapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-        <FileText className="h-3.5 w-3.5" />
-        <span>Файлы workspace</span>
-      </button>
+    <div
+      className={cn('mt-1 space-y-1 rounded-md bg-slate-50/70 px-1.5 py-1.5', canDropToRoot && 'transition-colors')}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onOpenMenu(rootMenuTarget);
+      }}
+      onDragOver={(event) => {
+        if (!canDropToRoot) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+      }}
+      onDrop={(event) => {
+        if (!canDropToRoot) return;
+        onWorkspaceDrop('', event);
+      }}
+    >
+      <div className="relative flex items-center">
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-1.5 rounded py-1 pr-7 text-left text-[10px] font-semibold uppercase tracking-wide text-muted-foreground hover:bg-white"
+          onClick={onToggleCollapsed}
+        >
+          {collapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+          <FileText className="h-3.5 w-3.5" />
+          <span className="truncate">Файлы workspace</span>
+        </button>
+        <div className="absolute right-0 top-0" ref={rootMenuOpen ? menuRef : null}>
+          <button
+            type="button"
+            className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpenMenu(rootMenuTarget);
+            }}
+            aria-label="Действия workspace"
+          >
+            <MoreHorizontal className="h-3.5 w-3.5" />
+          </button>
+          {rootMenuOpen && (
+            <div className="absolute right-0 top-7 z-30 min-w-[220px] rounded-md border bg-white p-1 shadow-lg">
+              {renderWorkspaceMenu(rootMenuTarget)}
+            </div>
+          )}
+        </div>
+      </div>
       {!collapsed && (
         <>
           {isLoading && <div className="px-1 py-1 text-xs text-muted-foreground">Загружаю файлы...</div>}
@@ -202,15 +328,30 @@ function ProjectWorkspaceFilesTree({
                   activePath={activePath}
                   onToggle={togglePath}
                   onOpenFile={onOpenFile}
+                  openMenu={openMenu}
+                  menuRef={menuRef}
+                  onOpenMenu={onOpenMenu}
+                  renderWorkspaceMenu={renderWorkspaceMenu}
+                  draggedWorkspaceEntry={draggedWorkspaceEntry}
+                  onWorkspaceDragStart={onWorkspaceDragStart}
+                  onWorkspaceDragEnd={onWorkspaceDragEnd}
+                  onWorkspaceDrop={onWorkspaceDrop}
                 />
               )
               : (
                 <ProjectWorkspaceFileRow
                   key={item.path}
+                  projectId={projectId}
                   item={item}
                   depth={0}
                   active={activePath === item.path}
                   onOpenFile={onOpenFile}
+                  openMenu={openMenu}
+                  menuRef={menuRef}
+                  onOpenMenu={onOpenMenu}
+                  renderWorkspaceMenu={renderWorkspaceMenu}
+                  onWorkspaceDragStart={onWorkspaceDragStart}
+                  onWorkspaceDragEnd={onWorkspaceDragEnd}
                 />
               )
           ))}
@@ -228,6 +369,14 @@ function ProjectWorkspaceDirectory({
   activePath,
   onToggle,
   onOpenFile,
+  openMenu,
+  menuRef,
+  onOpenMenu,
+  renderWorkspaceMenu,
+  draggedWorkspaceEntry,
+  onWorkspaceDragStart,
+  onWorkspaceDragEnd,
+  onWorkspaceDrop,
 }: {
   projectId: string;
   item: ChatWorkspaceFileItem;
@@ -236,28 +385,91 @@ function ProjectWorkspaceDirectory({
   activePath: string | null;
   onToggle: (path: string) => void;
   onOpenFile: (path: string) => void;
+  openMenu: MenuItem;
+  menuRef: RefObject<HTMLDivElement | null>;
+  onOpenMenu: (target: WorkspaceMenuTarget) => void;
+  renderWorkspaceMenu: (target: WorkspaceMenuTarget) => ReactNode;
+  draggedWorkspaceEntry: WorkspaceDragEntry | null;
+  onWorkspaceDragStart: (event: DragEvent<HTMLElement>, item: ChatWorkspaceFileItem) => void;
+  onWorkspaceDragEnd: () => void;
+  onWorkspaceDrop: (targetDirectoryPath: string, event: DragEvent<HTMLElement>) => void;
 }) {
   const isExpanded = expandedPaths.includes(item.path);
   const { data, isLoading } = useChatProjectFiles(projectId, item.path, isExpanded);
   const children = data?.items ?? [];
+  const menuTarget: WorkspaceMenuTarget = {
+    kind: 'workspace-entry',
+    projectId,
+    path: item.path,
+    entryType: 'directory',
+    name: item.name,
+    size: item.size,
+    updatedAt: item.updated_at,
+  };
+  const isMenuOpen = openMenu?.kind === 'workspace-entry' && openMenu.projectId === projectId && openMenu.path === item.path;
+  const canDropHere = Boolean(
+    draggedWorkspaceEntry
+      && draggedWorkspaceEntry.projectId === projectId
+      && draggedWorkspaceEntry.path !== item.path
+      && !isWorkspacePathNestedIn(draggedWorkspaceEntry.path, item.path),
+  );
 
   return (
     <div className="space-y-1">
-      <button
-        type="button"
-        className="flex w-full items-center gap-1 rounded px-1 py-1 text-left text-xs text-muted-foreground hover:bg-white"
-        style={{ paddingLeft: depth * 10 + 4 }}
-        onClick={() => onToggle(item.path)}
-        title={item.path}
+      <div
+        className={cn('group relative rounded', canDropHere && 'hover:bg-sky-50')}
+        draggable
+        onContextMenu={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onOpenMenu(menuTarget);
+        }}
+        onDragStart={(event) => onWorkspaceDragStart(event, item)}
+        onDragEnd={onWorkspaceDragEnd}
+        onDragOver={(event) => {
+          if (!canDropHere) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = 'move';
+        }}
+        onDrop={(event) => {
+          if (!canDropHere) return;
+          onWorkspaceDrop(item.path, event);
+        }}
       >
-        <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-slate-400">
-          {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-        </span>
-        <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-amber-500">
-          {isExpanded ? <FolderOpen className="h-3.5 w-3.5" /> : <Folder className="h-3.5 w-3.5" />}
-        </span>
-        <span className="truncate">{item.name}</span>
-      </button>
+        <button
+          type="button"
+          className="flex w-full items-center gap-1 rounded px-1 py-1 pr-7 text-left text-xs text-muted-foreground hover:bg-white"
+          style={{ paddingLeft: depth * 10 + 4 }}
+          onClick={() => onToggle(item.path)}
+          title={item.path}
+        >
+          <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-slate-400">
+            {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+          </span>
+          <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-amber-500">
+            {isExpanded ? <FolderOpen className="h-3.5 w-3.5" /> : <Folder className="h-3.5 w-3.5" />}
+          </span>
+          <span className="truncate">{item.name}</span>
+        </button>
+        <div className="absolute right-0 top-0" ref={isMenuOpen ? menuRef : null}>
+          <button
+            type="button"
+            className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground opacity-70 hover:bg-accent hover:text-foreground group-hover:opacity-100"
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpenMenu(menuTarget);
+            }}
+            aria-label="Действия папки workspace"
+          >
+            <MoreHorizontal className="h-3.5 w-3.5" />
+          </button>
+          {isMenuOpen && (
+            <div className="absolute right-0 top-7 z-30 min-w-[220px] rounded-md border bg-white p-1 shadow-lg">
+              {renderWorkspaceMenu(menuTarget)}
+            </div>
+          )}
+        </div>
+      </div>
       {isExpanded && (
         <div className="space-y-1">
           {isLoading && <div className="px-2 py-1 text-xs text-muted-foreground">Загружаю...</div>}
@@ -273,15 +485,30 @@ function ProjectWorkspaceDirectory({
                   activePath={activePath}
                   onToggle={onToggle}
                   onOpenFile={onOpenFile}
+                  openMenu={openMenu}
+                  menuRef={menuRef}
+                  onOpenMenu={onOpenMenu}
+                  renderWorkspaceMenu={renderWorkspaceMenu}
+                  draggedWorkspaceEntry={draggedWorkspaceEntry}
+                  onWorkspaceDragStart={onWorkspaceDragStart}
+                  onWorkspaceDragEnd={onWorkspaceDragEnd}
+                  onWorkspaceDrop={onWorkspaceDrop}
                 />
               )
               : (
                 <ProjectWorkspaceFileRow
                   key={child.path}
+                  projectId={projectId}
                   item={child}
                   depth={depth + 1}
                   active={activePath === child.path}
                   onOpenFile={onOpenFile}
+                  openMenu={openMenu}
+                  menuRef={menuRef}
+                  onOpenMenu={onOpenMenu}
+                  renderWorkspaceMenu={renderWorkspaceMenu}
+                  onWorkspaceDragStart={onWorkspaceDragStart}
+                  onWorkspaceDragEnd={onWorkspaceDragEnd}
                 />
               )
           ))}
@@ -292,33 +519,88 @@ function ProjectWorkspaceDirectory({
 }
 
 function ProjectWorkspaceFileRow({
+  projectId,
   item,
   depth,
   active,
   onOpenFile,
+  openMenu,
+  menuRef,
+  onOpenMenu,
+  renderWorkspaceMenu,
+  onWorkspaceDragStart,
+  onWorkspaceDragEnd,
 }: {
+  projectId: string;
   item: ChatWorkspaceFileItem;
   depth: number;
   active: boolean;
   onOpenFile: (path: string) => void;
+  openMenu: MenuItem;
+  menuRef: RefObject<HTMLDivElement | null>;
+  onOpenMenu: (target: WorkspaceMenuTarget) => void;
+  renderWorkspaceMenu: (target: WorkspaceMenuTarget) => ReactNode;
+  onWorkspaceDragStart: (event: DragEvent<HTMLElement>, item: ChatWorkspaceFileItem) => void;
+  onWorkspaceDragEnd: () => void;
 }) {
+  const menuTarget: WorkspaceMenuTarget = {
+    kind: 'workspace-entry',
+    projectId,
+    path: item.path,
+    entryType: 'file',
+    name: item.name,
+    size: item.size,
+    updatedAt: item.updated_at,
+  };
+  const isMenuOpen = openMenu?.kind === 'workspace-entry' && openMenu.projectId === projectId && openMenu.path === item.path;
+
   return (
-    <button
-      type="button"
-      className={cn(
-        'flex w-full items-center gap-1 rounded px-1 py-1 text-left text-xs text-muted-foreground hover:bg-white',
-        active && 'bg-white text-slate-950 ring-1 ring-sky-200',
-      )}
-      style={{ paddingLeft: depth * 10 + 24 }}
-      title={item.path}
-      onClick={() => onOpenFile(item.path)}
+    <div
+      className="group relative"
+      draggable
+      onContextMenu={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onOpenMenu(menuTarget);
+      }}
+      onDragStart={(event) => onWorkspaceDragStart(event, item)}
+      onDragEnd={onWorkspaceDragEnd}
     >
-      <FileText className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-      <span className="min-w-0 flex-1 truncate">{item.name}</span>
-      {item.size !== null && (
-        <span className="shrink-0 text-[10px] text-muted-foreground">{formatWorkspaceFileSize(item.size)}</span>
-      )}
-    </button>
+      <button
+        type="button"
+        className={cn(
+          'flex w-full items-center gap-1 rounded px-1 py-1 pr-7 text-left text-xs text-muted-foreground hover:bg-white',
+          active && 'bg-white text-slate-950 ring-1 ring-sky-200',
+        )}
+        style={{ paddingLeft: depth * 10 + 24 }}
+        title={item.path}
+        onClick={() => onOpenFile(item.path)}
+      >
+        <FileText className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+        <span className="min-w-0 flex-1 truncate">{item.name}</span>
+        {item.size !== null && (
+          <span className="shrink-0 text-[10px] text-muted-foreground">{formatWorkspaceFileSize(item.size)}</span>
+        )}
+      </button>
+      <div className="absolute right-0 top-0" ref={isMenuOpen ? menuRef : null}>
+        <button
+          type="button"
+          className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground opacity-70 hover:bg-accent hover:text-foreground group-hover:opacity-100"
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpenMenu(menuTarget);
+          }}
+          aria-label="Действия файла workspace"
+        >
+          <MoreHorizontal className="h-3.5 w-3.5" />
+        </button>
+        {isMenuOpen && (
+          <div className="absolute right-0 top-7 z-30 min-w-[220px] rounded-md border bg-white p-1 shadow-lg">
+            {renderWorkspaceMenu(menuTarget)}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -915,13 +1197,6 @@ function formatChatPreview(preview: string | null): string | null {
   return summaryMatch?.[1] ?? preview;
 }
 
-type MenuItem =
-  | { kind: 'chat'; id: string }
-  | { kind: 'project'; id: string }
-  | { kind: 'project-folder'; id: string }
-  | { kind: 'active-chat-actions' }
-  | null;
-
 interface LiveChatEvent {
   id: string;
   event: string;
@@ -1443,6 +1718,8 @@ function AuthenticatedChatsPage() {
   const [collapsedWorkspaceProjectIds, setCollapsedWorkspaceProjectIds] = useState<string[]>([]);
   const [draggedChatId, setDraggedChatId] = useState<string | null>(null);
   const [draggedFolderId, setDraggedFolderId] = useState<string | null>(null);
+  const [draggedWorkspaceEntry, setDraggedWorkspaceEntry] = useState<WorkspaceDragEntry | null>(null);
+  const [workspaceClipboard, setWorkspaceClipboard] = useState<WorkspaceClipboardEntry | null>(null);
   const [dragOverProjectTarget, setDragOverProjectTarget] = useState<string | null>(null);
   const [propertiesTab, setPropertiesTab] = useState<PropertiesTab>('overview');
   const [propertiesModeView, setPropertiesModeView] = useState<PropertiesModeView>('general');
@@ -3766,6 +4043,339 @@ function AuthenticatedChatsPage() {
     }
   };
 
+  const invalidateWorkspaceProjectFiles = (projectId: string) => {
+    void queryClient.invalidateQueries({ queryKey: ['chat-project-files', projectId] });
+  };
+
+  const workspaceEntryExists = async (projectId: string, targetPath: string) => {
+    const parentPath = getWorkspaceDirName(targetPath);
+    const list = await chatsApi.listProjectFiles(projectId, parentPath).catch(() => null);
+    return Boolean(list?.items.some((item) => item.path === targetPath));
+  };
+
+  const createWorkspaceFile = async (project: ChatWorkspaceProject, directoryPath = '') => {
+    const next = window.prompt('Имя нового файла', 'new-file.txt');
+    const name = normalizeWorkspaceClientPath(next ?? '');
+    if (!name) return;
+    const targetPath = joinWorkspaceClientPath(directoryPath, name);
+    setLocalError(null);
+    setOpenMenu(null);
+    try {
+      if (await workspaceEntryExists(project.id, targetPath)) {
+        showLocalError('Файл или папка с таким именем уже существует');
+        return;
+      }
+      const saved = await chatsApi.saveProjectFile(project.id, { path: targetPath, content: '' });
+      invalidateWorkspaceProjectFiles(project.id);
+      openWorkspaceFile(project, saved.path);
+      showLocalWarning(`Файл ${saved.path} создан`);
+    } catch (error) {
+      showLocalError(getApiErrorMessage(error) ?? 'Не удалось создать файл workspace');
+    }
+  };
+
+  const createWorkspaceFolder = async (project: ChatWorkspaceProject, directoryPath = '') => {
+    const next = window.prompt('Имя новой папки', 'Новая папка');
+    const name = normalizeWorkspaceClientPath(next ?? '');
+    if (!name) return;
+    const targetPath = joinWorkspaceClientPath(directoryPath, name);
+    setLocalError(null);
+    setOpenMenu(null);
+    try {
+      if (await workspaceEntryExists(project.id, targetPath)) {
+        showLocalError('Файл или папка с таким именем уже существует');
+        return;
+      }
+      await chatsApi.createProjectFolderEntry(project.id, { path: targetPath });
+      invalidateWorkspaceProjectFiles(project.id);
+      showLocalWarning(`Папка ${targetPath} создана`);
+    } catch (error) {
+      showLocalError(getApiErrorMessage(error) ?? 'Не удалось создать папку workspace');
+    }
+  };
+
+  const copyWorkspaceEntryPath = async (project: ChatWorkspaceProject, target: Extract<WorkspaceMenuTarget, { kind: 'workspace-entry' }>) => {
+    setLocalError(null);
+    try {
+      await navigator.clipboard.writeText(`${project.root_path}/${target.path}`);
+      setShareToastVisible(true);
+      if (shareToastTimerRef.current) clearTimeout(shareToastTimerRef.current);
+      shareToastTimerRef.current = setTimeout(() => setShareToastVisible(false), 2000);
+    } catch {
+      showLocalError('Не удалось скопировать путь файла workspace');
+    } finally {
+      setOpenMenu(null);
+    }
+  };
+
+  const renameWorkspaceEntry = async (project: ChatWorkspaceProject, target: Extract<WorkspaceMenuTarget, { kind: 'workspace-entry' }>) => {
+    const next = window.prompt(target.entryType === 'directory' ? 'Новое имя папки' : 'Новое имя файла', target.name);
+    const name = normalizeWorkspaceClientPath(next ?? '');
+    if (!name || name === target.name) return;
+    const targetPath = joinWorkspaceClientPath(getWorkspaceDirName(target.path), name);
+    setLocalError(null);
+    setOpenMenu(null);
+    try {
+      const moved = await chatsApi.moveProjectEntry(project.id, { source_path: target.path, target_path: targetPath });
+      if (activeWorkspaceFile?.projectId === project.id) {
+        if (target.entryType === 'file' && activeWorkspaceFile.path === target.path) {
+          setActiveWorkspaceFile({ projectId: project.id, path: moved.target_path });
+        }
+        if (target.entryType === 'directory' && isWorkspacePathNestedIn(target.path, activeWorkspaceFile.path)) {
+          setActiveWorkspaceFile({
+            projectId: project.id,
+            path: activeWorkspaceFile.path.replace(target.path, moved.target_path),
+          });
+        }
+      }
+      invalidateWorkspaceProjectFiles(project.id);
+    } catch (error) {
+      showLocalError(getApiErrorMessage(error) ?? 'Не удалось переименовать объект workspace');
+    }
+  };
+
+  const deleteWorkspaceEntry = async (project: ChatWorkspaceProject, target: Extract<WorkspaceMenuTarget, { kind: 'workspace-entry' }>) => {
+    const confirmed = window.confirm(`Удалить ${target.entryType === 'directory' ? 'папку' : 'файл'} «${target.path}»?`);
+    if (!confirmed) return;
+    setLocalError(null);
+    setOpenMenu(null);
+    try {
+      await chatsApi.deleteProjectEntry(project.id, { path: target.path });
+      if (
+        activeWorkspaceFile?.projectId === project.id
+        && (activeWorkspaceFile.path === target.path || isWorkspacePathNestedIn(target.path, activeWorkspaceFile.path))
+      ) {
+        setActiveWorkspaceFile(null);
+        setWorkspaceFileContent('');
+        setWorkspaceFileOriginalContent('');
+      }
+      if (workspaceClipboard?.projectId === project.id && workspaceClipboard.path === target.path) {
+        setWorkspaceClipboard(null);
+      }
+      invalidateWorkspaceProjectFiles(project.id);
+    } catch (error) {
+      showLocalError(getApiErrorMessage(error) ?? 'Не удалось удалить объект workspace');
+    }
+  };
+
+  const pasteWorkspaceEntry = async (project: ChatWorkspaceProject, directoryPath = '') => {
+    if (!workspaceClipboard) return;
+    if (workspaceClipboard.projectId !== project.id) {
+      showLocalError('Вставка между разными workspace пока не поддерживается');
+      setOpenMenu(null);
+      return;
+    }
+    const targetPath = joinWorkspaceClientPath(directoryPath, getWorkspaceBaseName(workspaceClipboard.path));
+    if (!targetPath || targetPath === workspaceClipboard.path || isWorkspacePathNestedIn(workspaceClipboard.path, targetPath)) {
+      showLocalError('Нельзя вставить объект workspace в это место');
+      setOpenMenu(null);
+      return;
+    }
+    setLocalError(null);
+    setOpenMenu(null);
+    try {
+      if (workspaceClipboard.mode === 'cut') {
+        const moved = await chatsApi.moveProjectEntry(project.id, {
+          source_path: workspaceClipboard.path,
+          target_path: targetPath,
+        });
+        if (activeWorkspaceFile?.projectId === project.id) {
+          if (workspaceClipboard.entryType === 'file' && activeWorkspaceFile.path === workspaceClipboard.path) {
+            setActiveWorkspaceFile({ projectId: project.id, path: moved.target_path });
+          }
+          if (workspaceClipboard.entryType === 'directory' && isWorkspacePathNestedIn(workspaceClipboard.path, activeWorkspaceFile.path)) {
+            setActiveWorkspaceFile({
+              projectId: project.id,
+              path: activeWorkspaceFile.path.replace(workspaceClipboard.path, moved.target_path),
+            });
+          }
+        }
+        setWorkspaceClipboard(null);
+      } else {
+        await chatsApi.copyProjectEntry(project.id, {
+          source_path: workspaceClipboard.path,
+          target_path: targetPath,
+        });
+      }
+      invalidateWorkspaceProjectFiles(project.id);
+    } catch (error) {
+      showLocalError(getApiErrorMessage(error) ?? 'Не удалось вставить объект workspace');
+    }
+  };
+
+  const showWorkspaceProperties = (target: Extract<WorkspaceMenuTarget, { kind: 'workspace-entry' }>) => {
+    const lines = [
+      `Тип: ${target.entryType === 'directory' ? 'папка' : 'файл'}`,
+      `Путь: ${target.path}`,
+      target.size !== null ? `Размер: ${formatWorkspaceFileSize(target.size)}` : null,
+      target.updatedAt ? `Обновлён: ${new Date(target.updatedAt).toLocaleString('ru-RU')}` : null,
+    ].filter(Boolean);
+    window.alert(lines.join('\n'));
+    setOpenMenu(null);
+  };
+
+  const handleWorkspaceEntryDragStart = (event: DragEvent<HTMLElement>, projectId: string, item: ChatWorkspaceFileItem) => {
+    const entry: WorkspaceDragEntry = { projectId, path: item.path, entryType: item.type };
+    setDraggedWorkspaceEntry(entry);
+    setDraggedChatId(null);
+    setDraggedFolderId(null);
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('application/x-llmstore-workspace-entry', JSON.stringify(entry));
+    event.dataTransfer.setData('text/plain', item.path);
+  };
+
+  const readDraggedWorkspaceEntry = (event: { dataTransfer: DataTransfer }): WorkspaceDragEntry | null => {
+    const raw = event.dataTransfer.getData('application/x-llmstore-workspace-entry');
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw) as WorkspaceDragEntry;
+        if (parsed.projectId && parsed.path && (parsed.entryType === 'file' || parsed.entryType === 'directory')) return parsed;
+      } catch {
+        return draggedWorkspaceEntry;
+      }
+    }
+    return draggedWorkspaceEntry;
+  };
+
+  const moveWorkspaceEntryToDirectory = async (
+    event: DragEvent<HTMLElement>,
+    project: ChatWorkspaceProject,
+    targetDirectoryPath: string,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const entry = readDraggedWorkspaceEntry(event);
+    setDraggedWorkspaceEntry(null);
+    if (!entry || entry.projectId !== project.id) return;
+
+    const targetPath = joinWorkspaceClientPath(targetDirectoryPath, getWorkspaceBaseName(entry.path));
+    if (!targetPath || targetPath === entry.path || isWorkspacePathNestedIn(entry.path, targetPath)) return;
+
+    setLocalError(null);
+    try {
+      const moved = await chatsApi.moveProjectEntry(project.id, {
+        source_path: entry.path,
+        target_path: targetPath,
+      });
+      if (activeWorkspaceFile?.projectId === project.id) {
+        if (entry.entryType === 'file' && activeWorkspaceFile.path === entry.path) {
+          setActiveWorkspaceFile({ projectId: project.id, path: moved.target_path });
+        }
+        if (entry.entryType === 'directory' && isWorkspacePathNestedIn(entry.path, activeWorkspaceFile.path)) {
+          setActiveWorkspaceFile({
+            projectId: project.id,
+            path: activeWorkspaceFile.path.replace(entry.path, moved.target_path),
+          });
+        }
+      }
+      invalidateWorkspaceProjectFiles(project.id);
+    } catch (error) {
+      showLocalError(getApiErrorMessage(error) ?? 'Не удалось переместить объект workspace');
+    }
+  };
+
+  const renderWorkspaceMenu = (target: WorkspaceMenuTarget) => {
+    const project = (chatProjects ?? []).find((item) => item.id === target.projectId);
+    if (!project) return null;
+    const targetDirectoryPath = target.kind === 'workspace-root'
+      ? ''
+      : target.entryType === 'directory'
+        ? target.path
+        : getWorkspaceDirName(target.path);
+    const canPaste = Boolean(workspaceClipboard && workspaceClipboard.projectId === project.id);
+
+    if (target.kind === 'workspace-root') {
+      return (
+        <>
+          <button type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent" onClick={() => void createWorkspaceFile(project)}>
+            <Plus className="h-4 w-4 shrink-0 text-slate-500" />
+            <span>Новый файл</span>
+          </button>
+          <button type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent" onClick={() => void createWorkspaceFolder(project)}>
+            <Folder className="h-4 w-4 shrink-0 text-amber-500" />
+            <span>Новая папка</span>
+          </button>
+          <button type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-50" onClick={() => void pasteWorkspaceEntry(project)} disabled={!canPaste}>
+            <ClipboardPaste className="h-4 w-4 shrink-0 text-slate-500" />
+            <span>Вставить</span>
+          </button>
+        </>
+      );
+    }
+
+    return (
+      <>
+        {target.entryType === 'file' && (
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+            onClick={() => {
+              setOpenMenu(null);
+              openWorkspaceFile(project, target.path);
+            }}
+          >
+            <FileText className="h-4 w-4 shrink-0 text-slate-500" />
+            <span>Открыть</span>
+          </button>
+        )}
+        {target.entryType === 'directory' && (
+          <>
+            <button type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent" onClick={() => void createWorkspaceFile(project, target.path)}>
+              <Plus className="h-4 w-4 shrink-0 text-slate-500" />
+              <span>Новый файл</span>
+            </button>
+            <button type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent" onClick={() => void createWorkspaceFolder(project, target.path)}>
+              <Folder className="h-4 w-4 shrink-0 text-amber-500" />
+              <span>Новая папка</span>
+            </button>
+          </>
+        )}
+        <button
+          type="button"
+          className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+          onClick={() => {
+            setWorkspaceClipboard({ projectId: project.id, path: target.path, entryType: target.entryType, mode: 'copy' });
+            setOpenMenu(null);
+          }}
+        >
+          <Copy className="h-4 w-4 shrink-0 text-slate-500" />
+          <span>Копировать</span>
+        </button>
+        <button
+          type="button"
+          className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+          onClick={() => {
+            setWorkspaceClipboard({ projectId: project.id, path: target.path, entryType: target.entryType, mode: 'cut' });
+            setOpenMenu(null);
+          }}
+        >
+          <Scissors className="h-4 w-4 shrink-0 text-slate-500" />
+          <span>Вырезать</span>
+        </button>
+        <button type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-50" onClick={() => void pasteWorkspaceEntry(project, targetDirectoryPath)} disabled={!canPaste}>
+          <ClipboardPaste className="h-4 w-4 shrink-0 text-slate-500" />
+          <span>Вставить</span>
+        </button>
+        <button type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent" onClick={() => void renameWorkspaceEntry(project, target)}>
+          {getChatActionIcon('rename')}
+          <span>Переименовать</span>
+        </button>
+        <button type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent" onClick={() => void copyWorkspaceEntryPath(project, target)}>
+          {getChatActionIcon('copy_link')}
+          <span>Скопировать путь</span>
+        </button>
+        <button type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent" onClick={() => showWorkspaceProperties(target)}>
+          {getChatActionIcon('properties')}
+          <span>Свойства</span>
+        </button>
+        <button type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent" onClick={() => void deleteWorkspaceEntry(project, target)}>
+          {getChatActionIcon('delete')}
+          <span>Удалить</span>
+        </button>
+      </>
+    );
+  };
+
   const saveActiveWorkspaceFile = async () => {
     if (!activeWorkspaceFile || !workspaceFileDirty) return;
     setWorkspaceFileSaving(true);
@@ -5156,6 +5766,20 @@ function AuthenticatedChatsPage() {
                 ));
               }}
               onOpenFile={(filePath) => openWorkspaceFile(project, filePath)}
+              openMenu={openMenu}
+              menuRef={menuRef}
+              onOpenMenu={(target) => setOpenMenu((prev) => (
+                prev?.kind === target.kind
+                  && prev.projectId === target.projectId
+                  && ('path' in prev ? prev.path : '') === ('path' in target ? target.path : '')
+                  ? null
+                  : target
+              ))}
+              renderWorkspaceMenu={renderWorkspaceMenu}
+              draggedWorkspaceEntry={draggedWorkspaceEntry}
+              onWorkspaceDragStart={(event, item) => handleWorkspaceEntryDragStart(event, project.id, item)}
+              onWorkspaceDragEnd={() => setDraggedWorkspaceEntry(null)}
+              onWorkspaceDrop={(targetDirectoryPath, event) => void moveWorkspaceEntryToDirectory(event, project, targetDirectoryPath)}
             />
             {(foldersByParent.get('root') ?? []).map((folder) => renderFolder(folder))}
             {rootProjectChats.map(renderChatRow)}

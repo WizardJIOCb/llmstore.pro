@@ -755,6 +755,32 @@ export const chatsApi = {
       .put<{ data: { path: string; size: number; updated_at: string } }>(`/chat-projects/${projectId}/files/content`, payload)
       .then((r) => r.data.data),
 
+  createProjectFolderEntry: (projectId: string, payload: { path: string }) =>
+    apiClient
+      .post<{ data: { path: string; updated_at: string } }>(`/chat-projects/${projectId}/files/folders`, payload)
+      .then((r) => r.data.data),
+
+  deleteProjectEntry: (projectId: string, payload: { path: string }) =>
+    apiClient
+      .delete<{ data: { path: string; deleted: true } }>(`/chat-projects/${projectId}/files`, { data: payload })
+      .then((r) => r.data.data),
+
+  moveProjectEntry: (projectId: string, payload: { source_path: string; target_path: string }) =>
+    apiClient
+      .post<{ data: { source_path: string; target_path: string; type: 'file' | 'directory'; updated_at: string } }>(
+        `/chat-projects/${projectId}/files/move`,
+        payload,
+      )
+      .then((r) => r.data.data),
+
+  copyProjectEntry: (projectId: string, payload: { source_path: string; target_path: string }) =>
+    apiClient
+      .post<{ data: { source_path: string; target_path: string; type: 'file' | 'directory'; updated_at: string } }>(
+        `/chat-projects/${projectId}/files/copy`,
+        payload,
+      )
+      .then((r) => r.data.data),
+
   deleteMessage: (chatId: string, messageId: string) =>
     apiClient.delete<{ data: { ok: true } }>(`/chats/${chatId}/messages/${messageId}`).then((r) => r.data.data),
 

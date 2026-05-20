@@ -1,5 +1,5 @@
 ﻿import { db } from '../../config/database.js';
-import { mkdtemp, mkdir, readdir, readFile, rm, stat, writeFile } from 'fs/promises';
+import { cp, mkdtemp, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'fs/promises';
 import path from 'path';
 import type { Response } from 'express';
 import { spawn } from 'child_process';
@@ -9271,6 +9271,127 @@ export async function saveChatWorkspaceFile(userId: string, projectId: string, i
     path: normalizedPath,
     size: fileStat.size,
     updated_at: fileStat.mtime.toISOString(),
+  };
+}
+
+async function touchChatWorkspaceProject(userId: string, projectId: string) {
+  const now = new Date();
+  await db.update(chatWorkspaceProjects)
+    .set({ last_activity_at: now, updated_at: now })
+    .where(and(eq(chatWorkspaceProjects.id, projectId), eq(chatWorkspaceProjects.user_id, userId)));
+}
+
+function assertWorkspaceTargetIsNotNestedInSource(sourcePath: string, targetPath: string) {
+  const source = normalizeWorkspaceRelativePath(sourcePath);
+  const target = normalizeWorkspaceRelativePath(targetPath);
+  if (source && (target === source || target.startsWith(`${source}/`))) {
+    throw new AppError(400, 'INVALID_WORKSPACE_MOVE_TARGET', 'Нельзя переместить или скопировать папку внутрь самой себя');
+  }
+}
+
+async function assertWorkspaceDestinationAvailable(rootPath: string, relativePath: string) {
+  const destination = safeWorkspacePath(rootPath, relativePath);
+  const existing = await stat(destination).catch(() => null);
+  if (existing) {
+    throw new ConflictError('Файл или папка с таким именем уже существует');
+  }
+  return destination;
+}
+
+export async function createChatWorkspaceFsFolder(userId: string, projectId: string, input: {
+  path: string;
+}): Promise<{ path: string; updated_at: string }> {
+  const project = await getWorkspaceProjectForUser(projectId, userId);
+  const normalizedPath = normalizeWorkspaceRelativePath(input.path);
+  if (!normalizedPath) {
+    throw new AppError(400, 'WORKSPACE_FOLDER_REQUIRED', 'Укажите папку проекта');
+  }
+  const folderPath = safeWorkspacePath(project.root_path, normalizedPath);
+  await mkdir(folderPath, { recursive: true });
+  const folderStat = await stat(folderPath);
+  if (!folderStat.isDirectory()) {
+    throw new AppError(400, 'WORKSPACE_PATH_NOT_DIRECTORY', 'Путь workspace не является папкой');
+  }
+  await touchChatWorkspaceProject(userId, project.id);
+  return {
+    path: normalizedPath,
+    updated_at: folderStat.mtime.toISOString(),
+  };
+}
+
+export async function deleteChatWorkspaceFsEntry(userId: string, projectId: string, input: {
+  path: string;
+}): Promise<{ path: string; deleted: true }> {
+  const project = await getWorkspaceProjectForUser(projectId, userId);
+  const normalizedPath = normalizeWorkspaceRelativePath(input.path);
+  if (!normalizedPath) {
+    throw new AppError(400, 'WORKSPACE_ENTRY_REQUIRED', 'Укажите файл или папку проекта');
+  }
+  const entryPath = safeWorkspacePath(project.root_path, normalizedPath);
+  const entryStat = await stat(entryPath).catch(() => null);
+  if (!entryStat) {
+    throw new NotFoundError('Файл или папка workspace не найдены');
+  }
+  await rm(entryPath, { recursive: entryStat.isDirectory(), force: false });
+  await touchChatWorkspaceProject(userId, project.id);
+  return { path: normalizedPath, deleted: true };
+}
+
+export async function moveChatWorkspaceFsEntry(userId: string, projectId: string, input: {
+  source_path: string;
+  target_path: string;
+}): Promise<{ source_path: string; target_path: string; type: 'file' | 'directory'; updated_at: string }> {
+  const project = await getWorkspaceProjectForUser(projectId, userId);
+  const sourcePath = normalizeWorkspaceRelativePath(input.source_path);
+  const targetPath = normalizeWorkspaceRelativePath(input.target_path);
+  if (!sourcePath || !targetPath) {
+    throw new AppError(400, 'WORKSPACE_PATH_REQUIRED', 'Укажите source_path и target_path');
+  }
+  assertWorkspaceTargetIsNotNestedInSource(sourcePath, targetPath);
+  const sourceAbsolute = safeWorkspacePath(project.root_path, sourcePath);
+  const sourceStat = await stat(sourceAbsolute).catch(() => null);
+  if (!sourceStat) {
+    throw new NotFoundError('Файл или папка workspace не найдены');
+  }
+  const targetAbsolute = await assertWorkspaceDestinationAvailable(project.root_path, targetPath);
+  await mkdir(path.dirname(targetAbsolute), { recursive: true });
+  await rename(sourceAbsolute, targetAbsolute);
+  const targetStat = await stat(targetAbsolute);
+  await touchChatWorkspaceProject(userId, project.id);
+  return {
+    source_path: sourcePath,
+    target_path: targetPath,
+    type: sourceStat.isDirectory() ? 'directory' : 'file',
+    updated_at: targetStat.mtime.toISOString(),
+  };
+}
+
+export async function copyChatWorkspaceFsEntry(userId: string, projectId: string, input: {
+  source_path: string;
+  target_path: string;
+}): Promise<{ source_path: string; target_path: string; type: 'file' | 'directory'; updated_at: string }> {
+  const project = await getWorkspaceProjectForUser(projectId, userId);
+  const sourcePath = normalizeWorkspaceRelativePath(input.source_path);
+  const targetPath = normalizeWorkspaceRelativePath(input.target_path);
+  if (!sourcePath || !targetPath) {
+    throw new AppError(400, 'WORKSPACE_PATH_REQUIRED', 'Укажите source_path и target_path');
+  }
+  assertWorkspaceTargetIsNotNestedInSource(sourcePath, targetPath);
+  const sourceAbsolute = safeWorkspacePath(project.root_path, sourcePath);
+  const sourceStat = await stat(sourceAbsolute).catch(() => null);
+  if (!sourceStat) {
+    throw new NotFoundError('Файл или папка workspace не найдены');
+  }
+  const targetAbsolute = await assertWorkspaceDestinationAvailable(project.root_path, targetPath);
+  await mkdir(path.dirname(targetAbsolute), { recursive: true });
+  await cp(sourceAbsolute, targetAbsolute, { recursive: sourceStat.isDirectory(), force: false, errorOnExist: true });
+  const targetStat = await stat(targetAbsolute);
+  await touchChatWorkspaceProject(userId, project.id);
+  return {
+    source_path: sourcePath,
+    target_path: targetPath,
+    type: sourceStat.isDirectory() ? 'directory' : 'file',
+    updated_at: targetStat.mtime.toISOString(),
   };
 }
 
