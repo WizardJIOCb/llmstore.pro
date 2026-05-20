@@ -17,13 +17,17 @@ import {
   Globe,
   Link2,
   Lock,
+  Maximize2,
   MessageCircle,
+  Minimize2,
   PencilLine,
   Pin,
   Radio,
+  Save,
   Settings2,
   Share2,
   Trash2,
+  X,
 } from 'lucide-react';
 import { ChatInput } from '../../components/agents/ChatInput';
 import { ChatLiveProgressPanel, ChatLiveProgressTrailingBusy } from '../../components/agents/ChatLiveProgressPanel';
@@ -146,9 +150,17 @@ function formatWorkspaceFileSize(size: number | null): string {
 function ProjectWorkspaceFilesTree({
   projectId,
   enabled,
+  collapsed,
+  activePath,
+  onToggleCollapsed,
+  onOpenFile,
 }: {
   projectId: string;
   enabled: boolean;
+  collapsed: boolean;
+  activePath: string | null;
+  onToggleCollapsed: () => void;
+  onOpenFile: (path: string) => void;
 }) {
   const [expandedPaths, setExpandedPaths] = useState<string[]>([]);
   const { data, isLoading } = useChatProjectFiles(projectId, '', enabled);
@@ -164,26 +176,45 @@ function ProjectWorkspaceFilesTree({
 
   return (
     <div className="mt-1 space-y-1 rounded-md bg-slate-50/70 px-1.5 py-1.5">
-      <div className="flex items-center gap-1.5 px-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+      <button
+        type="button"
+        className="flex w-full items-center gap-1.5 rounded px-1 py-1 text-left text-[10px] font-semibold uppercase tracking-wide text-muted-foreground hover:bg-white"
+        onClick={onToggleCollapsed}
+      >
+        {collapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
         <FileText className="h-3.5 w-3.5" />
         <span>Файлы workspace</span>
-      </div>
-      {isLoading && <div className="px-1 py-1 text-xs text-muted-foreground">Загружаю файлы...</div>}
-      {!isLoading && items.length === 0 && <div className="px-1 py-1 text-xs text-muted-foreground">Файлов пока нет.</div>}
-      {items.map((item) => (
-        item.type === 'directory'
-          ? (
-            <ProjectWorkspaceDirectory
-              key={item.path}
-              projectId={projectId}
-              item={item}
-              depth={0}
-              expandedPaths={expandedPaths}
-              onToggle={togglePath}
-            />
-          )
-          : <ProjectWorkspaceFileRow key={item.path} item={item} depth={0} />
-      ))}
+      </button>
+      {!collapsed && (
+        <>
+          {isLoading && <div className="px-1 py-1 text-xs text-muted-foreground">Загружаю файлы...</div>}
+          {!isLoading && items.length === 0 && <div className="px-1 py-1 text-xs text-muted-foreground">Файлов пока нет.</div>}
+          {items.map((item) => (
+            item.type === 'directory'
+              ? (
+                <ProjectWorkspaceDirectory
+                  key={item.path}
+                  projectId={projectId}
+                  item={item}
+                  depth={0}
+                  expandedPaths={expandedPaths}
+                  activePath={activePath}
+                  onToggle={togglePath}
+                  onOpenFile={onOpenFile}
+                />
+              )
+              : (
+                <ProjectWorkspaceFileRow
+                  key={item.path}
+                  item={item}
+                  depth={0}
+                  active={activePath === item.path}
+                  onOpenFile={onOpenFile}
+                />
+              )
+          ))}
+        </>
+      )}
     </div>
   );
 }
@@ -193,13 +224,17 @@ function ProjectWorkspaceDirectory({
   item,
   depth,
   expandedPaths,
+  activePath,
   onToggle,
+  onOpenFile,
 }: {
   projectId: string;
   item: ChatWorkspaceFileItem;
   depth: number;
   expandedPaths: string[];
+  activePath: string | null;
   onToggle: (path: string) => void;
+  onOpenFile: (path: string) => void;
 }) {
   const isExpanded = expandedPaths.includes(item.path);
   const { data, isLoading } = useChatProjectFiles(projectId, item.path, isExpanded);
@@ -234,10 +269,20 @@ function ProjectWorkspaceDirectory({
                   item={child}
                   depth={depth + 1}
                   expandedPaths={expandedPaths}
+                  activePath={activePath}
                   onToggle={onToggle}
+                  onOpenFile={onOpenFile}
                 />
               )
-              : <ProjectWorkspaceFileRow key={child.path} item={child} depth={depth + 1} />
+              : (
+                <ProjectWorkspaceFileRow
+                  key={child.path}
+                  item={child}
+                  depth={depth + 1}
+                  active={activePath === child.path}
+                  onOpenFile={onOpenFile}
+                />
+              )
           ))}
         </div>
       )}
@@ -245,19 +290,34 @@ function ProjectWorkspaceDirectory({
   );
 }
 
-function ProjectWorkspaceFileRow({ item, depth }: { item: ChatWorkspaceFileItem; depth: number }) {
+function ProjectWorkspaceFileRow({
+  item,
+  depth,
+  active,
+  onOpenFile,
+}: {
+  item: ChatWorkspaceFileItem;
+  depth: number;
+  active: boolean;
+  onOpenFile: (path: string) => void;
+}) {
   return (
-    <div
-      className="flex items-center gap-1 rounded px-1 py-1 text-xs text-muted-foreground hover:bg-white"
+    <button
+      type="button"
+      className={cn(
+        'flex w-full items-center gap-1 rounded px-1 py-1 text-left text-xs text-muted-foreground hover:bg-white',
+        active && 'bg-white text-slate-950 ring-1 ring-sky-200',
+      )}
       style={{ paddingLeft: depth * 10 + 24 }}
       title={item.path}
+      onClick={() => onOpenFile(item.path)}
     >
       <FileText className="h-3.5 w-3.5 shrink-0 text-slate-400" />
       <span className="min-w-0 flex-1 truncate">{item.name}</span>
       {item.size !== null && (
         <span className="shrink-0 text-[10px] text-muted-foreground">{formatWorkspaceFileSize(item.size)}</span>
       )}
-    </div>
+    </button>
   );
 }
 
@@ -1379,6 +1439,7 @@ function AuthenticatedChatsPage() {
   const [expandedProjectIds, setExpandedProjectIds] = useState<string[]>([]);
   const [expandedProjectFolderIds, setExpandedProjectFolderIds] = useState<string[]>([]);
   const [collapsedProjectFolderIds, setCollapsedProjectFolderIds] = useState<string[]>([]);
+  const [collapsedWorkspaceProjectIds, setCollapsedWorkspaceProjectIds] = useState<string[]>([]);
   const [draggedChatId, setDraggedChatId] = useState<string | null>(null);
   const [draggedFolderId, setDraggedFolderId] = useState<string | null>(null);
   const [dragOverProjectTarget, setDragOverProjectTarget] = useState<string | null>(null);
@@ -1427,6 +1488,14 @@ function AuthenticatedChatsPage() {
   const [showScrollToBottomButton, setShowScrollToBottomButton] = useState(false);
   const [publishedLandingByMessageId, setPublishedLandingByMessageId] = useState<Record<string, PublishedLanding | null>>({});
   const [landingActionMessageIds, setLandingActionMessageIds] = useState<string[]>([]);
+  const [activeWorkspaceFile, setActiveWorkspaceFile] = useState<{ projectId: string; path: string } | null>(null);
+  const [workspaceFileContent, setWorkspaceFileContent] = useState('');
+  const [workspaceFileOriginalContent, setWorkspaceFileOriginalContent] = useState('');
+  const [workspaceFileLoading, setWorkspaceFileLoading] = useState(false);
+  const [workspaceFileSaving, setWorkspaceFileSaving] = useState(false);
+  const [workspaceFileError, setWorkspaceFileError] = useState<string | null>(null);
+  const [isWorkspaceFileCollapsed, setIsWorkspaceFileCollapsed] = useState(false);
+  const [isWorkspaceChatCollapsed, setIsWorkspaceChatCollapsed] = useState(false);
   const guestDraftDispatchRef = useRef<string | null>(null);
 
   const menuRef = useRef<HTMLDivElement>(null);
@@ -2784,6 +2853,12 @@ function AuthenticatedChatsPage() {
     }
     return map;
   }, [projectChats]);
+  const activeWorkspaceProject = useMemo(
+    () => (chatProjects ?? []).find((project) => project.id === activeWorkspaceFile?.projectId) ?? null,
+    [activeWorkspaceFile?.projectId, chatProjects],
+  );
+  const activeWorkspaceFileName = activeWorkspaceFile?.path.split('/').pop() ?? activeWorkspaceFile?.path ?? '';
+  const workspaceFileDirty = workspaceFileContent !== workspaceFileOriginalContent;
   const chatById = useMemo(() => {
     const map = new Map<string, ChatListItem>();
     for (const chat of chats ?? []) {
@@ -2792,6 +2867,40 @@ function AuthenticatedChatsPage() {
     return map;
   }, [chats]);
   const isMobileChatOpen = !isDesktop && Boolean(activeChatId);
+
+  useEffect(() => {
+    if (!activeWorkspaceFile) return;
+
+    let cancelled = false;
+    setWorkspaceFileLoading(true);
+    setWorkspaceFileError(null);
+    chatsApi.getProjectFile(activeWorkspaceFile.projectId, activeWorkspaceFile.path)
+      .then((file) => {
+        if (cancelled) return;
+        setWorkspaceFileContent(file.content);
+        setWorkspaceFileOriginalContent(file.content);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setWorkspaceFileError(getApiErrorMessage(error) ?? 'Не удалось открыть файл workspace');
+        setWorkspaceFileContent('');
+        setWorkspaceFileOriginalContent('');
+      })
+      .finally(() => {
+        if (!cancelled) setWorkspaceFileLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeWorkspaceFile?.projectId, activeWorkspaceFile?.path]);
+
+  useEffect(() => {
+    if (!activeWorkspaceFile || !activeChat) return;
+    if (activeChat.project_id && activeChat.project_id !== activeWorkspaceFile.projectId) {
+      setActiveWorkspaceFile(null);
+    }
+  }, [activeChat?.project_id, activeWorkspaceFile?.projectId]);
 
   const modeOptions = useMemo(
     () => [
@@ -3640,6 +3749,41 @@ function AuthenticatedChatsPage() {
       showLocalError('Не удалось скопировать путь папки');
     } finally {
       setOpenMenu(null);
+    }
+  };
+
+  const openWorkspaceFile = (project: ChatWorkspaceProject, filePath: string) => {
+    setActiveWorkspaceFile({ projectId: project.id, path: filePath });
+    setIsWorkspaceFileCollapsed(false);
+    setIsWorkspaceChatCollapsed(false);
+    setExpandedProjectIds((prev) => (prev.includes(project.id) ? prev : [project.id, ...prev]));
+
+    const chatsInProject = projectChatsByProjectId.get(project.id) ?? [];
+    if ((!activeChat || activeChat.project_id !== project.id) && chatsInProject.length > 0) {
+      setActiveChatId(chatsInProject[0].id);
+    }
+  };
+
+  const saveActiveWorkspaceFile = async () => {
+    if (!activeWorkspaceFile || !workspaceFileDirty) return;
+    setWorkspaceFileSaving(true);
+    setWorkspaceFileError(null);
+    try {
+      const saved = await chatsApi.saveProjectFile(activeWorkspaceFile.projectId, {
+        path: activeWorkspaceFile.path,
+        content: workspaceFileContent,
+      });
+      setWorkspaceFileOriginalContent(workspaceFileContent);
+      setActiveWorkspaceFile((current) => (
+        current && current.projectId === activeWorkspaceFile.projectId
+          ? { projectId: current.projectId, path: saved.path }
+          : current
+      ));
+      void queryClient.invalidateQueries({ queryKey: ['chat-project-files', activeWorkspaceFile.projectId] });
+    } catch (error) {
+      setWorkspaceFileError(getApiErrorMessage(error) ?? 'Не удалось сохранить файл workspace');
+    } finally {
+      setWorkspaceFileSaving(false);
     }
   };
 
@@ -4981,7 +5125,20 @@ function AuthenticatedChatsPage() {
         </div>
         {isExpanded && (
           <div className="space-y-1 border-l border-slate-200 pl-3">
-            <ProjectWorkspaceFilesTree projectId={project.id} enabled={isExpanded} />
+            <ProjectWorkspaceFilesTree
+              projectId={project.id}
+              enabled={isExpanded}
+              collapsed={collapsedWorkspaceProjectIds.includes(project.id)}
+              activePath={activeWorkspaceFile?.projectId === project.id ? activeWorkspaceFile.path : null}
+              onToggleCollapsed={() => {
+                setCollapsedWorkspaceProjectIds((prev) => (
+                  prev.includes(project.id)
+                    ? prev.filter((id) => id !== project.id)
+                    : [project.id, ...prev]
+                ));
+              }}
+              onOpenFile={(filePath) => openWorkspaceFile(project, filePath)}
+            />
             {(foldersByParent.get('root') ?? []).map((folder) => renderFolder(folder))}
             {rootProjectChats.map(renderChatRow)}
             {chatsInProject.length === 0 && (
@@ -5361,7 +5518,89 @@ function AuthenticatedChatsPage() {
             )}
           </div>
 
-          <div className="route-transition-shell flex min-h-0 flex-1 flex-col">
+          {activeWorkspaceFile && activeWorkspaceProject && (
+            <div className="border-b bg-slate-50/80 px-4 py-3">
+              <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                <div className="min-w-0">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <FileText className="h-4 w-4 shrink-0 text-slate-500" />
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-slate-950">{activeWorkspaceFileName}</div>
+                      <div className="truncate text-xs text-muted-foreground">
+                        {activeWorkspaceProject.title} / {activeWorkspaceFile.path}
+                        {workspaceFileDirty ? ' • есть несохранённые изменения' : ''}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsWorkspaceFileCollapsed((prev) => !prev)}
+                  >
+                    {isWorkspaceFileCollapsed ? <Maximize2 className="h-3.5 w-3.5" /> : <Minimize2 className="h-3.5 w-3.5" />}
+                    {isWorkspaceFileCollapsed ? 'Развернуть файл' : 'Свернуть файл'}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsWorkspaceChatCollapsed((prev) => !prev)}
+                  >
+                    {isWorkspaceChatCollapsed ? <Maximize2 className="h-3.5 w-3.5" /> : <Minimize2 className="h-3.5 w-3.5" />}
+                    {isWorkspaceChatCollapsed ? 'Развернуть чат' : 'Свернуть чат'}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void saveActiveWorkspaceFile()}
+                    disabled={!workspaceFileDirty || workspaceFileSaving || workspaceFileLoading || isAdminForeignChat}
+                  >
+                    <Save className="h-3.5 w-3.5" />
+                    {workspaceFileSaving ? 'Сохраняю...' : 'Сохранить'}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setActiveWorkspaceFile(null)}
+                    title="Закрыть файл"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                    Закрыть
+                  </Button>
+                </div>
+              </div>
+              {workspaceFileError && (
+                <div className="mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {workspaceFileError}
+                </div>
+              )}
+              {!isWorkspaceFileCollapsed && (
+                <div className="mt-3 overflow-hidden rounded-lg border bg-white">
+                  {workspaceFileLoading ? (
+                    <div className="flex items-center gap-2 px-3 py-6 text-sm text-muted-foreground">
+                      <Spinner />
+                      <span>Открываю файл...</span>
+                    </div>
+                  ) : (
+                    <textarea
+                      value={workspaceFileContent}
+                      onChange={(event) => setWorkspaceFileContent(event.target.value)}
+                      spellCheck={false}
+                      disabled={isAdminForeignChat}
+                      className="h-64 w-full resize-y border-0 bg-slate-950 px-4 py-3 font-mono text-sm leading-6 text-slate-100 outline-none placeholder:text-slate-500 disabled:cursor-not-allowed disabled:opacity-70"
+                    />
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className={cn('route-transition-shell flex min-h-0 flex-1 flex-col', activeWorkspaceFile && isWorkspaceChatCollapsed && 'hidden')}>
             <div
               key={activeChat?.id ?? '__empty__'}
               className={cn(
@@ -5814,6 +6053,17 @@ function AuthenticatedChatsPage() {
             </div>
           )}
 
+          {activeWorkspaceFile && isWorkspaceChatCollapsed ? (
+            <div className="border-t bg-slate-50 px-4 py-3">
+              <div className="flex items-center justify-between gap-3 rounded-lg border bg-white px-3 py-2 text-sm text-muted-foreground">
+                <span className="truncate">Чат свернут, файл открыт выше.</span>
+                <Button type="button" variant="outline" size="sm" onClick={() => setIsWorkspaceChatCollapsed(false)}>
+                  <Maximize2 className="h-3.5 w-3.5" />
+                  Развернуть чат
+                </Button>
+              </div>
+            </div>
+          ) : (
           <div className="border-t px-4 py-3 space-y-3">
             {canShowQuickPrompts && displayedMessages.length > 0 && isQuickPromptsOpen && (
               <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
@@ -5866,6 +6116,7 @@ function AuthenticatedChatsPage() {
               }
             />
           </div>
+          )}
             </div>
           </div>
         </section>
