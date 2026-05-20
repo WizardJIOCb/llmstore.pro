@@ -1713,12 +1713,53 @@ function resolveImageGenerationAspectRatio(value: string): string | undefined {
   return undefined;
 }
 
-function extractOpenRouterGeneratedImageUrls(message: ChatMessage | undefined): string[] {
-  if (!message || !Array.isArray(message.images)) return [];
+function isGeneratedImageDataUrl(value: unknown): value is string {
+  return typeof value === 'string' && /^data:image\/[a-z0-9.+-]+;base64,/i.test(value);
+}
 
-  return message.images
-    .map((image) => image.image_url?.url ?? image.imageUrl?.url ?? '')
-    .filter((url) => /^data:image\/[a-z0-9.+-]+;base64,/i.test(url));
+function extractOpenRouterGeneratedImageUrls(message: ChatMessage | undefined): string[] {
+  if (!message) return [];
+
+  const urls: string[] = [];
+  const pushUrl = (value: unknown) => {
+    if (isGeneratedImageDataUrl(value) && !urls.includes(value)) {
+      urls.push(value);
+    }
+  };
+
+  if (Array.isArray(message.images)) {
+    for (const image of message.images) {
+      pushUrl(image.image_url?.url);
+      pushUrl(image.imageUrl?.url);
+    }
+  }
+
+  if (Array.isArray(message.content)) {
+    for (const part of message.content) {
+      if (part?.type === 'image_url') {
+        pushUrl(part.image_url?.url);
+      }
+    }
+  } else if (typeof message.content === 'string') {
+    for (const match of message.content.matchAll(/data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=\r\n]+/gi)) {
+      pushUrl(match[0]);
+    }
+  }
+
+  return urls;
+}
+
+function extractOpenRouterMessageText(message: ChatMessage | undefined): string {
+  if (!message) return '';
+  if (typeof message.content === 'string') return message.content.trim();
+  if (!Array.isArray(message.content)) return '';
+
+  return message.content
+    .filter((part) => part?.type === 'text' && typeof part.text === 'string')
+    .map((part) => part.type === 'text' ? part.text.trim() : '')
+    .filter(Boolean)
+    .join('\n\n')
+    .trim();
 }
 
 function decodeGeneratedImageDataUrl(dataUrl: string): { mimeType: string; buffer: Buffer; extension: string } | null {
@@ -5273,6 +5314,9 @@ const OPENROUTER_FREE_CHAT_FALLBACK_MODELS = [
   'openrouter/free',
   'deepseek/deepseek-v4-flash:free',
   'qwen/qwen3-coder:free',
+] as const;
+const OPENROUTER_IMAGE_GENERATION_FALLBACK_MODELS = [
+  'google/gemini-3.1-flash-image-preview',
 ] as const;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const AGENT_OPENROUTER_TIMEOUT_MS = 3 * 60_000;
@@ -9638,16 +9682,72 @@ export async function sendChatMessage(
             });
           }
         };
-        const response = await requestGeneralCompletion();
+        let response = await requestGeneralCompletion();
         completedGeneralModel = model;
+        let assistantMessage = response.choices?.[0]?.message;
+        let generatedImageUrls = extractOpenRouterGeneratedImageUrls(assistantMessage);
+        if (wantsImageGeneration && generatedImageUrls.length === 0) {
+          for (const fallbackModel of OPENROUTER_IMAGE_GENERATION_FALLBACK_MODELS) {
+            const normalizedFallbackModel = normalizeOpenRouterModelId(fallbackModel);
+            if (!normalizedFallbackModel || attemptedGeneralModelIds.has(normalizedFallbackModel)) {
+              continue;
+            }
+
+            const previousModel = model;
+            attemptedGeneralModelIds.add(normalizedFallbackModel);
+            model = normalizedFallbackModel;
+            logger.warn({
+              chatId,
+              userId,
+              previousModel,
+              fallbackModel: normalizedFallbackModel,
+              responseModel: response.model,
+              finishReason: response.choices?.[0]?.finish_reason,
+              usage: response.usage,
+            }, 'Image generation response did not contain an image, retrying with fallback model');
+            emitChatEvent('chat.run.status', {
+              mode: 'general',
+              status: 'image_model_fallback',
+              label: 'Повторяю генерацию изображения',
+              detail: `Модель ${previousModel} не вернула файл изображения, повторяю через ${normalizedFallbackModel}.`,
+              previous_model: previousModel,
+              model: normalizedFallbackModel,
+            });
+
+            try {
+              response = await openRouterClient.chatCompletion(buildGeneralRequest(), {
+                timeoutMs: GENERAL_CHAT_OPENROUTER_TIMEOUT_MS,
+              });
+              completedGeneralModel = model;
+              assistantMessage = response.choices?.[0]?.message;
+              generatedImageUrls = extractOpenRouterGeneratedImageUrls(assistantMessage);
+              if (generatedImageUrls.length > 0) {
+                break;
+              }
+            } catch (fallbackError) {
+              model = previousModel;
+              completedGeneralModel = previousModel;
+              logger.error({
+                chatId,
+                userId,
+                previousModel,
+                fallbackModel: normalizedFallbackModel,
+                err: fallbackError,
+              }, 'Image generation fallback model failed');
+            }
+          }
+        }
         latencyMs = Date.now() - startedAt;
-        const assistantMessage = response.choices?.[0]?.message;
-        const rawAssistant = assistantMessage?.content;
-        const generatedImageUrls = extractOpenRouterGeneratedImageUrls(assistantMessage);
+        const rawAssistant = extractOpenRouterMessageText(assistantMessage);
         assistantGeneratedImageArtifacts = await materializeGeneratedImagesFromDataUrls(generatedImageUrls);
-        assistantText = typeof rawAssistant === 'string' && rawAssistant.trim()
+        assistantText = rawAssistant
           ? rawAssistant
           : (assistantGeneratedImageArtifacts.length > 0 ? 'Изображение сгенерировано.' : '(пустой ответ)');
+        if (wantsImageGeneration && assistantGeneratedImageArtifacts.length === 0) {
+          assistantText = rawAssistant
+            ? `${rawAssistant}\n\nOpenRouter не вернул файл изображения. Попробуйте повторить запрос или уточнить описание.`
+            : `OpenRouter не вернул файл изображения через ${model}. Попробуйте повторить запрос или уточнить описание.`;
+        }
         if (response.usage) {
           usagePayload = attachUsdToRubRate(
             estimateGeneralChatCost(model, response.usage) as unknown as Record<string, unknown>,
@@ -9659,7 +9759,9 @@ export async function sendChatMessage(
           model,
           latency_ms: latencyMs,
           generated_images: assistantGeneratedImageArtifacts.length,
-          label: wantsImageGeneration ? 'OpenRouter сгенерировал изображение' : 'OpenRouter вернул ответ',
+          label: wantsImageGeneration
+            ? (assistantGeneratedImageArtifacts.length > 0 ? 'OpenRouter сгенерировал изображение' : 'OpenRouter не вернул изображение')
+            : 'OpenRouter вернул ответ',
         });
       } catch (err) {
         emitChatEvent('chat.run.failed', {
