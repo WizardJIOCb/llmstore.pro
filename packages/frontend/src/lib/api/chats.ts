@@ -444,6 +444,7 @@ export interface ChatStats {
     rub_cost: number;
     messages_with_usage: number;
     total_latency_ms: number;
+    generated_images: number;
   };
   by_model: Array<{
     model: string;
@@ -453,6 +454,7 @@ export interface ChatStats {
     usd_cost: number;
     rub_cost: number;
     messages: number;
+    generated_images: number;
   }>;
   usd_to_rub_rate: number;
 }

@@ -5761,6 +5761,7 @@ interface ChatStatsModelBreakdown {
   usd_cost: number;
   rub_cost: number;
   messages: number;
+  generated_images: number;
 }
 
 interface ChatStatsResponse {
@@ -5786,6 +5787,7 @@ interface ChatStatsResponse {
     rub_cost: number;
     messages_with_usage: number;
     total_latency_ms: number;
+    generated_images: number;
   };
   by_model: ChatStatsModelBreakdown[];
   usd_to_rub_rate: number;
@@ -8798,6 +8800,13 @@ export async function getChatStats(chatId: string, userId: string): Promise<Chat
     .from(chatConversationMessages)
     .where(eq(chatConversationMessages.conversation_id, chatId))
     .orderBy(asc(chatConversationMessages.created_at));
+  const generatedImageRows = await db
+    .select({ message_id: chatMessageFiles.message_id })
+    .from(chatMessageFiles)
+    .where(and(
+      eq(chatMessageFiles.conversation_id, chatId),
+      eq(chatMessageFiles.kind, 'image'),
+    ));
 
   let userMessages = 0;
   let assistantMessages = 0;
@@ -8807,6 +8816,11 @@ export async function getChatStats(chatId: string, userId: string): Promise<Chat
   let usdCost = 0;
   let messagesWithUsage = 0;
   let totalLatencyMs = 0;
+  const generatedImages = generatedImageRows.length;
+  const generatedImagesByMessageId = new Map<string, number>();
+  for (const row of generatedImageRows) {
+    generatedImagesByMessageId.set(row.message_id, (generatedImagesByMessageId.get(row.message_id) ?? 0) + 1);
+  }
 
   const byModel = new Map<string, ChatStatsModelBreakdown>();
 
@@ -8827,6 +8841,7 @@ export async function getChatStats(chatId: string, userId: string): Promise<Chat
       ? usage.model
       : (chat.model_external_id || DEFAULT_GENERAL_MODEL);
     const usd = Number(estimateCost(model, p, c));
+    const generatedImagesForMessage = generatedImagesByMessageId.get(msg.id) ?? 0;
 
     promptTokens += p;
     completionTokens += c;
@@ -8842,12 +8857,14 @@ export async function getChatStats(chatId: string, userId: string): Promise<Chat
       usd_cost: 0,
       rub_cost: 0,
       messages: 0,
+      generated_images: 0,
     };
     existing.prompt_tokens += p;
     existing.completion_tokens += c;
     existing.total_tokens += t;
     existing.usd_cost += usd;
     existing.messages += 1;
+    existing.generated_images += generatedImagesForMessage;
     byModel.set(model, existing);
   }
 
@@ -8891,6 +8908,7 @@ export async function getChatStats(chatId: string, userId: string): Promise<Chat
       rub_cost: usdCost * usdToRubRate,
       messages_with_usage: messagesWithUsage,
       total_latency_ms: totalLatencyMs,
+      generated_images: generatedImages,
     },
     by_model: byModelArr,
     usd_to_rub_rate: usdToRubRate,

@@ -5774,6 +5774,7 @@ function AuthenticatedChatsPage() {
                       <div className="rounded-lg border bg-muted/20 p-3"><p className="text-xs text-muted-foreground">Токены prompt</p><p className="text-base font-semibold">{formatInt(activeChatStats.totals.prompt_tokens)}</p></div>
                       <div className="rounded-lg border bg-muted/20 p-3"><p className="text-xs text-muted-foreground">Токены completion</p><p className="text-base font-semibold">{formatInt(activeChatStats.totals.completion_tokens)}</p></div>
                       <div className="rounded-lg border bg-muted/20 p-3"><p className="text-xs text-muted-foreground">Время ответов</p><p className="text-base font-semibold">{formatDuration(activeChatStats.totals.total_latency_ms)}</p></div>
+                      <div className="rounded-lg border bg-muted/20 p-3"><p className="text-xs text-muted-foreground">Сгенерировано картинок</p><p className="text-base font-semibold">{formatInt(activeChatStats.totals.generated_images ?? 0)}</p></div>
                       <div className="rounded-lg border bg-muted/20 p-3"><p className="text-xs text-muted-foreground">Стоимость ($)</p><p className="text-base font-semibold">{formatMoney(activeChatStats.totals.usd_cost, 'USD')}</p></div>
                       <div className="rounded-lg border bg-muted/20 p-3"><p className="text-xs text-muted-foreground">Стоимость (₽)</p><p className="text-base font-semibold">{formatMoney(activeChatStats.totals.rub_cost, 'RUB')}</p></div>
                     </div>
@@ -5792,6 +5793,7 @@ function AuthenticatedChatsPage() {
                             <tr>
                               <th className="px-3 py-2 font-medium">Модель</th>
                               <th className="px-3 py-2 font-medium">Сообщений</th>
+                              <th className="px-3 py-2 font-medium">Картинок</th>
                               <th className="px-3 py-2 font-medium">Токены</th>
                               <th className="px-3 py-2 font-medium">$</th>
                               <th className="px-3 py-2 font-medium">₽</th>
@@ -5802,6 +5804,7 @@ function AuthenticatedChatsPage() {
                               <tr key={row.model} className="border-t">
                                 <td className="px-3 py-2">{formatModelLabelWithContext(row.model)}</td>
                                 <td className="px-3 py-2">{formatInt(row.messages)}</td>
+                                <td className="px-3 py-2">{formatInt(row.generated_images ?? 0)}</td>
                                 <td className="px-3 py-2">{formatInt(row.total_tokens)}</td>
                                 <td className="px-3 py-2">{formatMoney(row.usd_cost, 'USD')}</td>
                                 <td className="px-3 py-2">{formatMoney(row.rub_cost, 'RUB')}</td>
