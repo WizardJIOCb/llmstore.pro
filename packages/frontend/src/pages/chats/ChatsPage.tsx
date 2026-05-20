@@ -3624,19 +3624,38 @@ function AuthenticatedChatsPage() {
 
     setLocalError(null);
     setStreamEvents([]);
+    const optimisticMessage: ChatMessageType = {
+      id: `optimistic-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      role: 'user',
+      content,
+      run_id: null,
+      usage: null,
+      attachments: optimisticAttachments,
+      latency_ms: null,
+      created_at: new Date().toISOString(),
+    };
+    const removeOptimisticMessageFromCache = () => {
+      queryClient.setQueryData<ChatDetails>(['chats', chatId], (prev) => (
+        prev
+          ? {
+            ...prev,
+            messages: prev.messages.filter((message) => message.id !== optimisticMessage.id),
+          }
+          : prev
+      ));
+    };
     setOptimisticPendingMessage({
       chatId,
       objectUrls: optimisticAttachments.map((file) => file.url),
-      message: {
-        id: `optimistic-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-        role: 'user',
-        content,
-        run_id: null,
-        usage: null,
-        attachments: optimisticAttachments,
-        latency_ms: null,
-        created_at: new Date().toISOString(),
-      },
+      message: optimisticMessage,
+    });
+    queryClient.setQueryData<ChatDetails>(['chats', chatId], (prev) => {
+      if (!prev) return prev;
+      if (prev.messages.some((message) => message.id === optimisticMessage.id)) return prev;
+      return {
+        ...prev,
+        messages: [...prev.messages, optimisticMessage],
+      };
     });
     const startedAt = new Date().toISOString();
     const nextAssistantSlot = {
@@ -3663,9 +3682,7 @@ function AuthenticatedChatsPage() {
         clearTimeout(assistantSlotDelayTimerRef.current);
         assistantSlotDelayTimerRef.current = null;
       }
-      const optimisticVisualKey = optimisticPendingMessage?.chatId === chatId
-        ? optimisticPendingMessage.message.id
-        : result.user_message.id;
+      const optimisticVisualKey = optimisticMessage.id;
       animatedMessageIdsRef.current.add(result.user_message.id);
       messageVisualKeyByIdRef.current.set(result.user_message.id, optimisticVisualKey);
 
@@ -3673,7 +3690,9 @@ function AuthenticatedChatsPage() {
         if (!prev) return prev;
 
         const nextMessages = prev.messages.filter((message) => (
-          message.id !== result.user_message.id && (!result.assistant_message || message.id !== result.assistant_message.id)
+          message.id !== optimisticMessage.id
+          && message.id !== result.user_message.id
+          && (!result.assistant_message || message.id !== result.assistant_message.id)
         ));
 
         return {
@@ -3726,6 +3745,7 @@ function AuthenticatedChatsPage() {
       const status = getApiErrorStatus(err);
       if (code === 'INSUFFICIENT_BALANCE') {
         setOptimisticPendingMessage((prev) => (prev?.chatId === chatId ? null : prev));
+        removeOptimisticMessageFromCache();
         setAssistantResponseSlot((prev) => (prev?.chatId === chatId ? null : prev));
         markChatRuntimeIdle(chatId);
         openTopUpDialog();
@@ -3770,6 +3790,7 @@ function AuthenticatedChatsPage() {
         return;
       }
       setOptimisticPendingMessage((prev) => (prev?.chatId === chatId ? null : prev));
+      removeOptimisticMessageFromCache();
       setAssistantResponseSlot((prev) => (prev?.chatId === chatId ? null : prev));
       markChatRuntimeIdle(chatId);
       showLocalError(getUploadErrorMessage(err) ?? (err instanceof Error ? err.message : 'Не удалось отправить сообщение'));
