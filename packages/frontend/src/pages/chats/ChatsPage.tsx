@@ -1408,6 +1408,12 @@ function AuthenticatedChatsPage() {
     },
     [messages, debugThinkingForActiveChat, optimisticMessageForActiveChat],
   );
+  const composerMessageHistory = useMemo(
+    () => displayedMessages
+      .filter((message) => message.role === 'user' && message.content.trim().length > 0)
+      .map((message) => message.content),
+    [displayedMessages],
+  );
   const activePreviewMessageIds = useMemo(
     () => messages.filter(hasHtmlPreviewMessage).map((message) => message.id),
     [messages],
@@ -4942,6 +4948,8 @@ function AuthenticatedChatsPage() {
               onSend={sendMessage}
               allowAttachments
               prefill={composerPrefill}
+              historyKey={activeChat?.id ?? null}
+              messageHistory={composerMessageHistory}
               quickAction={canShowQuickPrompts && displayedMessages.length > 0 ? {
                 label: isQuickPromptsOpen ? 'Скрыть подсказки' : 'Показать подсказки',
                 onClick: () => setIsQuickPromptsOpen((prev) => !prev),

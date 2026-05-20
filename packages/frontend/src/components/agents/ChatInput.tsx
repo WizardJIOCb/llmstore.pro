@@ -9,6 +9,8 @@ interface ChatInputProps {
   placeholder?: string;
   allowAttachments?: boolean;
   prefill?: { text: string; token: number } | null;
+  historyKey?: string | null;
+  messageHistory?: string[];
   quickAction?: {
     label: string;
     onClick: () => void;
@@ -74,13 +76,17 @@ export function ChatInput({
   placeholder = 'Введите сообщение...',
   allowAttachments = false,
   prefill = null,
+  historyKey = null,
+  messageHistory = [],
   quickAction = null,
 }: ChatInputProps) {
   const [value, setValue] = useState('');
   const [files, setFiles] = useState<File[]>([]);
+  const [historyCursor, setHistoryCursor] = useState<number | null>(null);
   const [isMobile, setIsMobile] = useState(() => window.matchMedia('(max-width: 767px)').matches);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const draftBeforeHistoryRef = useRef('');
 
   useEffect(() => {
     const media = window.matchMedia('(max-width: 767px)');
@@ -107,6 +113,8 @@ export function ChatInput({
     if (!prefill) return;
 
     setValue(prefill.text);
+    setHistoryCursor(null);
+    draftBeforeHistoryRef.current = '';
     setFiles([]);
     if (fileInputRef.current) fileInputRef.current.value = '';
 
@@ -120,8 +128,15 @@ export function ChatInput({
     });
   }, [prefill?.text, prefill?.token]);
 
+  useEffect(() => {
+    setHistoryCursor(null);
+    draftBeforeHistoryRef.current = '';
+  }, [historyKey]);
+
   const resetComposer = () => {
     setValue('');
+    setHistoryCursor(null);
+    draftBeforeHistoryRef.current = '';
     setFiles([]);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
@@ -130,6 +145,47 @@ export function ChatInput({
     const focus = () => textareaRef.current?.focus();
     requestAnimationFrame(focus);
     window.setTimeout(focus, 0);
+  };
+
+  const placeCaretAtEnd = () => {
+    requestAnimationFrame(() => {
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+      textarea.focus();
+      const caret = textarea.value.length;
+      textarea.selectionStart = caret;
+      textarea.selectionEnd = caret;
+    });
+  };
+
+  const navigateMessageHistory = (direction: 'previous' | 'next') => {
+    const entries = messageHistory.map((item) => item.trim()).filter(Boolean);
+    if (entries.length === 0) return;
+
+    if (direction === 'previous') {
+      const nextCursor = historyCursor === null ? entries.length - 1 : Math.max(0, historyCursor - 1);
+      if (historyCursor === null) {
+        draftBeforeHistoryRef.current = value;
+      }
+      setHistoryCursor(nextCursor);
+      setValue(entries[nextCursor] ?? '');
+      placeCaretAtEnd();
+      return;
+    }
+
+    if (historyCursor === null) return;
+    const nextCursor = historyCursor + 1;
+    if (nextCursor >= entries.length) {
+      setHistoryCursor(null);
+      setValue(draftBeforeHistoryRef.current);
+      draftBeforeHistoryRef.current = '';
+      placeCaretAtEnd();
+      return;
+    }
+
+    setHistoryCursor(nextCursor);
+    setValue(entries[nextCursor] ?? '');
+    placeCaretAtEnd();
   };
 
   const handleSubmit = async () => {
@@ -142,6 +198,12 @@ export function ChatInput({
   };
 
   const handleKeyDown = async (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if ((event.ctrlKey || event.metaKey) && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+      event.preventDefault();
+      navigateMessageHistory(event.key === 'ArrowUp' ? 'previous' : 'next');
+      return;
+    }
+
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
       await handleSubmit();
@@ -201,7 +263,11 @@ export function ChatInput({
           <textarea
             ref={textareaRef}
             value={value}
-            onChange={(event) => setValue(event.target.value)}
+            onChange={(event) => {
+              setValue(event.target.value);
+              setHistoryCursor(null);
+              draftBeforeHistoryRef.current = '';
+            }}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             placeholder={placeholder}
@@ -242,7 +308,7 @@ export function ChatInput({
               </Button>
             )}
             <p className="hidden text-xs text-muted-foreground sm:block">
-              `Enter` отправить, `Shift+Enter` новая строка
+              `Enter` отправить, `Shift+Enter` новая строка, `Ctrl+↑/↓` история
             </p>
           </div>
 
