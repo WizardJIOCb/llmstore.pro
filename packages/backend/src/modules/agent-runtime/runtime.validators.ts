@@ -21,8 +21,26 @@ const createChatSchema = z.object({
   system_prompt: z.string().max(8000).optional().nullable(),
   reasoning_effort: z.enum(['auto', 'none', 'low', 'medium', 'high', 'xhigh']).optional().nullable(),
   tool_ids: z.array(z.string().uuid()).max(64).optional(),
+  project_id: z.string().uuid().optional().nullable(),
+  project_folder_id: z.string().uuid().optional().nullable(),
   access: z.enum(['public', 'private', 'restricted']).optional(),
   access_identifiers: z.array(z.string().min(1).max(255)).max(200).optional(),
+});
+
+const createChatWorkspaceProjectSchema = z.object({
+  title: z.string().min(1).max(255).optional(),
+  description: z.string().max(2000).optional().nullable(),
+  git_remote_url: z.string().max(1000).optional().nullable(),
+});
+
+const createChatWorkspaceFolderSchema = z.object({
+  title: z.string().min(1).max(255).optional(),
+  parent_folder_id: z.string().uuid().optional().nullable(),
+});
+
+const saveChatWorkspaceFileSchema = z.object({
+  path: z.string().min(1).max(1000),
+  content: z.string().max(1_000_000),
 });
 
 const telegramBotQuickstartSchema = z.object({
@@ -46,6 +64,9 @@ const updateChatSchema = z.object({
   system_prompt: z.string().max(8000).optional().nullable(),
   reasoning_effort: z.enum(['auto', 'none', 'low', 'medium', 'high', 'xhigh']).optional().nullable(),
   tool_ids: z.array(z.string().uuid()).max(64).optional(),
+  project_id: z.string().uuid().optional().nullable(),
+  project_folder_id: z.string().uuid().optional().nullable(),
+  project_sort_order: z.number().int().min(0).max(1_000_000_000).optional().nullable(),
   context_window_tokens: z.number().int().min(8192).max(2_000_000).optional().nullable(),
   context_blocks: z.object({
     brief: z.string().max(6000).optional().nullable(),
@@ -111,6 +132,9 @@ const setGalleryReactionSchema = z.object({
 });
 
 export const validateCreateChat = validate(createChatSchema, 'body');
+export const validateCreateChatWorkspaceProject = validate(createChatWorkspaceProjectSchema, 'body');
+export const validateCreateChatWorkspaceFolder = validate(createChatWorkspaceFolderSchema, 'body');
+export const validateSaveChatWorkspaceFile = validate(saveChatWorkspaceFileSchema, 'body');
 export const validateTelegramBotQuickstart = validate(telegramBotQuickstartSchema, 'body');
 export const validateUpdateChat = validate(updateChatSchema, 'body');
 export const validateSendChatMessage = validate(sendMessageSchema, 'body');

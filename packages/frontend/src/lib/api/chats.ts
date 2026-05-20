@@ -190,6 +190,9 @@ export interface ChatListItem {
   agent_model_label?: string | null;
   effective_model_label?: string | null;
   model_external_id: string | null;
+  project_id?: string | null;
+  project_folder_id?: string | null;
+  project_sort_order?: number;
   access: ChatAccess;
   access_identifiers: string[];
   share_token: string | null;
@@ -220,6 +223,52 @@ export interface ChatMessage {
   generated_files?: ChatGeneratedFile[];
   latency_ms: number | null;
   created_at: string;
+}
+
+export interface ChatWorkspaceFolder {
+  id: string;
+  project_id: string;
+  parent_folder_id: string | null;
+  title: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChatWorkspaceProject {
+  id: string;
+  title: string;
+  slug: string;
+  description: string | null;
+  git_remote_url: string | null;
+  status: string;
+  root_path: string;
+  folders: ChatWorkspaceFolder[];
+  chats_count: number;
+  last_activity_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChatWorkspaceFileItem {
+  name: string;
+  path: string;
+  type: 'file' | 'directory';
+  size: number | null;
+  updated_at: string | null;
+}
+
+export interface ChatWorkspaceFileList {
+  project: ChatWorkspaceProject;
+  path: string;
+  items: ChatWorkspaceFileItem[];
+}
+
+export interface ChatWorkspaceFileContent {
+  path: string;
+  content: string;
+  size: number;
+  updated_at: string | null;
 }
 
 export interface ChatAttachment {
@@ -603,6 +652,8 @@ export const chatsApi = {
     reasoning_effort?: ChatReasoningEffort | null;
     system_prompt?: string | null;
     tool_ids?: string[];
+    project_id?: string | null;
+    project_folder_id?: string | null;
     access?: ChatAccess;
     access_identifiers?: string[];
   }) => apiClient.post<{ data: ChatListItem }>('/chats', payload ?? {}).then((r) => r.data.data),
@@ -620,6 +671,9 @@ export const chatsApi = {
       context_window_tokens?: number | null;
       context_blocks?: ChatContextBlocks | null;
       tool_ids?: string[];
+      project_id?: string | null;
+      project_folder_id?: string | null;
+      project_sort_order?: number | null;
       access?: ChatAccess;
       access_identifiers?: string[];
       pin_to_top?: boolean;
@@ -652,6 +706,31 @@ export const chatsApi = {
       .then((r) => r.data.data),
 
   remove: (chatId: string) => apiClient.delete(`/chats/${chatId}`),
+
+  listProjects: () => apiClient.get<{ data: ChatWorkspaceProject[] }>('/chat-projects').then((r) => r.data.data),
+
+  createProject: (payload?: { title?: string; description?: string | null; git_remote_url?: string | null }) =>
+    apiClient.post<{ data: ChatWorkspaceProject }>('/chat-projects', payload ?? {}).then((r) => r.data.data),
+
+  createProjectFolder: (projectId: string, payload?: { title?: string; parent_folder_id?: string | null }) =>
+    apiClient
+      .post<{ data: ChatWorkspaceFolder }>(`/chat-projects/${projectId}/folders`, payload ?? {})
+      .then((r) => r.data.data),
+
+  listProjectFiles: (projectId: string, path = '') =>
+    apiClient
+      .get<{ data: ChatWorkspaceFileList }>(`/chat-projects/${projectId}/files`, { params: { path } })
+      .then((r) => r.data.data),
+
+  getProjectFile: (projectId: string, path: string) =>
+    apiClient
+      .get<{ data: ChatWorkspaceFileContent }>(`/chat-projects/${projectId}/files/content`, { params: { path } })
+      .then((r) => r.data.data),
+
+  saveProjectFile: (projectId: string, payload: { path: string; content: string }) =>
+    apiClient
+      .put<{ data: { path: string; size: number; updated_at: string } }>(`/chat-projects/${projectId}/files/content`, payload)
+      .then((r) => r.data.data),
 
   deleteMessage: (chatId: string, messageId: string) =>
     apiClient.delete<{ data: { ok: true } }>(`/chats/${chatId}/messages/${messageId}`).then((r) => r.data.data),

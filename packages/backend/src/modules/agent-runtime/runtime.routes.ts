@@ -5,7 +5,10 @@ import { chatBundleUpload, chatUpload } from '../../config/upload.js';
 import {
   validateStartRun,
   validateCreateChat,
+  validateCreateChatWorkspaceFolder,
+  validateCreateChatWorkspaceProject,
   validateUpdateChat,
+  validateSaveChatWorkspaceFile,
   validateSendChatMessage,
   validateUpdateMessagePreview,
   validatePublishLanding,
@@ -41,6 +44,12 @@ router.post('/gallery/previews/:chatId/messages/:messageId/project-run', require
 router.all('/project-deployments/:token/webhook*', controller.proxyProjectDeploymentWebhook);
 router.post('/project-deployments/:token/agent-run', validateProjectDeploymentAgentRun, controller.runLinkedAgentForProjectDeployment);
 router.get('/chats', requireAuth, controller.listChats);
+router.get('/chat-projects', requireAuth, controller.listChatWorkspaceProjects);
+router.post('/chat-projects', requireAuth, validateCreateChatWorkspaceProject, controller.createChatWorkspaceProject);
+router.post('/chat-projects/:projectId/folders', requireAuth, validateCreateChatWorkspaceFolder, controller.createChatWorkspaceFolder);
+router.get('/chat-projects/:projectId/files', requireAuth, controller.listChatWorkspaceFiles);
+router.get('/chat-projects/:projectId/files/content', requireAuth, controller.getChatWorkspaceFile);
+router.put('/chat-projects/:projectId/files/content', requireAuth, validateSaveChatWorkspaceFile, controller.saveChatWorkspaceFile);
 router.get('/chats/agents', requireAuth, controller.listChatAgents);
 router.post('/telegram-bot-quickstart', requireAuth, validateTelegramBotQuickstart, controller.createTelegramBotQuickstart);
 router.post('/chats', requireAuth, validateCreateChat, controller.createChat);

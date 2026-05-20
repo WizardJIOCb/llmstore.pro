@@ -9,6 +9,8 @@ import {
   Bot,
   Copy,
   Download,
+  Folder,
+  FolderOpen,
   Globe,
   Link2,
   Lock,
@@ -35,10 +37,12 @@ import { Spinner } from '../../components/ui/Spinner';
 import {
   useChat,
   useChatAgents,
+  useChatProjects,
   useChatStats,
   useChatsList,
   useCloneChat,
   useCreateChat,
+  useCreateChatProject,
   useDeleteChat,
   useDeleteChatMessage,
   useTruncateChatFromMessage,
@@ -70,6 +74,7 @@ import type {
   ChatMode,
   ChatPendingRunState,
   ChatReasoningEffort,
+  ChatWorkspaceProject,
   CodingReport,
   ProjectDeployment,
   PublishedLanding,
@@ -1175,11 +1180,13 @@ function AuthenticatedChatsPage() {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const { data: chats, isLoading: chatsLoading } = useChatsList(isAuthenticated);
+  const { data: chatProjects, isLoading: projectsLoading } = useChatProjects(isAuthenticated);
   const { data: agents, isLoading: agentsLoading } = useChatAgents(isAuthenticated);
   const { data: availableTools } = useBuiltinTools(isAuthenticated);
   const { data: appSettings } = useAppSettings();
   const { data: profile } = useProfile(isAuthenticated);
   const createChatMutation = useCreateChat();
+  const createChatProjectMutation = useCreateChatProject();
   const cloneChatMutation = useCloneChat();
   const updateChatMutation = useUpdateChat();
   const updateAgentMutation = useUpdateAgent();
@@ -1214,11 +1221,14 @@ function AuthenticatedChatsPage() {
   const [transferIdentifier, setTransferIdentifier] = useState('');
   const [transferDialogError, setTransferDialogError] = useState<string | null>(null);
   const [isDesktop, setIsDesktop] = useState(() => window.matchMedia('(min-width: 768px)').matches);
-  const [newChatMode, setNewChatMode] = useState<'general' | 'agent'>('general');
+  const [newChatMode, setNewChatMode] = useState<'general' | 'agent' | 'project'>('general');
   const [newChatAgentId, setNewChatAgentId] = useState('');
   const [newChatAgentSearch, setNewChatAgentSearch] = useState('');
   const [newChatModel, setNewChatModel] = useState('google/gemini-2.5-flash');
+  const [newProjectTitle, setNewProjectTitle] = useState('');
+  const [newProjectDescription, setNewProjectDescription] = useState('');
   const [newChatReasoningEffort, setNewChatReasoningEffort] = useState<ChatReasoningEffort>('auto');
+  const [expandedProjectIds, setExpandedProjectIds] = useState<string[]>([]);
   const [propertiesTab, setPropertiesTab] = useState<PropertiesTab>('overview');
   const [propertiesModeView, setPropertiesModeView] = useState<PropertiesModeView>('general');
   const [propertiesAgentId, setPropertiesAgentId] = useState('');
@@ -2600,8 +2610,27 @@ function AuthenticatedChatsPage() {
     });
   }, [activeChat, chats, messages, search]);
 
-  const draftChats = filteredChats.filter((chat) => chat.message_count === 0);
-  const regularChats = filteredChats.filter((chat) => chat.message_count > 0);
+  const projectChats = filteredChats.filter((chat) => Boolean(chat.project_id));
+  const rootChats = filteredChats.filter((chat) => !chat.project_id);
+  const draftChats = rootChats.filter((chat) => chat.message_count === 0);
+  const regularChats = rootChats.filter((chat) => chat.message_count > 0);
+  const projectChatsByProjectId = useMemo(() => {
+    const map = new Map<string, ChatListItem[]>();
+    for (const chat of projectChats) {
+      if (!chat.project_id) continue;
+      const list = map.get(chat.project_id) ?? [];
+      list.push(chat);
+      map.set(chat.project_id, list);
+    }
+    for (const list of map.values()) {
+      list.sort((left, right) => {
+        const orderDiff = (left.project_sort_order ?? 0) - (right.project_sort_order ?? 0);
+        if (orderDiff !== 0) return orderDiff;
+        return new Date(right.last_message_at).getTime() - new Date(left.last_message_at).getTime();
+      });
+    }
+    return map;
+  }, [projectChats]);
   const isMobileChatOpen = !isDesktop && Boolean(activeChatId);
 
   const modeOptions = useMemo(
@@ -3000,7 +3029,7 @@ function AuthenticatedChatsPage() {
   const canShowQuickPrompts = activeChat?.mode === 'agent' && activeStarterPrompts.length > 0;
   const hasAvailableBalance = profile ? Number(profile.balance_usd) > 0 : true;
   const isSubmittingMessage = sendMessageMutation.isPending || uploadFilesMutation.isPending || isAwaitingLateReply;
-  const sidebarLoading = chatsLoading || agentsLoading;
+  const sidebarLoading = chatsLoading || agentsLoading || projectsLoading;
   const userMessageAuthorLabel = profile?.username?.trim()
     ? (
       <UserLink
@@ -3247,6 +3276,35 @@ function AuthenticatedChatsPage() {
     }
 
     try {
+      if (newChatMode === 'project') {
+        const project = await createChatProjectMutation.mutateAsync({
+          title: newProjectTitle.trim() || 'Новый проект',
+          description: newProjectDescription.trim() || null,
+        });
+        const created = await createChatMutation.mutateAsync({
+          mode: 'general',
+          title: `Чат проекта: ${project.title}`,
+          model_external_id: newChatModel,
+          reasoning_effort: newChatReasoningEffort,
+          project_id: project.id,
+        });
+        setExpandedProjectIds((prev) => (prev.includes(project.id) ? prev : [project.id, ...prev]));
+        shouldScrollChatListToTopRef.current = true;
+        persistChatListScrollTop(0);
+        setActiveChatId(created.id);
+        if (createDialogTimerRef.current) clearTimeout(createDialogTimerRef.current);
+        setIsCreateDialogOpen(false);
+        setIsCreateDialogClosing(false);
+        setNewChatMode('general');
+        setNewChatAgentId('');
+        setNewProjectTitle('');
+        setNewProjectDescription('');
+        setNewChatReasoningEffort('auto');
+        setNewChatAgentSearch('');
+        setNewChatModel('google/gemini-2.5-flash');
+        return;
+      }
+
       const created = await createChatMutation.mutateAsync({
         mode: newChatMode,
         title: 'Новый чат',
@@ -3262,11 +3320,13 @@ function AuthenticatedChatsPage() {
       setIsCreateDialogClosing(false);
       setNewChatMode('general');
       setNewChatAgentId('');
+      setNewProjectTitle('');
+      setNewProjectDescription('');
       setNewChatReasoningEffort('auto');
       setNewChatAgentSearch('');
       setNewChatModel('google/gemini-2.5-flash');
     } catch {
-      showLocalError('Не удалось создать чат');
+      showLocalError(newChatMode === 'project' ? 'Не удалось создать проект' : 'Не удалось создать чат');
     }
   };
 
@@ -4254,6 +4314,48 @@ function AuthenticatedChatsPage() {
     </div>
   );
 
+  const renderProjectSection = (project: ChatWorkspaceProject) => {
+    const chatsInProject = projectChatsByProjectId.get(project.id) ?? [];
+    const isExpanded = expandedProjectIds.includes(project.id) || chatsInProject.some((chat) => chat.id === activeChatId);
+    const toggle = () => {
+      setExpandedProjectIds((prev) => (
+        prev.includes(project.id)
+          ? prev.filter((id) => id !== project.id)
+          : [...prev, project.id]
+      ));
+    };
+
+    return (
+      <div key={project.id} className="space-y-1">
+        <button
+          type="button"
+          onClick={toggle}
+          className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left transition-colors hover:bg-accent/60"
+          title={project.root_path}
+        >
+          <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center text-amber-500">
+            {isExpanded ? <FolderOpen className="h-4 w-4" /> : <Folder className="h-4 w-4" />}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-semibold">{project.title}</span>
+            <span className="block truncate text-[11px] text-muted-foreground">
+              Workspace • {project.chats_count || chatsInProject.length} чатов
+            </span>
+          </span>
+        </button>
+        {isExpanded && (
+          <div className="space-y-1 border-l border-slate-200 pl-3">
+            {chatsInProject.length > 0 ? (
+              chatsInProject.map(renderChatRow)
+            ) : (
+              <p className="px-2 py-2 text-xs text-muted-foreground">В проекте пока нет чатов.</p>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="flex h-[calc(100dvh-4rem)] min-h-[calc(100dvh-4rem)] w-full max-w-full flex-col overflow-x-hidden px-4 py-4">
       <input
@@ -4295,9 +4397,17 @@ function AuthenticatedChatsPage() {
             onScroll={() => persistChatListScrollTop()}
           >
             {sidebarLoading && <div className="flex justify-center py-8"><Spinner /></div>}
+            {!sidebarLoading && (chatProjects ?? []).length > 0 && (
+              <section className="space-y-1">
+                <p className="px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  {`Проекты: ${(chatProjects ?? []).length}`}
+                </p>
+                {(chatProjects ?? []).map(renderProjectSection)}
+              </section>
+            )}
             {!sidebarLoading && draftChats.length > 0 && <section className="space-y-1"><p className="px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{`Черновики: ${draftChats.length}`}</p>{draftChats.map(renderChatRow)}</section>}
             {!sidebarLoading && regularChats.length > 0 && <section className="space-y-1"><p className="px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{`Чаты: ${regularChats.length}`}</p>{regularChats.map(renderChatRow)}</section>}
-            {!sidebarLoading && (!chats || chats.length === 0) && (
+            {!sidebarLoading && (!chats || chats.length === 0) && (!chatProjects || chatProjects.length === 0) && (
               <div className="flex min-h-full flex-1 items-center">
                 <div className="w-full rounded-2xl border border-dashed border-slate-300 bg-slate-50/80 p-4 text-center shadow-sm">
                 <p className="text-sm font-medium text-slate-900">У вас пока нет чатов</p>
@@ -5178,14 +5288,46 @@ function AuthenticatedChatsPage() {
                 <p className="text-sm font-medium">Режим чата</p>
                 <Select
                   value={newChatMode}
-                  onChange={(e) => setNewChatMode(e.target.value as 'general' | 'agent')}
+                  onChange={(e) => setNewChatMode(e.target.value as 'general' | 'agent' | 'project')}
                   options={[
                     { value: 'general', label: 'Общение через OpenRouter' },
                     { value: 'agent', label: 'Чат с агентом' },
+                    { value: 'project', label: 'Проект / workspace' },
                   ]}
                   className="w-full"
                 />
               </div>
+
+              {newChatMode === 'project' && (
+                <div className="rounded-xl border bg-muted/20 p-4 space-y-3">
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium">Новый проект</p>
+                    <p className="text-xs text-muted-foreground">
+                      Создаст папку проекта на сервере и первый чат внутри этого workspace.
+                    </p>
+                  </div>
+                  <Input
+                    value={newProjectTitle}
+                    onChange={(e) => setNewProjectTitle(e.target.value)}
+                    placeholder="Название проекта"
+                  />
+                  <textarea
+                    value={newProjectDescription}
+                    onChange={(e) => setNewProjectDescription(e.target.value)}
+                    placeholder="Коротко: что строим, стек, цель проекта..."
+                    className="min-h-[96px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-colors focus:border-ring focus:ring-2 focus:ring-ring/20"
+                  />
+                  <div className="rounded-xl border bg-background p-3">
+                    <p className="text-sm font-medium">Модель первого чата</p>
+                    <Select
+                      value={newChatModel}
+                      onChange={(e) => setNewChatModel(e.target.value)}
+                      options={generalModelOptions}
+                      className="mt-2 w-full"
+                    />
+                  </div>
+                </div>
+              )}
 
               {newChatMode === 'general' && (
                 <div className="rounded-xl border bg-muted/20 p-4 space-y-3">
@@ -5326,9 +5468,11 @@ function AuthenticatedChatsPage() {
               <Button
                 size="sm"
                 onClick={createChatFromDialog}
-                disabled={createChatMutation.isPending || (newChatMode === 'agent' && !newChatAgentId)}
+                disabled={createChatMutation.isPending || createChatProjectMutation.isPending || (newChatMode === 'agent' && !newChatAgentId)}
               >
-                {createChatMutation.isPending ? 'Создаю...' : 'Создать чат'}
+                {createChatMutation.isPending || createChatProjectMutation.isPending
+                  ? 'Создаю...'
+                  : (newChatMode === 'project' ? 'Создать проект' : 'Создать чат')}
               </Button>
             </div>
           </div>

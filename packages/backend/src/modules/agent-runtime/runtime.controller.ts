@@ -192,6 +192,68 @@ export async function listChats(req: Request, res: Response, next: NextFunction)
   }
 }
 
+export async function listChatWorkspaceProjects(req: Request, res: Response, next: NextFunction) {
+  try {
+    const projects = await runtimeService.listChatWorkspaceProjects(req.session.userId!);
+    res.json({ data: projects });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function createChatWorkspaceProject(req: Request, res: Response, next: NextFunction) {
+  try {
+    const project = await runtimeService.createChatWorkspaceProject(req.session.userId!, req.body);
+    res.status(201).json({ data: project });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function createChatWorkspaceFolder(req: Request<{ projectId: string }>, res: Response, next: NextFunction) {
+  try {
+    const folder = await runtimeService.createChatWorkspaceFolder(req.session.userId!, req.params.projectId, req.body);
+    res.status(201).json({ data: folder });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function listChatWorkspaceFiles(req: Request<{ projectId: string }>, res: Response, next: NextFunction) {
+  try {
+    const result = await runtimeService.listChatWorkspaceFiles(
+      req.session.userId!,
+      req.params.projectId,
+      typeof req.query.path === 'string' ? req.query.path : '',
+    );
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getChatWorkspaceFile(req: Request<{ projectId: string }>, res: Response, next: NextFunction) {
+  try {
+    const result = await runtimeService.getChatWorkspaceFile(
+      req.session.userId!,
+      req.params.projectId,
+      typeof req.query.path === 'string' ? req.query.path : '',
+    );
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function saveChatWorkspaceFile(req: Request<{ projectId: string }>, res: Response, next: NextFunction) {
+  try {
+    const result = await runtimeService.saveChatWorkspaceFile(req.session.userId!, req.params.projectId, req.body);
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function listGalleryPreviews(req: Request, res: Response, next: NextFunction) {
   try {
     const limit = typeof req.query.limit === 'string' ? Number(req.query.limit) : undefined;

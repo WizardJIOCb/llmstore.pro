@@ -1,5 +1,5 @@
 ﻿import { db } from '../../config/database.js';
-import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'fs/promises';
+import { mkdtemp, mkdir, readdir, readFile, rm, stat, writeFile } from 'fs/promises';
 import path from 'path';
 import type { Response } from 'express';
 import { spawn } from 'child_process';
@@ -18,6 +18,8 @@ import {
   chatConversationDailyViews,
   chatConversationReactions,
   chatProjectDeployments,
+  chatWorkspaceFolders,
+  chatWorkspaceProjects,
   publishedLandings,
 } from '../../db/schema/runtime.js';
 import { usageLedger } from '../../db/schema/analytics.js';
@@ -31,7 +33,7 @@ import { executeHttpRequest } from '../tool-execution/executors/http-request.exe
 import { NotFoundError, AppError, ConflictError } from '../../middleware/error-handler.js';
 import { logger } from '../../lib/logger.js';
 import type { ChatCompletionChoice, ChatCompletionParams, ChatMessage, ToolDefinitionParam } from '../openrouter/types.js';
-import { CHAT_GENERATED_FILES_DIR, UPLOADS_DIR } from '../../config/upload.js';
+import { CHAT_GENERATED_FILES_DIR, CHAT_PROJECT_WORKSPACES_DIR, UPLOADS_DIR } from '../../config/upload.js';
 import { openChatEventStream, openSharedChatEventStream, publishChatEvent, publishSharedChatEvent } from './chat-events.service.js';
 import {
   getOpenRouterRequestsEnabled,
@@ -1743,6 +1745,40 @@ function safeAttachmentPath(filename: string): string {
 
 function safeGeneratedFilePath(filename: string): string {
   return path.join(CHAT_GENERATED_FILES_DIR, path.basename(filename));
+}
+
+function slugifyProjectTitle(title: string): string {
+  const normalized = title
+    .trim()
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9а-яё]+/giu, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return (normalized || 'project').slice(0, 80);
+}
+
+function safeWorkspaceRoot(userId: string, projectId: string): string {
+  return path.join(CHAT_PROJECT_WORKSPACES_DIR, path.basename(userId), path.basename(projectId));
+}
+
+function normalizeWorkspaceRelativePath(value?: string | null): string {
+  const normalized = (value ?? '').replace(/\\/g, '/').replace(/^\/+/, '').trim();
+  if (!normalized || normalized === '.') return '';
+  if (normalized.includes('\0') || normalized.split('/').some((part) => part === '..')) {
+    throw new AppError(400, 'INVALID_WORKSPACE_PATH', 'Некорректный путь внутри проекта');
+  }
+  return normalized;
+}
+
+function safeWorkspacePath(rootPath: string, relativePath?: string | null): string {
+  const root = path.resolve(rootPath);
+  const target = path.resolve(root, normalizeWorkspaceRelativePath(relativePath));
+  if (target !== root && !target.startsWith(`${root}${path.sep}`)) {
+    throw new AppError(400, 'INVALID_WORKSPACE_PATH', 'Некорректный путь внутри проекта');
+  }
+  return target;
 }
 
 function detectImageGenerationIntent(value: string): boolean {
@@ -5603,6 +5639,9 @@ interface ChatConversationRow {
   id: string;
   user_id: string;
   agent_id: string | null;
+  project_id: string | null;
+  project_folder_id: string | null;
+  project_sort_order: number;
   mode: ChatMode;
   title: string;
   model_external_id: string | null;
@@ -5628,6 +5667,9 @@ interface ConversationListItem {
   agent_model_label: string | null;
   effective_model_label: string | null;
   model_external_id: string | null;
+  project_id: string | null;
+  project_folder_id: string | null;
+  project_sort_order: number;
   access: ChatAccess;
   access_identifiers: string[];
   share_token: string | null;
@@ -5639,6 +5681,39 @@ interface ConversationListItem {
   created_at: string;
   updated_at: string;
   has_active_deployment?: boolean;
+}
+
+interface ChatWorkspaceFolderItem {
+  id: string;
+  project_id: string;
+  parent_folder_id: string | null;
+  title: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+interface ChatWorkspaceProjectItem {
+  id: string;
+  title: string;
+  slug: string;
+  description: string | null;
+  git_remote_url: string | null;
+  status: string;
+  root_path: string;
+  folders: ChatWorkspaceFolderItem[];
+  chats_count: number;
+  last_activity_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface ChatWorkspaceFileItem {
+  name: string;
+  path: string;
+  type: 'file' | 'directory';
+  size: number | null;
+  updated_at: string | null;
 }
 
 interface ChatAgentOption {
@@ -8136,6 +8211,9 @@ async function cloneChatFromMessages(
     agent_model_label: agentMeta?.agent_model_label ?? null,
     effective_model_label: effectiveModelLabel,
     model_external_id: finalChat?.model_external_id ?? null,
+    project_id: null,
+    project_folder_id: null,
+    project_sort_order: 0,
     access: 'private',
     access_identifiers: [],
     share_token: finalChat?.share_token ?? chat.share_token ?? null,
@@ -8452,6 +8530,301 @@ function estimateGeneralChatCost(model: string, usage: { prompt_tokens: number; 
   return { ...usage, estimated_cost, model };
 }
 
+async function getWorkspaceProjectForUser(projectId: string, userId: string) {
+  const [project] = await db
+    .select()
+    .from(chatWorkspaceProjects)
+    .where(and(eq(chatWorkspaceProjects.id, projectId), eq(chatWorkspaceProjects.user_id, userId)))
+    .limit(1);
+
+  if (!project) {
+    throw new NotFoundError('Проект не найден');
+  }
+
+  return project;
+}
+
+async function validateWorkspaceFolderForProject(projectId: string, folderId: string | null | undefined, userId: string) {
+  if (!folderId) return null;
+
+  const [folder] = await db
+    .select()
+    .from(chatWorkspaceFolders)
+    .where(and(
+      eq(chatWorkspaceFolders.id, folderId),
+      eq(chatWorkspaceFolders.project_id, projectId),
+      eq(chatWorkspaceFolders.user_id, userId),
+    ))
+    .limit(1);
+
+  if (!folder) {
+    throw new AppError(400, 'PROJECT_FOLDER_NOT_FOUND', 'Папка проекта не найдена');
+  }
+
+  return folder;
+}
+
+export async function listChatWorkspaceProjects(userId: string): Promise<ChatWorkspaceProjectItem[]> {
+  const [projects, folders, chatCounts] = await Promise.all([
+    db
+      .select()
+      .from(chatWorkspaceProjects)
+      .where(eq(chatWorkspaceProjects.user_id, userId))
+      .orderBy(desc(chatWorkspaceProjects.last_activity_at))
+      .limit(100),
+    db
+      .select()
+      .from(chatWorkspaceFolders)
+      .where(eq(chatWorkspaceFolders.user_id, userId))
+      .orderBy(asc(chatWorkspaceFolders.sort_order), asc(chatWorkspaceFolders.created_at)),
+    db
+      .select({
+        project_id: chatConversations.project_id,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(chatConversations)
+      .where(and(
+        eq(chatConversations.user_id, userId),
+        sql`${chatConversations.project_id} is not null`,
+      ))
+      .groupBy(chatConversations.project_id),
+  ]);
+
+  const foldersByProject = new Map<string, ChatWorkspaceFolderItem[]>();
+  for (const folder of folders) {
+    const list = foldersByProject.get(folder.project_id) ?? [];
+    list.push({
+      id: folder.id,
+      project_id: folder.project_id,
+      parent_folder_id: folder.parent_folder_id ?? null,
+      title: folder.title,
+      sort_order: folder.sort_order,
+      created_at: toIso(folder.created_at),
+      updated_at: toIso(folder.updated_at),
+    });
+    foldersByProject.set(folder.project_id, list);
+  }
+
+  const countMap = new Map<string, number>();
+  for (const row of chatCounts) {
+    if (row.project_id) countMap.set(row.project_id, row.count);
+  }
+
+  return projects.map((project) => ({
+    id: project.id,
+    title: project.title,
+    slug: project.slug,
+    description: project.description ?? null,
+    git_remote_url: project.git_remote_url ?? null,
+    status: project.status,
+    root_path: project.root_path,
+    folders: foldersByProject.get(project.id) ?? [],
+    chats_count: countMap.get(project.id) ?? 0,
+    last_activity_at: toIso(project.last_activity_at),
+    created_at: toIso(project.created_at),
+    updated_at: toIso(project.updated_at),
+  }));
+}
+
+export async function createChatWorkspaceProject(userId: string, input: {
+  title?: string;
+  description?: string | null;
+  git_remote_url?: string | null;
+}): Promise<ChatWorkspaceProjectItem> {
+  const title = (input.title?.trim() || 'Новый проект').slice(0, 255);
+  const projectId = uuidv4();
+  const slug = `${slugifyProjectTitle(title)}-${projectId.slice(0, 8)}`.slice(0, 120);
+  const rootPath = safeWorkspaceRoot(userId, projectId);
+  await mkdir(rootPath, { recursive: true });
+
+  const now = new Date();
+  const [project] = await db.insert(chatWorkspaceProjects).values({
+    id: projectId,
+    user_id: userId,
+    title,
+    slug,
+    description: input.description?.trim() || null,
+    git_remote_url: input.git_remote_url?.trim() || null,
+    root_path: rootPath,
+    last_activity_at: now,
+    created_at: now,
+    updated_at: now,
+  }).returning();
+
+  return {
+    id: project.id,
+    title: project.title,
+    slug: project.slug,
+    description: project.description ?? null,
+    git_remote_url: project.git_remote_url ?? null,
+    status: project.status,
+    root_path: project.root_path,
+    folders: [],
+    chats_count: 0,
+    last_activity_at: toIso(project.last_activity_at),
+    created_at: toIso(project.created_at),
+    updated_at: toIso(project.updated_at),
+  };
+}
+
+export async function createChatWorkspaceFolder(userId: string, projectId: string, input: {
+  title?: string;
+  parent_folder_id?: string | null;
+}): Promise<ChatWorkspaceFolderItem> {
+  await getWorkspaceProjectForUser(projectId, userId);
+  const parentFolderId = input.parent_folder_id ?? null;
+  if (parentFolderId) {
+    await validateWorkspaceFolderForProject(projectId, parentFolderId, userId);
+  }
+
+  const [orderRow] = await db
+    .select({ max_order: sql<number>`coalesce(max(${chatWorkspaceFolders.sort_order}), 0)::int` })
+    .from(chatWorkspaceFolders)
+    .where(and(
+      eq(chatWorkspaceFolders.project_id, projectId),
+      parentFolderId
+        ? eq(chatWorkspaceFolders.parent_folder_id, parentFolderId)
+        : sql`${chatWorkspaceFolders.parent_folder_id} is null`,
+    ));
+
+  const now = new Date();
+  const [folder] = await db.insert(chatWorkspaceFolders).values({
+    project_id: projectId,
+    user_id: userId,
+    parent_folder_id: parentFolderId,
+    title: (input.title?.trim() || 'Новая папка').slice(0, 255),
+    sort_order: (orderRow?.max_order ?? 0) + 10,
+    created_at: now,
+    updated_at: now,
+  }).returning();
+
+  await db.update(chatWorkspaceProjects)
+    .set({ last_activity_at: now, updated_at: now })
+    .where(and(eq(chatWorkspaceProjects.id, projectId), eq(chatWorkspaceProjects.user_id, userId)));
+
+  return {
+    id: folder.id,
+    project_id: folder.project_id,
+    parent_folder_id: folder.parent_folder_id ?? null,
+    title: folder.title,
+    sort_order: folder.sort_order,
+    created_at: toIso(folder.created_at),
+    updated_at: toIso(folder.updated_at),
+  };
+}
+
+export async function listChatWorkspaceFiles(userId: string, projectId: string, relativePath?: string | null): Promise<{
+  project: ChatWorkspaceProjectItem;
+  path: string;
+  items: ChatWorkspaceFileItem[];
+}> {
+  const project = await getWorkspaceProjectForUser(projectId, userId);
+  await mkdir(project.root_path, { recursive: true });
+  const normalizedPath = normalizeWorkspaceRelativePath(relativePath);
+  const dirPath = safeWorkspacePath(project.root_path, normalizedPath);
+  const dirStat = await stat(dirPath).catch(() => null);
+  if (!dirStat?.isDirectory()) {
+    throw new NotFoundError('Папка проекта не найдена');
+  }
+
+  const entries = await readdir(dirPath, { withFileTypes: true });
+  const items: ChatWorkspaceFileItem[] = [];
+  for (const entry of entries) {
+    if (entry.name === '.git' || entry.name === 'node_modules') continue;
+    const itemRelativePath = [normalizedPath, entry.name].filter(Boolean).join('/');
+    const itemPath = safeWorkspacePath(project.root_path, itemRelativePath);
+    const itemStat = await stat(itemPath).catch(() => null);
+    items.push({
+      name: entry.name,
+      path: itemRelativePath,
+      type: entry.isDirectory() ? 'directory' : 'file',
+      size: itemStat?.isFile() ? itemStat.size : null,
+      updated_at: itemStat?.mtime ? itemStat.mtime.toISOString() : null,
+    });
+  }
+
+  const [projectView] = await listChatWorkspaceProjects(userId).then((list) => list.filter((item) => item.id === projectId));
+  return {
+    project: projectView ?? {
+      id: project.id,
+      title: project.title,
+      slug: project.slug,
+      description: project.description ?? null,
+      git_remote_url: project.git_remote_url ?? null,
+      status: project.status,
+      root_path: project.root_path,
+      folders: [],
+      chats_count: 0,
+      last_activity_at: toIso(project.last_activity_at),
+      created_at: toIso(project.created_at),
+      updated_at: toIso(project.updated_at),
+    },
+    path: normalizedPath,
+    items: items.sort((left, right) => {
+      if (left.type !== right.type) return left.type === 'directory' ? -1 : 1;
+      return left.name.localeCompare(right.name, 'ru');
+    }),
+  };
+}
+
+export async function getChatWorkspaceFile(userId: string, projectId: string, relativePath: string): Promise<{
+  path: string;
+  content: string;
+  size: number;
+  updated_at: string | null;
+}> {
+  const project = await getWorkspaceProjectForUser(projectId, userId);
+  const normalizedPath = normalizeWorkspaceRelativePath(relativePath);
+  if (!normalizedPath) {
+    throw new AppError(400, 'WORKSPACE_FILE_REQUIRED', 'Укажите файл проекта');
+  }
+  const filePath = safeWorkspacePath(project.root_path, normalizedPath);
+  const fileStat = await stat(filePath).catch(() => null);
+  if (!fileStat?.isFile()) {
+    throw new NotFoundError('Файл проекта не найден');
+  }
+  if (fileStat.size > 512 * 1024) {
+    throw new AppError(413, 'WORKSPACE_FILE_TOO_LARGE', 'Файл слишком большой для просмотра в редакторе');
+  }
+
+  const content = await readFile(filePath, 'utf8');
+  return {
+    path: normalizedPath,
+    content,
+    size: fileStat.size,
+    updated_at: fileStat.mtime ? fileStat.mtime.toISOString() : null,
+  };
+}
+
+export async function saveChatWorkspaceFile(userId: string, projectId: string, input: {
+  path: string;
+  content: string;
+}): Promise<{ path: string; size: number; updated_at: string }> {
+  const project = await getWorkspaceProjectForUser(projectId, userId);
+  const normalizedPath = normalizeWorkspaceRelativePath(input.path);
+  if (!normalizedPath) {
+    throw new AppError(400, 'WORKSPACE_FILE_REQUIRED', 'Укажите файл проекта');
+  }
+  if (Buffer.byteLength(input.content, 'utf8') > 1024 * 1024) {
+    throw new AppError(413, 'WORKSPACE_FILE_TOO_LARGE', 'Файл слишком большой для сохранения через чат');
+  }
+
+  const filePath = safeWorkspacePath(project.root_path, normalizedPath);
+  await mkdir(path.dirname(filePath), { recursive: true });
+  await writeFile(filePath, input.content, 'utf8');
+  const fileStat = await stat(filePath);
+  const now = new Date();
+  await db.update(chatWorkspaceProjects)
+    .set({ last_activity_at: now, updated_at: now })
+    .where(and(eq(chatWorkspaceProjects.id, project.id), eq(chatWorkspaceProjects.user_id, userId)));
+
+  return {
+    path: normalizedPath,
+    size: fileStat.size,
+    updated_at: fileStat.mtime.toISOString(),
+  };
+}
+
 export async function listChats(userId: string): Promise<ConversationListItem[]> {
   const chats = await db
     .select()
@@ -8599,6 +8972,9 @@ export async function listChats(userId: string): Promise<ConversationListItem[]>
         ? getModelDisplayLabel(chat.model_external_id ?? null) ?? (agentMeta?.model_label ?? null)
         : generalModelLabel,
       model_external_id: chat.model_external_id ?? null,
+      project_id: chat.project_id ?? null,
+      project_folder_id: chat.project_folder_id ?? null,
+      project_sort_order: chat.project_sort_order ?? 0,
       access: normalizeChatAccess(chat.access),
       access_identifiers: normalizeAccessIdentifiers(chat.access_identifiers),
       share_token: chat.share_token ?? null,
@@ -8934,6 +9310,8 @@ export async function createChat(userId: string, input: {
   reasoning_effort?: ChatReasoningEffort | null;
   tool_ids?: string[];
   context_window_tokens?: number | null;
+  project_id?: string | null;
+  project_folder_id?: string | null;
   access?: ChatAccess;
   access_identifiers?: string[];
 }, userRole?: string) {
@@ -8959,6 +9337,15 @@ export async function createChat(userId: string, input: {
     await validateChatToolSelection(normalizedToolIds);
   }
 
+  const projectId = input.project_id ?? null;
+  const projectFolderId = input.project_folder_id ?? null;
+  if (projectId) {
+    await getWorkspaceProjectForUser(projectId, userId);
+    await validateWorkspaceFolderForProject(projectId, projectFolderId, userId);
+  } else if (projectFolderId) {
+    throw new AppError(400, 'PROJECT_REQUIRED', 'Для папки нужно указать проект');
+  }
+
   const shareToken = uuidv4().replace(/-/g, '').slice(0, 16);
   const initialSettings = buildChatSettingsJson(null, {
     tool_ids: normalizedToolIds,
@@ -8971,6 +9358,8 @@ export async function createChat(userId: string, input: {
     user_id: userId,
     mode,
     agent_id: input.agent_id ?? null,
+    project_id: projectId,
+    project_folder_id: projectFolderId,
     title: (input.title?.trim() || 'Новый чат').slice(0, 500),
     model_external_id: input.model_external_id ?? null,
     system_prompt: input.system_prompt ?? null,
@@ -8980,6 +9369,12 @@ export async function createChat(userId: string, input: {
     settings_json: initialSettings,
     last_message_at: new Date(),
   }).returning();
+
+  if (projectId) {
+    await db.update(chatWorkspaceProjects)
+      .set({ last_activity_at: new Date(), updated_at: new Date() })
+      .where(and(eq(chatWorkspaceProjects.id, projectId), eq(chatWorkspaceProjects.user_id, userId)));
+  }
 
   let toolAgentId: string | null = null;
   if (mode === 'general' && normalizedToolIds.length > 0) {
@@ -9020,6 +9415,9 @@ export async function createChat(userId: string, input: {
     agent_model_label: agentMeta?.agent_model_label ?? null,
     effective_model_label: effectiveModelLabel,
     model_external_id: chat.model_external_id,
+    project_id: chat.project_id ?? null,
+    project_folder_id: chat.project_folder_id ?? null,
+    project_sort_order: chat.project_sort_order ?? 0,
     access: normalizeChatAccess(chat.access),
     access_identifiers: normalizeAccessIdentifiers(chat.access_identifiers),
     share_token: chat.share_token ?? null,
@@ -9064,6 +9462,9 @@ export async function getChatById(chatId: string, userId: string): Promise<Conve
         ? getModelDisplayLabel(chat.model_external_id ?? null) ?? agentMeta.agent_model_label
         : getModelDisplayLabel(chat.model_external_id ?? null),
       model_external_id: chat.model_external_id ?? null,
+      project_id: chat.project_id ?? null,
+      project_folder_id: chat.project_folder_id ?? null,
+      project_sort_order: chat.project_sort_order ?? 0,
       access: normalizeChatAccess(chat.access),
       access_identifiers: normalizeAccessIdentifiers(chat.access_identifiers),
       share_token: shareToken,
@@ -9714,6 +10115,9 @@ export async function updateChat(chatId: string, userId: string, input: {
   context_window_tokens?: number | null;
   context_blocks?: ChatContextBlocks | null;
   tool_ids?: string[];
+  project_id?: string | null;
+  project_folder_id?: string | null;
+  project_sort_order?: number | null;
   access?: ChatAccess;
   access_identifiers?: string[];
   pin_to_top?: boolean;
@@ -9756,6 +10160,18 @@ export async function updateChat(chatId: string, userId: string, input: {
     ? existing.model_external_id
     : (input.model_external_id ?? null);
   const nextSystemPrompt = input.system_prompt === undefined ? existing.system_prompt : (input.system_prompt ?? null);
+  const nextProjectId = input.project_id === undefined ? existing.project_id : (input.project_id ?? null);
+  const nextProjectFolderId = input.project_folder_id === undefined ? existing.project_folder_id : (input.project_folder_id ?? null);
+  const nextProjectSortOrder = input.project_sort_order === undefined
+    ? existing.project_sort_order
+    : Math.max(0, Math.round(input.project_sort_order ?? 0));
+
+  if (nextProjectId) {
+    await getWorkspaceProjectForUser(nextProjectId, userId);
+    await validateWorkspaceFolderForProject(nextProjectId, nextProjectFolderId, userId);
+  } else if (nextProjectFolderId) {
+    throw new AppError(400, 'PROJECT_REQUIRED', 'Для папки нужно указать проект');
+  }
 
   let toolAgentId = existingToolSettings.tool_agent_id;
   if (nextMode === 'general' && nextToolIds.length > 0) {
@@ -9779,6 +10195,9 @@ export async function updateChat(chatId: string, userId: string, input: {
       title: input.title ? input.title.trim().slice(0, 500) : existing.title,
       mode: nextMode,
       agent_id: nextAgentId ?? null,
+      project_id: nextProjectId,
+      project_folder_id: nextProjectId ? nextProjectFolderId : null,
+      project_sort_order: nextProjectSortOrder,
       model_external_id: nextModelExternalId,
       system_prompt: nextSystemPrompt,
       access: nextAccess,
@@ -9797,6 +10216,12 @@ export async function updateChat(chatId: string, userId: string, input: {
     })
     .where(eq(chatConversations.id, chatId))
     .returning();
+
+  if (nextProjectId) {
+    await db.update(chatWorkspaceProjects)
+      .set({ last_activity_at: new Date(), updated_at: new Date() })
+      .where(and(eq(chatWorkspaceProjects.id, nextProjectId), eq(chatWorkspaceProjects.user_id, userId)));
+  }
 
   if (nextMode === 'agent') {
     await db.update(chatProjectDeployments)
@@ -9834,6 +10259,9 @@ export async function updateChat(chatId: string, userId: string, input: {
     agent_model_label: agentMeta?.agent_model_label ?? null,
     effective_model_label: effectiveModelLabel,
     model_external_id: chat.model_external_id ?? null,
+    project_id: chat.project_id ?? null,
+    project_folder_id: chat.project_folder_id ?? null,
+    project_sort_order: chat.project_sort_order ?? 0,
     access: normalizeChatAccess(chat.access),
     access_identifiers: normalizeAccessIdentifiers(chat.access_identifiers),
     share_token: chat.share_token ?? null,
@@ -9934,6 +10362,9 @@ async function createReusableChatFromSource(
     agent_model_label: effectiveAgentMeta?.agent_model_label ?? null,
     effective_model_label: effectiveModelLabel,
     model_external_id: effectiveChat.model_external_id ?? null,
+    project_id: null,
+    project_folder_id: null,
+    project_sort_order: 0,
     access: 'private',
     access_identifiers: [],
     share_token: effectiveChat.share_token ?? chat.share_token ?? null,
@@ -11139,6 +11570,9 @@ export async function importChatBundle(
     agent_model_label: agentMeta?.agent_model_label ?? null,
     effective_model_label: effectiveModelLabel,
     model_external_id: chat.model_external_id ?? null,
+    project_id: chat.project_id ?? null,
+    project_folder_id: chat.project_folder_id ?? null,
+    project_sort_order: chat.project_sort_order ?? 0,
     access: chat.access,
     access_identifiers: normalizeAccessIdentifiers(chat.access_identifiers),
     share_token: chat.share_token ?? null,

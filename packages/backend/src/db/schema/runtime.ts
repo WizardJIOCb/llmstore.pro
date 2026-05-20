@@ -89,10 +89,44 @@ export const agentRunToolCalls = pgTable('agent_run_tool_calls', {
   index('agent_run_tool_calls_run_idx').on(table.run_id),
 ]);
 
+export const chatWorkspaceProjects = pgTable('chat_workspace_projects', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  user_id: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  title: varchar('title', { length: 255 }).notNull(),
+  slug: varchar('slug', { length: 120 }).notNull(),
+  description: text('description'),
+  root_path: text('root_path').notNull(),
+  git_remote_url: text('git_remote_url'),
+  status: varchar('status', { length: 32 }).notNull().default('active'),
+  last_activity_at: timestamp('last_activity_at', { withTimezone: true }).notNull().defaultNow(),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex('chat_workspace_projects_user_slug_idx').on(table.user_id, table.slug),
+  index('chat_workspace_projects_user_activity_idx').on(table.user_id, table.last_activity_at),
+]);
+
+export const chatWorkspaceFolders = pgTable('chat_workspace_folders', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  project_id: uuid('project_id').notNull().references(() => chatWorkspaceProjects.id, { onDelete: 'cascade' }),
+  user_id: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  parent_folder_id: uuid('parent_folder_id').references((): AnyPgColumn => chatWorkspaceFolders.id, { onDelete: 'cascade' }),
+  title: varchar('title', { length: 255 }).notNull(),
+  sort_order: integer('sort_order').notNull().default(0),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index('chat_workspace_folders_project_parent_idx').on(table.project_id, table.parent_folder_id, table.sort_order),
+  index('chat_workspace_folders_user_idx').on(table.user_id, table.created_at),
+]);
+
 export const chatConversations = pgTable('chat_conversations', {
   id: uuid('id').primaryKey().defaultRandom(),
   user_id: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   agent_id: uuid('agent_id').references(() => agents.id, { onDelete: 'set null' }),
+  project_id: uuid('project_id').references(() => chatWorkspaceProjects.id, { onDelete: 'set null' }),
+  project_folder_id: uuid('project_folder_id').references(() => chatWorkspaceFolders.id, { onDelete: 'set null' }),
+  project_sort_order: integer('project_sort_order').notNull().default(0),
   mode: chatConversationModeEnum('mode').notNull().default('general'),
   title: varchar('title', { length: 500 }).notNull().default('Новый чат'),
   model_external_id: varchar('model_external_id', { length: 255 }),
@@ -114,6 +148,7 @@ export const chatConversations = pgTable('chat_conversations', {
   index('chat_conversations_user_pinned_idx').on(table.user_id, table.pinned_at),
   index('chat_conversations_user_last_message_idx').on(table.user_id, table.last_message_at),
   index('chat_conversations_agent_idx').on(table.agent_id),
+  index('chat_conversations_project_idx').on(table.project_id, table.project_folder_id, table.project_sort_order),
   index('chat_conversations_is_clone_idx').on(table.is_clone),
   index('chat_conversations_cloned_from_idx').on(table.cloned_from_conversation_id),
   uniqueIndex('chat_conversations_share_token_idx').on(table.share_token),

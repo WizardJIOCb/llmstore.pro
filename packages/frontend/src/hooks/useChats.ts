@@ -4,6 +4,7 @@ import {
   type ChatAccess,
   type ChatAttachment,
   type ChatContextBlocks,
+  type ChatWorkspaceProject,
   type ChatReasoningEffort,
   type GalleryTextChatSort,
   type ChatListItem,
@@ -14,6 +15,14 @@ export function useChatsList(enabled = true) {
   return useQuery({
     queryKey: ['chats'],
     queryFn: chatsApi.list,
+    enabled,
+  });
+}
+
+export function useChatProjects(enabled = true) {
+  return useQuery({
+    queryKey: ['chat-projects'],
+    queryFn: chatsApi.listProjects,
     enabled,
   });
 }
@@ -101,6 +110,8 @@ export function useCreateChat() {
       reasoning_effort?: ChatReasoningEffort | null;
       system_prompt?: string | null;
       tool_ids?: string[];
+      project_id?: string | null;
+      project_folder_id?: string | null;
       access?: ChatAccess;
       access_identifiers?: string[];
     }) => chatsApi.create(payload),
@@ -111,6 +122,19 @@ export function useCreateChat() {
         return [chat, ...withoutCreated];
       });
       qc.invalidateQueries({ queryKey: ['chats'] });
+      qc.invalidateQueries({ queryKey: ['chat-projects'] });
+    },
+  });
+}
+
+export function useCreateChatProject() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload?: { title?: string; description?: string | null; git_remote_url?: string | null }) =>
+      chatsApi.createProject(payload),
+    onSuccess: (project) => {
+      qc.setQueryData<ChatWorkspaceProject[] | undefined>(['chat-projects'], (prev) => [project, ...(prev ?? [])]);
+      qc.invalidateQueries({ queryKey: ['chat-projects'] });
     },
   });
 }
@@ -130,6 +154,9 @@ export function useUpdateChat() {
       context_window_tokens?: number | null;
       context_blocks?: ChatContextBlocks | null;
       tool_ids?: string[];
+      project_id?: string | null;
+      project_folder_id?: string | null;
+      project_sort_order?: number | null;
       access?: ChatAccess;
       access_identifiers?: string[];
       pin_to_top?: boolean;
@@ -137,6 +164,7 @@ export function useUpdateChat() {
     }) => chatsApi.update(chatId, payload),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['chats'] });
+      qc.invalidateQueries({ queryKey: ['chat-projects'] });
       qc.invalidateQueries({ queryKey: ['chats', vars.chatId] });
     },
   });
@@ -148,6 +176,7 @@ export function useDeleteChat() {
     mutationFn: (chatId: string) => chatsApi.remove(chatId),
     onSuccess: (_data, chatId) => {
       qc.invalidateQueries({ queryKey: ['chats'] });
+      qc.invalidateQueries({ queryKey: ['chat-projects'] });
       qc.removeQueries({ queryKey: ['chats', chatId] });
     },
   });
