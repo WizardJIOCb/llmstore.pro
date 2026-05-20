@@ -1,5 +1,108 @@
 # LLMStore.pro
 
+AI-агенты, инструменты и модели — маркетплейс и конструктор для работы с LLM, агентскими чатами, каталогом моделей/инструментов, публикацией сгенерированных страниц и запуском небольших project deployments.
+
+## О проекте
+
+LLMStore.pro объединяет несколько продуктовых частей:
+
+- каталог AI-моделей, инструментов, prompt packs, агентов, стеков и developer assets;
+- чат с обычным режимом и режимом агента, вложениями, shared links, публичными чатами и live-прогрессом выполнения;
+- конструктор агентов с версиями, system/developer prompts, tool bindings и runtime config;
+- агентский runtime с вызовами OpenRouter, инструментами, tool traces, учётом стоимости, контекста и токенов;
+- генерацию и хранение chat files, HTML preview, публикацию landing pages и Project Bundle deployments;
+- админ-панель для каталога, новостей, статей, пользователей, платежей, tools, runtime и настроек;
+- новости, статьи, комментарии, профили пользователей, галерею и публичные страницы чатов/агентов/моделей;
+- интеграции Telegram и Alice, включая Telegram bot quickstart и webhook/project deployment сценарии.
+
+## Технологический стек
+
+- Monorepo на npm workspaces: `packages/shared`, `packages/backend`, `packages/frontend`.
+- TypeScript во всех пакетах.
+- Backend: Node.js, Express, Drizzle ORM, PostgreSQL, Redis sessions, BullMQ/ioredis, Passport OAuth, Nodemailer, Pino.
+- Frontend: React 19, Vite, React Router, TanStack Query, Zustand, React Hook Form, Tiptap, React Markdown + remark-gfm, Lucide icons.
+- База данных: PostgreSQL 16 в dev через Docker Compose.
+- Кэш/сессии/очереди: Redis 7 в dev через Docker Compose.
+- LLM provider layer: OpenRouter-compatible chat/runtime client.
+- Хранение файлов: локальные `uploads/` и `private-uploads/`, включая `uploads/chat/` для вложений и сгенерированных файлов чатов.
+- Production: nginx reverse proxy, PM2 для backend, статическая сборка frontend, `deploy.sh` для обновления сервера.
+
+## Структура репозитория
+
+- `packages/shared` — общие типы, схемы и код, который используется backend и frontend.
+- `packages/backend` — API, auth, база, runtime агентов, tools, платежи, админка и интеграции.
+- `packages/frontend` — React-приложение, страницы, компоненты, hooks, API-клиенты и UI.
+- `packages/backend/src/db/schema` — Drizzle-схемы таблиц по доменам: auth, catalog, models, agents, runtime, news, comments, payments, app settings, analytics, integrations.
+- `packages/backend/src/db/seed` — начальные данные каталога, use cases, tags, built-in tools и стартовые агенты.
+- `packages/backend/src/modules` — backend-модули по доменам.
+- `packages/frontend/src/pages` — route-level страницы приложения.
+- `packages/frontend/src/components` — UI, chat/agent components, admin/editor/news/catalog components.
+- `scripts` — серверные backup/restore scripts, git hooks checks и служебные проверки.
+- `docker-compose.yml` — локальные PostgreSQL и Redis.
+- `deploy.sh` — основной production deploy script.
+
+## Backend-модули
+
+- `auth` — регистрация, логин, email verification, OAuth, login activity, signup bonus.
+- `profile` — профиль пользователя и публичные страницы.
+- `catalog` — каталог моделей, инструментов, агентов, prompt packs, стеков и статей каталога.
+- `agent-builder` — создание и редактирование агентов, версий, prompts, tool config и starter prompts.
+- `agent-runtime` — чаты, agent runs, OpenRouter calls, контекст, slash-команды, tool calls, files, previews, shared chats, Project Bundle deployments и публикации.
+- `tool-execution` — исполнители built-in tools: web search, HTTP request, DTF tools, JSON transform, template renderer, create chat files и orchestrator worker.
+- `stack-builder` — мастер подбора стека/агентского сценария.
+- `news` и `articles` — новости, статьи, rich content, публикации и редакторские сценарии.
+- `comments` — комментарии к контенту.
+- `payments` — пополнение баланса, транзакции и админские операции по платежам.
+- `admin` — управление пользователями, каталогом, агентами, tools, настройками, runtime, платежами и аналитикой.
+- `telegram` — Telegram integration routes и webhook/project deployment сценарии.
+- `alice` — интеграция Alice.
+- `app-settings` — глобальные настройки приложения и activity tracking.
+
+## Основные таблицы и данные
+
+- `users`, auth/session-related tables — пользователи, роли, активность и авторизация.
+- `catalog_items`, `categories`, `tags`, `use_cases` и meta/reaction/bookmark/report/view tables — каталог и пользовательские реакции.
+- `ai_models`, `model_price_snapshots` — модели, OpenRouter ids, контекст, модальности и цены.
+- `agents`, `agent_versions`, `tool_definitions`, `agent_version_tools` — агенты, версии и инструменты.
+- `agent_runs`, `agent_run_messages`, `agent_run_tool_calls` — история запусков агентов и трассировка инструментов.
+- `chat_conversations`, `chat_conversation_messages`, `chat_message_files` — чаты, сообщения, вложения и сгенерированные файлы.
+- `chat_project_deployments`, `chat_project_deployment_services` — Project Bundle deployments и связанные сервисы.
+- `published_landings` — опубликованные preview/landing pages.
+- `news`, `articles`, `comments`, `payments`, `app_settings`, analytics/source cache tables — контент, платежи, настройки и аналитика.
+
+## Механика чата и агентов
+
+- Чат может работать как `general` или как `agent`.
+- Модель выбирается из настроек чата, агента или дефолтной модели; в UI показывается размер context window и примерное использование.
+- Контекст собирается из system prompt чата, system/developer prompt агента, context blocks, истории сообщений, вложений, preview context и описаний tools.
+- Slash-команды позволяют смотреть состояние чата, менять модель, просматривать и редактировать контекст без отправки команды в LLM.
+- Runtime поддерживает tool calls, live progress events, tool traces, usage/cost metadata и сохранение результатов в сообщения.
+- Для изображений может использоваться временная model switch логика: ответ показывает фактически использованную модель, а чат возвращается к исходной.
+- HTML/artifact workflows сохраняют файлы чата, показывают preview, позволяют открыть редактор/экспорт и публиковать landing page на поддомен.
+- Project Bundle deployments используются для сценариев вроде Telegram webhook ботов: deployment хранит entrypoint, env, статус, public token и lifecycle.
+
+## Frontend-приложение
+
+Основные страницы:
+
+- `/` — главная.
+- `/tools`, `/models`, `/packs`, `/agents`, `/local`, `/assets`, `/stacks` — каталожные разделы.
+- `/chats` и `/chat` — чатовый интерфейс.
+- `/shared/chat/:token` и `/shared/chats/:token` — публичный shared chat.
+- `/builder/agent`, `/builder/stack`, `/builder/telegram-bot` — конструкторы.
+- `/my/agents`, `/playground/agent/:id`, `/dashboard/agents`, `/dashboard/runs` — рабочие зоны агентов.
+- `/news`, `/articles`, `/guides`, `/gallery`, `/pricing`, `/offer`, `/contacts` — контентные и публичные разделы.
+- `/admin/*` — админ-панель.
+
+Ключевые frontend-слои:
+
+- `lib/api/*` — API-клиенты по доменам.
+- `hooks/*` — React Query hooks и доменные hooks.
+- `components/agents/*` — ChatMessage, ChatInput, live progress, code blocks, tool traces, agent forms.
+- `components/articles/*` — Tiptap editor и rich content rendering.
+- `components/admin/*` — админские оболочки и редакторы.
+- `stores/*` — Zustand stores для auth/playground/stack builder.
+
 ## Команды в чате
 
 Slash-команды вводятся прямо в поле сообщения чата. Они выполняются сервером, не отправляются в модель и не списывают баланс.
