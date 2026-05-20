@@ -12,6 +12,7 @@ import {
   Globe,
   Link2,
   Lock,
+  MessageCircle,
   PencilLine,
   Pin,
   Settings2,
@@ -3715,14 +3716,16 @@ function AuthenticatedChatsPage() {
           {rowHasLiveRun && (
             <span
               className={cn(
-                'h-2.5 w-2.5 shrink-0 rounded-full animate-pulse',
+                'inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border animate-pulse',
                 rowHasPartialRun
-                  ? 'bg-amber-500 shadow-[0_0_0_3px_rgba(245,158,11,0.18)]'
-                  : 'bg-emerald-500 shadow-[0_0_0_3px_rgba(34,197,94,0.16)]',
+                  ? 'border-amber-300 bg-amber-50 text-amber-600 shadow-[0_0_0_3px_rgba(245,158,11,0.12)]'
+                  : 'border-sky-300 bg-sky-50 text-sky-600 shadow-[0_0_0_3px_rgba(14,165,233,0.12)]',
               )}
               aria-label={rowHasPartialRun ? 'Run ещё дособирает финальный результат' : 'Runtime выполняется'}
               title={rowHasPartialRun ? 'Run ещё дособирает финальный результат' : 'Runtime выполняется'}
-            />
+            >
+              <MessageCircle className="h-2.5 w-2.5" aria-hidden="true" />
+            </span>
           )}
           {chat.access !== 'public' && (
             <span
