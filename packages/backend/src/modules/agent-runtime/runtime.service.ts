@@ -716,6 +716,37 @@ function getUserVisibleToolTraces(traces: ToolTrace[]): ToolTrace[] {
   return traces.filter((trace) => !isEmptyCreateChatFilesTrace(trace));
 }
 
+function getWorkspaceMutationPathsFromToolTraces(traces: ToolTrace[]): Set<string> {
+  const mutationTools = new Set(['workspace-write-file', 'workspace-edit-file', 'workspace-delete-file']);
+  const paths = new Set<string>();
+
+  for (const trace of traces) {
+    if (trace.status !== 'success' || !mutationTools.has(trace.tool_name)) continue;
+    const outputPath = typeof trace.output?.path === 'string' ? trace.output.path : '';
+    const inputPath = typeof trace.input?.path === 'string' ? trace.input.path : '';
+    const normalized = normalizeWorkspaceRelativePath(outputPath || inputPath);
+    if (normalized) paths.add(normalized);
+  }
+
+  return paths;
+}
+
+function filterGeneratedFilesByWorkspaceMutationPaths(
+  files: GeneratedChatFileArtifact[],
+  workspaceMutationPaths: Set<string>,
+): GeneratedChatFileArtifact[] {
+  if (workspaceMutationPaths.size === 0) return files;
+
+  return files.filter((file) => {
+    try {
+      const workspacePath = normalizeWorkspaceRelativePath(file.original_name || file.storage_filename);
+      return !workspacePath || !workspaceMutationPaths.has(workspacePath);
+    } catch {
+      return true;
+    }
+  });
+}
+
 interface PendingRunProgressEvent {
   event: string;
   run_id: string;
@@ -4919,6 +4950,8 @@ ${input.system_context.trim()}`);
       );
 
     let syncedAssistantMessageId: string | null = null;
+    const workspaceMutationPaths = getWorkspaceMutationPathsFromToolTraces(toolTraces);
+    const generatedFilesForChat = filterGeneratedFilesByWorkspaceMutationPaths(pendingGeneratedFiles, workspaceMutationPaths);
 
     if (partialAssistantMessageId) {
       await db.update(chatConversationMessages).set({
@@ -4929,7 +4962,7 @@ ${input.system_context.trim()}`);
         latency_ms: latencyMs,
       }).where(eq(chatConversationMessages.id, partialAssistantMessageId));
       syncedAssistantMessageId = partialAssistantMessageId;
-    } else if (runStatus === 'completed' && (finalOutput.trim().length > 0 || pendingGeneratedFiles.length > 0)) {
+    } else if (runStatus === 'completed' && (finalOutput.trim().length > 0 || generatedFilesForChat.length > 0)) {
       const [insertedAssistantMessage] = await db.insert(chatConversationMessages).values({
         conversation_id: syncedConversationId,
         role: 'assistant',
@@ -4941,18 +4974,18 @@ ${input.system_context.trim()}`);
       syncedAssistantMessageId = insertedAssistantMessage?.id ?? null;
     }
 
-    if (syncedAssistantMessageId && pendingGeneratedFiles.length > 0) {
+    if (syncedAssistantMessageId && generatedFilesForChat.length > 0) {
       const generatedFiles = await persistGeneratedFilesForMessage({
         conversationId: syncedConversationId,
         messageId: syncedAssistantMessageId,
         userId,
         runId: run.id,
-        files: pendingGeneratedFiles,
+        files: generatedFilesForChat,
       });
       const workspaceFiles = await syncGeneratedFilesToWorkspace({
         userId,
         projectId: syncedConversationProjectId,
-        files: pendingGeneratedFiles,
+        files: generatedFilesForChat,
       });
       if (generatedFiles.length > 0) {
         await db.update(chatConversationMessages)
