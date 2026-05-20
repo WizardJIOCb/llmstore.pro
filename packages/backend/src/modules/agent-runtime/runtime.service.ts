@@ -6980,7 +6980,7 @@ function detectPreviewEditIntent(request: string): boolean {
   }
 
   const mentionsExistingPreviewSurface = /(preview|превью|лендинг|страниц|странице|сайт|site|hero|html|css|js|блок|кнопк|заголов|стил|верстк|разметк)/i.test(text);
-  const mentionsStructuralBreakage = /(незакрыт|не закрыт|оборван|обрыв|слом|ломан|бит|broken|невалид|invalid|ошибк|баг|артефакт|криво|съех|разъех|поеха|обреза|truncat|обрезан|закрой|закрывающ|хвост)/i.test(text);
+  const mentionsStructuralBreakage = /(незакрыт|не закрыт|оборван|обрыв|слом|ломан|бит|broken|невалид|invalid|ошибк|баг|артефакт|криво|съех|разъех|поеха|обреза|truncat|обрезан|закрой|закрывающ|хвост|не работает|не отображ|не груз|не видно|пропал|пропала)/i.test(text);
   const mentionsMarkupTags = /<\/?(?:style|script|div|section|main|body|html|head)\b/i.test(text);
 
   if ((mentionsExistingPreviewSurface && mentionsStructuralBreakage) || (mentionsStructuralBreakage && mentionsMarkupTags)) {
