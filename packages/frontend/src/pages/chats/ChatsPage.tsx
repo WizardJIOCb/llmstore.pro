@@ -1249,6 +1249,7 @@ function AuthenticatedChatsPage() {
   const [newChatReasoningEffort, setNewChatReasoningEffort] = useState<ChatReasoningEffort>('auto');
   const [expandedProjectIds, setExpandedProjectIds] = useState<string[]>([]);
   const [expandedProjectFolderIds, setExpandedProjectFolderIds] = useState<string[]>([]);
+  const [collapsedProjectFolderIds, setCollapsedProjectFolderIds] = useState<string[]>([]);
   const [draggedChatId, setDraggedChatId] = useState<string | null>(null);
   const [draggedFolderId, setDraggedFolderId] = useState<string | null>(null);
   const [dragOverProjectTarget, setDragOverProjectTarget] = useState<string | null>(null);
@@ -3392,6 +3393,7 @@ function AuthenticatedChatsPage() {
       setExpandedProjectIds((prev) => (prev.includes(project.id) ? prev : [project.id, ...prev]));
       if (folderId) {
         setExpandedProjectFolderIds((prev) => (prev.includes(folderId) ? prev : [folderId, ...prev]));
+        setCollapsedProjectFolderIds((prev) => prev.filter((id) => id !== folderId));
       }
       setActiveChatId(created.id);
     } catch (error) {
@@ -3409,6 +3411,7 @@ function AuthenticatedChatsPage() {
       setExpandedProjectIds((prev) => (prev.includes(project.id) ? prev : [project.id, ...prev]));
       if (parentFolderId) {
         setExpandedProjectFolderIds((prev) => (prev.includes(parentFolderId) ? prev : [parentFolderId, folder.id, ...prev]));
+        setCollapsedProjectFolderIds((prev) => prev.filter((id) => id !== parentFolderId && id !== folder.id));
       }
       showLocalWarning(`Папка «${title}» создана в проекте ${project.title}`);
     } catch (error) {
@@ -3455,6 +3458,7 @@ function AuthenticatedChatsPage() {
         setActiveChatId(null);
       }
       setExpandedProjectIds((prev) => prev.filter((id) => id !== project.id));
+      setCollapsedProjectFolderIds((prev) => prev.filter((id) => !project.folders.some((folder) => folder.id === id)));
     } catch (error) {
       showLocalError(getApiErrorMessage(error) ?? 'Не удалось удалить проект');
     }
@@ -3482,6 +3486,7 @@ function AuthenticatedChatsPage() {
     try {
       await deleteChatProjectFolderMutation.mutateAsync({ projectId: project.id, folderId: folder.id });
       setExpandedProjectFolderIds((prev) => prev.filter((id) => id !== folder.id));
+      setCollapsedProjectFolderIds((prev) => prev.filter((id) => id !== folder.id));
     } catch (error) {
       showLocalError(getApiErrorMessage(error) ?? 'Не удалось удалить папку');
     }
@@ -3540,6 +3545,7 @@ function AuthenticatedChatsPage() {
       setExpandedProjectIds((prev) => (prev.includes(project.id) ? prev : [project.id, ...prev]));
       if (folderId) {
         setExpandedProjectFolderIds((prev) => (prev.includes(folderId) ? prev : [folderId, ...prev]));
+        setCollapsedProjectFolderIds((prev) => prev.filter((id) => id !== folderId));
       }
     } catch (error) {
       showLocalError(getApiErrorMessage(error) ?? 'Не удалось перенести чат');
@@ -3564,6 +3570,7 @@ function AuthenticatedChatsPage() {
       setExpandedProjectIds((prev) => (prev.includes(project.id) ? prev : [project.id, ...prev]));
       if (parentFolderId) {
         setExpandedProjectFolderIds((prev) => (prev.includes(parentFolderId) ? prev : [parentFolderId, ...prev]));
+        setCollapsedProjectFolderIds((prev) => prev.filter((id) => id !== parentFolderId));
       }
     } catch (error) {
       showLocalError(getApiErrorMessage(error) ?? 'Не удалось перенести папку');
@@ -4628,7 +4635,10 @@ function AuthenticatedChatsPage() {
       const folderDropKey = `${project.id}:folder:${folder.id}`;
       const childFolders = foldersByParent.get(folder.id) ?? [];
       const folderChats = chatsInProject.filter((chat) => chat.project_folder_id === folder.id);
-      const isFolderExpanded = expandedProjectFolderIds.includes(folder.id) || folderHasActiveChat(folder.id);
+      const isFolderManuallyCollapsed = collapsedProjectFolderIds.includes(folder.id);
+      const isFolderExpanded = !isFolderManuallyCollapsed && (
+        expandedProjectFolderIds.includes(folder.id) || folderHasActiveChat(folder.id)
+      );
       const canDropHere = draggedFolderId !== folder.id;
 
       return (
@@ -4659,11 +4669,14 @@ function AuthenticatedChatsPage() {
               type="button"
               className="flex min-w-0 flex-1 items-center gap-1 rounded-md px-1.5 py-1.5 text-left"
               onClick={() => {
-                setExpandedProjectFolderIds((prev) => (
-                  prev.includes(folder.id)
-                    ? prev.filter((id) => id !== folder.id)
-                    : [...prev, folder.id]
-                ));
+                if (isFolderExpanded) {
+                  setExpandedProjectFolderIds((prev) => prev.filter((id) => id !== folder.id));
+                  setCollapsedProjectFolderIds((prev) => (prev.includes(folder.id) ? prev : [folder.id, ...prev]));
+                  return;
+                }
+
+                setExpandedProjectFolderIds((prev) => (prev.includes(folder.id) ? prev : [folder.id, ...prev]));
+                setCollapsedProjectFolderIds((prev) => prev.filter((id) => id !== folder.id));
               }}
             >
               <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-slate-400">
