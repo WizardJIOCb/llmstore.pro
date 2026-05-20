@@ -333,6 +333,32 @@ function formatGeneralModelPricing(model: GeneralModelOption): string {
   return `${formatUsdCompact(model.pricing_input_usd_per_million)} in / ${formatUsdCompact(model.pricing_output_usd_per_million)} out за 1M`;
 }
 
+function formatContextWindow(tokens: number): string {
+  if (tokens >= 950_000 && tokens < 1_100_000) {
+    return '1M';
+  }
+
+  if (tokens >= 1_000_000) {
+    const millions = tokens / 1_000_000;
+    return `${Number.isInteger(millions) ? millions.toFixed(0) : millions.toFixed(1).replace(/0+$/, '').replace(/\.$/, '')}M`;
+  }
+
+  if (tokens >= 1_000) {
+    const thousands = tokens / 1_000;
+    return `${Number.isInteger(thousands) ? thousands.toFixed(0) : thousands.toFixed(0)}K`;
+  }
+
+  return tokens.toLocaleString('ru-RU');
+}
+
+function formatGeneralModelContext(model: GeneralModelOption): string {
+  return `context: ${formatContextWindow(model.context_window_tokens)}`;
+}
+
+function formatGeneralModelMeta(model: GeneralModelOption): string {
+  return `${formatGeneralModelContext(model)} • ${formatGeneralModelPricing(model)}`;
+}
+
 function buildAgentMetaLabel(agent: ChatAgentOption): string {
   return agent.model_external_id?.trim() || '';
 }
@@ -2334,7 +2360,7 @@ function AuthenticatedChatsPage() {
   const generalModelOptions = useMemo(
     () => GENERAL_MODELS.map((model) => ({
       value: model.value,
-      label: `${model.label} • ${formatGeneralModelPricing(model)}`,
+      label: `${model.label} • ${formatGeneralModelContext(model)} • ${formatGeneralModelPricing(model)}`,
     })),
     [],
   );
@@ -4028,7 +4054,7 @@ function AuthenticatedChatsPage() {
                       </div>
                       {activeGeneralModel ? (
                         <p className="mt-1 text-xs text-muted-foreground">
-                          {formatGeneralModelPricing(activeGeneralModel)}
+                          {formatGeneralModelMeta(activeGeneralModel)}
                         </p>
                       ) : null}
                       <p className="mt-1 text-sm text-muted-foreground">
@@ -4492,7 +4518,7 @@ function AuthenticatedChatsPage() {
                   <div className="space-y-1">
                     <p className="text-sm font-medium">Выберите модель для общения</p>
                     <p className="text-xs text-muted-foreground">
-                      Под каждой моделью видно, для чего она лучше подходит и сколько стоит.
+                      Под каждой моделью видно, для чего она лучше подходит, размер контекста и сколько стоит.
                     </p>
                   </div>
                   <div className="max-h-72 space-y-2 overflow-y-auto rounded-xl border bg-background p-2">
@@ -4514,7 +4540,7 @@ function AuthenticatedChatsPage() {
                           <p className="text-sm font-medium text-foreground">{model.label}</p>
                           <p className="mt-1 break-all text-xs text-muted-foreground">{model.value}</p>
                           <p className="mt-1 text-xs leading-5 text-muted-foreground">{model.description}</p>
-                          <p className="mt-1 text-xs text-muted-foreground">{formatGeneralModelPricing(model)}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">{formatGeneralModelMeta(model)}</p>
                         </button>
                       );
                     })}
@@ -4902,7 +4928,7 @@ function AuthenticatedChatsPage() {
                       />
                       <p className="text-xs text-muted-foreground">
                         {propertiesSelectedGeneralModel
-                          ? `Сейчас выбрана: ${propertiesSelectedGeneralModel.label} • ${formatGeneralModelPricing(propertiesSelectedGeneralModel)}`
+                          ? `Сейчас выбрана: ${propertiesSelectedGeneralModel.label} • ${formatGeneralModelMeta(propertiesSelectedGeneralModel)}`
                           : 'Если у чата старая модель, выбери новую из каталога ниже.'}
                       </p>
                     </div>
@@ -4910,7 +4936,7 @@ function AuthenticatedChatsPage() {
                     <div className="space-y-3">
                       <div className="flex items-center justify-between gap-3">
                         <p className="text-sm font-medium">Каталог моделей для общения</p>
-                        <p className="text-xs text-muted-foreground">Под каждой моделью видно, для чего она лучше подходит и сколько стоит</p>
+                        <p className="text-xs text-muted-foreground">Под каждой моделью видно, для чего она лучше подходит, размер контекста и сколько стоит</p>
                       </div>
                       <div className="max-h-72 space-y-2 overflow-y-auto rounded-xl border bg-background p-2">
                         {GENERAL_MODELS.map((model) => {
@@ -4931,7 +4957,7 @@ function AuthenticatedChatsPage() {
                               <p className="text-sm font-medium text-foreground">{model.label}</p>
                               <p className="mt-1 break-all text-xs text-muted-foreground">{model.value}</p>
                               <p className="mt-1 text-xs leading-5 text-muted-foreground">{model.description}</p>
-                              <p className="mt-1 text-xs text-muted-foreground">{formatGeneralModelPricing(model)}</p>
+                              <p className="mt-1 text-xs text-muted-foreground">{formatGeneralModelMeta(model)}</p>
                             </button>
                           );
                         })}
@@ -4998,7 +5024,7 @@ function AuthenticatedChatsPage() {
                               <p className="text-sm font-medium text-foreground">{model.label}</p>
                               <p className="mt-1 break-all text-xs text-muted-foreground">{model.value}</p>
                               <p className="mt-1 text-xs leading-5 text-muted-foreground">{model.description}</p>
-                              <p className="mt-1 text-xs text-muted-foreground">{formatGeneralModelPricing(model)}</p>
+                              <p className="mt-1 text-xs text-muted-foreground">{formatGeneralModelMeta(model)}</p>
                             </button>
                           );
                         })}
