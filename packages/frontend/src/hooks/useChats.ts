@@ -139,6 +139,45 @@ export function useCreateChatProject() {
   });
 }
 
+export function useUpdateChatProject() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ projectId, ...payload }: {
+      projectId: string;
+      title?: string;
+      description?: string | null;
+      git_remote_url?: string | null;
+      status?: 'active' | 'archived';
+    }) => chatsApi.updateProject(projectId, payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['chat-projects'] });
+      qc.invalidateQueries({ queryKey: ['chats'] });
+    },
+  });
+}
+
+export function useCreateChatProjectFolder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ projectId, title, parentFolderId }: { projectId: string; title?: string; parentFolderId?: string | null }) =>
+      chatsApi.createProjectFolder(projectId, { title, parent_folder_id: parentFolderId ?? null }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['chat-projects'] });
+    },
+  });
+}
+
+export function useDeleteChatProject() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (projectId: string) => chatsApi.deleteProject(projectId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['chat-projects'] });
+      qc.invalidateQueries({ queryKey: ['chats'] });
+    },
+  });
+}
+
 export function useUpdateChat() {
   const qc = useQueryClient();
   return useMutation({

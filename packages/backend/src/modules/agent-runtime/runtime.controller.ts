@@ -210,6 +210,24 @@ export async function createChatWorkspaceProject(req: Request, res: Response, ne
   }
 }
 
+export async function updateChatWorkspaceProject(req: Request<{ projectId: string }>, res: Response, next: NextFunction) {
+  try {
+    const project = await runtimeService.updateChatWorkspaceProject(req.session.userId!, req.params.projectId, req.body);
+    res.json({ data: project });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function deleteChatWorkspaceProject(req: Request<{ projectId: string }>, res: Response, next: NextFunction) {
+  try {
+    const result = await runtimeService.deleteChatWorkspaceProject(req.session.userId!, req.params.projectId);
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function createChatWorkspaceFolder(req: Request<{ projectId: string }>, res: Response, next: NextFunction) {
   try {
     const folder = await runtimeService.createChatWorkspaceFolder(req.session.userId!, req.params.projectId, req.body);

@@ -712,6 +712,15 @@ export const chatsApi = {
   createProject: (payload?: { title?: string; description?: string | null; git_remote_url?: string | null }) =>
     apiClient.post<{ data: ChatWorkspaceProject }>('/chat-projects', payload ?? {}).then((r) => r.data.data),
 
+  updateProject: (
+    projectId: string,
+    payload: { title?: string; description?: string | null; git_remote_url?: string | null; status?: 'active' | 'archived' },
+  ) =>
+    apiClient.patch<{ data: ChatWorkspaceProject }>(`/chat-projects/${projectId}`, payload).then((r) => r.data.data),
+
+  deleteProject: (projectId: string) =>
+    apiClient.delete<{ data: { ok: true } }>(`/chat-projects/${projectId}`).then((r) => r.data.data),
+
   createProjectFolder: (projectId: string, payload?: { title?: string; parent_folder_id?: string | null }) =>
     apiClient
       .post<{ data: ChatWorkspaceFolder }>(`/chat-projects/${projectId}/folders`, payload ?? {})

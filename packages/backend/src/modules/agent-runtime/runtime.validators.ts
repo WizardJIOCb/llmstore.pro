@@ -33,6 +33,13 @@ const createChatWorkspaceProjectSchema = z.object({
   git_remote_url: z.string().max(1000).optional().nullable(),
 });
 
+const updateChatWorkspaceProjectSchema = z.object({
+  title: z.string().min(1).max(255).optional(),
+  description: z.string().max(2000).optional().nullable(),
+  git_remote_url: z.string().max(1000).optional().nullable(),
+  status: z.enum(['active', 'archived']).optional(),
+});
+
 const createChatWorkspaceFolderSchema = z.object({
   title: z.string().min(1).max(255).optional(),
   parent_folder_id: z.string().uuid().optional().nullable(),
@@ -133,6 +140,7 @@ const setGalleryReactionSchema = z.object({
 
 export const validateCreateChat = validate(createChatSchema, 'body');
 export const validateCreateChatWorkspaceProject = validate(createChatWorkspaceProjectSchema, 'body');
+export const validateUpdateChatWorkspaceProject = validate(updateChatWorkspaceProjectSchema, 'body');
 export const validateCreateChatWorkspaceFolder = validate(createChatWorkspaceFolderSchema, 'body');
 export const validateSaveChatWorkspaceFile = validate(saveChatWorkspaceFileSchema, 'body');
 export const validateTelegramBotQuickstart = validate(telegramBotQuickstartSchema, 'body');

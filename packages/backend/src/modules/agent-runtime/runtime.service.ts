@@ -8667,6 +8667,59 @@ export async function createChatWorkspaceProject(userId: string, input: {
   };
 }
 
+export async function updateChatWorkspaceProject(userId: string, projectId: string, input: {
+  title?: string;
+  description?: string | null;
+  git_remote_url?: string | null;
+  status?: string;
+}): Promise<ChatWorkspaceProjectItem> {
+  const project = await getWorkspaceProjectForUser(projectId, userId);
+  const now = new Date();
+  const [updated] = await db.update(chatWorkspaceProjects)
+    .set({
+      title: input.title === undefined ? project.title : (input.title.trim() || project.title).slice(0, 255),
+      description: input.description === undefined ? project.description : (input.description?.trim() || null),
+      git_remote_url: input.git_remote_url === undefined ? project.git_remote_url : (input.git_remote_url?.trim() || null),
+      status: input.status === undefined ? project.status : input.status,
+      updated_at: now,
+      last_activity_at: now,
+    })
+    .where(and(eq(chatWorkspaceProjects.id, projectId), eq(chatWorkspaceProjects.user_id, userId)))
+    .returning();
+
+  const [projectView] = await listChatWorkspaceProjects(userId).then((list) => list.filter((item) => item.id === updated.id));
+  return projectView ?? {
+    id: updated.id,
+    title: updated.title,
+    slug: updated.slug,
+    description: updated.description ?? null,
+    git_remote_url: updated.git_remote_url ?? null,
+    status: updated.status,
+    root_path: updated.root_path,
+    folders: [],
+    chats_count: 0,
+    last_activity_at: toIso(updated.last_activity_at),
+    created_at: toIso(updated.created_at),
+    updated_at: toIso(updated.updated_at),
+  };
+}
+
+export async function deleteChatWorkspaceProject(userId: string, projectId: string): Promise<{ ok: true }> {
+  const project = await getWorkspaceProjectForUser(projectId, userId);
+  const expectedRoot = path.resolve(safeWorkspaceRoot(userId, projectId));
+  const actualRoot = path.resolve(project.root_path);
+  const workspacesRoot = path.resolve(CHAT_PROJECT_WORKSPACES_DIR);
+
+  if (actualRoot !== expectedRoot || !actualRoot.startsWith(`${workspacesRoot}${path.sep}`)) {
+    throw new AppError(500, 'UNSAFE_WORKSPACE_PATH', 'Небезопасный путь workspace проекта');
+  }
+
+  await db.delete(chatWorkspaceProjects)
+    .where(and(eq(chatWorkspaceProjects.id, projectId), eq(chatWorkspaceProjects.user_id, userId)));
+  await rm(actualRoot, { recursive: true, force: true });
+  return { ok: true };
+}
+
 export async function createChatWorkspaceFolder(userId: string, projectId: string, input: {
   title?: string;
   parent_folder_id?: string | null;

@@ -42,7 +42,9 @@ import {
   useChatsList,
   useCloneChat,
   useCreateChat,
+  useCreateChatProjectFolder,
   useCreateChatProject,
+  useDeleteChatProject,
   useDeleteChat,
   useDeleteChatMessage,
   useTruncateChatFromMessage,
@@ -52,6 +54,7 @@ import {
   useUploadChatFiles,
   useShareChatById,
   useUpdateChat,
+  useUpdateChatProject,
   useImportChatBundle,
 } from '../../hooks/useChats';
 import { useBuiltinTools, useUpdateAgent } from '../../hooks/useAgents';
@@ -471,7 +474,7 @@ function getChatOwnerLabel(chat: Pick<ChatListItem, 'owner_name' | 'owner_userna
 }
 
 function getChatActionIcon(
-  action: 'rename' | 'pin' | 'unpin' | 'properties' | 'export' | 'privacy' | 'transfer' | 'reuse' | 'delete' | 'share' | 'copy_link' | 'agents',
+  action: 'rename' | 'pin' | 'unpin' | 'properties' | 'export' | 'privacy' | 'transfer' | 'reuse' | 'delete' | 'share' | 'copy_link' | 'agents' | 'new_chat' | 'folder',
   access?: ChatAccess,
 ) {
   switch (action) {
@@ -501,6 +504,10 @@ function getChatActionIcon(
       return <Link2 className="h-4 w-4 shrink-0 text-slate-500" />;
     case 'agents':
       return <Bot className="h-4 w-4 shrink-0 text-slate-500" />;
+    case 'new_chat':
+      return <MessageCircle className="h-4 w-4 shrink-0 text-slate-500" />;
+    case 'folder':
+      return <Folder className="h-4 w-4 shrink-0 text-amber-500" />;
     default:
       return null;
   }
@@ -715,6 +722,7 @@ function formatChatPreview(preview: string | null): string | null {
 
 type MenuItem =
   | { kind: 'chat'; id: string }
+  | { kind: 'project'; id: string }
   | { kind: 'active-chat-actions' }
   | null;
 
@@ -1187,6 +1195,9 @@ function AuthenticatedChatsPage() {
   const { data: profile } = useProfile(isAuthenticated);
   const createChatMutation = useCreateChat();
   const createChatProjectMutation = useCreateChatProject();
+  const createChatProjectFolderMutation = useCreateChatProjectFolder();
+  const updateChatProjectMutation = useUpdateChatProject();
+  const deleteChatProjectMutation = useDeleteChatProject();
   const cloneChatMutation = useCloneChat();
   const updateChatMutation = useUpdateChat();
   const updateAgentMutation = useUpdateAgent();
@@ -3347,6 +3358,82 @@ function AuthenticatedChatsPage() {
     }
   };
 
+  const createChatInProject = async (project: ChatWorkspaceProject) => {
+    setLocalError(null);
+    setOpenMenu(null);
+    try {
+      const created = await createChatMutation.mutateAsync({
+        mode: 'general',
+        title: `Чат проекта: ${project.title}`,
+        model_external_id: newChatModel,
+        reasoning_effort: newChatReasoningEffort,
+        project_id: project.id,
+      });
+      setExpandedProjectIds((prev) => (prev.includes(project.id) ? prev : [project.id, ...prev]));
+      setActiveChatId(created.id);
+    } catch (error) {
+      showLocalError(getApiErrorMessage(error) ?? 'Не удалось создать чат проекта');
+    }
+  };
+
+  const createFolderInProject = async (project: ChatWorkspaceProject) => {
+    const title = window.prompt('Название папки проекта', 'Новая папка')?.trim();
+    if (!title) return;
+    setLocalError(null);
+    setOpenMenu(null);
+    try {
+      await createChatProjectFolderMutation.mutateAsync({ projectId: project.id, title });
+      setExpandedProjectIds((prev) => (prev.includes(project.id) ? prev : [project.id, ...prev]));
+      showLocalWarning(`Папка «${title}» создана в проекте ${project.title}`);
+    } catch (error) {
+      showLocalError(getApiErrorMessage(error) ?? 'Не удалось создать папку проекта');
+    }
+  };
+
+  const renameProject = async (project: ChatWorkspaceProject) => {
+    const next = window.prompt('Новое имя проекта', project.title);
+    if (!next) return;
+    const title = next.trim();
+    if (!title) return;
+    setLocalError(null);
+    setOpenMenu(null);
+    try {
+      await updateChatProjectMutation.mutateAsync({ projectId: project.id, title });
+    } catch (error) {
+      showLocalError(getApiErrorMessage(error) ?? 'Не удалось переименовать проект');
+    }
+  };
+
+  const copyProjectPath = async (project: ChatWorkspaceProject) => {
+    setLocalError(null);
+    try {
+      await navigator.clipboard.writeText(project.root_path);
+      setShareToastVisible(true);
+      if (shareToastTimerRef.current) clearTimeout(shareToastTimerRef.current);
+      shareToastTimerRef.current = setTimeout(() => setShareToastVisible(false), 2000);
+    } catch {
+      showLocalError('Не удалось скопировать путь проекта');
+    } finally {
+      setOpenMenu(null);
+    }
+  };
+
+  const deleteProject = async (project: ChatWorkspaceProject) => {
+    const confirmed = window.confirm(`Удалить проект «${project.title}» вместе с чатами и workspace-файлами?`);
+    if (!confirmed) return;
+    setLocalError(null);
+    setOpenMenu(null);
+    try {
+      await deleteChatProjectMutation.mutateAsync(project.id);
+      if (activeChat?.project_id === project.id) {
+        setActiveChatId(null);
+      }
+      setExpandedProjectIds((prev) => prev.filter((id) => id !== project.id));
+    } catch (error) {
+      showLocalError(getApiErrorMessage(error) ?? 'Не удалось удалить проект');
+    }
+  };
+
   const renameChat = async (chat: ChatListItem) => {
     const next = window.prompt('Новое имя чата', chat.title);
     if (!next) return;
@@ -4326,11 +4413,11 @@ function AuthenticatedChatsPage() {
     };
 
     return (
-      <div key={project.id} className="space-y-1">
+      <div key={project.id} className="relative space-y-1">
         <button
           type="button"
           onClick={toggle}
-          className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left transition-colors hover:bg-accent/60"
+          className="flex w-full items-center gap-2 rounded-md px-2 py-2 pr-9 text-left transition-colors hover:bg-accent/60"
           title={project.root_path}
         >
           <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center text-amber-500">
@@ -4340,11 +4427,79 @@ function AuthenticatedChatsPage() {
             <span className="block truncate text-sm font-semibold">{project.title}</span>
             <span className="block truncate text-[11px] text-muted-foreground">
               Workspace • {project.chats_count || chatsInProject.length} чатов
+              {project.folders.length > 0 ? ` • ${project.folders.length} пап.` : ''}
             </span>
           </span>
         </button>
+        <div className="absolute right-2 top-1" ref={openMenu?.kind === 'project' && openMenu.id === project.id ? menuRef : null}>
+          <button
+            type="button"
+            className="h-7 w-7 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpenMenu((prev) => (prev?.kind === 'project' && prev.id === project.id ? null : { kind: 'project', id: project.id }));
+            }}
+            aria-label="Действия проекта"
+          >
+            ...
+          </button>
+          {openMenu?.kind === 'project' && openMenu.id === project.id && (
+            <div className="absolute right-0 top-8 z-20 min-w-[220px] rounded-md border bg-white p-1 shadow-lg">
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+                onClick={() => void createChatInProject(project)}
+                disabled={createChatMutation.isPending}
+              >
+                {getChatActionIcon('new_chat')}
+                <span>Новый чат</span>
+              </button>
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+                onClick={() => void createFolderInProject(project)}
+                disabled={createChatProjectFolderMutation.isPending}
+              >
+                {getChatActionIcon('folder')}
+                <span>Новая папка</span>
+              </button>
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+                onClick={() => void renameProject(project)}
+                disabled={updateChatProjectMutation.isPending}
+              >
+                {getChatActionIcon('rename')}
+                <span>Переименовать</span>
+              </button>
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+                onClick={() => void copyProjectPath(project)}
+              >
+                {getChatActionIcon('copy_link')}
+                <span>Скопировать путь</span>
+              </button>
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+                onClick={() => void deleteProject(project)}
+                disabled={deleteChatProjectMutation.isPending}
+              >
+                {getChatActionIcon('delete')}
+                <span>Удалить проект</span>
+              </button>
+            </div>
+          )}
+        </div>
         {isExpanded && (
           <div className="space-y-1 border-l border-slate-200 pl-3">
+            {project.folders.map((folder) => (
+              <div key={folder.id} className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground">
+                <Folder className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                <span className="truncate">{folder.title}</span>
+              </div>
+            ))}
             {chatsInProject.length > 0 ? (
               chatsInProject.map(renderChatRow)
             ) : (
