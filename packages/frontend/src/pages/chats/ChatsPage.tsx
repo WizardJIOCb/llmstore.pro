@@ -69,6 +69,7 @@ import type {
   ChatMode,
   ChatPendingRunState,
   CodingReport,
+  ProjectDeployment,
   PublishedLanding,
   ToolTrace,
 } from '../../lib/api/chats';
@@ -2775,6 +2776,55 @@ function AuthenticatedChatsPage() {
     });
   };
 
+  const syncProjectDeploymentState = (chatId: string, deployment: ProjectDeployment) => {
+    const hasActiveDeployment = deployment.status === 'deploying' || deployment.status === 'running';
+
+    queryClient.setQueryData<ChatListItem[] | undefined>(['chats'], (current) => (
+      current?.map((chat) => (
+        chat.id === chatId
+          ? { ...chat, has_active_deployment: hasActiveDeployment }
+          : chat
+      ))
+    ));
+
+    queryClient.setQueryData<ChatDetails | undefined>(['chats', chatId], (current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        chat: {
+          ...current.chat,
+          has_active_deployment: hasActiveDeployment,
+          project_deployments: current.chat.project_deployments.map((item) => (
+            item.id === deployment.id
+              ? {
+                ...item,
+                status: deployment.status,
+                telegram_bot_username: deployment.telegram_bot_username,
+                telegram_bot_url: deployment.telegram_bot_url,
+                last_error: deployment.last_error,
+                last_started_at: deployment.last_started_at,
+                last_stopped_at: deployment.last_stopped_at,
+                updated_at: deployment.updated_at,
+              }
+              : item
+          )),
+        },
+      };
+    });
+
+    void queryClient.invalidateQueries({ queryKey: ['chats'] });
+    void queryClient.invalidateQueries({ queryKey: ['chats', chatId] });
+  };
+
+  const runProjectDeploymentAction = async (
+    chatId: string,
+    action: () => Promise<ProjectDeployment>,
+  ): Promise<ProjectDeployment> => {
+    const deployment = await action();
+    syncProjectDeploymentState(chatId, deployment);
+    return deployment;
+  };
+
   useEffect(() => {
     if (!assistantResponseSlotForActiveChat || assistantResponseSlotForActiveChat.actualMessageId) return;
 
@@ -4398,23 +4448,38 @@ function AuthenticatedChatsPage() {
                     : undefined}
                   onUpsertProjectDeployment={msg.role === 'assistant' && activeChat
                     && !isAdminForeignChat
-                    ? async (payload) => chatsApi.upsertProjectDeployment(activeChat.id, msg.id, payload)
+                    ? async (payload) => runProjectDeploymentAction(
+                      activeChat.id,
+                      () => chatsApi.upsertProjectDeployment(activeChat.id, msg.id, payload),
+                    )
                     : undefined}
                   onControlProjectDeployment={msg.role === 'assistant' && activeChat
                     && !isAdminForeignChat
-                    ? async (payload) => chatsApi.controlProjectDeployment(activeChat.id, msg.id, payload)
+                    ? async (payload) => runProjectDeploymentAction(
+                      activeChat.id,
+                      () => chatsApi.controlProjectDeployment(activeChat.id, msg.id, payload),
+                    )
                     : undefined}
                   onStartProjectDeployment={msg.role === 'assistant' && activeChat
                     && !isAdminForeignChat
-                    ? async () => chatsApi.startProjectDeployment(activeChat.id, msg.id)
+                    ? async () => runProjectDeploymentAction(
+                      activeChat.id,
+                      () => chatsApi.startProjectDeployment(activeChat.id, msg.id),
+                    )
                     : undefined}
                   onReinstallProjectDeploymentWebhook={msg.role === 'assistant' && activeChat
                     && !isAdminForeignChat
-                    ? async () => chatsApi.reinstallProjectDeploymentWebhook(activeChat.id, msg.id)
+                    ? async () => runProjectDeploymentAction(
+                      activeChat.id,
+                      () => chatsApi.reinstallProjectDeploymentWebhook(activeChat.id, msg.id),
+                    )
                     : undefined}
                   onStopProjectDeployment={msg.role === 'assistant' && activeChat
                     && !isAdminForeignChat
-                    ? async () => chatsApi.stopProjectDeployment(activeChat.id, msg.id)
+                    ? async () => runProjectDeploymentAction(
+                      activeChat.id,
+                      () => chatsApi.stopProjectDeployment(activeChat.id, msg.id),
+                    )
                     : undefined}
                   publishedLanding={msg.role === 'assistant' ? (publishedLandingByMessageId[msg.id] ?? null) : undefined}
                   publishingLanding={msg.role === 'assistant' ? landingActionMessageIds.includes(msg.id) : undefined}
@@ -4528,23 +4593,38 @@ function AuthenticatedChatsPage() {
                         : undefined}
                       onUpsertProjectDeployment={activeChat
                         && !isAdminForeignChat
-                        ? async (payload) => chatsApi.upsertProjectDeployment(activeChat.id, assistantSlotResolvedMessage.id, payload)
+                        ? async (payload) => runProjectDeploymentAction(
+                          activeChat.id,
+                          () => chatsApi.upsertProjectDeployment(activeChat.id, assistantSlotResolvedMessage.id, payload),
+                        )
                         : undefined}
                       onControlProjectDeployment={activeChat
                         && !isAdminForeignChat
-                        ? async (payload) => chatsApi.controlProjectDeployment(activeChat.id, assistantSlotResolvedMessage.id, payload)
+                        ? async (payload) => runProjectDeploymentAction(
+                          activeChat.id,
+                          () => chatsApi.controlProjectDeployment(activeChat.id, assistantSlotResolvedMessage.id, payload),
+                        )
                         : undefined}
                       onStartProjectDeployment={activeChat
                         && !isAdminForeignChat
-                        ? async () => chatsApi.startProjectDeployment(activeChat.id, assistantSlotResolvedMessage.id)
+                        ? async () => runProjectDeploymentAction(
+                          activeChat.id,
+                          () => chatsApi.startProjectDeployment(activeChat.id, assistantSlotResolvedMessage.id),
+                        )
                         : undefined}
                       onReinstallProjectDeploymentWebhook={activeChat
                         && !isAdminForeignChat
-                        ? async () => chatsApi.reinstallProjectDeploymentWebhook(activeChat.id, assistantSlotResolvedMessage.id)
+                        ? async () => runProjectDeploymentAction(
+                          activeChat.id,
+                          () => chatsApi.reinstallProjectDeploymentWebhook(activeChat.id, assistantSlotResolvedMessage.id),
+                        )
                         : undefined}
                       onStopProjectDeployment={activeChat
                         && !isAdminForeignChat
-                        ? async () => chatsApi.stopProjectDeployment(activeChat.id, assistantSlotResolvedMessage.id)
+                        ? async () => runProjectDeploymentAction(
+                          activeChat.id,
+                          () => chatsApi.stopProjectDeployment(activeChat.id, assistantSlotResolvedMessage.id),
+                        )
                         : undefined}
                       publishedLanding={publishedLandingByMessageId[assistantSlotResolvedMessage.id] ?? null}
                       publishingLanding={landingActionMessageIds.includes(assistantSlotResolvedMessage.id)}
