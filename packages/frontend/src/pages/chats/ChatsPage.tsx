@@ -108,6 +108,7 @@ const PENDING_REPLY_RECOVERY_WINDOW_MS = 5 * 60_000;
 const TIMEOUT_REPLY_RECOVERY_WINDOW_MS = 12_000;
 const TIMEOUT_REPLY_RECOVERY_ATTEMPT_MS = 4_000;
 const DIALOG_CLOSE_ANIMATION_MS = 200;
+const ASSISTANT_SLOT_AFTER_USER_DELAY_MS = 120;
 const LIVE_AUTO_SCROLL_THRESHOLD_PX = 50;
 const EMPTY_MESSAGES: ChatMessageType[] = [];
 const LAST_CHAT_SELECTION_STORAGE_KEY = 'llmstore.last-chat-selection';
@@ -1258,6 +1259,7 @@ function AuthenticatedChatsPage() {
   const propertiesDialogTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const topUpDialogTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const transferDialogTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const assistantSlotDelayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const messageEnterCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollAnimationFrameRef = useRef<number | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -2488,6 +2490,7 @@ function AuthenticatedChatsPage() {
       if (propertiesDialogTimerRef.current) clearTimeout(propertiesDialogTimerRef.current);
       if (topUpDialogTimerRef.current) clearTimeout(topUpDialogTimerRef.current);
       if (transferDialogTimerRef.current) clearTimeout(transferDialogTimerRef.current);
+      if (assistantSlotDelayTimerRef.current) clearTimeout(assistantSlotDelayTimerRef.current);
       if (messageEnterCleanupTimerRef.current) clearTimeout(messageEnterCleanupTimerRef.current);
       if (scrollAnimationFrameRef.current) cancelAnimationFrame(scrollAnimationFrameRef.current);
     };
@@ -3636,19 +3639,30 @@ function AuthenticatedChatsPage() {
       },
     });
     const startedAt = new Date().toISOString();
-    setAssistantResponseSlot({
+    const nextAssistantSlot = {
       chatId,
       visualKey: `assistant-slot-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
       startedAt,
       label: 'Думаю...',
       detail: 'Собираю ответ, инструменты и preview, если он нужен.',
       actualMessageId: null,
-    });
+    };
+    if (assistantSlotDelayTimerRef.current) clearTimeout(assistantSlotDelayTimerRef.current);
+    assistantSlotDelayTimerRef.current = setTimeout(() => {
+      setAssistantResponseSlot((prev) => (
+        prev && prev.chatId !== chatId ? prev : nextAssistantSlot
+      ));
+      assistantSlotDelayTimerRef.current = null;
+    }, ASSISTANT_SLOT_AFTER_USER_DELAY_MS);
     markChatRuntimeActive(chatId);
 
     try {
       const attachments = files.length > 0 ? await uploadFilesMutation.mutateAsync(files) : [];
       const result = await sendMessageMutation.mutateAsync({ chatId, content, attachments });
+      if (assistantSlotDelayTimerRef.current) {
+        clearTimeout(assistantSlotDelayTimerRef.current);
+        assistantSlotDelayTimerRef.current = null;
+      }
       const optimisticVisualKey = optimisticPendingMessage?.chatId === chatId
         ? optimisticPendingMessage.message.id
         : result.user_message.id;
@@ -3685,15 +3699,11 @@ function AuthenticatedChatsPage() {
             error: result.pending_run.error ?? undefined,
           }, 0)
           : null;
-        setAssistantResponseSlot((prev) => (
-          prev && prev.chatId === chatId
-            ? {
-              ...prev,
-              label: pendingProgressEvent?.label ?? 'Агент работает',
-              detail: pendingProgressEvent?.detail ?? result.pending_run?.detail ?? 'Сообщение принято. Живой прогресс и частичный результат будут появляться прямо в чате.',
-            }
-            : prev
-        ));
+        setAssistantResponseSlot({
+          ...nextAssistantSlot,
+          label: pendingProgressEvent?.label ?? 'Агент работает',
+          detail: pendingProgressEvent?.detail ?? result.pending_run?.detail ?? 'Сообщение принято. Живой прогресс и частичный результат будут появляться прямо в чате.',
+        });
         setOptimisticPendingMessage((prev) => (prev?.chatId === chatId ? null : prev));
         markChatRuntimeActive(chatId);
         return;
@@ -3708,6 +3718,10 @@ function AuthenticatedChatsPage() {
       setOptimisticPendingMessage((prev) => (prev?.chatId === chatId ? null : prev));
       markChatRuntimeIdle(chatId);
     } catch (err) {
+      if (assistantSlotDelayTimerRef.current) {
+        clearTimeout(assistantSlotDelayTimerRef.current);
+        assistantSlotDelayTimerRef.current = null;
+      }
       const code = getApiErrorCode(err);
       const status = getApiErrorStatus(err);
       if (code === 'INSUFFICIENT_BALANCE') {
