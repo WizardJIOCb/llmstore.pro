@@ -178,7 +178,7 @@ function ProjectWorkspaceFilesTree({
     <div className="mt-1 space-y-1 rounded-md bg-slate-50/70 px-1.5 py-1.5">
       <button
         type="button"
-        className="flex w-full items-center gap-1.5 rounded px-1 py-1 text-left text-[10px] font-semibold uppercase tracking-wide text-muted-foreground hover:bg-white"
+        className="flex w-full items-center gap-1.5 rounded py-1 text-left text-[10px] font-semibold uppercase tracking-wide text-muted-foreground hover:bg-white"
         onClick={onToggleCollapsed}
       >
         {collapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
