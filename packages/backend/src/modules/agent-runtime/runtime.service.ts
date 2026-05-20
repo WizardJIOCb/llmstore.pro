@@ -9266,6 +9266,7 @@ export async function sendChatMessage(
   let usagePayload: Record<string, unknown> | null = null;
   let latencyMs: number | null = null;
   let completedGeneralModel: string | null = null;
+  let generalChatModelToPersist: string | null = null;
   const canUseChatTools = openRouterRequestsEnabled
     && chat.mode === 'general'
     && chatToolSettings.tool_ids.length > 0
@@ -9453,6 +9454,7 @@ export async function sendChatMessage(
       const switchedToVisionModel = imageDataUrls.length > 0 && !isVisionModel(model);
       if (switchedToVisionModel) {
         model = DEFAULT_VISION_CHAT_MODEL;
+        generalChatModelToPersist = requestedModel;
       }
       const attemptedGeneralModelIds = new Set<string>([requestedModel, model]);
       const startedAt = Date.now();
@@ -9620,7 +9622,9 @@ export async function sendChatMessage(
   const nextTitle = isDefaultTitle ? compactTitle(trimmedContent || 'Вложение') : chat.title;
   await db.update(chatConversations).set({
     title: nextTitle,
-    model_external_id: chat.mode === 'general' ? (completedGeneralModel ?? usageModel ?? chat.model_external_id ?? DEFAULT_GENERAL_MODEL) : chat.model_external_id,
+    model_external_id: chat.mode === 'general'
+      ? (generalChatModelToPersist ?? completedGeneralModel ?? usageModel ?? chat.model_external_id ?? DEFAULT_GENERAL_MODEL)
+      : chat.model_external_id,
     last_message_at: new Date(),
     updated_at: new Date(),
   }).where(eq(chatConversations.id, chatId));
@@ -9651,7 +9655,9 @@ export async function sendChatMessage(
       title: nextTitle,
       mode: chat.mode,
       agent_id: chat.agent_id ?? null,
-      model_external_id: chat.mode === 'general' ? (completedGeneralModel ?? usageModel ?? chat.model_external_id ?? null) : (chat.model_external_id ?? null),
+      model_external_id: chat.mode === 'general'
+        ? (generalChatModelToPersist ?? completedGeneralModel ?? usageModel ?? chat.model_external_id ?? null)
+        : (chat.model_external_id ?? null),
       share_token: chat.share_token ?? null,
     },
   };
