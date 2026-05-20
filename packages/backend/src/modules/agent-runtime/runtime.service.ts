@@ -4995,6 +4995,11 @@ const OPENROUTER_CHAT_FALLBACK_MODELS = [
   DEFAULT_GENERAL_MODEL,
   'anthropic/claude-haiku-4.5',
 ] as const;
+const OPENROUTER_FREE_CHAT_FALLBACK_MODELS = [
+  'openrouter/free',
+  'deepseek/deepseek-v4-flash:free',
+  'qwen/qwen3-coder:free',
+] as const;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const AGENT_OPENROUTER_TIMEOUT_MS = 3 * 60_000;
 const TOOL_AGENT_OPENROUTER_TIMEOUT_MS = 8 * 60_000;
@@ -5065,7 +5070,12 @@ function resolveOpenRouterRuntimeFallbackModel(
   triedModelIds: Set<string>,
 ): string | null {
   const normalizedCurrent = normalizeOpenRouterModelId(currentModelId);
-  for (const candidate of OPENROUTER_CHAT_FALLBACK_MODELS) {
+  const currentPricing = getModelPricingInfo(normalizedCurrent);
+  const fallbackModels = currentPricing?.input === 0 && currentPricing.output === 0
+    ? OPENROUTER_FREE_CHAT_FALLBACK_MODELS
+    : OPENROUTER_CHAT_FALLBACK_MODELS;
+
+  for (const candidate of fallbackModels) {
     const normalizedCandidate = normalizeOpenRouterModelId(candidate);
     if (normalizedCandidate && normalizedCandidate !== normalizedCurrent && !triedModelIds.has(normalizedCandidate)) {
       return normalizedCandidate;

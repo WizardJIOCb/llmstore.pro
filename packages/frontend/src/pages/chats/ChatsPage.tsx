@@ -326,6 +326,10 @@ function getChatActionIcon(
 }
 
 function formatGeneralModelPricing(model: GeneralModelOption): string {
+  if (model.pricing_input_usd_per_million === 0 && model.pricing_output_usd_per_million === 0) {
+    return 'бесплатно через OpenRouter';
+  }
+
   return `${formatUsdCompact(model.pricing_input_usd_per_million)} in / ${formatUsdCompact(model.pricing_output_usd_per_million)} out за 1M`;
 }
 
