@@ -5030,6 +5030,21 @@ function resolveOpenRouterProviderPreferences(
     return undefined;
   }
 
+  const pricing = getModelPricingInfo(modelId);
+  const isFreeModel = pricing?.input === 0 && pricing.output === 0;
+  if (isFreeModel) {
+    return {
+      sort: 'price' as const,
+      allow_fallbacks: false,
+      require_parameters: toolCount > 0,
+      max_price: {
+        prompt: 0,
+        completion: 0,
+        request: 0,
+      },
+    };
+  }
+
   if (isCodingModel(modelId) || toolCount > 0) {
     return {
       sort: 'throughput' as const,
@@ -9223,6 +9238,7 @@ export async function sendChatMessage(
           temperature: 0.5,
           max_tokens: 2048,
           reasoning: resolveOpenRouterReasoningConfig(model),
+          provider: resolveOpenRouterProviderPreferences(model, 0),
         });
         const requestGeneralCompletion = async () => {
           try {

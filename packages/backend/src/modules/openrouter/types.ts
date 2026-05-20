@@ -54,6 +54,12 @@ export interface ChatCompletionParams {
     require_parameters?: boolean;
     only?: string[];
     ignore?: string[];
+    max_price?: {
+      prompt?: number;
+      completion?: number;
+      request?: number;
+      image?: number;
+    };
   };
 }
 
