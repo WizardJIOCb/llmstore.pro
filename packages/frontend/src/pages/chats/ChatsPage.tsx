@@ -88,7 +88,7 @@ import { cn, formatRub, formatUsd } from '../../lib/utils';
 import { TopUpHelp } from '../../components/billing/TopUpHelp';
 
 type PropertiesModeView = 'general' | 'landing' | 'coding' | 'other';
-type PropertiesTab = 'overview' | 'settings' | 'prompts' | 'tools' | 'project' | 'stats' | 'access';
+type PropertiesTab = 'overview' | 'settings' | 'prompts' | 'context' | 'tools' | 'project' | 'stats' | 'access';
 type LocalNoticeAction = {
   label: string;
   onClick: () => void;
@@ -97,6 +97,7 @@ const PROPERTIES_TABS: Array<{ value: PropertiesTab; label: string }> = [
   { value: 'overview', label: 'Обзор' },
   { value: 'settings', label: 'Настройки' },
   { value: 'prompts', label: 'Промпты' },
+  { value: 'context', label: 'Контекст' },
   { value: 'tools', label: 'Инструменты' },
   { value: 'project', label: 'Project Bundle' },
   { value: 'stats', label: 'Статистика' },
@@ -118,6 +119,16 @@ interface GuestChatDraft {
   id: string;
   message: string;
   created_at: string;
+}
+
+interface ContextBrowserItem {
+  id: string;
+  kind: string;
+  title: string;
+  detail: string;
+  tokens: number;
+  chars: number;
+  content: string;
 }
 
 interface PersistedChatSelection {
@@ -256,6 +267,12 @@ function readContextWindowOverride(settings: Record<string, unknown> | null | un
 function estimateTextTokens(value: string | null | undefined): number {
   if (!value) return 0;
   return Math.ceil(value.length / 4);
+}
+
+function trimContextPreview(value: string, limit = 1600): string {
+  const normalized = value.replace(/\r\n/g, '\n').trim();
+  if (normalized.length <= limit) return normalized;
+  return `${normalized.slice(0, limit).trimEnd()}\n...[обрезано ${formatInt(normalized.length - limit)} симв.]`;
 }
 
 function parseContextWindowInput(value: string): number | null {
@@ -2680,6 +2697,81 @@ function AuthenticatedChatsPage() {
     activeChat,
     displayedMessages,
   ]);
+  const activeContextBrowserItems = useMemo<ContextBrowserItem[]>(() => {
+    if (!activeChat) return [];
+    const items: ContextBrowserItem[] = [];
+    const pushText = (item: {
+      id: string;
+      kind: string;
+      title: string;
+      detail: string;
+      content?: string | null;
+      tokens?: number;
+    }) => {
+      const content = item.content?.trim();
+      if (!content) return;
+      items.push({
+        id: item.id,
+        kind: item.kind,
+        title: item.title,
+        detail: item.detail,
+        tokens: item.tokens ?? estimateTextTokens(content),
+        chars: content.length,
+        content: trimContextPreview(content),
+      });
+    };
+
+    pushText({
+      id: 'chat-system',
+      kind: 'Промпт',
+      title: 'Системный промпт чата',
+      detail: 'Добавляется первым, если задан в свойствах чата.',
+      content: activeChat.system_prompt,
+    });
+    pushText({
+      id: 'agent-system',
+      kind: 'Промпт',
+      title: 'Системный промпт агента',
+      detail: 'Главная инструкция агента: роль, правила работы и формат ответа.',
+      content: activeChat.agent_system_prompt,
+    });
+    pushText({
+      id: 'agent-developer',
+      kind: 'Промпт',
+      title: 'Developer prompt агента',
+      detail: 'Дополнительные правила агента, если они есть в версии агента.',
+      content: activeChat.agent_developer_prompt,
+    });
+
+    (activeChat.effective_tools ?? activeChat.tools ?? []).forEach((tool, index) => {
+      const content = [tool.name, tool.slug, tool.description ?? ''].filter(Boolean).join('\n');
+      pushText({
+        id: `tool-${tool.id}`,
+        kind: 'Инструмент',
+        title: tool.name || tool.slug || `Инструмент ${index + 1}`,
+        detail: `Описание инструмента ${tool.slug ? `(${tool.slug})` : ''} и служебная схема вызова.`,
+        content,
+        tokens: estimateTextTokens(tool.name)
+          + estimateTextTokens(tool.slug)
+          + estimateTextTokens(tool.description)
+          + 120,
+      });
+    });
+
+    displayedMessages.forEach((message, index) => {
+      pushText({
+        id: `message-${message.id}`,
+        kind: message.role === 'user' ? 'Сообщение пользователя' : 'Ответ ассистента',
+        title: `${index + 1}. ${message.role === 'user' ? 'User' : 'Assistant'}${message.created_at ? ` • ${formatDate(message.created_at)}` : ''}`,
+        detail: 'История сообщений, которая остаётся в чате и может попадать в следующий запрос.',
+        content: message.content,
+      });
+    });
+
+    return items;
+  }, [activeChat, displayedMessages]);
+  const activeContextBrowserTotalTokens = activeContextBrowserItems.reduce((sum, item) => sum + item.tokens, 0);
+  const activeContextBrowserTotalChars = activeContextBrowserItems.reduce((sum, item) => sum + item.chars, 0);
   const activeLatestActualContextTokens = useMemo(() => {
     let latestTokens: number | null = null;
 
@@ -5821,6 +5913,85 @@ function AuthenticatedChatsPage() {
                       ) : null}
                     </div>
                   )}
+                </div>
+              )}
+
+              {propertiesTab === 'context' && (
+                <div className="space-y-4">
+                  <div className="rounded-2xl border bg-muted/10 p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium">Браузер контекста</p>
+                        <p className="text-xs text-muted-foreground">
+                          Показывает примерную сборку контекста на стороне интерфейса: промпты, инструменты и историю сообщений.
+                          Фактические токены провайдера могут немного отличаться.
+                        </p>
+                      </div>
+                      <Badge variant="outline">{activeContextBrowserItems.length} блоков</Badge>
+                    </div>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                      <div className="rounded-xl border bg-background/80 p-3">
+                        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Оценка блоков</p>
+                        <p className="mt-1 text-base font-semibold">{formatContextWindow(activeContextBrowserTotalTokens)}</p>
+                      </div>
+                      <div className="rounded-xl border bg-background/80 p-3">
+                        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Индикатор сверху</p>
+                        <p className="mt-1 text-base font-semibold">{formatContextWindow(activeContextUsedTokens)}</p>
+                      </div>
+                      <div className="rounded-xl border bg-background/80 p-3">
+                        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Последний usage</p>
+                        <p className="mt-1 text-base font-semibold">
+                          {activeLatestActualContextTokens ? formatContextWindow(activeLatestActualContextTokens) : '—'}
+                        </p>
+                      </div>
+                      <div className="rounded-xl border bg-background/80 p-3">
+                        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Символов в блоках</p>
+                        <p className="mt-1 text-base font-semibold">{formatInt(activeContextBrowserTotalChars)}</p>
+                      </div>
+                    </div>
+                    <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100">
+                      <div
+                        className={cn('h-full rounded-full transition-all', activeContextBarClass)}
+                        style={{ width: `${activeContextLoadPercent}%` }}
+                      />
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                      <span>context: {formatContextWindow(activeContextWindowTokens)}</span>
+                      <span>резерв ответа: {formatContextWindow(activeOutputReserveTokens)}</span>
+                      <span>осталось: {formatContextWindow(activeContextRemainingTokens)}</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    {activeContextBrowserItems.length > 0 ? (
+                      activeContextBrowserItems.map((item) => (
+                        <details key={item.id} className="rounded-xl border bg-background/80 p-3">
+                          <summary className="cursor-pointer list-none">
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <Badge variant="secondary">{item.kind}</Badge>
+                                  <p className="break-words text-sm font-medium">{item.title}</p>
+                                </div>
+                                <p className="mt-1 text-xs leading-5 text-muted-foreground">{item.detail}</p>
+                              </div>
+                              <div className="shrink-0 text-right text-xs text-muted-foreground">
+                                <p className="font-semibold text-foreground">~{formatContextWindow(item.tokens)}</p>
+                                <p>{formatInt(item.chars)} симв.</p>
+                              </div>
+                            </div>
+                          </summary>
+                          <pre className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap rounded-lg border bg-slate-950 p-3 text-xs leading-5 text-slate-100">
+                            {item.content}
+                          </pre>
+                        </details>
+                      ))
+                    ) : (
+                      <div className="rounded-2xl border bg-muted/10 p-4 text-sm text-muted-foreground">
+                        В контексте пока нет пользовательских сообщений, промптов или инструментов, доступных для просмотра.
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
