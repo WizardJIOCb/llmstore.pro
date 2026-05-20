@@ -3541,8 +3541,8 @@ ${agent.description.trim()}`);
   }
 
   // 6. Build tools array
-  const toolsDisabledForPreviewOnlyLanding = previewOnlyLandingRequest;
-  const effectiveTools = toolsDisabledForPreviewOnlyLanding ? [] : tools;
+  const toolsDisabledForFocusedPreviewEdit = previewOnlyLandingRequest || Boolean(strictPreviewEdit);
+  const effectiveTools = toolsDisabledForFocusedPreviewEdit ? [] : tools;
   const toolParams: ToolDefinitionParam[] = effectiveTools.map(t => ({
     type: 'function' as const,
     function: {
@@ -3575,7 +3575,7 @@ ${agent.description.trim()}`);
     previewOnlyLandingRequest,
     landingBuildRequest,
     hasLandingReferenceContext: Boolean(landingReferenceContext),
-    toolsDisabledForPreviewOnlyLanding,
+    toolsDisabledForFocusedPreviewEdit,
   }, 'Starting agent run');
 
   // 7. Update run to running

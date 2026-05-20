@@ -8,6 +8,7 @@ import { seedDtfNewsAgent } from './dtf-news-agent.js';
 import { seedCreativeLandingBuilderAgent } from './creative-landing-builder-agent.js';
 import { seedKimiCreativeLandingBuilderAgent } from './kimi-creative-landing-builder-agent.js';
 import { seedLandingBuilderWebSearchAgent } from './landing-builder-web-search-agent.js';
+import { seedFullstackLandingBuilderAgent } from './fullstack-landing-builder-agent.js';
 import { seedOpenRouterCodingAgent } from './openrouter-coding-agent.js';
 import { seedWebSearchAgent } from './web-search-agent.js';
 
@@ -24,6 +25,7 @@ async function main() {
   await seedCreativeLandingBuilderAgent();
   await seedKimiCreativeLandingBuilderAgent();
   await seedLandingBuilderWebSearchAgent();
+  await seedFullstackLandingBuilderAgent();
   await seedOpenRouterCodingAgent();
   await seedWebSearchAgent();
 
