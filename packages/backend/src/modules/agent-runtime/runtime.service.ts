@@ -6576,7 +6576,10 @@ function extractProjectWorkspaceWriteIntent(message: string): ProjectWorkspaceWr
   const afterPath = pathIndex >= 0 ? trimmed.slice(pathIndex + filePath.length) : trimmed;
   const quotedContent = extractFirstQuotedText(afterPath);
   const contentMarkerMatch = afterPath.match(/(?:напиши(?:\s+там)?|с\s+текстом|текст(?:ом)?|content)\s*:?\s*([\s\S]+)$/i);
-  const content = (quotedContent ?? contentMarkerMatch?.[1] ?? '').trim();
+  const trailingContent = mentionsFileAppend
+    ? afterPath.replace(/^\s*(?:и\s+)?(?:добавь|добавить|допиши|дописать|append)\s*:?\s*/i, '').trim()
+    : '';
+  const content = (quotedContent ?? contentMarkerMatch?.[1] ?? trailingContent).trim();
   if (!content) {
     return {
       source: 'natural',
@@ -11210,7 +11213,7 @@ export async function sendChatMessage(
     || PROJECT_WORKSPACE_APPEND_COMMANDS.has(rawSlashCommand);
   const isWorkspaceFileDeleteSlashCommand = PROJECT_WORKSPACE_DELETE_COMMANDS.has(rawSlashCommand);
   const workspaceWriteIntent = (attachmentsInput ?? []).length === 0
-    && isWorkspaceFileSlashCommand
+    && (isWorkspaceFileSlashCommand || !isSlashCommand)
     ? extractProjectWorkspaceWriteIntent(trimmedContent)
     : null;
   const workspaceDeleteIntent = (attachmentsInput ?? []).length === 0
