@@ -5048,12 +5048,15 @@ function AuthenticatedChatsPage() {
       });
 
       const assistantUsage = result.assistant_message?.usage as Record<string, unknown> | null | undefined;
+      const deletedWorkspacePath = assistantUsage?.workspace_action === 'delete_file'
+        ? assistantUsage.workspace_path
+        : assistantUsage?.workspace_deleted_path;
       if (
-        assistantUsage?.workspace_action === 'delete_file'
+        (assistantUsage?.workspace_action === 'delete_file' || assistantUsage?.workspace_action === 'multi_file')
         && typeof assistantUsage.workspace_project_id === 'string'
-        && typeof assistantUsage.workspace_path === 'string'
+        && typeof deletedWorkspacePath === 'string'
         && activeWorkspaceFile?.projectId === assistantUsage.workspace_project_id
-        && activeWorkspaceFile.path === assistantUsage.workspace_path
+        && activeWorkspaceFile.path === deletedWorkspacePath
       ) {
         setActiveWorkspaceFile(null);
         setWorkspaceFileContent('');

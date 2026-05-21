@@ -6548,7 +6548,9 @@ function extractProjectWorkspaceWriteIntent(message: string): ProjectWorkspaceWr
   );
   const mentionsFileWrite = (
     lower.includes('создай файл')
+    || /\bсоздай\s+новый\s+файл\b/i.test(trimmed)
     || lower.includes('создать файл')
+    || /\bсоздать\s+новый\s+файл\b/i.test(trimmed)
     || lower.includes('сохрани файл')
     || lower.includes('запиши файл')
     || lower.includes('create file')
@@ -6556,11 +6558,15 @@ function extractProjectWorkspaceWriteIntent(message: string): ProjectWorkspaceWr
   );
   if (!mentionsFileWrite && !mentionsFileAppend) return null;
   const action: ProjectWorkspaceWriteIntent['action'] = mentionsFileAppend ? 'append' : 'write';
+  const writeMarker = trimmed.match(
+    /(добавь\s+в\s+файл|добавить\s+в\s+файл|допиши\s+в\s+файл|дописать\s+в\s+файл|создай(?:\s+новый)?\s+файл|создать(?:\s+новый)?\s+файл|сохрани\s+файл|запиши\s+файл|append\s+to\s+file|create\s+file|write\s+file)/i,
+  );
+  const writeText = typeof writeMarker?.index === 'number' ? trimmed.slice(writeMarker.index) : trimmed;
 
-  const quotedPathMatch = trimmed.match(/файл(?:\s+в\s+проекте)?\s+["'`«“]([^"'`«»“”]+?\.[A-Za-z0-9]{1,16})["'`»”]/i);
+  const quotedPathMatch = writeText.match(/файл(?:\s+в\s+проекте)?\s+["'`«“]([^"'`«»“”]+?\.[A-Za-z0-9]{1,16})["'`»”]/i);
   const loosePathMatch = quotedPathMatch
     ? null
-    : trimmed.match(/\b([A-Za-zА-Яа-я0-9._/-]+?\.[A-Za-z0-9]{1,16})\b/);
+    : writeText.match(/\b([A-Za-zА-Яа-я0-9._/-]+?\.[A-Za-z0-9]{1,16})\b/);
   const filePath = (quotedPathMatch?.[1] ?? loosePathMatch?.[1] ?? '').trim();
   if (!filePath) {
     return {
@@ -6572,8 +6578,8 @@ function extractProjectWorkspaceWriteIntent(message: string): ProjectWorkspaceWr
     };
   }
 
-  const pathIndex = trimmed.indexOf(filePath);
-  const afterPath = pathIndex >= 0 ? trimmed.slice(pathIndex + filePath.length) : trimmed;
+  const pathIndex = writeText.indexOf(filePath);
+  const afterPath = pathIndex >= 0 ? writeText.slice(pathIndex + filePath.length) : writeText;
   const quotedContent = extractFirstQuotedText(afterPath);
   const contentMarkerMatch = afterPath.match(/(?:напиши(?:\s+там)?|с\s+текстом|текст(?:ом)?|content)\s*:?\s*([\s\S]+)$/i);
   const trailingContent = mentionsFileAppend
@@ -6586,7 +6592,7 @@ function extractProjectWorkspaceWriteIntent(message: string): ProjectWorkspaceWr
       action,
       path: filePath,
       content: null,
-      targetFolderName: extractWorkspaceTargetFolderName(trimmed),
+      targetFolderName: extractWorkspaceTargetFolderName(writeText),
       error: 'Не вижу текст файла. Добавьте его в кавычках или после слов “напиши там”.',
     };
   }
@@ -6596,7 +6602,7 @@ function extractProjectWorkspaceWriteIntent(message: string): ProjectWorkspaceWr
     action,
     path: filePath,
     content: stripWrappingQuotes(content),
-    targetFolderName: extractWorkspaceTargetFolderName(trimmed),
+    targetFolderName: extractWorkspaceTargetFolderName(writeText),
   };
 }
 
@@ -11217,7 +11223,7 @@ export async function sendChatMessage(
     ? extractProjectWorkspaceWriteIntent(trimmedContent)
     : null;
   const workspaceDeleteIntent = (attachmentsInput ?? []).length === 0
-    && (isWorkspaceFileDeleteSlashCommand || (!isSlashCommand && !workspaceWriteIntent))
+    && (isWorkspaceFileDeleteSlashCommand || !isSlashCommand)
     ? extractProjectWorkspaceDeleteIntent(trimmedContent)
     : null;
   const openRouterRuntime = await resolveOpenRouterClientForUser(userId);
@@ -11307,6 +11313,128 @@ export async function sendChatMessage(
       ? 'Сообщение принято, подготавливаю вложения'
       : 'Сообщение принято, запускаю обработку',
   });
+
+  if (workspaceDeleteIntent && workspaceWriteIntent) {
+    let assistantContent: string;
+    let deletedPath: string | null = null;
+    let savedFile: { path: string; size: number; updated_at: string } | null = null;
+
+    if (workspaceDeleteIntent.error || workspaceWriteIntent.error) {
+      assistantContent = [workspaceDeleteIntent.error, workspaceWriteIntent.error].filter(Boolean).join('\n\n');
+    } else if (!chat.project_id) {
+      assistantContent = [
+        'Этот чат не привязан к проекту, поэтому я не могу менять файлы workspace.',
+        '',
+        'Создайте чат внутри проекта или перенесите этот чат в проект, затем повторите команду.',
+      ].join('\n');
+    } else if (!workspaceDeleteIntent.path || !workspaceWriteIntent.path || workspaceWriteIntent.content === null) {
+      assistantContent = 'Не получилось разобрать пути или текст файлов. Попробуйте формат: `Удали файл old.txt и создай файл new.txt с текстом "Привет"`.';
+    } else {
+      const lines: string[] = [];
+      try {
+        let deletePath = workspaceDeleteIntent.path;
+        if (workspaceDeleteIntent.targetFolderName && !deletePath.includes('/')) {
+          const folderPath = await resolveWorkspaceFolderPathFromTitle(chat.project_id, userId, workspaceDeleteIntent.targetFolderName);
+          deletePath = normalizeWorkspaceRelativePath(`${folderPath}/${deletePath}`);
+        }
+        const deleted = await deleteChatWorkspaceFsEntry(userId, chat.project_id, { path: deletePath });
+        deletedPath = deleted.path;
+        lines.push(`- Удалён: \`${deleted.path}\``);
+      } catch (err) {
+        if (err instanceof NotFoundError) {
+          lines.push(`- Не найден для удаления: \`${workspaceDeleteIntent.path}\``);
+        } else if (err instanceof AppError) {
+          lines.push(`- Не удалось удалить \`${workspaceDeleteIntent.path}\`: ${err.message}`);
+        } else {
+          throw err;
+        }
+      }
+
+      try {
+        let workspacePath = workspaceWriteIntent.path;
+        if (workspaceWriteIntent.targetFolderName && !workspacePath.includes('/')) {
+          const folderPath = await resolveWorkspaceFolderPathFromTitle(chat.project_id, userId, workspaceWriteIntent.targetFolderName);
+          workspacePath = normalizeWorkspaceRelativePath(`${folderPath}/${workspacePath}`);
+        }
+        let nextFileContent = workspaceWriteIntent.content;
+        if (workspaceWriteIntent.action === 'append') {
+          const currentFile = await getChatWorkspaceFile(userId, chat.project_id, workspacePath).catch((err) => {
+            if (err instanceof NotFoundError) return null;
+            throw err;
+          });
+          if (currentFile?.content) {
+            const separator = currentFile.content.endsWith('\n') ? '' : '\n';
+            nextFileContent = `${currentFile.content}${separator}${workspaceWriteIntent.content}`;
+          }
+        }
+        savedFile = await saveChatWorkspaceFile(userId, chat.project_id, {
+          path: workspacePath,
+          content: nextFileContent,
+        });
+        lines.push(`${workspaceWriteIntent.action === 'append' ? '- Обновлён' : '- Создан'}: \`${savedFile.path}\` (${formatWorkspaceByteSize(savedFile.size)})`);
+      } catch (err) {
+        if (!(err instanceof AppError)) throw err;
+        lines.push(`- Не удалось сохранить \`${workspaceWriteIntent.path}\`: ${err.message}`);
+      }
+
+      assistantContent = [
+        '**Файлы проекта обновлены**',
+        '',
+        ...lines,
+      ].join('\n');
+    }
+
+    const [assistantRow] = await db.insert(chatConversationMessages).values({
+      conversation_id: chatId,
+      role: 'assistant',
+      content_text: assistantContent,
+      usage_json: {
+        command: false,
+        workspace_action: 'multi_file',
+        workspace_project_id: chat.project_id ?? null,
+        workspace_deleted_path: deletedPath ?? workspaceDeleteIntent.path ?? null,
+        workspace_path: savedFile?.path ?? workspaceWriteIntent.path ?? null,
+        workspace_size: savedFile?.size ?? null,
+        estimated_cost: '0',
+        charged_cost: '0',
+        usd_to_rub_rate: usdToRubRate,
+      },
+      latency_ms: 0,
+    }).returning();
+    const isDefaultTitle = chat.title === 'Новый чат';
+    const nextTitle = isDefaultTitle ? compactTitle(trimmedContent) : chat.title;
+    await db.update(chatConversations).set({
+      title: nextTitle,
+      last_message_at: new Date(),
+      updated_at: new Date(),
+    }).where(eq(chatConversations.id, chatId));
+    emitChatEvent('chat.message.completed', {
+      mode: chat.mode,
+      label: 'Файлы проекта обновлены',
+      charged_cost: 0,
+      model_external_id: chat.model_external_id ?? null,
+    });
+
+    return {
+      processing: false,
+      pending_run: null,
+      user_message: persistedUserMessage,
+      assistant_message: {
+        ...toConversationMessage(assistantRow, usdToRubRate),
+        generated_files: [],
+      },
+      chat: {
+        id: chat.id,
+        title: nextTitle,
+        mode: chat.mode,
+        agent_id: chat.agent_id ?? null,
+        model_external_id: chat.model_external_id ?? null,
+        system_prompt: chat.system_prompt ?? null,
+        settings_json: chat.settings_json ?? null,
+        share_token: chat.share_token ?? null,
+      },
+    };
+  }
 
   if (workspaceDeleteIntent) {
     let assistantContent: string;
