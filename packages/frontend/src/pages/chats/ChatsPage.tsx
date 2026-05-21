@@ -1305,6 +1305,17 @@ function getScrollDistanceFromBottom(container: HTMLElement): number {
 function isPendingRunTerminal(pendingRun?: ChatPendingRunState | null): boolean {
   if (!pendingRun) return false;
   if (pendingRun.is_terminal != null) return pendingRun.is_terminal;
+  if ((pendingRun.events ?? []).some((event) => {
+    const eventName = (event.event ?? '').trim();
+    const status = (event.status ?? '').trim().toLowerCase();
+    return eventName === 'chat.message.completed'
+      || eventName === 'chat.run.completed'
+      || eventName === 'chat.run.failed'
+      || eventName === 'chat.run.skipped'
+      || ['completed', 'failed', 'cancelled'].includes(status);
+  })) {
+    return true;
+  }
   return ['completed', 'failed', 'cancelled'].includes((pendingRun.status ?? '').trim().toLowerCase());
 }
 
@@ -3674,7 +3685,14 @@ function AuthenticatedChatsPage() {
   useEffect(() => {
     if (!assistantResponseSlotForActiveChat || assistantResponseSlotForActiveChat.actualMessageId) return;
 
-    const resolvedAssistant = [...messages].reverse().find((message) => (
+    const latestAssistant = [...messages].reverse().find((message) => message.role === 'assistant') ?? null;
+    const latestUser = [...messages].reverse().find((message) => message.role === 'user') ?? null;
+    const latestAssistantAfterLatestUser = latestAssistant
+      && latestUser
+      && Date.parse(latestAssistant.created_at) >= Date.parse(latestUser.created_at)
+      ? latestAssistant
+      : null;
+    const resolvedAssistant = latestAssistantAfterLatestUser ?? [...messages].reverse().find((message) => (
       message.role === 'assistant' && Date.parse(message.created_at) >= Date.parse(assistantResponseSlotForActiveChat.startedAt)
     ));
 
@@ -6662,7 +6680,7 @@ function AuthenticatedChatsPage() {
                 )}
               </div>
             )}
-            {assistantResponseSlotForActiveChat && activeChat?.pending_run && isPendingRunLive(activeChat.pending_run) && (
+            {assistantResponseSlotForActiveChat && !assistantResponseSlotForActiveChat.actualMessageId && activeChat?.pending_run && isPendingRunLive(activeChat.pending_run) && (
               <div ref={pendingProgressAnchorRef} className="mt-3 space-y-3">
                 <ChatLiveProgressPanel
                   events={streamEvents}
