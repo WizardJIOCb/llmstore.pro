@@ -6548,9 +6548,9 @@ function extractProjectWorkspaceWriteIntent(message: string): ProjectWorkspaceWr
   );
   const mentionsFileWrite = (
     lower.includes('создай файл')
-    || /\bсоздай\s+новый\s+файл\b/i.test(trimmed)
+    || /(?:^|\s)создай\s+новый\s+файл(?=\s|$)/i.test(trimmed)
     || lower.includes('создать файл')
-    || /\bсоздать\s+новый\s+файл\b/i.test(trimmed)
+    || /(?:^|\s)создать\s+новый\s+файл(?=\s|$)/i.test(trimmed)
     || lower.includes('сохрани файл')
     || lower.includes('запиши файл')
     || lower.includes('create file')
@@ -6581,7 +6581,7 @@ function extractProjectWorkspaceWriteIntent(message: string): ProjectWorkspaceWr
   const pathIndex = writeText.indexOf(filePath);
   const afterPath = pathIndex >= 0 ? writeText.slice(pathIndex + filePath.length) : writeText;
   const quotedContent = extractFirstQuotedText(afterPath);
-  const contentMarkerMatch = afterPath.match(/(?:напиши(?:\s+там)?|с\s+текстом|текст(?:ом)?|content)\s*:?\s*([\s\S]+)$/i);
+  const contentMarkerMatch = afterPath.match(/(?:напиши(?:\s+там)?|с\s+текстом|текст(?:ом)?|добавь(?:\s+туда)?|добавить(?:\s+туда)?|content)\s*:?\s*([\s\S]+)$/i);
   const trailingContent = mentionsFileAppend
     ? afterPath.replace(/^\s*(?:и\s+)?(?:добавь|добавить|допиши|дописать|append)\s*:?\s*/i, '').trim()
     : '';
