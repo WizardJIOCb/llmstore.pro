@@ -5047,6 +5047,20 @@ function AuthenticatedChatsPage() {
         };
       });
 
+      const assistantUsage = result.assistant_message?.usage as Record<string, unknown> | null | undefined;
+      if (
+        assistantUsage?.workspace_action === 'delete_file'
+        && typeof assistantUsage.workspace_project_id === 'string'
+        && typeof assistantUsage.workspace_path === 'string'
+        && activeWorkspaceFile?.projectId === assistantUsage.workspace_project_id
+        && activeWorkspaceFile.path === assistantUsage.workspace_path
+      ) {
+        setActiveWorkspaceFile(null);
+        setWorkspaceFileContent('');
+        setWorkspaceFileOriginalContent('');
+        setWorkspaceFileError(null);
+      }
+
       if (!result.assistant_message) {
         const pendingProgressEvent = result.pending_run
           ? createLiveProgressEvent('pending.snapshot', {

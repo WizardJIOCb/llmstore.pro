@@ -5724,6 +5724,13 @@ interface ProjectWorkspaceWriteIntent {
   error?: string;
 }
 
+interface ProjectWorkspaceDeleteIntent {
+  source: 'slash' | 'natural';
+  path: string | null;
+  targetFolderName?: string | null;
+  error?: string;
+}
+
 interface ChatConversationRow {
   id: string;
   user_id: string;
@@ -6453,6 +6460,7 @@ async function getActiveToolSummariesByIds(toolIds: string[]): Promise<ChatToolS
 
 const PROJECT_WORKSPACE_WRITE_COMMANDS = new Set(['/file', '/write-file', '/project-file', '/save-file']);
 const PROJECT_WORKSPACE_APPEND_COMMANDS = new Set(['/append-file', '/file-append']);
+const PROJECT_WORKSPACE_DELETE_COMMANDS = new Set(['/delete-file', '/rm-file', '/remove-file']);
 
 function stripWrappingQuotes(value: string): string {
   const trimmed = value.trim();
@@ -6585,6 +6593,61 @@ function extractProjectWorkspaceWriteIntent(message: string): ProjectWorkspaceWr
     action,
     path: filePath,
     content: stripWrappingQuotes(content),
+    targetFolderName: extractWorkspaceTargetFolderName(trimmed),
+  };
+}
+
+function extractProjectWorkspaceDeleteIntent(message: string): ProjectWorkspaceDeleteIntent | null {
+  const trimmed = message.trim();
+  if (!trimmed) return null;
+
+  const rawCommand = trimmed.split(/\s+/, 1)[0] ?? '';
+  const command = rawCommand.toLowerCase();
+  if (PROJECT_WORKSPACE_DELETE_COMMANDS.has(command)) {
+    const rest = trimmed.slice(rawCommand.length).trim();
+    const pathMatch = rest.match(/^(`[^`]+`|"[^"]+"|'[^']+'|«[^»]+»|“[^”]+”|\S+)/);
+    if (!pathMatch) {
+      return {
+        source: 'slash',
+        path: null,
+        error: 'Укажите путь файла: `/delete-file README.md`.',
+      };
+    }
+    return {
+      source: 'slash',
+      path: stripWrappingQuotes(pathMatch[1] ?? ''),
+    };
+  }
+
+  const lower = trimmed.toLowerCase();
+  const mentionsFileDelete = (
+    lower.includes('удали файл')
+    || lower.includes('удалить файл')
+    || lower.includes('удалите файл')
+    || lower.includes('сотри файл')
+    || lower.includes('стереть файл')
+    || lower.includes('delete file')
+    || lower.includes('remove file')
+  );
+  if (!mentionsFileDelete) return null;
+
+  const quotedPathMatch = trimmed.match(/файл(?:\s+в\s+проекте)?\s+["'`«“]([^"'`«»“”]+?\.[A-Za-z0-9]{1,16})["'`»”]/i);
+  const loosePathMatch = quotedPathMatch
+    ? null
+    : trimmed.match(/\b([A-Za-zА-Яа-я0-9._/-]+?\.[A-Za-z0-9]{1,16})\b/);
+  const filePath = (quotedPathMatch?.[1] ?? loosePathMatch?.[1] ?? '').trim();
+  if (!filePath) {
+    return {
+      source: 'natural',
+      path: null,
+      targetFolderName: extractWorkspaceTargetFolderName(trimmed),
+      error: 'Понял, что нужно удалить файл, но не вижу путь. Например: `Удали файл README.md`.',
+    };
+  }
+
+  return {
+    source: 'natural',
+    path: filePath,
     targetFolderName: extractWorkspaceTargetFolderName(trimmed),
   };
 }
@@ -11145,13 +11208,18 @@ export async function sendChatMessage(
   const rawSlashCommand = isSlashCommand ? (trimmedContent.split(/\s+/, 1)[0] ?? '').toLowerCase() : '';
   const isWorkspaceFileSlashCommand = PROJECT_WORKSPACE_WRITE_COMMANDS.has(rawSlashCommand)
     || PROJECT_WORKSPACE_APPEND_COMMANDS.has(rawSlashCommand);
+  const isWorkspaceFileDeleteSlashCommand = PROJECT_WORKSPACE_DELETE_COMMANDS.has(rawSlashCommand);
   const workspaceWriteIntent = (attachmentsInput ?? []).length === 0
     && isWorkspaceFileSlashCommand
     ? extractProjectWorkspaceWriteIntent(trimmedContent)
     : null;
+  const workspaceDeleteIntent = (attachmentsInput ?? []).length === 0
+    && (isWorkspaceFileDeleteSlashCommand || (!isSlashCommand && !workspaceWriteIntent))
+    ? extractProjectWorkspaceDeleteIntent(trimmedContent)
+    : null;
   const openRouterRuntime = await resolveOpenRouterClientForUser(userId);
   const usesUserOpenRouterKey = openRouterRuntime.source === 'user';
-  if (openRouterRequestsEnabled && !isSlashCommand && !workspaceWriteIntent && !usesUserOpenRouterKey) {
+  if (openRouterRequestsEnabled && !isSlashCommand && !workspaceWriteIntent && !workspaceDeleteIntent && !usesUserOpenRouterKey) {
     await ensureSufficientBalance(userId);
   }
 
@@ -11236,6 +11304,98 @@ export async function sendChatMessage(
       ? 'Сообщение принято, подготавливаю вложения'
       : 'Сообщение принято, запускаю обработку',
   });
+
+  if (workspaceDeleteIntent) {
+    let assistantContent: string;
+    let deletedPath: string | null = null;
+
+    if (workspaceDeleteIntent.error) {
+      assistantContent = workspaceDeleteIntent.error;
+    } else if (!chat.project_id) {
+      assistantContent = [
+        'Этот чат не привязан к проекту, поэтому я не могу удалить файл из workspace.',
+        '',
+        'Создайте чат внутри проекта или перенесите этот чат в проект, затем повторите команду.',
+      ].join('\n');
+    } else if (!workspaceDeleteIntent.path) {
+      assistantContent = 'Не получилось разобрать путь файла. Попробуйте формат: `Удали файл README.md`.';
+    } else {
+      try {
+        let workspacePath = workspaceDeleteIntent.path;
+        if (workspaceDeleteIntent.targetFolderName && !workspacePath.includes('/')) {
+          const folderPath = await resolveWorkspaceFolderPathFromTitle(chat.project_id, userId, workspaceDeleteIntent.targetFolderName);
+          workspacePath = normalizeWorkspaceRelativePath(`${folderPath}/${workspacePath}`);
+        }
+        const deleted = await deleteChatWorkspaceFsEntry(userId, chat.project_id, { path: workspacePath });
+        deletedPath = deleted.path;
+        assistantContent = [
+          '**Файл проекта удалён**',
+          '',
+          `- Путь: \`${deleted.path}\``,
+        ].join('\n');
+      } catch (err) {
+        if (err instanceof NotFoundError) {
+          assistantContent = `Файл \`${workspaceDeleteIntent.path}\` не найден в workspace проекта.`;
+        } else if (err instanceof AppError) {
+          assistantContent = err.message || 'Не получилось удалить файл проекта.';
+        } else {
+          throw err;
+        }
+      }
+    }
+
+    const [assistantRow] = await db.insert(chatConversationMessages).values({
+      conversation_id: chatId,
+      role: 'assistant',
+      content_text: assistantContent,
+      usage_json: {
+        command: workspaceDeleteIntent.source === 'slash',
+        command_name: workspaceDeleteIntent.source === 'slash'
+          ? (trimmedContent.split(/\s+/)[0]?.toLowerCase() ?? '')
+          : undefined,
+        workspace_action: 'delete_file',
+        workspace_project_id: chat.project_id ?? null,
+        workspace_path: deletedPath ?? workspaceDeleteIntent.path ?? null,
+        estimated_cost: '0',
+        charged_cost: '0',
+        usd_to_rub_rate: usdToRubRate,
+      },
+      latency_ms: 0,
+    }).returning();
+    const isDefaultTitle = chat.title === 'Новый чат';
+    const nextTitle = isDefaultTitle ? compactTitle(trimmedContent) : chat.title;
+    await db.update(chatConversations).set({
+      title: nextTitle,
+      last_message_at: new Date(),
+      updated_at: new Date(),
+    }).where(eq(chatConversations.id, chatId));
+    emitChatEvent('chat.message.completed', {
+      mode: chat.mode,
+      label: deletedPath ? 'Файл проекта удалён' : 'Команда выполнена',
+      charged_cost: 0,
+      model_external_id: chat.model_external_id ?? null,
+    });
+
+    return {
+      processing: false,
+      pending_run: null,
+      user_message: persistedUserMessage,
+      assistant_message: {
+        ...toConversationMessage(assistantRow, usdToRubRate),
+        generated_files: [],
+      },
+      chat: {
+        id: chat.id,
+        title: nextTitle,
+        mode: chat.mode,
+        agent_id: chat.agent_id ?? null,
+        model_external_id: chat.model_external_id ?? null,
+        system_prompt: chat.system_prompt ?? null,
+        settings_json: chat.settings_json ?? null,
+        share_token: chat.share_token ?? null,
+      },
+    };
+  }
 
   if (workspaceWriteIntent) {
     let assistantContent: string;
