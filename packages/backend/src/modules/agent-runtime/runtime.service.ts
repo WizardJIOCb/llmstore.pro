@@ -28,6 +28,7 @@ import { aiModels } from '../../db/schema/models.js';
 import { eq, desc, and, or, sql, asc, inArray } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import { resolveOpenRouterClientForUser } from '../openrouter/user-keys.js';
+import { directChatCompletion, getDirectProviderLabel, isDirectModelId } from '../direct-models/client.js';
 import { executeTool } from '../tool-execution/index.js';
 import { executeHttpRequest } from '../tool-execution/executors/http-request.executor.js';
 import { NotFoundError, AppError, ConflictError } from '../../middleware/error-handler.js';
@@ -5514,6 +5515,7 @@ const OPENROUTER_FREE_CHAT_FALLBACK_MODELS = [
 const OPENROUTER_IMAGE_GENERATION_FALLBACK_MODELS = [
   'google/gemini-3.1-flash-image-preview',
 ] as const;
+const DIRECT_MODEL_PROVIDER_SOURCE = 'server_direct_api';
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const AGENT_OPENROUTER_TIMEOUT_MS = 3 * 60_000;
 const TOOL_AGENT_OPENROUTER_TIMEOUT_MS = 8 * 60_000;
@@ -5692,10 +5694,25 @@ const CHAT_COMMAND_MODEL_OPTIONS = [
   { value: 'openai/gpt-5.2-codex', label: 'GPT-5.2 Codex', contextWindowTokens: 400_000, free: false },
   { value: 'openai/gpt-5.1-codex-max', label: 'GPT-5.1 Codex Max', contextWindowTokens: 400_000, free: false },
   { value: 'openai/gpt-chat-latest', label: 'GPT Chat Latest', contextWindowTokens: 400_000, free: false },
+  { value: 'direct/openai/gpt-5.2-codex', label: 'GPT-5.2 Codex (OpenAI API)', contextWindowTokens: 400_000, free: false },
+  { value: 'direct/openai/gpt-5.1-codex', label: 'GPT-5.1 Codex (OpenAI API)', contextWindowTokens: 400_000, free: false },
+  { value: 'direct/openai/gpt-5.1-codex-max', label: 'GPT-5.1 Codex Max (OpenAI API)', contextWindowTokens: 400_000, free: false },
+  { value: 'direct/openai/gpt-5-codex', label: 'GPT-5 Codex (OpenAI API)', contextWindowTokens: 400_000, free: false },
+  { value: 'direct/openai/gpt-5.2', label: 'GPT-5.2 (OpenAI API)', contextWindowTokens: 400_000, free: false },
+  { value: 'direct/openai/gpt-5-mini', label: 'GPT-5 Mini (OpenAI API)', contextWindowTokens: 400_000, free: false },
   { value: 'google/gemini-3.5-flash', label: 'Gemini 3.5 Flash', contextWindowTokens: 1_048_576, free: false },
   { value: 'google/gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite', contextWindowTokens: 1_048_576, free: false },
+  { value: 'direct/gemini/gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro Preview (Gemini API)', contextWindowTokens: 1_048_576, free: false },
+  { value: 'direct/gemini/gemini-3.1-pro-preview-customtools', label: 'Gemini 3.1 Pro Custom Tools (Gemini API)', contextWindowTokens: 1_048_576, free: false },
+  { value: 'direct/gemini/gemini-3.5-flash', label: 'Gemini 3.5 Flash (Gemini API)', contextWindowTokens: 1_048_576, free: false },
+  { value: 'direct/gemini/gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite (Gemini API)', contextWindowTokens: 1_048_576, free: false },
+  { value: 'direct/gemini/gemini-2.5-pro', label: 'Gemini 2.5 Pro (Gemini API)', contextWindowTokens: 1_048_576, free: false },
+  { value: 'direct/gemini/gemini-2.5-flash', label: 'Gemini 2.5 Flash (Gemini API)', contextWindowTokens: 1_048_576, free: false },
+  { value: 'direct/gemini/gemini-flash-latest', label: 'Gemini Flash Latest (Gemini API)', contextWindowTokens: 1_048_576, free: false },
   { value: 'x-ai/grok-4.3', label: 'Grok 4.3', contextWindowTokens: 1_000_000, free: false },
   { value: 'x-ai/grok-build-0.1', label: 'Grok Build 0.1', contextWindowTokens: 256_000, free: false },
+  { value: 'direct/xai/grok-4.3', label: 'Grok 4.3 (xAI API)', contextWindowTokens: 1_000_000, free: false },
+  { value: 'direct/xai/grok-build-0.1', label: 'Grok Build 0.1 (xAI API)', contextWindowTokens: 256_000, free: false },
   { value: 'anthropic/claude-haiku-4.5', label: 'Claude Haiku 4.5', contextWindowTokens: 200_000, free: false },
   { value: 'google/gemini-2.5-pro', label: 'Gemini 2.5 Pro', contextWindowTokens: 1_048_576, free: false },
   { value: 'moonshotai/kimi-k2.6', label: 'Kimi K2.6', contextWindowTokens: 262_144, free: false },
@@ -11228,7 +11245,17 @@ export async function sendChatMessage(
     : null;
   const openRouterRuntime = await resolveOpenRouterClientForUser(userId);
   const usesUserOpenRouterKey = openRouterRuntime.source === 'user';
-  if (openRouterRequestsEnabled && !isSlashCommand && !workspaceWriteIntent && !workspaceDeleteIntent && !usesUserOpenRouterKey) {
+  const initialGeneralModelId = normalizeModelLookupKey(chat.model_external_id || DEFAULT_GENERAL_MODEL);
+  const initialGeneralModelUsesDirectApi = chat.mode === 'general'
+    && !detectImageGenerationIntent(trimmedContent)
+    && isDirectModelId(initialGeneralModelId);
+  if (
+    openRouterRequestsEnabled
+    && !isSlashCommand
+    && !workspaceWriteIntent
+    && !workspaceDeleteIntent
+    && !usesUserOpenRouterKey
+  ) {
     await ensureSufficientBalance(userId);
   }
 
@@ -11739,7 +11766,7 @@ export async function sendChatMessage(
     && imageDataUrls.length === 0
     && !wantsImageGeneration;
 
-  if (!openRouterRequestsEnabled && !usesUserOpenRouterKey) {
+  if (!openRouterRequestsEnabled && !usesUserOpenRouterKey && !initialGeneralModelUsesDirectApi) {
     latencyMs = 0;
     assistantText = openRouterDisabledMessage || 'В данный момент отправка запросов отключена. В скором времени отправка снова будет доступна.';
     emitChatEvent('chat.run.skipped', {
@@ -11925,6 +11952,7 @@ export async function sendChatMessage(
     } else {
       const requestedModel = normalizeOpenRouterModelId(chat.model_external_id || DEFAULT_GENERAL_MODEL);
       let model = wantsImageGeneration ? DEFAULT_IMAGE_GENERATION_MODEL : requestedModel;
+      const directProviderLabel = () => getDirectProviderLabel(model) ?? 'Direct API';
       const switchedToImageGenerationModel = wantsImageGeneration && model !== requestedModel;
       if (switchedToImageGenerationModel) {
         generalChatModelToPersist = requestedModel;
@@ -11939,7 +11967,11 @@ export async function sendChatMessage(
       emitChatEvent('chat.run.started', {
         mode: 'general',
         model,
-        label: wantsImageGeneration ? 'Генерирую изображение через OpenRouter' : 'Отправляю запрос в OpenRouter',
+        label: wantsImageGeneration
+          ? 'Генерирую изображение через OpenRouter'
+          : isDirectModelId(model)
+            ? `Отправляю запрос напрямую в ${directProviderLabel()}`
+            : 'Отправляю запрос в OpenRouter',
         detail: switchedToImageGenerationModel
           ? `Для генерации изображения использую модель ${model}. После ответа чат останется на ${requestedModel}.`
           : switchedToVisionModel
@@ -11987,15 +12019,23 @@ export async function sendChatMessage(
           temperature: 0.5,
           max_tokens: 2048,
           reasoning: resolveChatReasoningConfig(model, chat.settings_json?.reasoning_effort),
-          provider: resolveOpenRouterProviderPreferences(model, 0),
+          provider: isDirectModelId(model) ? undefined : resolveOpenRouterProviderPreferences(model, 0),
         });
         const requestGeneralCompletion = async () => {
           try {
+            if (isDirectModelId(model)) {
+              return await directChatCompletion(buildGeneralRequest(), {
+                timeoutMs: GENERAL_CHAT_OPENROUTER_TIMEOUT_MS,
+              });
+            }
             return await openRouterRuntime.client.chatCompletion(buildGeneralRequest(), {
               timeoutMs: GENERAL_CHAT_OPENROUTER_TIMEOUT_MS,
             });
           } catch (error) {
             if (wantsImageGeneration) {
+              throw error;
+            }
+            if (isDirectModelId(model)) {
               throw error;
             }
             if (!shouldTryOpenRouterRuntimeFallback(error, model)) {
@@ -12110,14 +12150,16 @@ export async function sendChatMessage(
           generated_images: assistantGeneratedImageArtifacts.length,
           label: wantsImageGeneration
             ? (assistantGeneratedImageArtifacts.length > 0 ? 'OpenRouter сгенерировал изображение' : 'OpenRouter не вернул изображение')
-            : 'OpenRouter вернул ответ',
+            : isDirectModelId(model)
+              ? `${directProviderLabel()} вернул ответ`
+              : 'OpenRouter вернул ответ',
         });
       } catch (err) {
         emitChatEvent('chat.run.failed', {
           mode: 'general',
           model,
           error: err instanceof Error ? err.message : 'Unknown error',
-          label: 'OpenRouter вернул ошибку',
+          label: isDirectModelId(model) ? `${directProviderLabel()} вернул ошибку` : 'OpenRouter вернул ошибку',
         });
         throw err;
       }
@@ -12142,12 +12184,13 @@ export async function sendChatMessage(
   const usageModel = typeof usagePayload?.model === 'string'
     ? usagePayload.model
     : (completedGeneralModel ?? chat.model_external_id ?? DEFAULT_GENERAL_MODEL);
+  const usageModelUsesDirectApi = isDirectModelId(usageModel);
   if (usagePayload) {
     usagePayload = {
       ...usagePayload,
-      provider_key_source: openRouterRuntime.source,
-      provider_key_hint: openRouterRuntime.key_hint ?? undefined,
-      byok: usesUserOpenRouterKey || undefined,
+      provider_key_source: usageModelUsesDirectApi ? DIRECT_MODEL_PROVIDER_SOURCE : openRouterRuntime.source,
+      provider_key_hint: usageModelUsesDirectApi ? undefined : (openRouterRuntime.key_hint ?? undefined),
+      byok: (!usageModelUsesDirectApi && usesUserOpenRouterKey) || undefined,
       reasoning_effort: normalizeChatReasoningEffort(chat.settings_json?.reasoning_effort) ?? 'auto',
     };
   }
