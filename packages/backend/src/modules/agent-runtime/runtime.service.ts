@@ -5510,7 +5510,6 @@ const OPENROUTER_CHAT_FALLBACK_MODELS = [
 ] as const;
 const OPENROUTER_FREE_CHAT_FALLBACK_MODELS = [
   'openrouter/free',
-  'google/gemma-4-31b-it:free',
   'google/gemma-4-26b-a4b-it:free',
   'nvidia/nemotron-nano-12b-v2-vl:free',
   'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
@@ -5684,7 +5683,6 @@ const CHAT_COMMAND_MODEL_OPTIONS = [
   { value: 'openai/gpt-4o-mini', label: 'GPT-4o Mini', contextWindowTokens: 128_000, free: false },
   { value: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash', contextWindowTokens: 1_048_576, free: false },
   { value: 'openrouter/free', label: 'OpenRouter Free Router', contextWindowTokens: 200_000, free: true },
-  { value: 'google/gemma-4-31b-it:free', label: 'Gemma 4 31B Vision Free', contextWindowTokens: 262_144, free: true },
   { value: 'google/gemma-4-26b-a4b-it:free', label: 'Gemma 4 26B Vision Free', contextWindowTokens: 262_144, free: true },
   { value: 'nvidia/nemotron-nano-12b-v2-vl:free', label: 'Nemotron Nano 12B VL Free', contextWindowTokens: 128_000, free: true },
   { value: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free', label: 'Nemotron 3 Nano Omni Free', contextWindowTokens: 256_000, free: true },

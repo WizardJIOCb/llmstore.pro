@@ -34,14 +34,6 @@ export const GENERAL_CHAT_MODELS: GeneralModelOption[] = [
     pricing_output_usd_per_million: 0,
   },
   {
-    value: 'google/gemma-4-31b-it:free',
-    label: 'Gemma 4 31B Vision Free',
-    description: 'Free OpenRouter vision model for image understanding, multilingual chat and long-context answers.',
-    context_window_tokens: 262_144,
-    pricing_input_usd_per_million: 0,
-    pricing_output_usd_per_million: 0,
-  },
-  {
     value: 'google/gemma-4-26b-a4b-it:free',
     label: 'Gemma 4 26B Vision Free',
     description: 'Free OpenRouter multimodal model for image, text and video inputs with structured answers.',
