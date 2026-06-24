@@ -58,7 +58,7 @@ import {
 } from '../../lib/model-pricing.js';
 
 const DEFAULT_MODEL = 'google/gemini-2.0-flash-001';
-const DEFAULT_VISION_CHAT_MODEL = 'google/gemini-2.5-flash';
+const DEFAULT_VISION_CHAT_MODEL = 'openrouter/free';
 const DEFAULT_IMAGE_GENERATION_MODEL = 'google/gemini-2.5-flash-image';
 const DEFAULT_MAX_ITERATIONS = 4;
 const CHAT_UPLOADS_DIR = path.join(UPLOADS_DIR, 'chat');
@@ -5510,6 +5510,10 @@ const OPENROUTER_CHAT_FALLBACK_MODELS = [
 ] as const;
 const OPENROUTER_FREE_CHAT_FALLBACK_MODELS = [
   'openrouter/free',
+  'google/gemma-4-31b-it:free',
+  'google/gemma-4-26b-a4b-it:free',
+  'nvidia/nemotron-nano-12b-v2-vl:free',
+  'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
   'deepseek/deepseek-v4-flash:free',
   'qwen/qwen3-coder:free',
 ] as const;
@@ -5680,6 +5684,11 @@ const CHAT_COMMAND_MODEL_OPTIONS = [
   { value: 'openai/gpt-4o-mini', label: 'GPT-4o Mini', contextWindowTokens: 128_000, free: false },
   { value: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash', contextWindowTokens: 1_048_576, free: false },
   { value: 'openrouter/free', label: 'OpenRouter Free Router', contextWindowTokens: 200_000, free: true },
+  { value: 'google/gemma-4-31b-it:free', label: 'Gemma 4 31B Vision Free', contextWindowTokens: 262_144, free: true },
+  { value: 'google/gemma-4-26b-a4b-it:free', label: 'Gemma 4 26B Vision Free', contextWindowTokens: 262_144, free: true },
+  { value: 'nvidia/nemotron-nano-12b-v2-vl:free', label: 'Nemotron Nano 12B VL Free', contextWindowTokens: 128_000, free: true },
+  { value: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free', label: 'Nemotron 3 Nano Omni Free', contextWindowTokens: 256_000, free: true },
+  { value: 'nvidia/nemotron-3.5-content-safety:free', label: 'Nemotron 3.5 Safety Vision Free', contextWindowTokens: 128_000, free: true },
   { value: 'deepseek/deepseek-v4-flash:free', label: 'DeepSeek V4 Flash Free', contextWindowTokens: 1_048_576, free: true },
   { value: 'qwen/qwen3-coder:free', label: 'Qwen3 Coder 480B Free', contextWindowTokens: 1_048_576, free: true },
   { value: 'openai/gpt-oss-120b:free', label: 'GPT-OSS 120B Free', contextWindowTokens: 131_072, free: true },
@@ -6304,6 +6313,33 @@ async function resolveDefaultEnabledGeneralChatModel(modelId: string | null | un
 
   const fallback = CHAT_COMMAND_MODEL_OPTIONS.find((model) => enabledSet.has(normalizeOpenRouterModelId(model.value)));
   return normalizeOpenRouterModelId(fallback?.value ?? DEFAULT_GENERAL_MODEL);
+}
+
+async function resolveDefaultEnabledVisionChatModel(modelId: string | null | undefined): Promise<string> {
+  const normalizedModelId = normalizeOpenRouterModelId(modelId ?? DEFAULT_VISION_CHAT_MODEL);
+  const enabledModelIds = await getEnabledGeneralChatModels();
+  if (enabledModelIds.length === 0) {
+    return isVisionModel(normalizedModelId) ? normalizedModelId : DEFAULT_VISION_CHAT_MODEL;
+  }
+
+  const enabledSet = new Set(enabledModelIds.map((value) => normalizeOpenRouterModelId(value)));
+  if (enabledSet.has(normalizedModelId) && isVisionModel(normalizedModelId)) {
+    return normalizedModelId;
+  }
+
+  const fallback = CHAT_COMMAND_MODEL_OPTIONS.find((model) => {
+    const normalizedValue = normalizeOpenRouterModelId(model.value);
+    return enabledSet.has(normalizedValue) && isVisionModel(normalizedValue);
+  });
+  if (fallback) {
+    return normalizeOpenRouterModelId(fallback.value);
+  }
+
+  throw new AppError(
+    400,
+    'VISION_MODEL_DISABLED',
+    'Для сообщения с изображением нужна включенная vision-модель. Включите хотя бы одну модель с поддержкой изображений в админке.',
+  );
 }
 
 function truncateChatCommandContent(value: string | null | undefined, limit = 3000): string {
@@ -12027,7 +12063,7 @@ export async function sendChatMessage(
       }
       const switchedToVisionModel = !wantsImageGeneration && imageDataUrls.length > 0 && !isVisionModel(model);
       if (switchedToVisionModel) {
-        model = DEFAULT_VISION_CHAT_MODEL;
+        model = await resolveDefaultEnabledVisionChatModel(DEFAULT_VISION_CHAT_MODEL);
         generalChatModelToPersist = requestedModel;
       }
       const attemptedGeneralModelIds = new Set<string>([requestedModel, model]);
