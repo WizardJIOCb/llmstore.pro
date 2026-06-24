@@ -8,6 +8,107 @@ export interface GeneralModelOption {
   supports_reasoning?: boolean;
 }
 
+export type ModelModality = 'text' | 'image' | 'video' | 'audio';
+
+export interface GeneralModelModalities {
+  input: ModelModality[];
+  output: ModelModality[];
+}
+
+export const MODEL_MODALITY_LABELS: Record<ModelModality, string> = {
+  text: 'текст',
+  image: 'картинки',
+  video: 'видео',
+  audio: 'аудио',
+};
+
+const TEXT_ONLY_MODALITIES: GeneralModelModalities = {
+  input: ['text'],
+  output: ['text'],
+};
+
+const TEXT_IMAGE_MODALITIES: GeneralModelModalities = {
+  input: ['text', 'image'],
+  output: ['text'],
+};
+
+const TEXT_IMAGE_VIDEO_MODALITIES: GeneralModelModalities = {
+  input: ['text', 'image', 'video'],
+  output: ['text'],
+};
+
+const OMNI_INPUT_MODALITIES: GeneralModelModalities = {
+  input: ['text', 'image', 'video', 'audio'],
+  output: ['text'],
+};
+
+const TEXT_IMAGE_MODEL_IDS = new Set([
+  'openai/gpt-4o-mini',
+  'openai/gpt-4o',
+  'openai/gpt-5.4',
+  'openai/gpt-5.4-mini',
+  'openai/gpt-5.5',
+  'openai/gpt-5.5-pro',
+  'openai/gpt-chat-latest',
+  'direct/openai/gpt-5.2-codex',
+  'direct/openai/gpt-5.1-codex',
+  'direct/openai/gpt-5.1-codex-max',
+  'direct/openai/gpt-5-codex',
+  'direct/openai/gpt-5.2',
+  'direct/openai/gpt-5-mini',
+  'x-ai/grok-4.3',
+  'x-ai/grok-build-0.1',
+  'direct/xai/grok-4.3',
+  'direct/xai/grok-build-0.1',
+  'anthropic/claude-haiku-4.5',
+  'anthropic/claude-sonnet-4.6',
+  'nvidia/nemotron-3.5-content-safety:free',
+]);
+
+const TEXT_IMAGE_VIDEO_MODEL_IDS = new Set([
+  'google/gemma-4-26b-a4b-it:free',
+  'nvidia/nemotron-nano-12b-v2-vl:free',
+  'google/gemini-2.5-flash',
+  'google/gemini-2.5-pro',
+  'google/gemini-3.5-flash',
+  'google/gemini-3.1-flash-lite',
+  'direct/gemini/gemini-3.1-pro-preview',
+  'direct/gemini/gemini-3.1-pro-preview-customtools',
+  'direct/gemini/gemini-3.5-flash',
+  'direct/gemini/gemini-3.1-flash-lite',
+  'direct/gemini/gemini-2.5-pro',
+  'direct/gemini/gemini-2.5-flash',
+  'direct/gemini/gemini-flash-latest',
+]);
+
+const OMNI_INPUT_MODEL_IDS = new Set([
+  'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
+]);
+
+function normalizeModelId(modelId: string | null | undefined): string {
+  return modelId?.trim().toLowerCase() ?? '';
+}
+
+export function getGeneralModelModalities(model: GeneralModelOption | string | null | undefined): GeneralModelModalities {
+  const modelId = typeof model === 'string' ? model : model?.value;
+  const normalized = normalizeModelId(modelId);
+
+  if (OMNI_INPUT_MODEL_IDS.has(normalized)) return OMNI_INPUT_MODALITIES;
+  if (TEXT_IMAGE_VIDEO_MODEL_IDS.has(normalized)) return TEXT_IMAGE_VIDEO_MODALITIES;
+  if (TEXT_IMAGE_MODEL_IDS.has(normalized)) return TEXT_IMAGE_MODALITIES;
+
+  return TEXT_ONLY_MODALITIES;
+}
+
+export function formatModelModalities(modalities: ModelModality[]): string {
+  return modalities.map((modality) => MODEL_MODALITY_LABELS[modality]).join(', ');
+}
+
+export function formatGeneralModelModalities(model: GeneralModelOption | string | null | undefined): string {
+  const modalities = getGeneralModelModalities(model);
+  return `вход: ${formatModelModalities(modalities.input)} • выход: ${formatModelModalities(modalities.output)}`;
+}
+
 export const GENERAL_CHAT_MODELS: GeneralModelOption[] = [
   {
     value: 'openai/gpt-4o-mini',

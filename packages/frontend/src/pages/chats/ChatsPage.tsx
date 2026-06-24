@@ -106,11 +106,15 @@ import {
   MAX_UNKNOWN_CONTEXT_WINDOW_TOKENS,
   MIN_CONTEXT_WINDOW_TOKENS,
   formatContextWindow,
+  formatGeneralModelModalities,
+  formatModelModalities,
   getContextWindowBounds,
+  getGeneralModelModalities,
   getGeneralModelContextWindow,
   getGeneralModelOption,
   generalModelSupportsReasoning,
   type GeneralModelOption,
+  type ModelModality,
 } from '../../lib/chat-models';
 import { cn, formatRub, formatUsd } from '../../lib/utils';
 import { TopUpHelp } from '../../components/billing/TopUpHelp';
@@ -737,7 +741,7 @@ function getDefaultGeneralModelId(models: GeneralModelOption[]): string {
 function buildGeneralModelOptions(models: GeneralModelOption[]) {
   return models.map((model) => ({
     value: model.value,
-    label: `${model.label} • ${formatGeneralModelContext(model)} • ${formatGeneralModelPricing(model)}`,
+    label: `${model.label} • ${formatGeneralModelModalities(model)} • ${formatGeneralModelContext(model)} • ${formatGeneralModelPricing(model)}`,
   }));
 }
 
@@ -1027,6 +1031,50 @@ function formatGeneralModelContext(model: GeneralModelOption): string {
 
 function formatGeneralModelMeta(model: GeneralModelOption): string {
   return `${formatGeneralModelContext(model)} • ${formatGeneralModelPricing(model)}`;
+}
+
+function getModalityBadgeClass(modality: ModelModality): string {
+  switch (modality) {
+    case 'image':
+      return 'border-sky-200 bg-sky-50 text-sky-700';
+    case 'video':
+      return 'border-violet-200 bg-violet-50 text-violet-700';
+    case 'audio':
+      return 'border-amber-200 bg-amber-50 text-amber-700';
+    case 'text':
+    default:
+      return 'border-slate-200 bg-slate-50 text-slate-700';
+  }
+}
+
+function ModelModalityPills({ label, modalities }: { label: string; modalities: ModelModality[] }) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className="mr-0.5 text-[11px] font-medium uppercase text-muted-foreground">{label}</span>
+      {modalities.map((modality) => (
+        <span
+          key={modality}
+          className={cn(
+            'rounded-full border px-2 py-0.5 text-[11px] font-medium leading-4',
+            getModalityBadgeClass(modality),
+          )}
+        >
+          {formatModelModalities([modality])}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function GeneralModelModalitiesRow({ model }: { model: GeneralModelOption }) {
+  const modalities = getGeneralModelModalities(model);
+
+  return (
+    <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1.5">
+      <ModelModalityPills label="Вход" modalities={modalities.input} />
+      <ModelModalityPills label="Выход" modalities={modalities.output} />
+    </div>
+  );
 }
 
 function formatModelLabelWithContext(modelId: string | null | undefined, fallbackLabel?: string | null): string {
@@ -6981,6 +7029,7 @@ function AuthenticatedChatsPage() {
                           <p className="text-sm font-medium text-foreground">{model.label}</p>
                           <p className="mt-1 break-all text-xs text-muted-foreground">{model.value}</p>
                           <p className="mt-1 text-xs leading-5 text-muted-foreground">{model.description}</p>
+                          <GeneralModelModalitiesRow model={model} />
                           <p className="mt-1 text-xs text-muted-foreground">{formatGeneralModelMeta(model)}</p>
                         </button>
                       );
