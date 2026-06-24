@@ -242,7 +242,6 @@ export const VISION_MODEL_IDS = new Set([
   'gemini-2.5-flash',
   'google/gemini-2.5-pro',
   'gemini-2.5-pro',
-  'openrouter/free',
   'nvidia/nemotron-3.5-content-safety:free',
   'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
   'google/gemma-4-26b-a4b-it:free',

@@ -58,7 +58,7 @@ import {
 } from '../../lib/model-pricing.js';
 
 const DEFAULT_MODEL = 'google/gemini-2.0-flash-001';
-const DEFAULT_VISION_CHAT_MODEL = 'openrouter/free';
+const DEFAULT_VISION_CHAT_MODEL = 'google/gemma-4-26b-a4b-it:free';
 const DEFAULT_IMAGE_GENERATION_MODEL = 'google/gemini-2.5-flash-image';
 const DEFAULT_MAX_ITERATIONS = 4;
 const CHAT_UPLOADS_DIR = path.join(UPLOADS_DIR, 'chat');
@@ -5511,8 +5511,6 @@ const OPENROUTER_CHAT_FALLBACK_MODELS = [
 const OPENROUTER_FREE_CHAT_FALLBACK_MODELS = [
   'openrouter/free',
   'google/gemma-4-26b-a4b-it:free',
-  'nvidia/nemotron-nano-12b-v2-vl:free',
-  'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
   'deepseek/deepseek-v4-flash:free',
   'qwen/qwen3-coder:free',
 ] as const;
@@ -5609,6 +5607,7 @@ function shouldTryOpenRouterRuntimeFallback(error: unknown, currentModelId?: str
 function resolveOpenRouterRuntimeFallbackModel(
   currentModelId: string,
   triedModelIds: Set<string>,
+  options: { requireVision?: boolean } = {},
 ): string | null {
   const normalizedCurrent = normalizeOpenRouterModelId(currentModelId);
   const currentPricing = getModelPricingInfo(normalizedCurrent);
@@ -5618,7 +5617,12 @@ function resolveOpenRouterRuntimeFallbackModel(
 
   for (const candidate of fallbackModels) {
     const normalizedCandidate = normalizeOpenRouterModelId(candidate);
-    if (normalizedCandidate && normalizedCandidate !== normalizedCurrent && !triedModelIds.has(normalizedCandidate)) {
+    if (
+      normalizedCandidate
+      && normalizedCandidate !== normalizedCurrent
+      && !triedModelIds.has(normalizedCandidate)
+      && (!options.requireVision || isVisionModel(normalizedCandidate))
+    ) {
       return normalizedCandidate;
     }
   }
@@ -12144,7 +12148,9 @@ export async function sendChatMessage(
               throw error;
             }
 
-            const fallbackModel = resolveOpenRouterRuntimeFallbackModel(model, attemptedGeneralModelIds);
+            const fallbackModel = resolveOpenRouterRuntimeFallbackModel(model, attemptedGeneralModelIds, {
+              requireVision: imageDataUrls.length > 0,
+            });
             if (!fallbackModel) {
               throw error;
             }
