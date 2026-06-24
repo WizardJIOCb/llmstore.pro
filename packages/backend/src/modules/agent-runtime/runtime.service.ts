@@ -39,6 +39,7 @@ import { openChatEventStream, openSharedChatEventStream, publishChatEvent, publi
 import {
   getOpenRouterRequestsEnabled,
   getOpenRouterDisabledMessage,
+  getEnabledGeneralChatModels,
   getStarterPromptSettings,
   getUsdToRubRate,
   resolveStarterPromptsForAgentSlug,
@@ -6269,6 +6270,42 @@ function resolveChatCommandModelOption(modelCode: string): ChatCommandModelOptio
   return CHAT_COMMAND_MODEL_OPTIONS.find((model) => normalizeOpenRouterModelId(model.value) === normalized) ?? null;
 }
 
+async function getEnabledChatCommandModelOptions(): Promise<ChatCommandModelOption[]> {
+  const enabledModelIds = await getEnabledGeneralChatModels();
+  if (enabledModelIds.length === 0) return [...CHAT_COMMAND_MODEL_OPTIONS];
+
+  const enabledSet = new Set(enabledModelIds.map((modelId) => normalizeOpenRouterModelId(modelId)));
+  const enabledOptions = CHAT_COMMAND_MODEL_OPTIONS.filter((model) => enabledSet.has(normalizeOpenRouterModelId(model.value)));
+  return enabledOptions.length > 0 ? enabledOptions : [...CHAT_COMMAND_MODEL_OPTIONS];
+}
+
+async function assertGeneralChatModelEnabled(modelId: string | null | undefined) {
+  const normalizedModelId = normalizeOpenRouterModelId(modelId ?? DEFAULT_GENERAL_MODEL);
+  const enabledModelIds = await getEnabledGeneralChatModels();
+  if (enabledModelIds.length === 0) return;
+
+  const enabledSet = new Set(enabledModelIds.map((value) => normalizeOpenRouterModelId(value)));
+  if (enabledSet.has(normalizedModelId)) return;
+
+  throw new AppError(
+    400,
+    'MODEL_DISABLED',
+    'Эта модель отключена администратором. Выберите другую модель в настройках чата.',
+  );
+}
+
+async function resolveDefaultEnabledGeneralChatModel(modelId: string | null | undefined): Promise<string> {
+  const normalizedModelId = normalizeOpenRouterModelId(modelId ?? DEFAULT_GENERAL_MODEL);
+  const enabledModelIds = await getEnabledGeneralChatModels();
+  if (enabledModelIds.length === 0) return normalizedModelId;
+
+  const enabledSet = new Set(enabledModelIds.map((value) => normalizeOpenRouterModelId(value)));
+  if (enabledSet.has(normalizedModelId)) return normalizedModelId;
+
+  const fallback = CHAT_COMMAND_MODEL_OPTIONS.find((model) => enabledSet.has(normalizeOpenRouterModelId(model.value)));
+  return normalizeOpenRouterModelId(fallback?.value ?? DEFAULT_GENERAL_MODEL);
+}
+
 function truncateChatCommandContent(value: string | null | undefined, limit = 3000): string {
   const normalized = value?.replace(/\r\n/g, '\n').trim() ?? '';
   if (!normalized) return '';
@@ -6748,8 +6785,9 @@ async function buildChatSlashCommandResponse(
   }
 
   if (command === '/models') {
-    const freeModels = CHAT_COMMAND_MODEL_OPTIONS.filter((model) => model.free);
-    const paidModels = CHAT_COMMAND_MODEL_OPTIONS.filter((model) => !model.free);
+    const enabledModels = await getEnabledChatCommandModelOptions();
+    const freeModels = enabledModels.filter((model) => model.free);
+    const paidModels = enabledModels.filter((model) => !model.free);
     const formatModelLine = (model: ChatCommandModelOption) => (
       `- \`${model.value}\` — ${model.label}, context: ${formatChatCommandContextWindow(model.contextWindowTokens)}`
     );
@@ -6790,12 +6828,15 @@ async function buildChatSlashCommandResponse(
     const requestedModel = args.join(' ').trim();
     if (requestedModel) {
       if (['default', 'auto', 'reset', 'сброс'].includes(requestedModel.toLowerCase())) {
+        const resetModelId = chat.mode === 'agent'
+          ? null
+          : await resolveDefaultEnabledGeneralChatModel(null);
         return { content: [
           '**Модель чата обновлена**',
           '',
           `- Было: ${modelLabel} (\`${modelId}\`)`,
-          `- Теперь: ${chat.mode === 'agent' ? 'модель агента по умолчанию' : `дефолтная модель чата \`${DEFAULT_GENERAL_MODEL}\``}`,
-        ].join('\n'), next_model_external_id: null };
+          `- Теперь: ${chat.mode === 'agent' ? 'модель агента по умолчанию' : `дефолтная модель чата \`${resetModelId}\``}`,
+        ].join('\n'), next_model_external_id: resetModelId };
       }
 
       const nextModel = resolveChatCommandModelOption(requestedModel);
@@ -6804,6 +6845,17 @@ async function buildChatSlashCommandResponse(
           `Не нашёл модель по коду: \`${requestedModel}\`.`,
           '',
           'Напишите `/models`, чтобы посмотреть доступные коды.',
+        ].join('\n') };
+      }
+
+      try {
+        await assertGeneralChatModelEnabled(nextModel.value);
+      } catch (error) {
+        if (!(error instanceof AppError) || error.code !== 'MODEL_DISABLED') throw error;
+        return { content: [
+          `Модель \`${nextModel.value}\` сейчас отключена администратором.`,
+          '',
+          'Напишите `/models`, чтобы посмотреть доступные модели.',
         ].join('\n') };
       }
 
@@ -10025,6 +10077,13 @@ export async function createChat(userId: string, input: {
     throw new AppError(400, 'VALIDATION_ERROR', 'Для ограниченного доступа укажите email или логины');
   }
 
+  if (input.model_external_id) {
+    await assertGeneralChatModelEnabled(input.model_external_id);
+  }
+  const modelExternalId = mode === 'general'
+    ? (input.model_external_id ? normalizeOpenRouterModelId(input.model_external_id) : await resolveDefaultEnabledGeneralChatModel(null))
+    : (input.model_external_id ?? null);
+
   if (normalizedToolIds.length > 0) {
     await validateChatToolSelection(normalizedToolIds);
   }
@@ -10053,7 +10112,7 @@ export async function createChat(userId: string, input: {
     project_id: projectId,
     project_folder_id: projectFolderId,
     title: (input.title?.trim() || 'Новый чат').slice(0, 500),
-    model_external_id: input.model_external_id ?? null,
+    model_external_id: modelExternalId,
     system_prompt: input.system_prompt ?? null,
     access,
     access_identifiers: accessIdentifiers,
@@ -10848,9 +10907,15 @@ export async function updateChat(chatId: string, userId: string, input: {
   }
 
   const ensuredShareToken = await ensureChatShareToken(existing.id, existing.share_token);
-  const nextModelExternalId = input.model_external_id === undefined
+  let nextModelExternalId = input.model_external_id === undefined
     ? existing.model_external_id
     : (input.model_external_id ?? null);
+  if (input.model_external_id) {
+    await assertGeneralChatModelEnabled(input.model_external_id);
+    nextModelExternalId = normalizeOpenRouterModelId(input.model_external_id);
+  } else if (nextMode === 'general' && input.model_external_id === null) {
+    nextModelExternalId = await resolveDefaultEnabledGeneralChatModel(null);
+  }
   const nextSystemPrompt = input.system_prompt === undefined ? existing.system_prompt : (input.system_prompt ?? null);
   const nextProjectId = input.project_id === undefined ? existing.project_id : (input.project_id ?? null);
   const nextProjectFolderId = input.project_folder_id === undefined ? existing.project_folder_id : (input.project_folder_id ?? null);
@@ -11249,6 +11314,9 @@ export async function sendChatMessage(
   const initialGeneralModelUsesDirectApi = chat.mode === 'general'
     && !detectImageGenerationIntent(trimmedContent)
     && isDirectModelId(initialGeneralModelId);
+  if (chat.mode === 'general' && !isSlashCommand && !workspaceWriteIntent && !workspaceDeleteIntent) {
+    await assertGeneralChatModelEnabled(chat.model_external_id || DEFAULT_GENERAL_MODEL);
+  }
   if (
     openRouterRequestsEnabled
     && !isSlashCommand

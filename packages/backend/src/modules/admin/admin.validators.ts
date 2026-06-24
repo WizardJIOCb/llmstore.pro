@@ -180,6 +180,7 @@ const updateAdminSettingsSchema = z.object({
   signup_bonus_amount_usd: z.coerce.number().min(0).max(1000).default(0.05),
   openrouter_requests_enabled: z.boolean().default(true),
   openrouter_disabled_message: z.string().trim().min(1).max(1000),
+  enabled_general_chat_models: z.array(z.string().trim().min(1).max(255)).min(1).max(100),
 });
 
 export const validateUpdateAdminSettings = validate(updateAdminSettingsSchema, 'body');

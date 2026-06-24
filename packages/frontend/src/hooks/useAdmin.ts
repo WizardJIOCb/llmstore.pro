@@ -131,6 +131,7 @@ export function useUpdateAdminSettings() {
       signup_bonus_amount_usd: number;
       openrouter_requests_enabled: boolean;
       openrouter_disabled_message: string;
+      enabled_general_chat_models: string[];
     }) => adminApi.updateSettings(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'settings'] });

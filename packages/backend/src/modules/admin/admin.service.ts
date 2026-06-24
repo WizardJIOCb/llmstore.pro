@@ -24,6 +24,7 @@ import {
   updateStarterPromptSettings,
   updateSignupBonusSettings,
   updateOpenRouterRequestsSettings,
+  updateEnabledGeneralChatModels,
 } from '../../lib/app-settings.js';
 import {
   getProfitabilitySettings,
@@ -79,10 +80,11 @@ export async function updateAdminSettings(
     signup_bonus_amount_usd: number;
     openrouter_requests_enabled: boolean;
     openrouter_disabled_message: string;
+    enabled_general_chat_models: string[];
   },
   adminUserId: string,
 ) {
-  const [usdToRubRate, topUp, legal, starterPrompts, signupBonus, openRouterRequests] = await Promise.all([
+  const [usdToRubRate, topUp, legal, starterPrompts, signupBonus, openRouterRequests, enabledGeneralChatModels] = await Promise.all([
     setUsdToRubRate(input.usd_to_rub_rate, adminUserId),
     updateTopUpSettings(input, adminUserId),
     updateLegalSettings(input, adminUserId),
@@ -101,6 +103,7 @@ export async function updateAdminSettings(
       openrouter_requests_enabled: input.openrouter_requests_enabled,
       openrouter_disabled_message: input.openrouter_disabled_message,
     }, adminUserId),
+    updateEnabledGeneralChatModels(input.enabled_general_chat_models, adminUserId),
   ]);
 
   return {
@@ -126,6 +129,7 @@ export async function updateAdminSettings(
     signup_bonus_amount_usd: signupBonus.amount_usd,
     openrouter_requests_enabled: openRouterRequests.enabled,
     openrouter_disabled_message: openRouterRequests.message,
+    enabled_general_chat_models: enabledGeneralChatModels,
   };
 }
 

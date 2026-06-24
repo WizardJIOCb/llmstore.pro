@@ -717,6 +717,29 @@ function parseStarterPrompts(value: string): string[] {
 }
 
 const GENERAL_MODELS: GeneralModelOption[] = GENERAL_CHAT_MODELS;
+const DEFAULT_GENERAL_CHAT_MODEL = 'google/gemini-2.5-flash';
+
+function getEnabledGeneralModelIdSet(modelIds: string[] | undefined): Set<string> | null {
+  if (!modelIds?.length) return null;
+  return new Set(modelIds.map((modelId) => modelId.trim().toLowerCase()).filter(Boolean));
+}
+
+function isGeneralModelVisible(model: GeneralModelOption, enabledModelIds: Set<string> | null): boolean {
+  return !enabledModelIds || enabledModelIds.has(model.value.toLowerCase());
+}
+
+function getDefaultGeneralModelId(models: GeneralModelOption[]): string {
+  return models.find((model) => model.value === DEFAULT_GENERAL_CHAT_MODEL)?.value
+    ?? models[0]?.value
+    ?? DEFAULT_GENERAL_CHAT_MODEL;
+}
+
+function buildGeneralModelOptions(models: GeneralModelOption[]) {
+  return models.map((model) => ({
+    value: model.value,
+    label: `${model.label} • ${formatGeneralModelContext(model)} • ${formatGeneralModelPricing(model)}`,
+  }));
+}
 
 const CHAT_ACCESS_OPTIONS = [
   { value: 'public', label: 'Общий' },
@@ -1719,7 +1742,7 @@ function AuthenticatedChatsPage() {
   const [newChatMode, setNewChatMode] = useState<'general' | 'agent' | 'project'>('general');
   const [newChatAgentId, setNewChatAgentId] = useState('');
   const [newChatAgentSearch, setNewChatAgentSearch] = useState('');
-  const [newChatModel, setNewChatModel] = useState('google/gemini-2.5-flash');
+  const [newChatModel, setNewChatModel] = useState(DEFAULT_GENERAL_CHAT_MODEL);
   const [newProjectTitle, setNewProjectTitle] = useState('');
   const [newProjectDescription, setNewProjectDescription] = useState('');
   const [newChatReasoningEffort, setNewChatReasoningEffort] = useState<ChatReasoningEffort>('auto');
@@ -1735,7 +1758,7 @@ function AuthenticatedChatsPage() {
   const [propertiesTab, setPropertiesTab] = useState<PropertiesTab>('overview');
   const [propertiesModeView, setPropertiesModeView] = useState<PropertiesModeView>('general');
   const [propertiesAgentId, setPropertiesAgentId] = useState('');
-  const [propertiesModel, setPropertiesModel] = useState('google/gemini-2.5-flash');
+  const [propertiesModel, setPropertiesModel] = useState(DEFAULT_GENERAL_CHAT_MODEL);
   const [propertiesReasoningEffort, setPropertiesReasoningEffort] = useState<ChatReasoningEffort>('auto');
   const [propertiesToolIds, setPropertiesToolIds] = useState<string[]>([]);
   const [propertiesAccess, setPropertiesAccess] = useState<ChatAccess>('public');
@@ -1941,6 +1964,18 @@ function AuthenticatedChatsPage() {
     });
   }, [agents, newChatAgentSearch]);
   const visibleNewChatAgents = filteredNewChatAgents.slice(0, 24);
+  const enabledGeneralModelIds = useMemo(
+    () => getEnabledGeneralModelIdSet(appSettings?.enabled_general_chat_models),
+    [appSettings?.enabled_general_chat_models],
+  );
+  const visibleGeneralModels = useMemo(() => {
+    const filtered = GENERAL_MODELS.filter((model) => isGeneralModelVisible(model, enabledGeneralModelIds));
+    return filtered.length > 0 ? filtered : GENERAL_MODELS;
+  }, [enabledGeneralModelIds]);
+  const defaultGeneralModelId = useMemo(
+    () => getDefaultGeneralModelId(visibleGeneralModels),
+    [visibleGeneralModels],
+  );
 
   const { data: activeChatData, isLoading: activeChatLoading, error: activeChatError } = useChat(
     safeActiveChatId ?? undefined,
@@ -1951,6 +1986,13 @@ function AuthenticatedChatsPage() {
     isPropertiesOpen,
     { adminView: Boolean(isAdminRequestedChat && safeActiveChatId === activeAdminViewChatId) },
   );
+
+  useEffect(() => {
+    if (!visibleGeneralModels.some((model) => model.value === newChatModel)) {
+      setNewChatModel(defaultGeneralModelId);
+    }
+  }, [defaultGeneralModelId, newChatModel, visibleGeneralModels]);
+
   const activeChat = activeChatData?.chat ?? null;
   const activeChatMenuTarget: ChatListItem | null = activeChat
     ? { ...activeChat, last_message_preview: null }
@@ -3052,7 +3094,7 @@ function AuthenticatedChatsPage() {
     setPropertiesModel(
       activeChat.mode === 'agent'
         ? (activeChat.model_external_id ?? '')
-        : (activeChat.model_external_id ?? 'google/gemini-2.5-flash'),
+        : (activeChat.model_external_id ?? defaultGeneralModelId),
     );
     setPropertiesReasoningEffort(readReasoningEffort(activeChat.settings_json));
     setPropertiesToolIds(activeChat.chat_tool_ids ?? activeChat.tool_ids ?? []);
@@ -3064,7 +3106,7 @@ function AuthenticatedChatsPage() {
     setPropertiesStarterPromptsText((activeChat.agent_starter_prompts ?? []).join('\n'));
     setPropertiesContextWindowText(readContextWindowOverride(activeChat.settings_json)?.toString() ?? '');
     setPropertiesContextBlocks(readChatContextBlocks(activeChat.settings_json));
-  }, [isPropertiesOpen, activeChat, agents]);
+  }, [isPropertiesOpen, activeChat, agents, defaultGeneralModelId]);
 
   useEffect(() => {
     setIsQuickPromptsOpen(displayedMessages.length === 0);
@@ -3215,11 +3257,8 @@ function AuthenticatedChatsPage() {
     [],
   );
   const generalModelOptions = useMemo(
-    () => GENERAL_MODELS.map((model) => ({
-      value: model.value,
-      label: `${model.label} • ${formatGeneralModelContext(model)} • ${formatGeneralModelPricing(model)}`,
-    })),
-    [],
+    () => buildGeneralModelOptions(visibleGeneralModels),
+    [visibleGeneralModels],
   );
   const sortedAgentOptions = useMemo(
     () => [...(agents ?? [])].sort((left, right) => {
@@ -3266,7 +3305,7 @@ function AuthenticatedChatsPage() {
     || propertiesSelectedAgent?.model_external_id
     || activeChat?.agent_model_external_id
     || activeChat?.model_external_id
-    || 'google/gemini-2.5-flash'
+    || defaultGeneralModelId
   );
   const propertiesContextBounds = getContextWindowBounds(propertiesEffectiveModelId);
   const propertiesAutoContextTokens = propertiesContextBounds.recommended ?? DEFAULT_UNKNOWN_CONTEXT_WINDOW_TOKENS;
@@ -3398,6 +3437,17 @@ function AuthenticatedChatsPage() {
     () => GENERAL_MODELS.find((model) => model.value === activeChat?.model_external_id) ?? null,
     [activeChat?.model_external_id],
   );
+  const activeGeneralModelOptions = useMemo(() => {
+    const options = [...generalModelOptions];
+    const currentModelId = activeChat?.model_external_id?.trim();
+    if (currentModelId && !options.some((option) => option.value === currentModelId)) {
+      options.unshift({
+        value: currentModelId,
+        label: `${activeGeneralModel?.label ?? currentModelId} • отключена в админке`,
+      });
+    }
+    return options;
+  }, [activeChat?.model_external_id, activeGeneralModel?.label, generalModelOptions]);
   const activeStarterPrompts =
     activeChatData?.chat.agent_starter_prompts
     ?? activeAgentListMeta?.starter_prompts
@@ -3407,8 +3457,8 @@ function AuthenticatedChatsPage() {
     if (activeChat.model_external_id?.trim()) return activeChat.model_external_id.trim();
     if (activeChat.agent_model_external_id?.trim()) return activeChat.agent_model_external_id.trim();
     if (activeAgentListMeta?.model_external_id?.trim()) return activeAgentListMeta.model_external_id.trim();
-    return activeChat.mode === 'general' ? 'google/gemini-2.5-flash' : null;
-  }, [activeAgentListMeta?.model_external_id, activeChat]);
+    return activeChat.mode === 'general' ? defaultGeneralModelId : null;
+  }, [activeAgentListMeta?.model_external_id, activeChat, defaultGeneralModelId]);
   const activePropertiesModelLabel = useMemo(() => {
     if (!activeChat) return '—';
     const label = formatModelLabelWithContext(
@@ -3867,7 +3917,7 @@ function AuthenticatedChatsPage() {
         setNewProjectDescription('');
         setNewChatReasoningEffort('auto');
         setNewChatAgentSearch('');
-        setNewChatModel('google/gemini-2.5-flash');
+        setNewChatModel(defaultGeneralModelId);
         return;
       }
 
@@ -3890,7 +3940,7 @@ function AuthenticatedChatsPage() {
       setNewProjectDescription('');
       setNewChatReasoningEffort('auto');
       setNewChatAgentSearch('');
-      setNewChatModel('google/gemini-2.5-flash');
+      setNewChatModel(defaultGeneralModelId);
     } catch {
       showLocalError(newChatMode === 'project' ? 'Не удалось создать проект' : 'Не удалось создать чат');
     }
@@ -4847,7 +4897,7 @@ function AuthenticatedChatsPage() {
     setPropertiesModeView(nextValue);
 
     if (nextValue === 'general') {
-      setPropertiesModel((current) => current || 'google/gemini-2.5-flash');
+      setPropertiesModel((current) => current || defaultGeneralModelId);
       return;
     }
 
@@ -6348,8 +6398,8 @@ function AuthenticatedChatsPage() {
                       </h3>
                       <div className="mt-3 max-w-md">
                         <Select
-                          value={activeChat.model_external_id ?? 'google/gemini-2.5-flash'}
-                          options={generalModelOptions}
+                          value={activeChat.model_external_id ?? defaultGeneralModelId}
+                          options={activeGeneralModelOptions}
                           onChange={(e) => updateActiveGeneralModel(e.target.value)}
                           disabled={updateChatMutation.isPending || isAdminForeignChat}
                           className="w-full"
@@ -6913,7 +6963,7 @@ function AuthenticatedChatsPage() {
                     </p>
                   </div>
                   <div className="max-h-72 space-y-2 overflow-y-auto rounded-xl border bg-background p-2">
-                    {GENERAL_MODELS.map((model) => {
+                    {visibleGeneralModels.map((model) => {
                       const isSelected = newChatModel === model.value;
 
                       return (
@@ -7361,7 +7411,7 @@ function AuthenticatedChatsPage() {
                         <p className="text-xs text-muted-foreground">Под каждой моделью видно, для чего она лучше подходит, размер контекста и сколько стоит</p>
                       </div>
                       <div className="max-h-72 space-y-2 overflow-y-auto rounded-xl border bg-background p-2">
-                        {GENERAL_MODELS.map((model) => {
+                        {visibleGeneralModels.map((model) => {
                           const isSelected = propertiesModel === model.value;
 
                           return (
@@ -7432,7 +7482,7 @@ function AuthenticatedChatsPage() {
                             Удобно, если модель должна меняться вместе с выбранным агентом.
                           </p>
                         </button>
-                        {GENERAL_MODELS.map((model) => {
+                        {visibleGeneralModels.map((model) => {
                           const isSelected = propertiesModel === model.value;
                           return (
                             <button

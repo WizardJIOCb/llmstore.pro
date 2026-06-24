@@ -28,6 +28,7 @@ const SETTINGS_KEYS = {
   signup_bonus_amount_usd: 'signup_bonus_amount_usd',
   openrouter_requests_enabled: 'openrouter_requests_enabled',
   openrouter_disabled_message: 'openrouter_disabled_message',
+  enabled_general_chat_models: 'enabled_general_chat_models',
 } as const;
 
 const DEFAULT_TOPUP_MESSAGE = 'Нужна помощь с пополнением или оплатой? Напишите Родиону:';
@@ -182,6 +183,30 @@ function normalizePromptList(value: unknown, fallback: readonly string[]): strin
 
 function serializePromptList(value: readonly string[]): string {
   return value.join('\n');
+}
+
+function normalizeModelIdList(value: unknown): string[] {
+  const rawItems = Array.isArray(value)
+    ? value
+    : (typeof value === 'string' ? value.split(/\r?\n|,/) : []);
+
+  return rawItems
+    .map((item) => (typeof item === 'string' ? item.trim().toLowerCase() : ''))
+    .filter((item, index, list) => item.length > 0 && item.length <= 255 && list.indexOf(item) === index)
+    .slice(0, 100);
+}
+
+function parseModelIdList(value: string): string[] {
+  try {
+    const parsed = JSON.parse(value);
+    return normalizeModelIdList(parsed);
+  } catch {
+    return normalizeModelIdList(value);
+  }
+}
+
+function serializeModelIdList(value: readonly string[]): string {
+  return JSON.stringify(normalizeModelIdList([...value]));
 }
 
 async function getSettingValue(key: SettingKey, fallback: string): Promise<string> {
@@ -487,6 +512,30 @@ export async function updateOpenRouterRequestsSettings(input: {
   return { enabled, message };
 }
 
+export async function getEnabledGeneralChatModels(): Promise<string[]> {
+  const raw = await getSettingValue(
+    SETTINGS_KEYS.enabled_general_chat_models,
+    '[]',
+  );
+
+  return parseModelIdList(raw);
+}
+
+export async function updateEnabledGeneralChatModels(
+  modelIds: string[] | undefined,
+  updatedBy?: string | null,
+): Promise<string[]> {
+  const normalized = normalizeModelIdList(modelIds ?? []);
+
+  await setSettingValue(
+    SETTINGS_KEYS.enabled_general_chat_models,
+    serializeModelIdList(normalized),
+    updatedBy,
+  );
+
+  return normalized;
+}
+
 export async function updateSignupBonusSettings(input: {
   signup_bonus_requires_email_verification?: boolean;
   signup_bonus_amount_usd?: number;
@@ -590,7 +639,16 @@ export function resolveStarterPromptsForAgentSlug(
 }
 
 export async function getAdminSettings() {
-  const [usd_to_rub_rate, topUp, legal, starterPrompts, signupBonus, openRouterRequests, openRouterDisabledMessage] = await Promise.all([
+  const [
+    usd_to_rub_rate,
+    topUp,
+    legal,
+    starterPrompts,
+    signupBonus,
+    openRouterRequests,
+    openRouterDisabledMessage,
+    enabledGeneralChatModels,
+  ] = await Promise.all([
     getUsdToRubRate(),
     getTopUpSettings(),
     getLegalSettings(),
@@ -598,6 +656,7 @@ export async function getAdminSettings() {
     getSignupBonusSettings(),
     getOpenRouterRequestsSettings(),
     getOpenRouterDisabledMessage(),
+    getEnabledGeneralChatModels(),
   ]);
 
   return {
@@ -623,23 +682,34 @@ export async function getAdminSettings() {
     signup_bonus_amount_usd: signupBonus.amount_usd,
     openrouter_requests_enabled: openRouterRequests.enabled,
     openrouter_disabled_message: openRouterDisabledMessage,
+    enabled_general_chat_models: enabledGeneralChatModels,
   };
 }
 
 export async function getPublicAppSettings() {
-  const [topUp, legal, starterPrompts, usdToRubRate, openRouterRequests, openRouterDisabledMessage] = await Promise.all([
+  const [
+    topUp,
+    legal,
+    starterPrompts,
+    usdToRubRate,
+    openRouterRequests,
+    openRouterDisabledMessage,
+    enabledGeneralChatModels,
+  ] = await Promise.all([
     getTopUpSettings(),
     getLegalSettings(),
     getStarterPromptSettings(),
     getUsdToRubRate(),
     getOpenRouterRequestsSettings(),
     getOpenRouterDisabledMessage(),
+    getEnabledGeneralChatModels(),
   ]);
 
   return {
     usd_to_rub_rate: usdToRubRate,
     openrouter_requests_enabled: openRouterRequests.enabled,
     openrouter_disabled_message: openRouterDisabledMessage,
+    enabled_general_chat_models: enabledGeneralChatModels,
     topup: {
       message: topUp.message,
       telegram: topUp.telegram,

@@ -5,6 +5,7 @@ import { Button, Input, Spinner, Textarea } from '../../components/ui';
 import { UserLink } from '../../components/users/UserLink';
 import { adminApi } from '../../lib/api/admin';
 import { useAdminSettings, useAdjustUserBalance, useUpdateAdminSettings } from '../../hooks/useAdmin';
+import { GENERAL_CHAT_MODELS, type GeneralModelOption } from '../../lib/chat-models';
 import { formatUsd } from '../../lib/utils';
 
 interface BalanceTargetUser {
@@ -29,6 +30,10 @@ function textToPrompts(value: string): string[] {
     .map((item) => item.trim())
     .filter((item, index, list) => item.length > 0 && list.indexOf(item) === index)
     .slice(0, 12);
+}
+
+function isFreeGeneralModel(model: GeneralModelOption): boolean {
+  return model.pricing_input_usd_per_million === 0 && model.pricing_output_usd_per_million === 0;
 }
 
 export function AdminSettingsPage() {
@@ -58,6 +63,7 @@ export function AdminSettingsPage() {
   const [signupBonusAmountUsd, setSignupBonusAmountUsd] = useState('0.05');
   const [openrouterRequestsEnabled, setOpenrouterRequestsEnabled] = useState(true);
   const [openrouterDisabledMessage, setOpenrouterDisabledMessage] = useState('');
+  const [enabledGeneralChatModels, setEnabledGeneralChatModels] = useState<string[]>([]);
   const [settingsSaved, setSettingsSaved] = useState(false);
 
   const [userSearch, setUserSearch] = useState('');
@@ -89,6 +95,11 @@ export function AdminSettingsPage() {
     setSignupBonusAmountUsd(String(settings.signup_bonus_amount_usd));
     setOpenrouterRequestsEnabled(settings.openrouter_requests_enabled);
     setOpenrouterDisabledMessage(settings.openrouter_disabled_message);
+    setEnabledGeneralChatModels(
+      settings.enabled_general_chat_models.length > 0
+        ? settings.enabled_general_chat_models
+        : GENERAL_CHAT_MODELS.map((model) => model.value),
+    );
   }, [settings]);
 
   const searchTerm = userSearch.trim();
@@ -102,12 +113,39 @@ export function AdminSettingsPage() {
     () => usersQuery.data?.data ?? [],
     [usersQuery.data],
   );
+  const enabledGeneralChatModelSet = useMemo(
+    () => new Set(enabledGeneralChatModels.map((modelId) => modelId.toLowerCase())),
+    [enabledGeneralChatModels],
+  );
+  const enabledFreeModelsCount = useMemo(
+    () => GENERAL_CHAT_MODELS.filter((model) => enabledGeneralChatModelSet.has(model.value.toLowerCase()) && isFreeGeneralModel(model)).length,
+    [enabledGeneralChatModelSet],
+  );
+  const enabledPaidModelsCount = Math.max(0, enabledGeneralChatModels.length - enabledFreeModelsCount);
+
+  const setEnabledModels = (modelIds: string[]) => {
+    const allowed = new Set(GENERAL_CHAT_MODELS.map((model) => model.value));
+    const normalized = modelIds.filter((modelId, index, list) => (
+      allowed.has(modelId) && list.indexOf(modelId) === index
+    ));
+    setEnabledGeneralChatModels(normalized);
+  };
+
+  const toggleGeneralChatModel = (modelId: string, enabled: boolean) => {
+    if (enabled) {
+      setEnabledModels([...enabledGeneralChatModels, modelId]);
+      return;
+    }
+
+    setEnabledModels(enabledGeneralChatModels.filter((item) => item !== modelId));
+  };
 
   const handleSaveSettings = () => {
     const rateValue = Number(rateInput || 0);
     const signupBonusAmountValue = Number(signupBonusAmountUsd || 0);
     if (!Number.isFinite(rateValue) || rateValue <= 0) return;
     if (!Number.isFinite(signupBonusAmountValue) || signupBonusAmountValue < 0) return;
+    if (enabledGeneralChatModels.length === 0) return;
 
     updateSettingsMutation.mutate(
       {
@@ -133,6 +171,7 @@ export function AdminSettingsPage() {
         signup_bonus_amount_usd: signupBonusAmountValue,
         openrouter_requests_enabled: openrouterRequestsEnabled,
         openrouter_disabled_message: openrouterDisabledMessage,
+        enabled_general_chat_models: enabledGeneralChatModels,
       },
       {
         onSuccess: () => {
@@ -231,6 +270,84 @@ export function AdminSettingsPage() {
                       onChange={(e) => setTopupPhone(e.target.value)}
                       placeholder="89264769929"
                     />
+                  </div>
+                </div>
+
+                <div className="rounded-xl border bg-muted/20 p-4 space-y-4">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                    <div>
+                      <p className="text-sm font-medium">Модели в обычном чате</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Выключенные модели пропадут из создания нового чата, настроек чата и slash-команды <code>/models</code>.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setEnabledModels(GENERAL_CHAT_MODELS.map((model) => model.value))}
+                      >
+                        Все
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setEnabledModels(GENERAL_CHAT_MODELS.filter(isFreeGeneralModel).map((model) => model.value))}
+                      >
+                        Только free
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setEnabledModels(GENERAL_CHAT_MODELS.filter((model) => !isFreeGeneralModel(model)).map((model) => model.value))}
+                      >
+                        Только платные
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border bg-background px-4 py-3 text-sm">
+                    Включено: <span className="font-medium">{enabledGeneralChatModels.length}</span> из {GENERAL_CHAT_MODELS.length}
+                    <span className="text-muted-foreground"> · free: {enabledFreeModelsCount} · платные: {enabledPaidModelsCount}</span>
+                  </div>
+                  {enabledGeneralChatModels.length === 0 && (
+                    <p className="text-sm text-destructive">Оставьте включенной хотя бы одну модель.</p>
+                  )}
+
+                  <div className="max-h-96 space-y-2 overflow-y-auto rounded-lg border bg-background p-2">
+                    {GENERAL_CHAT_MODELS.map((model) => {
+                      const enabled = enabledGeneralChatModelSet.has(model.value.toLowerCase());
+                      const free = isFreeGeneralModel(model);
+
+                      return (
+                        <label
+                          key={model.value}
+                          className="flex items-start gap-3 rounded-lg border px-3 py-3 hover:bg-accent/40"
+                        >
+                          <input
+                            type="checkbox"
+                            className="mt-1 h-4 w-4 rounded border-slate-300"
+                            checked={enabled}
+                            onChange={(event) => toggleGeneralChatModel(model.value, event.target.checked)}
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="flex flex-wrap items-center gap-2">
+                              <span className="text-sm font-medium text-foreground">{model.label}</span>
+                              <span className={free ? 'text-xs font-medium text-green-700' : 'text-xs font-medium text-amber-700'}>
+                                {free ? 'free' : 'paid'}
+                              </span>
+                            </span>
+                            <span className="mt-1 block break-all text-xs text-muted-foreground">{model.value}</span>
+                            <span className="mt-1 block text-xs text-muted-foreground">
+                              context: {model.context_window_tokens.toLocaleString('ru-RU')} · ${model.pricing_input_usd_per_million} in / ${model.pricing_output_usd_per_million} out за 1M
+                            </span>
+                          </span>
+                        </label>
+                      );
+                    })}
                   </div>
                 </div>
 
